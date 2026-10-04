@@ -1,0 +1,91 @@
+# NQ GEX + Order Flow Signal Bot
+
+A supervised ML bot for **NQ futures**. Every time price touches a key level during the NY session, it estimates **P(target before stop)**. It also picks the entry, structural stop and target, size and breakeven. It executes automatically through TradersPost on Tradovate (a demo account first, then the owner's prop accounts), supervised from a local Control Panel and a Discord phone remote.
+
+- **Full spec:** `docs/SPEC.md`. Section numbers (§) below point into it. Don't load the whole spec every time: read the sections for the current step (table below). The SPEC is the source of truth for definitions; this file is the source of truth for working rules. From step 6 on, the owner-approved `docs/feature_spec.md` holds the exact measurable definitions and parameter start values: it refines §5 and supplies the Skylit definitions §5.2 defers to it (node types, rug, pika, rolling, regime) (where it conflicts with a SPEC rule, add the conflict to §13). Always also read the current step's own paragraph in §12: it holds instructions and gate rules found nowhere else.
+- **Owner's trading knowledge:** `docs/owner_notes.md` and `docs/skylit/`. When the two disagree, owner notes win. If `owner_notes.md` and SPEC.md disagree, stop, add the conflict to §13 and ask the owner; until he answers, follow SPEC.md.
+
+## Status (update at the end of every session)
+- Current step: 1
+- Done: step 26's firm check (MyFundedFutures confirmed a TradersPost bot is allowed if supervised, 2026-10; re-read its rules before going live). Accounts: MFFU Rapid EOD 25k and Builder 25k only (§6.7); larger MFFU accounts later are entered on the Accounts page, no retraining.
+- Waiting on owner: the external SSD (owner's choice: nothing is pulled or written to `data/` until it arrives and `paths.root` is set; each trading day of waiting loses one October-2025 session of Skylit history for good). Before the SSD: steps 1, 2, the docs part of 3, step 4a (scaffold), step 5 (and the owner's step-6 review), and the code and mocked-API unit tests for steps 7, 8 and 9 (no pulls, nothing written to `data/`). On SSD day: step 4b (`paths.root`, marker file, window and ledger), then the step-7 pulls. If step 10 starts between about 2026-10-21 and 2026-10-31 (or after about 2026-11-13), the month-1 merge (§12 step 4b) applies; a later start moves the window later, and any archived gameplan that then falls in months 1–9 is held back until step 20 (§5.6). Ready (owner, 2026-10-03): the Skylit academy docs (text only, no screenshots), to be placed in `docs/skylit/` before step 5 starts (step 5 needs their node-type, rug, pika and rolling definitions), and the 28 archived gameplans (Google Drive folder "Jeron gameplans"), copied into `data/raw/gameplans/` once the SSD is set up (by step 9). From 2026-10-05 the owner saves each morning's gameplan (finished before 09:30, never edited after) to that folder (§3.4).
+- Last gate passed: —
+
+## Working rules (non-negotiable)
+1. **Order:** build in the order of §12. Never skip a ✅ GATE: stop at each one and show the owner the evidence. One exception: the history pulls (steps 7, 10, 8) **start** right after step 4b (SSD day) without waiting for steps 5–6 (which may already be done before the SSD, see Status), because Skylit history older than 365 days can't be pulled; steps 5–6, 8b and 9 run in parallel while step 10 is still pulling (§12 Phase C).
+2. **Money:** estimate and print the cost of every paid or credit-using pull. Ask before any purchase, any paid pull, or any Skylit pull over 5,000 credits; smaller credit pulls proceed after printing. Cache every pull and never re-pull. Exceptions: re-pulls are allowed only for the Tempest re-pull check (§5.2), today's Skylit boards on a live restart or after a stream gap (§9, §3.1), history pulls of days first received live (the evening checkpoint pull, cached for the top-ups; step-7 dark-pool late-print check, step-24 dark-pool comparison, step 27/29 top-ups), a step-7 sample day if `skylit_max_strikes` is raised and Databento intraday replay on restarts and reconnects (§9).
+3. **No lookahead:** a feature at time t uses only data ≤ t (§7 rule 1). Use purged walk-forward. Follow the month ledger in `settings.yaml` (§7 rule 2b): months 1–6 = development (the only months for hand-made fixes, sample days, plots, review cards and rule-changing reports; live months: review cards from step 24, fixes only after step 25); months 7–9 = walk-forward test months (automated scoring only; tuned on only after being scored); months 10–12 plus the step-18/20 top-up months = **sealed**, in no report until step 20, then scored once by the model that goes live.
+4. **One code path:** backtest and live run the same feature and decision code (§9). Replay tests prove it (step 23).
+5. **No magic numbers:** every trading, detector, execution and risk threshold is a named parameter in `config/` (§11 says which file). Fixed method constants the SPEC states as numbers (sample-size floors, bin counts, row minimums, UI timeouts) become named constants in code, each citing its §.
+6. **ML decides:** no hand-written "if X then trade" rules. Hard rules exist only for risk limits (§6.1, §10.3), the setup windows and early closes (§1.2), news blackouts (§9) and the owner's structural definitions (§1.1).
+7. **Unclear definition:** add it to the open questions (§13) and ask the owner. Don't guess.
+8. **Execution safety (§10.3):**
+   - Every entry carries its stop and target. Never a naked entry.
+   - Never auto-retry an entry.
+   - One trade per account at a time (an NQ leg and/or an MNQ leg, sent together; breakeven and exit go to every filled leg; a pending leg is removed with `exit` on its ticker — the bot never sends the `cancel` action; every `exit` carries the field `"cancel": true`). No new entry while a position is open or an entry is pending. After the trade's last leg ends, and after a time-to-live expiry with no leg filled, send `exit` to both tickers.
+   - Every entry leg has a unique `order_id` (`<event_id>-<entry style><n>-<account>-<leg>`, §5.4, §10.3); the same `order_id` is never sent twice.
+   - No new entry while any `exit` / `breakeven` for that account is still unacknowledged (an acknowledged one never blocks).
+   - At flat-by, `!flat` and kill, send `exit` to every account and ticker (once per distinct webhook URL) (this also removes pending entries; on a roll day also the previous contract's tickers), whatever the bot thinks its state is. An "unknown" account waits for the owner (`!resolve`); a "maybe filled" one also clears by itself once price trades through its bracket's stop or target and any resting entry has been removed with `exit`; an acknowledged `exit` on an uncertain leg makes it "flat-unconfirmed": worse case booked, still in the direction lock and no new entry on that account until `!confirm <account>` (§10.3 Account states). An `exit` sent while that leg's entry POST is unanswered is re-sent once the reply arrives. `!resolve <account> flat` first sends `exit` to both tickers; `position` sends it to the tickers not listed.
+   - `exit` / `breakeven` may retry with backoff; any `exit` still unacknowledged when its retries end marks the account "unknown".
+   - Feed, Skylit, clock or SSD failure: no new entries, pending entries removed, brackets stay at the broker; protective signals keep going (§9). Bridge/webhook failure: no new entries, brackets stay at the broker (§10.3).
+   - Never send `reverse`. Only one engine and one guard may run (exclusive lock files).
+   - Direction lock: every account's positions and pending entries point the same way (`demo: true` accounts are outside the lock); an opposite entry is skipped (never queued) while any account holds, has pending, or may hold (unknown / maybe filled / flat-unconfirmed / carried, or a TradeSyncer leader whose followers aren't confirmed flat) the other direction (MFFU bans hedging across accounts; §10.3).
+   - News flatten: entries blocked and `exit` sent to every account and ticker `blackout_before_min` (30) min + `news_flatten_lead_sec` (30 s) before each release on the owner's high-impact list, so nothing is open or resting from 30 minutes before; no new entry until `blackout_after_min` (60) minutes after (§9). The guard always sends it too, `guard_flat_grace_sec` later. Labels and simulators close trades when that exit takes effect.
+   - Every order, `exit` and `breakeven` reaches the broker `order_latency_sec` after the decision, in labels and simulators too (§5.5b).
+9. **Secrets and privacy:** secrets live only in `.env`. Never commit `.env`, `data/` or `models/`. Personal use only: data and alerts are never shared.
+10. **Scope:** NQ only, no GC. Don't propose anything listed in §10.2.
+11. **Code:** small modules with tests. Every detector has a unit test with a hand-built example. A review card where the owner says a detector got it wrong becomes a regression test.
+12. **Changes:** when the owner approves a change, update `docs/SPEC.md` in the same session. If features change, bump the features version and rebuild events (§5.0).
+13. **Machine (§11):** everything runs on the owner's 16 GB laptop; his home PC is an optional training machine for long jobs when he is home (code via a private GitHub repo, data on the SSD, same lock file, per-machine resources only in uncommitted `config/local.yaml`; never live trading). **All** project data (`data/`, `models/`, `reports/`, logs, temp files, the live folder) lives on his 1 TB external SSD under `paths.root`; nothing large goes on the laptop's internal drive. Every long job goes through `nqbot run --until`, in low-memory mode, in resumable chunks, and checks the SSD is mounted. From step 22, no `nqbot run` job runs 08:30–16:15 ET on trading days (only the pre-open job, restart rebuilds and live trading).
+
+## What to read for each step
+| Step(s) | Read in SPEC |
+|---|---|
+| 1–4 setup, scaffold | §1.2 (flat-by, holidays and early closes), §5.2 (Flags: calendar features), §11 (incl. One machine, Overnight jobs, Storage, Where settings live), §12 Phase A and Phase C (timing), §7 rule 2b (month ledger), §9 (News blackouts, calendar) |
+| 5–6 feature spec | §1.1, §1.2, §3.1, §3.2 (warm-up lookbacks), §4, all of §5, §7.1 (all), §7.2, §6.1, §6.2, §6.3, §6.4, §6.5b, §6.6, §7 rules 1–2 and 5, §12 steps 5–6, §9 (News blackouts), §9c, §10.3, §11 (Where settings live), §12 step 7, §9 (Supervision, Clock), §9b, §13, `docs/skylit/`, `docs/owner_notes.md` |
+| 7 Skylit client (right after step 4b, SSD day) | §1.2 (RTH-only pulls), §5.2 (Node identity: `node_drop_pct`), §3.1 (incl. Endpoints, Credits, Ingest, Dark pools), §11 (Storage), §5.1 (Atlas match), §5.2 (Node types, Daily vol context), §7 rule 2b (exceptions), §12 Phase C, §13 |
+| 8 Databento history, rolls | §1.2 (holidays and early closes: warm-up session count), §3.2 (incl. the early-close `mbp-1` window), §3.3, §5.1 (Same contract), §7 rule 2b (ledger), §12 step 4b (window), §11 (Storage, Overnight jobs), §12 Phase C |
+| 8b mapping precision gate | §5.1, §5.2 (25%-of-King relevance), §3.1 (Ingest: 1-minute boards) |
+| 9 gameplan parser | §3.4, §5.6, §9b (Gameplan), §7 rule 2b |
+| 10 backfill (right after step 7, oldest day first) | §12 step 4b (month-1 merge, ledger rewrite when step 10 starts), §1.2, §3.1 (Backfill, Ingest, Dark pools, Tempest), §3.2 (warm-up), §7 rule 2b, §11 (Storage, Overnight jobs), §13 (backup) |
+| 11 features | `docs/feature_spec.md`, §5.5 (settled bar), §7.1 (Structure label: held/broke, shared with step 13), §1.2, §9 (News blackouts: `minutes_to_horizon_end`), §3.1 (Ingest, Strikes, Dark pools, Tempest), §3.2 (front month, bars), §7.1 (Day type), §5.1–§5.4b (incl. VAH/VAL, LVNs, single prints, daily vol context), §5.6, §5.8, §7 rule 1, §11 (Low memory, Storage, Expected run time) |
+| 12 visual check | `docs/feature_spec.md`, §5.1 (Atlas match), §5.2 (Node types), §5.3, §5.4b, §5.8 (fib orientation), §7 rule 2b |
+| 13 events + labels | `docs/feature_spec.md`, §7.1 (Structure label), §7 rule 3b (tuning trades run through the sequential rule), §1.2, §3.1 (Ingest), §3.2 (`mbp-1`), §7 rule 2b, §5.2–§5.5b, §5.6, §5.8, §6.1, §6.2–§6.6, §7 rule 1, §7.1 (dataset, Tuning detector parameters), §9 (News blackouts), §11 (Low memory, Overnight jobs) |
+| 14 Control Panel + review | `docs/design/ui_reference.png` and `ui_reference_2.png` (look and feel, §9b), §10.1 (several accounts), §3.4, §5.6, §9b, §8, §6.1–§6.3, §6.5b, §6.7, §6.8, §7 rule 2b |
+| 15–16 models, backtest, prop simulator, gate | `docs/feature_spec.md`, §10.3 (direction lock), §1.2, §3.5 (Fills), §5.4 (Overlapping events), §5.5b, §4, §5.4b, §5.6, §6, §7, §9 (News blackouts), §11 (Low memory, Overnight jobs, Storage, Expected run time), §12 step 16 (gate numbers) |
+| 17–20 order flow, top-up, full re-run | `docs/feature_spec.md`, §10.3 (direction lock), §3.4 (new gameplans at top-ups), §9 (calendar), §1.1, §3.1, §3.2, §5.0, §5.3 (VAH/VAL), §5.4 (Area events), §5.6 (gameplan check), §5.5–§5.5b, §5.7, §6.2 (stop 5), §6.3–§6.8, §7 rules 1–5, §7.1, §7.2, §11 (Storage, Low memory, Overnight jobs, Expected run time), §12 steps 16 and 18 |
+| 21–25 live auto-execution on demo | `docs/feature_spec.md`, §8, §7 rules 2, 2b and 3b, §12 step 16, §1.2, §3.1 (Endpoints `/v1/stream`, Credits, Expirations, Strikes, Ingest, Dark pools), §3.2, §3.5, §5.1, §5.2 (Daily vol context), §5.4, §5.5b, §5.7, §6.1, §6.2, §6.3, §6.4, §6.6, §7.1 (Which entry style trades), §6.5b, §6.7, §6.8, §9, §9b, §9c, §10, §11 (One machine, Overnight jobs, Storage), §12 steps 24–25 |
+| 26–28 prop accounts | §3.1, §3.2, §3.5, §6.1, §9, §6.7, §6.8, §7 rules 2 and 2b, §7.1 (Retraining), §10, §12 steps 16, 18, 21, 24 and 25 |
+| 29 ongoing | §3.1, §3.2, §5.6, §7 rule 2, §8, §12 steps 18 and 27, §7 rule 2b, §7.1 (Retraining), §7.2, §6.4, §9 (calendar), §11 (Overnight jobs, Storage) |
+
+## Commands
+Fill these in as they are built:
+- Tests: `pytest`
+- Control Panel: `nqbot ui`
+- Today's gameplan: `nqbot gameplan <file>`
+- Long jobs (overnight, resumable): `nqbot run <job> --until 07:30`; progress: `nqbot status` (§11)
+- Live trading: `nqbot live` (starts the engine and the guard, runs the pre-open job if needed, §9)
+- Re-run an account's threshold sweep: `nqbot run sweep --account <account>` (§6.8)
+- Pre-open job: `nqbot preopen` (Task Scheduler, 08:30) · register scheduled tasks: `nqbot setup-tasks` · guard: `nqbot guard` (started by `nqbot live`) (§9)
+
+## Glossary
+- **Event:** one touch of a zone (price enters zone ± `zone_proximity`, re-armed after it leaves), or an **area event**: an order-flow trigger inside a VAH/VAL area with no level nearby (from step 19, §5.4). One row in `events.parquet`; its pairs (entry style × firing × stop × target) are rows in `pairs.parquet`, one per order type; only the frozen order type per style trains the scorer (§7.1).
+- **Zone:** one or more registry levels merged into a band (§5.4). It moves with every map update; its `zone_id` just lets the bot recognise the same level after it moves. Invalidation is per member: a crossed member drops out and the zone carries on with the rest (§5.4).
+- **Band:** every level is a price band, not a line. Node bands are converted from the option underlying with R (§5.1, §5.4b).
+- **R (mapping):** futures price ÷ underlying price, used to put strikes on the NQ/ES chart (§5.1).
+- **R (risk):** 1R = the dollars risked on a trade. Results are measured in R.
+- **Crossed / flipped:** crossed = setup invalid. GEX nodes: price trades past the band. Chart levels (VWAP and bands, POC, LVNs, single prints, dark pools): a settled 1-minute candle beyond the band (single prints against the band frozen at the touch; they also end when filled). Highs/lows: only after the sweep window passes without a reclaim, or at once if price goes more than `sweep_max_depth` past. A 5-minute bar settling beyond the band = flipped, so the level takes the opposite role (§5.2). This applies to IB high/low too (§5.3).
+- **Sweep:** at a high/low level only (PDH/PDL, ON, IB, prior week…), price trades a little past the level and closes back inside within a few bars. It counts as a hold, not a break (§5.3).
+- **Freshness:** each test that a level survives makes the next hold less likely (§5.4).
+- **VAH/VAL (premium/discount):** the VAH zone runs from the VAH line to the profile high, the VAL zone from the VAL line to the profile low. Context and order-flow areas, not levels: shorts get more power in VAH, longs in VAL (§5.3).
+- **Dark-pool levels:** the top 3 QQQ prints by notional over the last 45 days, mapped onto NQ; full levels (§3.1).
+- **Golden zone:** 0.5–0.786 fib of the NY opening range, drawn by the owner's orientation rule (§5.8). A 1-minute candle settling past 0.786 invalidates the current setup; later returns are new events.
+- **Trinity:** SPY, SPX and the Nasdaq side (QQQ or NDXP) each have a relevant node in the same role whose band contains its own instrument's price ± proximity at time t; no outcome is used (§5.2).
+- **Pair scorer:** the final model. It scores every pair of an event — entry style (and firing) × stop × target, with the frozen order type for that style (§6.3, §7.1).
+- **Entry styles (a)–(d):** (a) absorption, (b) another order-flow trigger, (c) audit or sweep reclaim at the zone edge, (d) plain at the touch (§5.5).
+- **Trigger model:** scores order-flow trigger rows (one per detector firing) inside zones and VAH/VAL areas (§5.7, §7.1).
+- **Touch group:** events created by the same touch; weighted as one in training and traded at most once (§5.4).
+- **order_id:** `<event_id>-<entry style><n>-<account>-<leg>` (n = firing number), unique per order sent (§10.3).
+- **Lives:** full losses left before the account's drawdown is hit (§6.5b).
+- **Sealed months:** the last 3 months of the window plus the step-18/20 top-up months, scored once at step 20 as the final honest test (§7 rule 2b).
+- **Month ledger:** development months 1–6, walk-forward test months 7–9, sealed months 10–12 (+ top-up), written into `settings.yaml` on the day the SSD is set up, just before step 7 (§7 rule 2b).
