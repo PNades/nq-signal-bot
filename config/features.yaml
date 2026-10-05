@@ -113,6 +113,7 @@ trig_window_sec: 120            # a label parameter, fixed
 # --- Day type (§7.1) -------------------------------------------------------------------------------
 daytype_snapshot_min: 15
 daytype_max_features: 8
+daytype_inputs: null            # step 5 part 2 (NEW; <= daytype_max_features names, F15)
 trend_close_pct: 0.20
 trend_max_vwap_crosses: 2
 trend_max_poc_crosses: 2
