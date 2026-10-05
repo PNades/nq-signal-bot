@@ -39,3 +39,48 @@ def test_local_yaml_refuses_result_changing_keys(tmp_path):
 
 def test_local_example_has_only_allowed_keys():
     assert set(load_yaml(CONFIG_DIR / "local.example.yaml")) == {"max_workers", "max_fold_mem_gb", "low_memory"}
+
+
+def test_step6_approved_values_set():
+    """Step 6 (2026-10-05): F15 start values and F16 grids are in config, each grid holds its start value."""
+    s, f = load_settings(), load_features()
+    assert f["zone_proximity"] == 5 and f["confluence_tol"] == 10 and f["lean_window"] == 1
+    assert "roll_window_min" not in f
+    assert len(f["daytype_inputs"]) <= f["daytype_max_features"]
+    g = s["threshold_grid"]
+    assert len(g["min_ev_r"]) <= 5 and len(g["min_target_prob"]) <= 5
+    assert s["tuning_start"]["min_ev_r"] in g["min_ev_r"]
+    assert s["tuning_start"]["min_target_prob"] in g["min_target_prob"]
+    assert len(s["be_trigger"]) <= 4 and len(s["style_set_grid"]) <= 6
+    assert s["recency_halflife_months"]["start"] in s["recency_halflife_months"]["grid"]
+    assert len(s["ablation_groups"]) == 7
+    for grids in (f["tune_grids_13"]["detectors"], f["tune_grids_19"]["detectors_a"], f["tune_grids_19"]["detectors_b"]):
+        for key, values in grids.items():
+            if key != "flip_margin":
+                assert f[key] in values, key
+    assert s["stop_buffer"] in f["tune_grids_13"]["execution"]["stop_buffer"]
+    ex13, ex19 = f["tune_grids_13"]["execution"], f["tune_grids_19"]["execution"]
+    for style in ("c", "d"):
+        assert s["entry_ttl_sec"][style] in ex13["entry_ttl_sec"]
+        assert s["entry_order_type"][style] in ex13["entry_order_type"]
+    for style in ("a", "b"):
+        assert s["entry_ttl_sec"][style] in ex19["entry_ttl_sec"]
+        assert s["entry_order_type"][style] in ex19["entry_order_type"][style]
+    assert f["abs_stop_buffer"] in ex19["abs_stop_buffer"]
+    assert f["abs_stop_window_sec"] in ex19["abs_stop_window_sec"]
+
+
+def test_flip_margin_and_width_keys_agree():
+    f = load_features()
+    groups = f["tune_grids_13"]["detectors"]["flip_margin"]["groups"]
+    grouped = [t for members in groups.values() for t in members]
+    assert sorted(grouped) == sorted(f["flip_margin"]) and len(grouped) == len(set(grouped))
+    assert set(f["chart_level_half_width"]) == set(f["chart_level_half_width_cap"])
+    assert set(f["chart_level_half_width"]) <= set(f["flip_margin"])
+    assert all(v in f["tune_grids_13"]["detectors"]["flip_margin"]["values"] for v in f["flip_margin"].values())
+
+
+def test_q39_calendar_rows_present():
+    from nqbot import calendar
+    rows = [(str(e["date"]), e["time_et"]) for e in calendar.load()["events"] if e["name"] == "Fed Chair"]
+    assert ("2026-04-21", "10:00") in rows and ("2026-05-13", "14:40") in rows

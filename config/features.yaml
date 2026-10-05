@@ -1,25 +1,30 @@
 # Detector, mapping and structure parameters (SPEC §11 "Where settings live", §5).
-# Values are the SPEC's start values. `null  # step 5` = no SPEC value yet: proposed in docs/feature_spec.md
-# at step 5, approved at step 6. Frozen execution parameters are added here at step 13/19,
+# Values are the SPEC's start values and the docs/feature_spec.md F15 start values the owner approved at
+# step 6 (2026-10-05); the step-13/19 grids are tune_grids_13 / tune_grids_19 (F16). Frozen execution parameters are added here at step 13/19,
 # marked `frozen_from: months 1-4` (§7.1).
 features_version: 0
 
 # --- Structure (§5.2-§5.4b) -----------------------------------------------------------------------
-zone_proximity: null            # step 5 (NQ pts)
-es_zone_proximity: null         # default = zone_proximity x ES / NQ price at the session open
-confluence_tol: null            # step 5
+zone_proximity: 5                 # NQ pts; tuned at step 13 (F16.4); approved 2026-10-05 (feature_spec F15)
+es_zone_proximity: null         # derived, not set: zone_proximity x ES / NQ price at the session open (F0.11)
+confluence_tol: 10                # NQ pts; tuned at step 13 (F16.4); approved 2026-10-05 (feature_spec F15)
 max_zone_width: 60              # NQ pts
 rearm_dist: 10                  # NQ pts
 entry_reprice_tol: 2            # NQ pts
-chart_level_half_width: null    # per level type; frozen at step 13 from the reaction-distance report
-chart_level_half_width_cap: null
+# Chart-level half-widths per level type (NQ pts; F5.14, F15 rows 3-4, approved 2026-10-05): start values for steps 11-12,
+# replaced at step 13 by the reaction-distance report (frozen on months 1-4), never above the cap.
+chart_level_half_width: {vwap: 4, vwap_band: 4, poc: 4, lvn: 4, on_extreme: 4, pdh_pdl: 4, prior_rth: 4, prior_week: 4, ib: 4, retested_extreme: 4, single_print: 0}
+chart_level_half_width_cap: {vwap: 12, vwap_band: 12, poc: 12, lvn: 12, on_extreme: 12, pdh_pdl: 12, prior_rth: 12, prior_week: 12, ib: 12, retested_extreme: 12, single_print: 6}
 node_band: {QQQ: 0.5, SPY: 0.5, SPX: 5, NDXP: 20}   # in each underlying's own units; NDXP confirmed at step 13
 min_node_pct_of_king: 0.25      # owner
 node_drop_pct: 0.20
-lean_window: null               # step 5 (minutes)
+lean_window: 1                  # minutes; owner 2026-10-05 (accumulation shifts quickly); fixed
 velocity_lookback_sec: 60
-regime_band: null               # step 5 (% of spot)
-flip_margin: 0                  # per level type, tuned at step 13 on months 1-4
+regime_band: 1                  # % of spot; owner 2026-10-05; fixed
+flip_margin: {qqq_node: 0, ndxp_node: 0, vwap: 0, vwap_band: 0, poc: 0, lvn: 0, single_print: 0, dark_pool: 0, on_extreme: 0, pdh_pdl: 0, prior_rth: 0, prior_week: 0, ib: 0, retested_extreme: 0}
+                                # NQ pts per level type (start 0); tuned at step 13 per group (tune_grids_13), written per type;
+                                # ES-side types use their NQ counterpart x ES/NQ at the open (F0.11): SPY/SPX nodes = gex_nodes group,
+                                # SPY dark pools = chart_lines, ES ON high/low and PDH/PDL = highs_lows
 flip_bar_minutes: 5
 ib_fib_start_minute: 20         # owner rule, never tuned (golden zone opens 09:50)
 ib_lock_minute: 30              # owner rule, never tuned (all setups from 10:00)
@@ -32,7 +37,8 @@ rotation_min_pts: 0.25          # x ATR
 rv_lookback_sessions: 20
 
 # --- Volume profile (§5.3) ------------------------------------------------------------------------
-lvn_smooth_ticks: 8
+lvn_smooth_ticks: 8                 # Gaussian sigma = lvn_smooth_ticks / 2 (owner 2026-10-05, FQ-10)
+lvn_gauss_trunc_sigma: 3            # kernel truncated at +/- this many sigma; owner 2026-10-05 (SPEC §13 Q42)
 lvn_max_pct: 0.3
 lvn_merge_pts: 5
 profile_update_sec: 60
@@ -49,19 +55,18 @@ dp_lag_sessions: 1              # step 7 late-print check may raise it
 tempest_lag_sessions: 1         # step 7 decides (if in doubt, 2)
 
 # --- Skylit structure (§5.2) ------------------------------------------------------------------------
-roll_window_min: null           # step 5
 ib_avg_sessions: 20
 rug_gap_strikes: 1              # owner 2026-10-05: negative node at most 1 strike step from the positive one
 pika_cloud_min_nodes: 2         # owner 2026-10-05
 pika_cloud_min_pct: 0.10        # owner 2026-10-05: members >= 10% of King, adjacent strikes
 air_pocket_max_pct: 0.02        # owner 2026-10-05: air pockets = runs of small nodes (< 2% of King) price travels through easily
-magnet_min_dist_em: null        # step 5 part 2 (NEW, expected moves)
-node_switch_min_sec: null       # step 5 part 2 (NEW; King and ceiling/floor switches)
-rainbow_min_nodes_per_sign: null  # step 5 part 2 (NEW)
-rainbow_max_dominance: null     # step 5 part 2 (NEW)
-bias_deadband: null             # step 5 part 2 (NEW, velocity-lean units)
-smt_lookback_min: null          # step 5 part 2 (NEW, NQ/ES divergence)
-rel_delta_sec: null             # step 5 part 2 (NEW, NQ vs ES relative delta)
+magnet_min_dist_em: 0.1           # expected moves; fixed; approved 2026-10-05 (feature_spec F15)
+node_switch_min_sec: 60           # King and ceiling/floor switches; fixed; approved 2026-10-05 (feature_spec F15)
+rainbow_min_nodes_per_sign: 2   # owner 2026-10-05; fixed
+rainbow_max_dominance: 1.5      # owner 2026-10-05; fixed
+bias_deadband: 0.05               # velocity-lean units; fixed; step 12 checks it against the 1-min lean; approved 2026-10-05 (feature_spec F15)
+smt_lookback_min: 15              # NQ/ES divergence; fixed; approved 2026-10-05 (feature_spec F15)
+rel_delta_sec: 60                 # NQ vs ES relative delta; fixed; approved 2026-10-05 (feature_spec F15)
 
 # --- Mapping (§5.1) ---------------------------------------------------------------------------------
 mapping:
@@ -72,26 +77,26 @@ mapping:
   atlas_match_tol: {NQ: 1.0, ES: 0.5}
 
 # --- Entries and order flow (§5.7) ---------------------------------------------------------------
-abs_volume: null                # step 5
-abs_ticks: null                 # step 5
-abs_seconds: null               # step 5
-abs_refills: null               # step 5
-abs_push_ticks: null            # step 5
+abs_volume: 300                   # contracts; tuned at step 19 (F16.5); approved 2026-10-05 (feature_spec F15)
+abs_ticks: 8                      # tuned at step 19; approved 2026-10-05 (feature_spec F15)
+abs_seconds: 30                   # tuned at step 19; approved 2026-10-05 (feature_spec F15)
+abs_refills: 3                    # tuned at step 19; approved 2026-10-05 (feature_spec F15)
+abs_push_ticks: 4                 # tuned at step 19 (grid includes 0); approved 2026-10-05 (feature_spec F15)
 abs_stop_buffer: 5              # owner: about 5 NQ pts; frozen at step 19
 abs_stop_window_sec: 120
 big_trade_agg_ms: 50
 big_trade_min_contracts: null   # start: 99th percentile of combined trade size (measured)
 big_trade_lookback_sessions: 20
-imb_ratio: null                 # step 5
-imb_min_volume: null            # step 5 part 2 (NEW)
-imb_stack_min: null             # step 5 part 2 (NEW, FQ-17)
-cvd_slope_sec: null             # step 5 part 2 (NEW)
-tob_window_sec: null            # step 5 part 2 (NEW, refills/pulls)
-imb_window_sec: null            # step 5 part 2 (NEW; rolling footprint window)
-exh_lookback_sec: null          # step 5
-exh_decay_ratio: null           # step 5
-div_lookback_sec: null          # step 5
-div_min_pts: null               # step 5
+imb_ratio: 3.0                    # tuned at step 19; approved 2026-10-05 (feature_spec F15)
+imb_min_volume: 20                # contracts; tuned at step 19; approved 2026-10-05 (feature_spec F15)
+imb_stack_min: 3                  # tuned at step 19 (grid includes 1); approved 2026-10-05 (feature_spec F15)
+cvd_slope_sec: 30                 # fixed; approved 2026-10-05 (feature_spec F15)
+tob_window_sec: 30                # refills/pulls window; fixed; approved 2026-10-05 (feature_spec F15)
+imb_window_sec: 60                # rolling footprint window; tuned at step 19; approved 2026-10-05 (feature_spec F15)
+exh_lookback_sec: 15              # tuned at step 19; approved 2026-10-05 (feature_spec F15)
+exh_decay_ratio: 0.5              # tuned at step 19; approved 2026-10-05 (feature_spec F15)
+div_lookback_sec: 60              # tuned at step 19; approved 2026-10-05 (feature_spec F15)
+div_min_pts: 2                    # NQ pts; tuned at step 19; approved 2026-10-05 (feature_spec F15)
 trig_min_gap_sec: 5
 area_rearm_sec: 300
 
@@ -101,19 +106,68 @@ max_stop_pts: null              # owner: no stop guardrails
 stop_merge_ticks: 2
 
 # --- Labels (§4, §7.1) ----------------------------------------------------------------------------
-hold_reaction_pts: null         # step 5
-react_pts: null                 # step 5
-react_minutes: null             # step 5
-react_width_q: null             # step 5
-hold_window_min: null           # step 5
-trig_fav_ticks: null            # step 5
-trig_adv_ticks: null            # step 5
+hold_reaction_pts: 20             # NQ pts; label, never tuned; approved 2026-10-05 (feature_spec F15)
+react_pts: 10                     # NQ pts; label; approved 2026-10-05 (feature_spec F15)
+react_minutes: 5                  # label; approved 2026-10-05 (feature_spec F15)
+react_width_q: 0.8                # label; approved 2026-10-05 (feature_spec F15)
+hold_window_min: 30               # label; approved 2026-10-05 (feature_spec F15)
+trig_fav_ticks: 20                # label; approved 2026-10-05 (feature_spec F15)
+trig_adv_ticks: 12                # label; approved 2026-10-05 (feature_spec F15)
 trig_window_sec: 120            # a label parameter, fixed
 
 # --- Day type (§7.1) -------------------------------------------------------------------------------
 daytype_snapshot_min: 15
 daytype_max_features: 8
-daytype_inputs: null            # step 5 part 2 (NEW; <= daytype_max_features names, F15)
+daytype_inputs:                 # <= daytype_max_features (F3.10, F15 row 45); approved 2026-10-05
+  - minutes_since_open
+  - ib_width_ratio
+  - vwap_crosses
+  - vwap_side_share
+  - new_extreme_skew
+  - range_vs_em
+  - regime_net_ndxp
+  - rv_iv_ratio
 trend_close_pct: 0.20
 trend_max_vwap_crosses: 2
 trend_max_poc_crosses: 2
+
+# --- Pre-declared tuning grids (docs/feature_spec.md F16.4-F16.5; approved 2026-10-05) --------------
+# Searched on months 1-4 in one coordinate pass in the order listed (each grid holds its start value);
+# order type x time-to-live is a full joint grid per style. Winners are written above, frozen_from: months 1-4.
+tune_grids_13:
+  detectors:                      # scored on all events (sweep_reclaim_bars: style (c) trades only)
+    zone_proximity: [2, 5, 8, 12]
+    confluence_tol: [5, 10, 15, 20]
+    sweep_max_depth: [10, 15, 25, 40]
+    sweep_reclaim_bars: [1, 2, 3, 5]
+    flip_margin:                  # one value per group, written to each of its level types
+      groups:
+        gex_nodes: [qqq_node, ndxp_node]
+        chart_lines: [vwap, vwap_band, poc, lvn, single_print, dark_pool]
+        highs_lows: [on_extreme, pdh_pdl, prior_rth, prior_week, ib, retested_extreme]
+      values: [0, 2, 5]
+  execution:                      # styles (c) and (d), each on its own single-style policy
+    entry_order_type: [limit, marketable_limit, stop_limit]
+    entry_ttl_sec: [10, 30, 60, 120, 300]
+    stop_buffer: [1, 2.5, 5, 8, 12]   # pooled (c)+(d) trades; values below the step-8b floor dropped
+tune_grids_19:
+  detectors_a:                    # absorption, scored on style (a) trades
+    abs_volume: [150, 300, 600]
+    abs_ticks: [4, 8, 12]
+    abs_seconds: [15, 30, 60]
+    abs_refills: [1, 3, 5]
+    abs_push_ticks: [0, 4, 8]
+  detectors_b:                    # scored on style (b) trades
+    imb_ratio: [2.5, 3.0, 4.0]
+    imb_window_sec: [30, 60, 120]
+    imb_min_volume: [10, 20, 40]
+    imb_stack_min: [1, 2, 3, 4]
+    exh_lookback_sec: [10, 15, 30]
+    exh_decay_ratio: [0.35, 0.5, 0.7]
+    div_lookback_sec: [30, 60, 120]
+    div_min_pts: [1, 2, 4]
+  execution:
+    entry_order_type: {a: [marketable_limit, stop_limit], b: [marketable_limit, stop_limit, limit]}
+    entry_ttl_sec: [2, 5, 10, 30]
+    abs_stop_buffer: [2, 3.5, 5, 8]      # every style's trades with stop candidate 5
+    abs_stop_window_sec: [60, 120, 300]

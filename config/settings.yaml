@@ -1,5 +1,5 @@
 # Global trading / execution settings (SPEC §11 "Where settings live").
-# Values are the SPEC's start values. `null  # step 5` = no SPEC value yet: proposed at step 5, approved at step 6.
+# Values are the SPEC's start values and the docs/feature_spec.md F15/F16 values the owner approved at step 6 (2026-10-05).
 # Machine resources (max_workers, max_fold_mem_gb, low_memory) may be overridden per machine in config/local.yaml.
 
 # --- Storage (§11 Storage, path convention) -------------------------------------------------
@@ -50,8 +50,8 @@ flat_retry_min: 11
 flat_alert_sec: 30
 unknown_alert_min: 5
 webhook_timeout_sec: 5
-entry_ttl_sec: {a: null, b: null, c: null, d: null}   # per entry style; step 5 start values, frozen on months 1-4 (step 13/19)
-stop_buffer: null            # step 5 (start value; floor = step-8b 95th percentile; frozen at step 13)
+entry_ttl_sec: {a: 5, b: 5, c: 60, d: 60}   # per entry style; start values approved 2026-10-05, frozen on months 1-4 (step 13/19)
+stop_buffer: 5                    # NQ pts start; floor = step-8b 95th percentile; frozen at step 13 (F16.4); approved 2026-10-05 (feature_spec F15)
 entry_order_type:            # start values per entry style (§5.5b); frozen on months 1-4
   a: marketable_limit
   b: marketable_limit
@@ -63,20 +63,24 @@ max_target_candidates: 10
 pair_build_min_rr: 0.8
 swing_lookback_sec: 300
 lives_dust_usd: 25
-be_trigger: null             # step 5: the be_trigger_* breakeven rules (<= 4, approved at step 6)
-be_offset_ticks: null        # step 5
+be_trigger:                  # the breakeven rules chosen per fold (<= 4, §6.4; feature_spec F16.2; approved 2026-10-05)
+  - none
+  - first_structure            # owner's rule (F11.3)
+  - {r_multiple: 1.0}          # first trade >= 1.0 x the stop distance in favour
+  - {r_multiple: 0.5}
+be_offset_ticks: 1                # fixed; re-checked once step 13 measures exit_slippage_ticks; approved 2026-10-05 (feature_spec F15)
 
 # --- Supervision and live engine (§9) ----------------------------------------------------------
 guard_check_sec: 10
 guard_flat_grace_sec: 30
 max_engine_restarts: 3
-guard_port: null             # step 5 (localhost ports)
-engine_port: null            # step 5
-ui_port: null                # step 5
+guard_port: 8731                  # approved 2026-10-05 (feature_spec F15)
+engine_port: 8732                 # approved 2026-10-05 (feature_spec F15)
+ui_port: 8733                     # approved 2026-10-05 (feature_spec F15)
 sleep_detect_sec: 30
 clock_max_offset_ms: 250
 clock_check_min: 10
-ntp_server: null             # step 5; step 22 confirms it answers on each network
+ntp_server: "time.cloudflare.com"  # step 22 confirms it answers on each network; approved 2026-10-05 (feature_spec F15)
 feed_stale_sec: 5
 feed_lag_max_ms: 500
 feed_recovery_sec: 60
@@ -98,7 +102,7 @@ calendar_poll_min: 15
 # (e.g. "2026-10-05T10:00:00-04:00"); covers the current week only, Sunday to Saturday.
 # The XML twin uses GMT times: not used.
 calendar_feed_url: "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
-# PROPOSED at step 4a, owner approves at step 6.
+# Proposed at step 4a; approved by the owner at step 6 (2026-10-05).
 # Canonical calendar.yaml name -> ForexFactory titles (country USD), matched by exact title.
 # These are the owner's list: blackout: true whatever ForexFactory rates them.
 # Any OTHER US event ForexFactory rates High in the feed at the 08:30 pre-open gets a live-only
@@ -113,7 +117,7 @@ news_title_map:
     # Every scheduled Chair testimony and speech, whatever its rating. ForexFactory titles use the Chair's
     # name ("Fed Chairman Warsh ..." since 2026-05-22; it renamed Powell's past Chair speeches to
     # "FOMC Member Powell Speaks"). Update when the Chair changes.
-    Fed Chair: ["Fed Chairman Warsh Speaks", "Fed Chairman Warsh Testifies"]
+    Fed Chair: ["Fed Chairman Warsh Speaks", "Fed Chairman Warsh Testifies", "Fed Chair Nomination Vote"]   # incl. a nominee's hearing and the confirmation vote (owner 2026-10-05, §9)
     CPI: ["CPI m/m", "CPI y/y"]
     Core PCE: ["Core PCE Price Index m/m"]
     PPI: ["PPI m/m"]
@@ -140,12 +144,40 @@ gameplan_min_days: 20
 tuning_start:
   min_ev_r: 0.20
   min_target_prob: 0.40
-threshold_grid: null         # step 5: <= 5 x 5 values of min_ev_r x min_target_prob
+threshold_grid:              # 5 x 5 (§6.5b; feature_spec F16.1; approved 2026-10-05)
+  min_ev_r: [0.05, 0.10, 0.20, 0.30, 0.45]
+  min_target_prob: [0.30, 0.40, 0.45, 0.50, 0.60]
 last_life_grid: [0.10, 0.20, 0.33]           # fixed, owner
 profile_ev_quantiles: {conservative: 0.67, protect: 0.90}   # fixed
 profile_risk_multiplier: {aggressive: 1.0, normal: 1.0, conservative: 0.5, protect: 0.33}
-style_set_grid: null         # step 5: <= 6 sets, approved at step 6
-recency_halflife_months: null    # step 5 (grid); tuned per scorer
+style_set_grid: [[a, b, c, d], [a, b, c], [a, b], [c, d], [c], [d]]   # F16.3; approved 2026-10-05
+recency_halflife_months:     # weights the pair scorer's rows; searched once per scorer (F16.6; approved 2026-10-05)
+  start: 6                     # code reads recency_halflife_months.start / .grid
+  grid: [3, 6, 12, null]       # null = no recency weighting
+lgbm_grid:                     # F16.7; approved 2026-10-05; searched once per model by day-blocked CV log-loss
+  cv_folds: 3
+  search:
+    num_leaves: [7, 15, 31]
+    min_data_in_leaf: [100, 500]     # unweighted rows
+  fixed:
+    learning_rate: 0.03
+    num_boost_round_max: 2000
+    early_stopping_rounds: 50       # on the held-out CV fold; the final fit uses the mean best round count
+    feature_fraction: 0.7
+    bagging_fraction: 0.8
+    bagging_freq: 1
+    lambda_l2: 10
+    max_bin: 63
+    deterministic: true
+    seed: 42
+ablation_groups:               # §7 rule 5; memberships in feature_spec F16.8; approved 2026-10-05
+  - trigger_model
+  - trinity
+  - confluence
+  - day_type
+  - area_events
+  - stop_candidate_5
+  - map_shape
 bootstrap_paths: 500
 default_max_three_loss_rate: 0.15
 gate_account:                # §6.5b: account-independent choices and gates 16/20

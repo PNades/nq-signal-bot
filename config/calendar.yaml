@@ -11,6 +11,7 @@ meta:
   window_from: 2025-08-04
   window_to: 2027-12-31
   timezone: America/New_York
+  confirmed: '2026-10-05 by the owner at step 6 (SPEC §13 Q34-Q39 as recommended; Q37 no missing Fed Chair date)'
   rule: 'Past releases as scheduled at 08:30 ET on the day: a postponement or cancellation counts only if announced before then (schedule_changes lists each with its announcement date). Future dates as currently published. Owner confirms at step 6; refreshed monthly.'
   published_through: {Advance GDP: 2026-10-29, CPI: 2026-12-10, Core PCE: 2026-12-23, FOMC Minutes: 2027-12-29, FOMC Press Conference: 2027-12-08, FOMC Rate Decision: 2027-12-08, FOMC Statement: 2027-12-08, Fed Chair: 2026-08-28, ISM Manufacturing PMI: 2026-12-01, ISM Services PMI: 2026-12-03, NFP: 2026-12-04, PPI: 2026-12-15, Retail Sales: 2026-12-16}
   chair:
@@ -46,13 +47,14 @@ meta:
   - "fed: No unscheduled/intermeeting rate actions in the window. Only off-cycle FOMC action: 2025-08-22 notation vote approving the revised Statement on Longer-Run Goals (released with Powell's Jackson Hole speech) - not a rate decision, not listed."
   - 'fed: FF actuals: Sep 17 2025 cut to 4.00-4.25, Oct 29 2025 cut to 3.75-4.00, Dec 10 2025 cut to 3.50-3.75, holds Jan-Jul 2026, Sep 16 2026 hike to 3.75-4.00.'
   - 'fed: No early-2026 semiannual Monetary Policy Report testimony took place (Fed MPR page lists none; first 2026 MPR testimony was Warsh, Jul 14-15).'
-  - "fed: Excluded from Fed Chair (not Chair at the time): Warsh Senate Banking confirmation hearing 2026-04-21 10:00 (FF now lists it as 'Fed Chairman Warsh Testifies', high); Senate Fed Chair nomination vote 2026-05-13 14:40 (FF 'Fed Chair Nomination Vote', high); Powell as Governor 2026-05-31 20:30 JFK award remarks (FF 'FOMC Member Powell Speaks'); Warsh swearing-in at the White House 2026-05-22 (not on Fed calendar or FF). Owner may want the Apr 21 hearing and May 13 vote added as high-impact items."
+  - "fed: Excluded from Fed Chair (not Chair at the time): Warsh Senate Banking confirmation hearing 2026-04-21 10:00 (FF now lists it as 'Fed Chairman Warsh Testifies', high); Senate Fed Chair nomination vote 2026-05-13 14:40 (FF 'Fed Chair Nomination Vote', high); Powell as Governor 2026-05-31 20:30 JFK award remarks (FF 'FOMC Member Powell Speaks'); Warsh swearing-in at the White House 2026-05-22 (not on Fed calendar or FF). Owner 2026-10-05 (SPEC §13 Q39): the Apr 21 hearing and May 13 vote are added as Fed Chair blackouts. UNCERTAIN: whether the 14:40 vote time was set by 08:30 that day (the §9 as-of-08:30 rule) is not verified; Senate floor votes are usually scheduled by unanimous consent the day before. Owner 2026-10-05: not sure, assumes it was set by 08:30; kept as listed."
   - 'fed: Excluded as unscheduled: Powell video statement Sun 2026-01-11 (DOJ subpoena; on the 2026 speeches page, not on the calendar).'
   - "fed: Every Chair event time is the Fed calendar's scheduled start and matches the FF dateline exactly. 2025-12-01 (20:00), 2026-03-21 (Saturday) are outside RTH."
   - "fed: The 'as scheduled at 08:30 ET that day' rule could not be checked per event from archives; all listed events are on the Fed's calendar and none carries an FF 'surprise / added late' notice. 2025-10-09 is itself at 08:30 (pre-recorded)."
   - 'fed: No Warsh appearances announced yet for Oct-Dec 2026 on the Fed calendar or FF (checked 2026-10-04).'
   - "fed: nfs.faireconomy.media only serves ff_calendar_thisweek.json (nextweek/lastweek 404); it confirms 'FOMC Meeting Minutes' 2026-10-07 14:00 High."
 sources:
+  owner_decision_2026_10_05: "Owner answer 2026-10-05 to SPEC §13 Q39: add the Warsh confirmation hearing and Senate vote as blackouts, so backtest and live (red-folder rule) agree"
   bea_2025_10_17_wayback: https://web.archive.org/web/20251017045416/https://www.bea.gov/news/schedule
   bea_blog_2025_11_14: https://www.bea.gov/news/blog/2025-11-14/bea-developing-updated-economic-release-schedule
   bea_blog_2025_11_20: https://www.bea.gov/news/blog/2025-11-20/economic-release-schedule-updates-gdp-and-personal-income-and-outlays
@@ -299,6 +301,7 @@ events:
 - {date: 2026-04-14, time_et: "08:30", name: Core PPI, blackout: false, source: bls_ppi_archive, release: PPI (Mar 2026)}
 - {date: 2026-04-21, time_et: "08:30", name: Retail Sales, blackout: true, source: census_retail_schedule, release: Advance Retail Sales (Mar 2026) - orig. 2026-04-16}
 - {date: 2026-04-21, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_retail_schedule, release: Advance Retail Sales (Mar 2026) - orig. 2026-04-16}
+- {date: 2026-04-21, time_et: "10:00", name: Fed Chair, blackout: true, source: owner_decision_2026_10_05, release: "Warsh Senate Banking confirmation hearing (nominee, not yet Chair; FF 'Fed Chairman Warsh Testifies', High); added by the owner, SPEC §13 Q39"}
 - {date: 2026-04-29, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Apr 28-29 2026}
 - {date: 2026-04-29, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Apr 28-29 2026}
 - {date: 2026-04-29, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fed_calendar, release: FOMC Apr 28-29 2026}
@@ -316,6 +319,7 @@ events:
 - {date: 2026-05-12, time_et: "08:30", name: Core CPI, blackout: false, source: bls_cpi_archive, release: CPI (Apr 2026)}
 - {date: 2026-05-13, time_et: "08:30", name: PPI, blackout: true, source: bls_ppi_archive, release: PPI (Apr 2026)}
 - {date: 2026-05-13, time_et: "08:30", name: Core PPI, blackout: false, source: bls_ppi_archive, release: PPI (Apr 2026)}
+- {date: 2026-05-13, time_et: "14:40", name: Fed Chair, blackout: true, source: owner_decision_2026_10_05, release: "Senate vote confirming Warsh as Fed Chair (FF 'Fed Chair Nomination Vote', High); added by the owner, SPEC §13 Q39"}
 - {date: 2026-05-14, time_et: "08:30", name: Retail Sales, blackout: true, source: census_retail_schedule, release: Advance Retail Sales (Apr 2026)}
 - {date: 2026-05-14, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_retail_schedule, release: Advance Retail Sales (Apr 2026)}
 - {date: 2026-05-20, time_et: "14:00", name: FOMC Minutes, blackout: true, source: fomc_calendar, release: Minutes of Apr 28-29 2026}

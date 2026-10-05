@@ -1,15 +1,15 @@
 # Feature spec (`docs/feature_spec.md`)
 
-> **Status: step 5, part 1 of 3 (definitions) written 2026-10-04; part 2 of 3 (start values, F15) added 2026-10-05. Not yet approved.**
-> Part 3 adds the pre-declared grids. The owner reviews and approves the whole file at step 6 (✅ gate). Until then, nothing here is final.
+> **Status: approved by the owner at step 6 (✅ gate passed 2026-10-05).** Part 1 of 3 (definitions) written 2026-10-04; part 2 (start values, F15) and part 3 (pre-declared grids, F16) added 2026-10-05. The step-6 answers (SPEC §13 "Step 6", Q1–Q39: all as recommended except Q6 = (a) and Q9 = (b)) are written into the definitions below, and the F15/F16 values into `config/`.
+> Changes from here on follow CLAUDE.md rule 12 (owner approval, SPEC updated, features version bumped).
 
 **What this file is.** It holds the exact, measurable definition of every concept in SPEC §5, plus the Skylit definitions that §5.2 defers to and the six Skylit concepts the owner approved as §5.2 model inputs on 2026-10-04 (air pockets, King dominance and migration, rainbow road, whipsaw maps, beach ball, magnets). Step 11 codes it in `src/nqbot/features/` and `src/nqbot/detectors/`; every definition here has a unit test with a hand-built example (working rule 11).
 
 **Precedence.** SPEC.md is the source of truth for definitions; this file refines §5 and supplies what §5.2 defers. Where this file conflicts with a SPEC rule, the conflict goes to SPEC §13. Owner notes win over the Skylit docs. If owner notes and SPEC disagree, the conflict goes to §13 and SPEC is followed until the owner answers (none found; see F14).
 
-**Values.** F0–F12 name parameters without valuing them; the proposed start values are all in one table, F15 (part 2). Exceptions valued in place: the owner's fixed definitional constants (25% of King, the 0.5/0.618/0.705/0.786 fib levels, the 70% value area, 1σ/2σ, 30-minute TPO periods, `ib_fib_start_minute` 20, `ib_lock_minute` 30, `session.flat_by` 15:59, `min_minutes_before_flat` 14) and SPEC-fixed method constants. Parameters marked **NEW** were not in SPEC §11 before part 1; they are in `config/features.yaml` as `null`, with start values proposed in F15. Config files keep `null` until the owner approves F15 at step 6.
+**Values.** F0–F12 name parameters without valuing them; the proposed start values are all in one table, F15 (part 2). Exceptions valued in place: the owner's fixed definitional constants (25% of King, the 0.5/0.618/0.705/0.786 fib levels, the 70% value area, 1σ/2σ, 30-minute TPO periods, `ib_fib_start_minute` 20, `ib_lock_minute` 30, `session.flat_by` 15:59, `min_minutes_before_flat` 14) and SPEC-fixed method constants. Parameters marked **NEW** were not in SPEC §11 before part 1. Their start values (F15) were approved by the owner at step 6 (2026-10-05) and are in `config/`.
 
-**Open questions** are numbered `FQ-nn` and collected in F13. Each one offers options for the owner; none is adopted. Code that depends on an open question is not written until the owner answers it at step 6.
+**Open questions** are numbered `FQ-nn` and collected in F13. Each one offered options for the owner; all were answered at step 6 (2026-10-05, F13), and the answers are written into the definitions.
 
 ## How to read an entry
 
@@ -55,7 +55,7 @@
 **F0.7 Nulls.** A feature whose input isn't known yet (no board applied, no profile, no gameplan, fewer sessions than a lookback) is null, never zero or filled forward from another session. LightGBM handles nulls; the logistic and day-type models use the missing-indicator encoding chosen at step 15.
 
 **F0.8 Vol scaling (§5.4 Distances).** Every distance feature is stored in three forms: **points**, **ATR units** and **expected-move (EM) units**.
-- *ATR* = the average true range of the last `atr_period` **completed RTH sessions** (RTH high, low, previous RTH close; roll-shifted), known at the session start. The averaging method is FQ-01.
+- *ATR* = the average true range of the last `atr_period` **completed RTH sessions** (RTH high, low, previous RTH close; roll-shifted), known at the session start. The average is the simple mean of the true ranges (owner 2026-10-05, FQ-01).
 - *Expected move* (NQ) = NQ RTH close of session T − `tempest_lag_sessions` (on the front contract, roll-shifted) × SVX1d(QQQ) ÷ 100 ÷ √252, both from that session. ES uses ES close × SVX1d(SPY).
 - **Test:** a hand-built 3-session ATR, and an EM of 20,000 × 20 / 100 / √252 = 252.0 pts.
 
@@ -166,8 +166,8 @@
 - *Test:* boards at τ = 0, 30, 60, 90 s, lookback 60 → velocity at 90 uses the board at 30; at 60 it uses 0.
 
 ### F2.9 Velocity lean
-- *Definition:* per map at each applied board: `lean_raw` = Σ_{relevant k, strike < spot} velocity_k × pct_of_king_k − Σ_{relevant k, strike > spot} velocity_k × pct_of_king_k (nodes with null velocity are skipped). `lean` at t = the time-weighted average of the step function `lean_raw` over [t − `lean_window`, t]; only time after the first applied board counts (the SPEC says only "averaged": time-weighting vs a plain mean over boards is FQ-20). Positive = accumulation below spot (§5.2: "tends to pull price that way").
-- *Params:* `lean_window` (minutes).
+- *Definition:* per map at each applied board: `lean_raw` = Σ_{relevant k, strike < spot} velocity_k × pct_of_king_k − Σ_{relevant k, strike > spot} velocity_k × pct_of_king_k (nodes with null velocity are skipped). `lean` at t = the time-weighted average of the step function `lean_raw` over [t − `lean_window`, t]; only time after the first applied board counts (time-weighted, owner 2026-10-05, FQ-20). Positive = accumulation below spot (§5.2: "tends to pull price that way").
+- *Params:* `lean_window` (minutes; owner 2026-10-05: 1, "accumulation shifts quickly"). With a 1-minute window, a 1-minute-resolution history day has about one board per window, so time-weighting (FQ-20) matters little there. The lean is noisier than with the 5-minute proposal, so step 12 checks `bias_deadband` (F2.18) against the 1-minute lean's distribution.
 - *Outputs:* `lean_<map>` for each of the four maps.
 - *Known at:* `t_apply` of each board (`lean_raw`); t (`lean`, using boards applied ≤ t).
 - *Test:* `lean_raw` = 1.0 from t−10 min to t−4 min and 0.4 from t−4 min to t, `lean_window` 10 → `lean` = (6×1.0 + 4×0.4)/10 = 0.76.
@@ -183,14 +183,42 @@
 - *Source:* `pattern-ceiling-rolldown.md`, `pattern-floor-rollup.md`, `gamma-regime-negative.md`; **owner answer 2026-10-05** (FQ-05: "you are usually looking at the highest-magnitude node above price; if a node below it grows and becomes the new highest-magnitude node above price, that is a ceiling roll-down", e.g. QQQ 760 dies down and 759, still above price, becomes the largest).
 - *Definition:* per map, at each applied board:
   - **Ceiling** C = the node with the largest |value| among strikes > spot; **floor** F = the largest |value| among strikes < spot (owner: magnitude, either sign).
-  - A **switch** happens when the largest-|value| node above spot is a different strike from the confirmed ceiling, and it has stayed so on every applied board for ≥ `node_switch_min_sec` (as for the King, F2.16, so a near-tie doesn't flicker). It then becomes the confirmed ceiling.
+  - **Confirmed ceiling:** set from the session's first applied board at once. A **switch** happens when the largest-|value| node above spot is a different strike from the confirmed ceiling, and it has stayed so on every applied board for ≥ `node_switch_min_sec` (as for the King, F2.16, so a near-tie doesn't flicker). It then becomes the confirmed ceiling.
+  - Every switch is exactly one of three kinds:
+    - a **roll-down** (below);
+    - a **roll-back** (below);
+    - a **price switch**: the old confirmed ceiling is at or below spot, i.e. price moved through it, or the new strike is higher with no active episode. A price switch updates the confirmed ceiling and nothing else.
+  - **Two clocks:** switches use each board's `spot` at its `t_apply`. Pause and resume use NQ trades (ES for S&P maps) against the mapped band.
   - **Ceiling roll-down** = a switch where (i) the new ceiling's strike is **lower** (closer to price) than the old one, and (ii) the old ceiling's strike is still above spot (otherwise price simply moved through it, which is not a roll). It doesn't matter whether the old one faded, the new one grew, or both (owner 2026-10-05); how much each changed is recorded as a feature, compared with the board on which the old ceiling was last confirmed.
   - **Floor roll-up** = the mirror image: the new floor is higher (closer to price) and the old floor is still below spot.
-  - Upside/downside target compression (docs step 3) stays a feature, not a condition: `above_mass_change` = Σ|v| of relevant nodes above spot now ÷ the same `roll_window_min` ago − 1; `below_mass_change` likewise.
-- *Known at:* `t_apply` of the board that confirms the switch.
-- *Outputs (per map):* `rolling_ceiling` / `rolling_floor` = a roll happened within the last `roll_window_min`; `rolls_today` per side; the last roll's shift in strike positions (F0.10) and in NQ/ES pts; the old node's shrink % and the new node's growth %; minutes since the last roll; the mass changes.
-- *Params:* `roll_window_min`, `node_switch_min_sec` (**NEW**, shared with F2.16). `roll_min_shrink_pct` and `roll_min_shift_strikes` are **removed**: any confirmed switch to a closer strike is a roll, however it happened (owner).
-- *Test:* spot 755; 760 (2.0e6, ceiling) and 759 (1.0e6). Next boards: 760 → 0.8e6, 759 → 1.5e6, held for `node_switch_min_sec` → ceiling roll-down, shift 1 position, shrink 60%, growth 50%. Also a roll-down: 760 unchanged at 2.0e6 while 759 grows to 2.2e6. Separately: price rises to 760.5 so 760 is below spot → no roll.
+  - **Active roll, no timer (owner answer 2026-10-05, Q31):** "a ceiling roll-down signals bearish in general and a floor roll-up bullish; if the ceiling or floor rolls back to its original position, that's when you can discount it, but putting a timer on it doesn't make sense."
+    - A ceiling roll-down starts a **roll episode**. Its **anchor** = the confirmed ceiling strike just before that first roll-down.
+    - Further roll-downs during the episode extend it.
+    - The episode is **active until rolled back**. A **roll-back** = a switch to a **higher** strike while the old confirmed ceiling is still above spot (the mirror of roll-down condition (ii), so price moving through a ceiling is never a roll-back).
+      - If the new strike is at or above the anchor, the episode ends (counted in `rollbacks_today`).
+      - If it is below the anchor, it is a partial roll-back: the episode stays with fewer steps (counted in `partial_rollbacks_today`).
+    - **Paused while price is through the current ceiling** (owner 2026-10-05: "if price trades through the most recent ceiling/floor, that should end it until price comes back below the ceiling or above the floor; account for the zones around the nodes"):
+      - *Pause:* the first NQ trade (ES for S&P maps) above the upper edge of the current confirmed ceiling's mapped band. That node is the **break node**.
+      - *Resume:* the first later trade below the break node's lower edge, i.e. fully back under its zone. The episode resumes with the same anchor and steps.
+      - Trading inside the band neither pauses nor resumes.
+      - While paused, a roll-back still ends the episode, and the break node's band is the one in force at each trade.
+      - **A new roll-down replaces a paused episode** (owner 2026-10-05): once price is through the old ceiling, a new ceiling forms above price; if that ceiling then rolls down, the paused episode ends and a **new, active episode** starts. Its anchor is the confirmed ceiling just before this roll-down. (Roll-downs during an active, unpaused episode still extend it.)
+    - Episodes are intraday: they end at the session end (owner 2026-10-05, Q18: rolls are not measured across sessions).
+    - Floor roll-ups mirror all of this. Both sides can be active at once.
+  - **Target compression** (docs step 3: "upside targets compress"; owner: "if the upside or downside targets are shrinking that matters"). A feature, not a condition:
+    - `above_mass_change_open` = Σ|v| of relevant nodes above spot now ÷ the same on the session's first applied board − 1;
+    - `above_mass_change_roll` = the same ÷ the value on the last board before the active ceiling episode began − 1 (null with no active episode);
+    - `below_*` likewise for the floor side.
+- *Known at:* `t_apply` of the board that confirms the switch (rolls, roll-backs, price switches); the trade's `ts_event` (pause, resume); `t_apply` of each board (mass changes).
+- *Outputs (per map):*
+  - `rolling_ceiling` / `rolling_floor` = an episode is active and not paused;
+  - `roll_steps` = the net strike positions (F0.10) from the anchor to the current confirmed ceiling (floor), and the same in NQ/ES pts;
+  - `roll_paused` (price is through the current ceiling / floor); `rolls_today`, `rollbacks_today` (full), `partial_rollbacks_today` and `roll_breaks_today` (pauses) per side;
+  - the last roll's old-node shrink % and new-node growth %;
+  - minutes since the episode began (an input the model weighs, not a timer that ends anything);
+  - the mass changes.
+- *Params:* `node_switch_min_sec` (**NEW**, shared with F2.16). Removed: `roll_window_min` (owner 2026-10-05: no timer), `roll_min_shrink_pct` and `roll_min_shift_strikes` (any confirmed switch to a closer strike is a roll, however it happened).
+- *Test:* spot 755; 760 (2.0e6, ceiling) and 759 (1.0e6). Next boards: 760 → 0.8e6, 759 → 1.5e6, held for `node_switch_min_sec` → ceiling roll-down, shift 1 position, shrink 60%, growth 50%. Also a roll-down: 760 unchanged at 2.0e6 while 759 grows to 2.2e6. Separately: price rises to 760.5 so 760 is below spot → no roll. Episode: anchor 760, roll-downs to 759 then 758 (`roll_steps` 2), a switch back to 759 (still active, steps 1) and to 760 → rolled back, episode ends; with no roll-back it is still active 3 hours later; separately (prices in QQQ units for readability; the code maps them with R), with the ceiling at 759 (band [758.5, 759.5]), a trade above 759.5 → paused; trades back inside the band → still paused; a trade below 758.5 → resumed. Price switch, not a roll-back: paused with spot 759.8, the confirmed ceiling becomes 760 (old ceiling 759 is below spot) → still paused, the episode is not ended. Replacement: paused with spot 759.8, the confirmed ceiling becomes 765 by a price switch and then rolls down to 763 (765 still above spot) → the old episode ends and a new active episode starts with anchor 765.
 
 ### F2.12 Gamma regime (long vs short gamma)
 - *Source:* §5.2 Gamma regime; `gamma-regime-positive.md` / `-negative.md` (positive regime = dealers long gamma, yellow predominates; negative = short gamma, purple predominates; "regime defines behaviour, not direction").
@@ -200,7 +228,7 @@
   - `regime_long` = sign(`regime_net`) (categorical, for reports).
   Maps are never summed (§5.2); each is its own feature. The gameplan HVL is a separate gameplan input (F8).
 - *Known at:* `t_apply` of each board.
-- *Params:* `regime_band`.
+- *Params:* `regime_band` (% of spot; owner 2026-10-05: 1).
 - *Test:* a hand-built board gives a known net and share; a strike just outside the band is excluded.
 
 ### F2.13 Rug and reverse rug
@@ -255,14 +283,14 @@
   - `floor_dist_em` / `ceiling_dist_em` = the distance from spot to the nearest relevant node below / above (null if none).
   - **Flag** `rainbow` = n_pos ≥ `rainbow_min_nodes_per_sign` and n_neg ≥ `rainbow_min_nodes_per_sign` and `king_dominance` ≤ `rainbow_max_dominance`.
 - *Known at:* `t_apply` of each board.
-- *Params:* `rainbow_min_nodes_per_sign`, `rainbow_max_dominance` (**NEW**; whether they are tuned at step 13 is decided with the grids in part 3).
+- *Params:* `rainbow_min_nodes_per_sign`, `rainbow_max_dominance` (**NEW**; owner 2026-10-05: 2 and 1.5, fixed).
 - *Test:* 3 positive + 3 negative relevant nodes with dominance 1.1 → rainbow; dominance 2.5 → not.
 
 ### F2.18 Whipsaw map, owner-approved 2026-10-04
 - *Source:* `pattern-whipsaw.md` ("conflicting signals across indices… SPX bullish, QQQ bearish, SPY pinned… ranges still exist"), `trinity-confluence.md` (alignment vs divergence), `gamma-regime-negative.md`.
 - *Definition:*
   - **Per-map bias** at t, from `lean` (F2.9): *up* if lean > `bias_deadband`, *down* if lean < −`bias_deadband`, else *pinned*.
-  - The trinity = SPY, SPX and the Nasdaq side, computed twice: with QQQ (as the doc names it) and with NDXP (FQ-12 asks how to combine them).
+  - The trinity = SPY, SPX and the Nasdaq side, computed twice: with QQQ (as the doc names it) and with NDXP; both variants are separate features (owner 2026-10-05, FQ-12).
   - Features: `bias_<map>` (4); `trinity_bias_agree` = the largest number of trinity maps sharing one non-pinned bias (0–3); `trinity_bias_conflict` = the trinity holds both an *up* and a *down* map.
   - **Flag** `whipsaw` = `trinity_bias_conflict` and both a relevant floor and a relevant ceiling exist on the Nasdaq-side map ("ranges still exist", which separates it from F2.17).
 - *Known at:* t (from `lean`, F2.9).
@@ -279,7 +307,7 @@
   - `es_zone_proximity` defaults to `zone_proximity` × ES ÷ NQ at the session open (the first RTH trades).
 - *Outputs:* `trinity_aligned` (all 3); `trinity_count` (0–3); `maps_with_node_here` (0–4: QQQ, NDXP, SPY, SPX each counted separately); smallest and mean pct_of_king of those nodes; King/Gatekeeper among them; rug or pika structure present among them; per-map `lean`.
 - *Known at:* t (each node's band from its map's last `t_apply`; prices from the last trade of each instrument; roles from F2.6).
-- *Crossed nodes:* whether a node that is crossed (not yet flipped or reclaimed) still counts toward Trinity is **FQ-23**.
+- *Crossed nodes:* a node that is crossed (not yet flipped or reclaimed) does **not** count toward Trinity; once flipped it counts in its new role, once reclaimed in its original role (owner 2026-10-05, FQ-23).
 - *Test:* ES inside a SPY ceiling band, SPX not, NQ inside a QQQ ceiling band → count 2, aligned false.
 
 ### F2.20 Nasdaq first, S&P obstacles in the path
@@ -321,37 +349,37 @@
   - VWAP = Σ pᵢvᵢ ÷ Σ vᵢ;
   - σ = √(Σ vᵢpᵢ² ÷ Σ vᵢ − VWAP²) (volume-weighted standard deviation);
   - bands = VWAP ± 1σ and ± 2σ.
-  It updates on every trade. Whether the 09:30 anchor also has bands is FQ-09. Each line (VWAP and each band) is its own registry level; chart-level state machine F5.2.
+  It updates on every trade. Both anchors have 1σ and 2σ bands (owner 2026-10-05, FQ-09). Each line (VWAP and each band) is its own registry level; chart-level state machine F5.2.
 - *Known at:* each trade.
 - *Test:* three trades (100 × 1, 102 × 1, 104 × 2) → VWAP 102.5, σ = √(42,036 ÷ 4 − 102.5²) = √2.75 ≈ 1.658.
 
 ### F3.2 Volume profile and POC
-- *Definition:* **daily** profile = volume per 0.25 price over trades from 18:00 ET of the CME day; **weekly** = from Sunday 18:00 ET (roll-shifted on the roll day, F0.4). There are no prior-day or prior-week profiles (owner). Both develop and are recomputed at F0.1 profile instants. POC = the price with the largest volume (tie-break FQ-08).
+- *Definition:* **daily** profile = volume per 0.25 price over trades from 18:00 ET of the CME day; **weekly** = from Sunday 18:00 ET (roll-shifted on the roll day, F0.4). There are no prior-day or prior-week profiles (owner). Both develop and are recomputed at F0.1 profile instants. POC = the price with the largest volume; ties go to the price nearest the midpoint of the profile's high–low range (owner 2026-10-05, FQ-08); if still tied (equal distance above and below), the price nearer the **volume median** (the price with half the profile volume at or below it) wins (owner 2026-10-05); only an exact tie after that falls to the lower price.
 - *Outputs:* daily and weekly POC levels; profile high/low (max/min traded price).
 - *Known at:* each profile instant (F0.1).
 - *Params:* `profile_update_sec`.
 - *Test:* trades at 100.00 ×5, 100.25 ×3 before the 10:01:00 instant and 100.25 ×4 at 10:01:00.5 → POC 100.00 at 10:01:00 (the later trades wait for the next instant).
 
 ### F3.3 Value area, VAH/VAL zones (premium/discount)
-- *Definition:* the value area = the set of prices built from the POC outward until ≥ 70% (owner) of the profile volume is included (expansion algorithm FQ-08); VAH = its highest price, VAL = its lowest. **VAH zone** = [VAH, profile high]; **VAL zone** = [profile low, VAL] (§5.3). They are **not levels**: no event, no break, not stop or target candidates.
+- *Definition:* the value area = the set of prices built from the POC outward until ≥ 70% (owner) of the profile volume is included (owner 2026-10-05, FQ-08: expanded **one tick at a time**: at each step, add whichever of the next price above or the next price below has the larger volume; checked against Deepcharts at step 12. On a tie add both, and once one side reaches the profile edge keep adding the other side: owner-approved 2026-10-05, SPEC §13 Q40); VAH = its highest price, VAL = its lowest. **VAH zone** = [VAH, profile high]; **VAL zone** = [profile low, VAL] (§5.3). They are **not levels**: no event, no break, not stop or target candidates.
 - *Outputs per profile (daily, weekly):* `in_vah_zone`, `in_val_zone`; `va_depth` = (price − VAH) ÷ (high − VAH) in the VAH zone, (VAL − price) ÷ (VAL − low) in the VAL zone (0 at the line, 1 at the extreme); the signed distance to the VAH and VAL lines (pts, ATR, EM); `va_direction_fit` = (short and in the VAH zone) or (long and in the VAL zone). They also scope area events (F5.8).
 - *Known at:* each profile instant.
 - *Test:* a hand-built profile with a known POC, VA, VAH/VAL; price at the midpoint of the VAH zone → depth 0.5.
 
 ### F3.4 LVNs
-- *Definition (per §5.3):* at each profile instant, smooth the profile with a window of `lvn_smooth_ticks` ticks (kernel FQ-10). An LVN is a local minimum m of the smoothed profile with s(m) ≤ `lvn_max_pct` × min(peak_left, peak_right), where peak_left/right = the highest smoothed volume between m and the next **LVN** (or the profile edge) on that side (§5.3). Because "next LVN" depends on which minima qualify, it is computed by iteration: start with every local minimum as a candidate; compute each candidate's peaks between it and its neighbouring candidates (or the edge); drop every candidate that fails; repeat until none is dropped.
+- *Definition (per §5.3):* at each profile instant, smooth the profile with a **Gaussian** kernel of σ = `lvn_smooth_ticks` ÷ 2 ticks (owner 2026-10-05, FQ-10; so ±1σ spans `lvn_smooth_ticks` ticks), truncated at ±`lvn_gauss_trunc_sigma` σ (owner-approved 2026-10-05, SPEC §13 Q42; start 3, which keeps 99.7% of the kernel's weight). An LVN is a local minimum m of the smoothed profile with s(m) ≤ `lvn_max_pct` × min(peak_left, peak_right), where peak_left/right = the highest smoothed volume between m and the next **LVN** (or the profile edge) on that side (§5.3). Because "next LVN" depends on which minima qualify, it is computed by iteration: start with every local minimum as a candidate; compute each candidate's peaks between it and its neighbouring candidates (or the edge); drop every candidate that fails; repeat until none is dropped.
   - Identity = (profile, round(price ÷ `lvn_merge_pts`) × `lvn_merge_pts`).
   - An LVN level appears when it first qualifies and ends when it no longer qualifies at a recompute.
   - Its band = price ± its chart-level half-width (F5.14).
   - HVNs are not used.
 - *Known at:* each profile instant.
-- *Params:* `lvn_smooth_ticks`, `lvn_max_pct`, `lvn_merge_pts`, `profile_update_sec`.
+- *Params:* `lvn_smooth_ticks`, `lvn_gauss_trunc_sigma`, `lvn_max_pct`, `lvn_merge_pts`, `profile_update_sec`.
 - *Test:* a two-hump profile with a valley at 30% of the smaller peak → one LVN; at 35% → none.
 
 ### F3.5 Single prints (TPO)
 - *Definition (per §5.3):*
   - TPO periods are 30-minute blocks aligned to 18:00 ET (18:00, 18:30, …) of the CME day. A price bin (width `tpo_tick_pts`, bin = ⌊price ÷ `tpo_tick_pts`⌋) is *printed in* a period if any trade in that period falls in it.
-  - At the close of each period, a **single-print run** = a maximal run of ≥ `sp_min_ticks` consecutive bins each printed in **exactly one completed period**. Whether the run must come from a single period is FQ-11.
+  - At the close of each period, a **single-print run** = a maximal run of ≥ `sp_min_ticks` consecutive bins each printed in **exactly one completed period**. All bins of a run must come from the **same** period (owner 2026-10-05, FQ-11: the classic single print of one fast move).
   - The **unfilled part** = the bins of the run with no trade since the run was formed (trades in the current, incomplete period count as filling).
   - Each **contiguous** unfilled sub-run is its own level, band = [its lowest bin low, its highest bin high] ± `chart_level_half_width[single_print]` (learned, F5.14); `level_id` = run id (formation period + the run's lowest bin) + the sub-run's lowest bin. A sub-run survives however short it becomes (the SPEC ends the level only when the whole run is filled). A sub-run wider than `max_zone_width` is split into pieces of ≤ `max_zone_width` from the bottom up.
   - An event uses the band **frozen at its touch** for its audit, cross and label.
@@ -376,8 +404,7 @@
 - *Test:* a holiday between sessions is skipped (the previous *session*, not the previous calendar day).
 
 ### F3.8 Retested extremes
-- *Definition (per §5.3, candidates pending FQ-13):* a candidate extreme E from the last `retest_lookback_sessions` sessions (on the candidate list) becomes a `retested_extreme` level once a later touch came within `retest_tol_ticks` of E **and** that touch's structure label was *held* (resolved ≤ t). It is sweep-eligible; it is crossed and flipped like other highs/lows (F3.9, F2.6). How long it lives is FQ-22.
-- *Undecided (FQ-13, FQ-22):* which extremes are candidates; when a retested extreme ends; whether a retest in E's own session counts.
+- *Definition (per §5.3; candidates per FQ-13, owner 2026-10-05: the registry's session highs/lows — ON, PDH/PDL, prior RTH, prior week, IB high/low — of the last `retest_lookback_sessions` sessions):* a candidate extreme E from the last `retest_lookback_sessions` sessions (on the candidate list) becomes a `retested_extreme` level once a later touch came within `retest_tol_ticks` of E **and** that touch's structure label was *held* (resolved ≤ t). It is sweep-eligible; it is crossed and flipped like other highs/lows (F3.9, F2.6). It ends when crossed and not flipped back, or `retest_lookback_sessions` sessions after E's own session, whichever comes first (owner 2026-10-05, FQ-22). Only retests in sessions after E's own session count (FQ-22): that day E is already a registry level.
 - *Known at:* the resolution time of the held touch.
 - *Params:* `retest_tol_ticks`, `retest_lookback_sessions`.
 - *Test:* a prior ON low of 100, a touch at 100.75 (3 ticks, within `retest_tol_ticks` 4) that resolves held → a `retested_extreme` level from that resolution time; a touch at 101.5 (6 ticks) → none.
@@ -385,7 +412,7 @@
 ### F3.9 Bounce, sweep or break (highs/lows only)
 - *Source:* §5.3; owner notes ("sweeps at highs/lows are their own case").
 - *Definition:* for a sweep-eligible level with band B and role ρ, from the first trade beyond B (the start of an **unresolved break**):
-  - **Break (crossed)** at once if price trades > `sweep_max_depth` beyond B; or, if no reclaim happened by the close of the `sweep_reclaim_bars`-th 1-minute bar (the counting convention is FQ-14), at that bar's close.
+  - **Break (crossed)** at once if price trades > `sweep_max_depth` beyond B; or, if no reclaim happened by the close of the `sweep_reclaim_bars`-th 1-minute bar (owner 2026-10-05, FQ-14: bar 1 is the first full 1-minute bar after the bar in which price first traded beyond; that break bar's own close can already reclaim), at that bar's close.
   - **Swept (held)** when a 1-minute bar inside the sweep window **closes not beyond B** (inside B or on the range side) before a break.
   - After a break, F2.6 steps 3–4 apply (flip on a settled 5-minute bar; reclaim).
   - While the break is unresolved, the far side neither re-arms the zone nor changes its approach side (§5.4 Touch and re-arm).
@@ -554,6 +581,25 @@ Computed as of the touch for events and as of `decision_ts` for pairs:
 
 ### F5.14 Zone widths (chart levels) and reaction distance
 - *Source:* §5.4b.
+- *Level-type keys* (used by `chart_level_half_width`, `chart_level_half_width_cap` and `flip_margin` in `features.yaml`). Each registry sub-type (F5.1) maps to one key:
+
+| Key | Registry sub-types |
+|---|---|
+| `vwap` | the 18:00 and 09:30 VWAP lines |
+| `vwap_band` | their ±1σ and ±2σ bands |
+| `poc` | daily and weekly POC |
+| `lvn` | daily and weekly LVNs |
+| `single_print` | single-print sub-runs |
+| `on_extreme` | ON high, ON low |
+| `pdh_pdl` | PDH, PDL |
+| `prior_rth` | prior RTH high/low |
+| `prior_week` | prior week high/low |
+| `ib` | IB high/low |
+| `retested_extreme` | retested extremes |
+| `qqq_node`, `ndxp_node` | GEX nodes (`flip_margin` only; their band is `node_band`) |
+| `dark_pool` | QQQ dark pools (`flip_margin` only; their band is `dp_band`) |
+
+  Daily and weekly versions, and the two VWAP anchors, share one key: owner-approved 2026-10-05, SPEC §13 Q41. The sub-type stays a model feature (F5.13), so the model can still tell them apart.
 - *Definition:* each chart-level type has a half-width `chart_level_half_width[type]` ≤ `chart_level_half_width_cap[type]`. It is frozen at step 13 from the reaction-distance report on months 1–4 (NQ). ES levels default to the NQ value × ES ÷ NQ at the open.
 - **The measurement:**
   - **Approach:** after a re-arm (price beyond cap + `zone_proximity` + `rearm_dist` from the level line), price comes within cap + `zone_proximity` of the line.
@@ -829,7 +875,7 @@ Candidates within `stop_merge_ticks` of each other are merged. Area events use o
 
 ## F12. Parameter index
 
-Start values are in F15 (part 2); grids come in part 3. "SPEC" = the SPEC already gives a start value (used in part 2 unless the owner changes it). **NEW** = introduced here, not yet in SPEC §11 before this session. Kinds as in "How to read an entry".
+Start values are in F15 (part 2); grids are in F16 (part 3). "SPEC" = the SPEC already gives a start value (used in part 2 unless the owner changes it). **NEW** = introduced here, not yet in SPEC §11 before this session. Kinds as in "How to read an entry".
 
 | Parameter | File | Kind | Used in |
 |---|---|---|---|
@@ -839,16 +885,16 @@ Start values are in F15 (part 2); grids come in part 3. "SPEC" = the SPEC alread
 | `min_node_pct_of_king` | features | owner (0.25) | F2.4 |
 | `node_drop_pct` | features | SPEC | F2.4 |
 | `velocity_lookback_sec` | features | SPEC | F2.8 |
-| `lean_window` | features | proposed tuned-13 (part 3 decides) | F2.9, F2.18 |
+| `lean_window` | features | owner (1 min, 2026-10-05) | F2.9, F2.18 |
 | `magnet_min_dist_em` | features | **NEW** | F2.10 |
-| `roll_window_min` | features | proposed tuned-13 (part 3 decides) | F2.11 |
+| ~~`roll_window_min`~~ | — | removed (owner 2026-10-05: no timer on rolls) | F2.11 |
 | `node_switch_min_sec` | features | **NEW** | F2.11, F2.16 |
-| `regime_band` | features | proposed tuned-13 (part 3 decides) | F2.12 |
+| `regime_band` | features | owner (1%, 2026-10-05) | F2.12 |
 | `rug_gap_strikes` | features | **NEW**, owner (1) | F2.13 |
 | `pika_cloud_min_pct` | features | **NEW**, owner (0.10) | F2.14 |
 | `pika_cloud_min_nodes` | features | **NEW**, owner (2) | F2.14 |
 | `air_pocket_max_pct` | features | **NEW**, owner (0.02) | F2.15 |
-| `rainbow_min_nodes_per_sign`, `rainbow_max_dominance` | features | **NEW**, proposed tuned-13 (part 3 decides) | F2.17 |
+| `rainbow_min_nodes_per_sign`, `rainbow_max_dominance` | features | **NEW**, owner (2 / 1.5, 2026-10-05) | F2.17 |
 | `bias_deadband` | features | **NEW** | F2.18 |
 | `zone_proximity` | features | tuned-13 (§7.1) | F2.19, F5.6, F9.1 |
 | `es_zone_proximity` | features | derived (`zone_proximity` × ES ÷ NQ at the open) | F2.19, F5.16 |
@@ -884,17 +930,19 @@ Start values are in F15 (part 2); grids come in part 3. "SPEC" = the SPEC alread
 | `hold_reaction_pts`, `hold_window_min` | features | label | F11.4 |
 | `trig_fav_ticks`, `trig_adv_ticks`, `trig_window_sec` | features | label | F11.5 |
 | `daytype_snapshot_min`, `daytype_max_features`, `trend_*` | features | label / SPEC | F11.6 |
-| `daytype_inputs` | features | **NEW** (part 2), owner at step 6 | F3.10, F11.6 |
+| `daytype_inputs` | features | **NEW** (part 2), owner-approved 2026-10-05 | F3.10, F11.6 |
 | `gameplan_min_days` | settings | SPEC | F8 |
 | `blackout_before_min`, `blackout_after_min`, `news_flatten_lead_sec`, `preopen_start` | settings | owner / SPEC | F0.1, F2.22, F7 |
 
-**Removed:** `floor_search` (the Skylit rug has no floor-search clause), `roll_min_shrink_pct` and `roll_min_shift_strikes` (owner's roll rule, F2.11), `pika_cloud_max_gap_strikes` (owner: adjacent strikes), `abs_push_window_sec` (owner: no time limit), `rug_max_gap_strikes` and `king_change_min_sec` (renamed `rug_gap_strikes` and `node_switch_min_sec`).
+**Removed:** `floor_search` (the Skylit rug has no floor-search clause), `roll_min_shrink_pct` and `roll_min_shift_strikes` (owner's roll rule, F2.11), `pika_cloud_max_gap_strikes` (owner: adjacent strikes), `abs_push_window_sec` (owner: no time limit), `roll_window_min` (owner 2026-10-05: no timer on rolls), `rug_max_gap_strikes` and `king_change_min_sec` (renamed `rug_gap_strikes` and `node_switch_min_sec`).
 
 ---
 
-## F13. Open questions for the owner (answer at step 6)
+## F13. Open questions for the owner (all answered at step 6, 2026-10-05)
 
-Each question lists options; none is adopted. Code that depends on one waits for the answer (CLAUDE.md working rule 7).
+**Answers 2026-10-05 (SPEC §13 Q5–Q18):** FQ-01 (a) simple mean; FQ-08 value area (a) one tick at a time, POC tie (a) nearest the range midpoint, then nearest the volume median (owner follow-up 2026-10-05), then the lower price; FQ-09 (a) bands on both anchors; FQ-10 (b) Gaussian; FQ-11 (b) one period; FQ-12 (a) both variants; FQ-13 (a) registry highs/lows; FQ-14 (b) first full bar after the break; FQ-20 (a) time-weighted; FQ-22 (c) whichever comes first, later sessions only; FQ-23 (a) crossed doesn't count; FQ-05 leftover: intraday only. All are written into the definitions above. The options below are kept as the record.
+
+Each question lists the options as they were offered; the answers are in the line above (SPEC §13 Step 6, Q5–Q18).
 
 **FQ-01: ATR averaging (F0.8).** §5.4 says "`atr_period`-session RTH daily ATR" without naming the average. Options:
 - (a) simple mean of the true ranges;
@@ -997,13 +1045,13 @@ POC ties: (a) the price closest to the profile's midpoint; (b) the price closest
 
 **Owner-approved deviations from SPEC wording made at this review:** none. Where an earlier draft drifted from SPEC (zone crossed = every *current* member, the LVN peak bound = the next *LVN*, approach side = the side at the last re-arm, absorption refills counted at event level), this file now follows the SPEC.
 
-**For part 3:** §7 rule 5 fixes the ablation groups before step 15. The new map-shape features (F2.7, F2.10, F2.15–F2.18) need a group: either inside "confluence features" or a group of their own. This is proposed with the grids in part 3.
+**For part 3 (done, F16.8):** §7 rule 5 fixes the ablation groups before step 15. The new map-shape features (F2.7, F2.10, F2.15–F2.18) get a 7th group of their own ("map shape"; owner-approved 2026-10-05, §13 Q30).
 
 ---
 
-## F15. Start values (step 5 part 2, proposed 2026-10-05)
+## F15. Start values (step 5 part 2; approved by the owner 2026-10-05, now in `config/`)
 
-**How the list was built.** A script extracted every backticked token in `docs/SPEC.md` and this file and checked it against `config/features.yaml`, `config/settings.yaml` and `config/accounts.yaml`. Each parameter that is `null` or has no key was then checked in its SPEC context. The parameters with no start value yet are below, plus the day-type model's inputs (named in §12 step 5) and `news_title_map` (§9: "proposed at step 5"). The reasons assume NQ ≈ 30,600, a daily ATR of about 400 pts, an expected move (EM) of about 250 pts and a QQQ node band about 40 NQ pts wide (±20). Kinds are as in "How to read an entry". Tuned and frozen values here are only starting points; part 3 gives their grids. Config files keep `null` until the owner approves this table at step 6.
+**How the list was built.** A script extracted every backticked token in `docs/SPEC.md` and this file and checked it against `config/features.yaml`, `config/settings.yaml` and `config/accounts.yaml`. Each parameter that is `null` or has no key was then checked in its SPEC context. The parameters with no start value yet are below, plus the day-type model's inputs (named in §12 step 5) and `news_title_map` (§9: "proposed at step 5"). The reasons assume NQ ≈ 30,600, a daily ATR of about 400 pts, an expected move (EM) of about 250 pts and a QQQ node band about 40 NQ pts wide (±20). Kinds are as in "How to read an entry". Tuned and frozen values here are only starting points; F16 gives their grids. The owner approved this table at step 6 (2026-10-05); the values are in `config/`.
 
 | # | Parameter | Start value | Reason (one line) | File (§11) | Kind |
 |---|---|---|---|---|---|
@@ -1011,13 +1059,13 @@ POC ties: (a) the price closest to the profile's midpoint; (b) the price closest
 | 2 | `confluence_tol` | 10 NQ pts | merges thin chart levels whose bands don't overlap; = `rearm_dist`, well under `max_zone_width` (60) | features | tuned-13 |
 | 3 | `chart_level_half_width_cap` | 12 NQ pts per line type (VWAP lines and bands, POC, LVN, ON / PDH-PDL / prior RTH / prior week / IB high-low / retested extremes); single prints 6 | two capped levels merged at `confluence_tol` span 10 + 2 × 12 = 34 pts, well inside `max_zone_width` (60); single-print bands already span the run | features | cap |
 | 4 | `chart_level_half_width` | 4 NQ pts per line type; single prints 0 (SPEC §5.3: start 0, the unfilled run is the band) | a narrow start for steps 11–12 only; the step-13 reaction report replaces it (frozen on months 1–4) | features | frozen at step 13 |
-| 5 | `lean_window` | 5 min | smooths 1-second board noise over 5 × `velocity_lookback_sec` while staying intraday | features | tuned-13 (part 3 confirms) |
-| 6 | `regime_band` | 2 (% of spot) | ≈ ±2.4 EM, the range price can reach in a day; well inside `skylit_max_strikes` | features | tuned-13 (part 3 confirms) |
-| 7 | `roll_window_min` | 15 min | a roll stays relevant for about a quarter hour of trading; matches `daytype_snapshot_min` | features | tuned-13 (part 3 confirms) |
+| 5 | `lean_window` | **1 min** (owner 2026-10-05; proposed 5) | owner: "accumulation shifts quickly" | features | owner |
+| 6 | `regime_band` | **1** (% of spot; owner 2026-10-05; proposed 2) | ≈ ±1.2 EM, the nodes near enough to matter today; well inside `skylit_max_strikes` | features | owner |
+| 7 | ~~`roll_window_min`~~ | removed (owner 2026-10-05) | a roll stays active until it is rolled back, no timer (F2.11) | — | — |
 | 8 | `magnet_min_dist_em` | 0.1 EM | ≈ 25 pts, a bit more than a QQQ half-band (20 pts): a node at price pulls at most 10 × its pct_of_king | features | fixed |
 | 9 | `node_switch_min_sec` | 60 s | = `velocity_lookback_sec`; 60 straight 1-second boards keep a near-tie from flickering | features | fixed |
-| 10 | `rainbow_min_nodes_per_sign` | 2 | the doc's "multiple prominent positive and negative nodes" | features | fixed (part 3 may make it tuned-13) |
-| 11 | `rainbow_max_dominance` | 1.5 | a King under 1.5 × the second node = "no dominant node" | features | fixed (part 3 may make it tuned-13) |
+| 10 | `rainbow_min_nodes_per_sign` | 2 | the doc's "multiple prominent positive and negative nodes" | features | owner (2026-10-05) |
+| 11 | `rainbow_max_dominance` | 1.5 | a King under 1.5 × the second node = "no dominant node" | features | owner (2026-10-05) |
 | 12 | `bias_deadband` | 0.05 (lean units) | ignores a net weighted node change under 5 % per lookback; checked against the lean distribution at step 12 | features | fixed |
 | 13 | `smt_lookback_min` | 15 min | the F5.16 example window, a common NQ/ES swing scale | features | fixed |
 | 14 | `rel_delta_sec` | 60 s | one 1-minute bar of delta in each market | features | fixed |
@@ -1050,7 +1098,7 @@ POC ties: (a) the price closest to the profile's midpoint; (b) the price closest
 | 41 | `engine_port` | 8732 | as above | settings | fixed |
 | 42 | `ui_port` | 8733 | as above | settings | fixed |
 | 43 | `ntp_server` | `time.cloudflare.com` | anycast, answers from any network; step 22 confirms it on each | settings | fixed |
-| 44 | `recency_halflife_months` | 6 | the oldest of ~9 training months weighs ~0.35: drift-aware without dropping data; part 3 gives the grid | settings | fold |
+| 44 | `recency_halflife_months` | 6 | the oldest of ~9 training months weighs ~0.35: drift-aware without dropping data; grid in F16.6 | settings | fold |
 | 45 | `daytype_inputs` (≤ `daytype_max_features` = 8) | `minutes_since_open`, `ib_width_ratio`, `vwap_crosses`, `vwap_side_share`, `new_extreme_skew`, `range_vs_em`, `regime_net` (NDXP), `rv_iv_ratio` | the SPEC's day-type inputs (IB width, VWAP crosses, one-sidedness, new highs/lows (owner 2026-10-05: "great for telling if we're trending"), range vs EM, regime, vol); NDXP regime because the owner says NDXP has the edge; time of day because the counts grow with it (not in the SPEC lists, so the owner confirms it). Left out: `poc_crosses` and `rotations` (both overlap `vwap_crosses`: all three count chop), the rest of the vol context (for the later LightGBM day-type model) | features | owner |
 | 46 | `news_title_map` | unchanged from step 4a (13 blackout entries, 9 non-blocking lines; see `settings.yaml`) | the owner's high-impact list, matched by ForexFactory title; §9 says it is proposed at step 5 | settings | owner |
 
@@ -1061,13 +1109,222 @@ POC ties: (a) the price closest to the profile's midpoint; (b) the price closest
 - `min_stop_pts` / `max_stop_pts`: null by the owner (no stop guardrails, §6.2).
 - `paths.root`, `months`: set at step 4b. `max_workers`: null = the §11 rule.
 - `gates.gate_pass_rate_min`: the owner's choice (report-only until set).
-- `be_trigger` (`be_trigger_*`): a menu of ≤ 4 rules chosen per fold, not one value; the owner's first-structure rule will be on it (part 3).
-- `threshold_grid`, `style_set_grid`, the ≤ 4 breakeven rules, the detector, execution, `recency_halflife_months` and LightGBM grids, and the ablation groups: part 3.
+- `be_trigger`: a menu of ≤ 4 rules chosen per fold, not one value; see F16.2 (approved 2026-10-05; the owner's first-structure rule is on it).
+- `threshold_grid`, `style_set_grid`, the ≤ 4 breakeven rules, the detector, execution, `recency_halflife_months` and LightGBM grids, and the ablation groups: F16.
 - `warmup_sessions`, `entry_slip_ticks`, `risk_per_*`: derived by formula (§3.2, §6.1). `early_close_et`: `config/calendar.yaml`.
 - Per-account fields (`lambda_risk_penalty` default 0, `last_life_top_pct` default `auto`, `lives_mode`, `funded_buffer_usd`, `payout_*`, `bot_daily_loss_cap_usd`, `max_losses_per_day`, …): the owner enters them on the Accounts page (§6.7 presets).
 - Skylit API arguments (`top_n`, `lookback_days`, `min_notional`): request fields, not config.
-- Removed names (F12): `floor_search`, `roll_min_shrink_pct`, `roll_min_shift_strikes`, `pika_cloud_max_gap_strikes`, `abs_push_window_sec`, `rug_max_gap_strikes`, `king_change_min_sec`.
+- Removed names (F12): `floor_search`, `roll_window_min` (owner 2026-10-05), `roll_min_shrink_pct`, `roll_min_shift_strikes`, `pika_cloud_max_gap_strikes`, `abs_push_window_sec`, `rug_max_gap_strikes`, `king_change_min_sec`.
 
-**Count:** 45 parameters found without a value; 44 get a start value here (`be_trigger` is a part-3 menu). With the day-type inputs (`daytype_inputs`, a new key) and `news_title_map`: 46 rows, 46 filled.
+**Count:** 45 parameters found without a value; 44 get a start value here (`be_trigger` is a part-3 menu). With the day-type inputs (`daytype_inputs`, a new key) and `news_title_map`: 46 rows, 46 filled. Row 7 (`roll_window_min`) was since removed by the owner (2026-10-05, Q31), leaving 45 values.
 
-**For the owner at step 6, besides approving the values:** the day-type inputs leave out `poc_crosses`, `rotations` and most of the vol context, and add `minutes_since_open`, which the SPEC lists don't name (row 45); single prints start at half-width 0 as SPEC §5.3 says.
+**Noted for the owner at step 6 (approved 2026-10-05):** the day-type inputs leave out `poc_crosses`, `rotations` and most of the vol context, and add `minutes_since_open`, which the SPEC lists don't name (row 45); single prints start at half-width 0 as SPEC §5.3 says.
+
+---
+
+## F16. Pre-declared grids (step 5 part 3; approved by the owner 2026-10-05, now in `config/`)
+
+**What this is.** Every per-fold or frozen choice made from outcomes picks from a menu fixed in advance (§6.5b, §7 rule 2, §7.1). This section proposes each menu, its size and what it costs to run on the laptop. The owner approved them at step 6 (SPEC §13 "Step 6", questions Q19–Q33, 2026-10-05) before any result was seen. They are in `settings.yaml` (`threshold_grid`, `be_trigger`, `style_set_grid`, `recency_halflife_months`, `lgbm_grid`, `ablation_groups`) and `features.yaml` (`tune_grids_13`, `tune_grids_19`).
+
+**Search method for detector and execution grids (§7.1 Tuning detector parameters).**
+- Every grid is searched in **one coordinate pass**, in the order listed. Each parameter is varied over its grid while the parameters before it stay at their winners and the ones after it at their start values. The winner is kept and the pass moves on.
+- Every grid contains its F15 or SPEC start value, so the current best point is never re-run: a pass costs 1 + Σ(nᵢ − 1) runs.
+- This is not a full factorial search. It keeps the number of settings tried (printed with the result, §6.5b) small enough that the months 1–4 score still means something.
+- Detector values are scored as §7.1 and §12 step 13 say: day-blocked cross-validated total net R per month on months 1–4, with the bootstrap policy, run through the sequential rule of §7 rule 3b.
+
+**Run-time assumptions.** These are rough. Step 13 re-measures them from the `nqbot status` 90th-percentile chunk times, and every estimate is re-printed before a job starts.
+- One night ≈ 9 hours (22:30–07:30).
+- §11: a full 12-month feature, event and label rebuild ≈ 1 night.
+- One step-13 grid point rebuilds months 1–4 events with only the bootstrap pair per style, reuses the cached map, level and node-type timelines (§11) and cross-validates the provisional structure model: ≈ 1 hour, so ≈ 8 points per night.
+- Order-flow points (step 19) also stream `mbp-1`: ≈ 1.5 hours, ≈ 6 per night.
+- Execution parameters are re-simulated from the stored paths (§6.5) without a rebuild: minutes per point.
+- One pair-scorer LightGBM fit on up to 8 months of pair rows in low-memory mode: ≈ 10–20 minutes.
+
+### F16.1 Execution threshold grid (`threshold_grid`, settings; §6.5b, §6.8)
+
+| | Values |
+|---|---|
+| `min_ev_r` | 0.05, 0.10, 0.20, 0.30, 0.45 |
+| `min_target_prob` | 0.30, 0.40, 0.45, 0.50, 0.60 |
+
+- **Size:** 5 × 5 = 25 (the §6.5b maximum).
+- **Why these values:**
+  - The grid contains `tuning_start` (0.20 / 0.40).
+  - The low corner (0.05 / 0.30) leaves the Aggressive profile room below Normal (§6.8).
+  - 0.60 is what a 1:1 trade needs for EV 0.2.
+  - The `max_three_loss_rate` limit removes loose points that lose too often in a row.
+  - Conservative, Protect and the last life use EV quantiles (`profile_ev_quantiles`, `last_life_grid`), not this grid.
+- **Cost:** re-simulation of calibrated selections only, minutes per fold; a per-account `nqbot run sweep` takes well under 1 night.
+
+### F16.2 Breakeven rules (`be_trigger`, settings; §6.4, §6.6)
+
+| # | Rule | Definition |
+|---|---|---|
+| 1 | `none` | no breakeven |
+| 2 | `first_structure` | the owner's rule (F11.3): a 1-minute bar settles past the first structure between entry and target; none when the target is the first structure |
+| 3 | `r_multiple: 1.0` | the first trade ≥ 1.0 × the trade's stop distance (from the fill price) in favour |
+| 4 | `r_multiple: 0.5` | the same at 0.5 × the stop distance |
+
+- The `breakeven` signal is sent at the trigger: a bar close for rule 2, the trade's `ts_event` for rules 3–4. It takes effect `order_latency_sec` later and moves the stop to entry ± `be_offset_ticks` (§6.4).
+- **Size:** 4 (the §6.4 maximum). No per-regime split (each split would count as extra rules, §6.4).
+- **R-based, not points:** stop sizes differ widely, so a fixed +X points would mean something different on every trade.
+- **Cost:**
+  - The 4-outcome labels for all 4 rules come from one re-simulation of the stored paths: ≈ 0.5 night, once.
+  - Each rule other than `none` that some fold (or fold 10, or the production fit) picks needs its own 4-outcome scorers (k = 5…9 and later): ≈ 5–6 fits at the cached grid point ≈ 1–2 hours, shared by every fold that picks it.
+  - Worst case (all 3 non-`none` rules picked somewhere): ≈ 3–6 hours, under one night.
+
+### F16.3 Entry-style sets (`style_set_grid`, settings; §7 rule 2, §7.1)
+
+| # | Set | Note |
+|---|---|---|
+| 1 | {a, b, c, d} | all four |
+| 2 | {a, b, c} | no plain entry |
+| 3 | {a, b} | order flow only |
+| 4 | {c, d} | structure only |
+| 5 | {c} | audit / sweep reclaim only |
+| 6 | {d} | plain only (the baseline) |
+
+- **Size:** 6 (the §7 rule 2 maximum).
+- Phase D (steps 13–16) offers only the sets whose styles exist (4–6). Sets 4–6 are also exactly the choices of the structure-only and fallback system (§12 step 20).
+- **Cost:** a selection filter on cached scorer outputs, minutes per fold.
+
+### F16.4 Step-13 grids (structure detectors and execution, months 1–4)
+
+**Detector parameters (`tune_grids_13`, features), in search order (start in bold):**
+
+| Order | Parameter | Grid | Scored on | New runs |
+|---|---|---|---|---|
+| 1 | `zone_proximity` (NQ pts) | 2, **5**, 8, 12 | all events (styles c + d) | 3 (+1 for the start point) |
+| 2 | `confluence_tol` (NQ pts) | 5, **10**, 15, 20 | all events | 3 |
+| 3 | `sweep_max_depth` (NQ pts) | 10, **15**, 25, 40 | all events | 3 |
+| 4 | `sweep_reclaim_bars` | 1, 2, **3**, 5 | style (c) trades only (§7.1) | 3 |
+| 5 | `flip_margin` (NQ pts), 3 groups: GEX nodes · chart lines (VWAP lines and bands, POC, LVNs, single prints, dark pools) · highs/lows (incl. IB and retested extremes) | **0**, 2, 5 per group | all events | 6 |
+
+- **Size:** 19 rebuilds ≈ **2.5 nights** (SPEC §11: 1–3).
+- `flip_margin` is per level type (SPEC §11): 14 NQ types (the keys of `flip_margin` in `features.yaml`, mapped from the registry sub-types in F5.14). Three groups instead of 14 types keep the run count down (owner-approved, Q23); a group's winner is written for each of its types. ES-side types take their NQ counterpart's value × ES ÷ NQ (F0.11): SPY/SPX nodes from GEX nodes, SPY dark pools from chart lines, ES ON high/low and PDH/PDL from highs/lows.
+- `max_zone_width` (60) and `rearm_dist` (10) keep their SPEC values (one global value each, F12).
+- The chart-level half-widths and the NDXP band (±10 / 15 / 20) come from the reaction-distance report (F5.14), not from a grid; the owner confirms the NDXP band and `dp_band` there.
+
+**Execution parameters (`tune_grids_13`), re-simulated from the stored paths.**
+- The order type and time-to-live are searched per style ((c) and (d), each on its own single-style policy) as a **full joint grid**: they interact (a passive limit needs a longer life than a marketable one), and re-simulations are cheap.
+- `stop_buffer` is one config value for every style (§6.2), so it is searched once afterwards, on the pooled (c)+(d) trades.
+- Styles (a)/(b) inherit `stop_buffer` at step 19; their own stop (candidate 5) uses `abs_stop_buffer`.
+
+
+| Order | Parameter | Grid |
+|---|---|---|
+| 1 (joint, per style) | `entry_order_type` × `entry_ttl_sec` | {limit, marketable_limit, stop_limit} × {10, 30, **60**, 120, 300} s (start types: (c) **stop_limit**, (d) **limit**) |
+| 2 (pooled c + d) | `stop_buffer` (NQ pts) | 1, 2.5, **5**, 8, 12 (values below the step-8b 95th-percentile floor are dropped) |
+
+- **Size:** 2 styles × 15 + 4 = 34 re-simulations ≈ **≤ 1 night**.
+- **Step 13 in total:** ≈ 3–4 nights, including the final full-window rebuild with the winners (≈ 1 night).
+
+### F16.5 Step-19 grids (order-flow detectors and execution, months 1–4)
+
+**Style (a) absorption (`tune_grids_19`), scored on style (a) trades:**
+
+| Order | Parameter | Grid |
+|---|---|---|
+| 1 | `abs_volume` (contracts) | 150, **300**, 600 |
+| 2 | `abs_ticks` | 4, **8**, 12 |
+| 3 | `abs_seconds` | 15, **30**, 60 |
+| 4 | `abs_refills` | 1, **3**, 5 |
+| 5 | `abs_push_ticks` | 0, **4**, 8 (includes 0, §5.7) |
+
+Size: 1 + 5 × 2 = 11 runs.
+
+**Style (b), scored on style (b) trades:**
+
+| Order | Parameter | Grid |
+|---|---|---|
+| 1 | `imb_ratio` | 2.5, **3.0**, 4.0 |
+| 2 | `imb_window_sec` | 30, **60**, 120 |
+| 3 | `imb_min_volume` | 10, **20**, 40 |
+| 4 | `imb_stack_min` | 1, 2, **3**, 4 (includes 1, FQ-17) |
+| 5 | `exh_lookback_sec` | 10, **15**, 30 |
+| 6 | `exh_decay_ratio` | 0.35, **0.5**, 0.7 |
+| 7 | `div_lookback_sec` | 30, **60**, 120 |
+| 8 | `div_min_pts` | 1, **2**, 4 |
+
+Size: 1 + 7 × 2 + 3 = 18 runs.
+
+Both passes start from the same start-value rebuild (every detector is computed in one rebuild), so that run is shared.
+
+- **Detectors in total:** 11 + 18 − 1 shared start = 28 runs ≈ **4–6 nights**.
+- `big_trade_*`, `cvd_slope_sec`, `tob_window_sec` and `trig_min_gap_sec` are inputs or firing spacing, not trigger conditions, so they stay at their F15 / SPEC values.
+
+**Execution (`tune_grids_19`), re-simulated from the stored paths.** The order type × time-to-live grids are full joint grids, as at step 13; the two absorption-stop parameters are a coordinate pass:
+
+| Order | Parameter | Grid | Scored on |
+|---|---|---|---|
+| 1 | (a) `entry_order_type` × `entry_ttl_sec` | {**marketable_limit**, stop_limit} × {2, **5**, 10, 30} s | style (a) trades (its passive limit is report-only, §5.5b) |
+| 2 | (b) `entry_order_type` × `entry_ttl_sec` | {**marketable_limit**, stop_limit, limit} × {2, **5**, 10, 30} s | style (b) trades |
+| 3 | `abs_stop_buffer` (NQ pts) | 2, 3.5, **5**, 8 | every style's trades with stop candidate 5 (§7.1) |
+| 4 | `abs_stop_window_sec` | 60, **120**, 300 | as above |
+
+- **Size:** 8 + 12 + (1 + 3 + 2 − 1 shared start) = 25 re-simulations ≈ **≤ 1 night**.
+- **Step 19 in total:** ≈ 3–6 weeks of nights, mostly the ablation arms (F16.8, F16.10).
+
+### F16.6 Recency half-life (`recency_halflife_months`, settings; §7 rule 2, §7.2)
+
+- **Grid:** 3, **6**, 12 months, and `none` (every month weighs the same). **Size:** 4.
+- **How it is chosen:** searched once per pair scorer (k = 5…9, then the production fit; it weights only the pair scorer's rows, §7 rule 2) by forward validation: train on months 1…k−2, score month k−1 by log-loss.
+- **Order:** this runs after the LightGBM grid point is chosen; the LightGBM search itself uses the start half-life (6).
+- **Reuse:** the grid point and half-life chosen for scorer k serve its 3-outcome and 4-outcome versions and every relabel; they are searched again only when features change (§11).
+- **Cost:** 4 fits × 5 scorers = 20 fits ≈ 0.5 night, cached.
+
+### F16.7 LightGBM grid (`lgbm_grid`, settings, NEW key; §7.1)
+
+| | Values |
+|---|---|
+| `num_leaves` | 7, 15, 31 |
+| `min_data_in_leaf` (unweighted rows; LightGBM's own count) | 100, 500 |
+| fixed | `learning_rate` 0.03 with early stopping (≤ 2,000 rounds; stops after 50 without improvement on the held-out day-block fold of the 3-fold CV; the final fit uses the mean best round count of the 3 folds); `feature_fraction` 0.7; `bagging_fraction` 0.8 with `bagging_freq` 1; `lambda_l2` 10; `max_bin` 63; `deterministic: true`; fixed seed |
+
+- **Size:** 3 × 2 = 6 points, chosen by 3-fold day-blocked cross-validated log-loss inside the scorer's own training months (§7 rule 2).
+- **Other models:** the structure and trigger models use the same grid, searched once per training set. The day-type model is a regularised logistic regression with no grid (§7.1).
+- **Cost:**
+  - Pair scorer: 6 points × 3 folds × 5 scorers = 90 fits ≈ **3 nights**. Lower models (fewer rows): ≈ 0.5 night.
+  - Everything is cached and reused by later folds and ablation arms, and searched again only when features change.
+  - With F16.6 this is most of the first walk-forward's 4–8 nights (§11): step 15 in total ≈ 4–6 nights.
+
+### F16.8 Ablation groups (`ablation_groups`, settings, NEW key; §7 rule 5)
+
+| # | Group | What is removed |
+|---|---|---|
+| 1 | Trigger model | the pair scorer's trigger-probability inputs (own firing, max and latest); styles (a)/(b) still fire on their detectors |
+| 2 | Trinity (cross-market) | every feature read from ES, SPY or SPX: F2.19 Trinity, the F2.20 S&P path features, F5.16 (`es_at_level`, SMT, relative delta) and the S&P maps in the golden-zone node features. S&P path nodes still count as obstacles in target selection (F11.2). |
+| 3 | Confluence features | the F5.13 zone makeup beyond the zone's primary member: `stack_count`, per-type counts, member spread and per-type distances from the centre, container makeup, confluence at target. Kept: the primary member's type, node size, node type and freshness; zone width; distances |
+| 4 | Day-type input | P(trend) in the structure model and pair scorer, and `yesterday_day_type` |
+| 5 | Area events | VAH/VAL area events and their pairs (the VAH/VAL context features stay) |
+| 6 | Stop candidate 5 | the absorption stop |
+| 7 | **Map shape (owner-approved 2026-10-05, Q30)** | the six concepts approved 2026-10-04: beach ball (F2.7), magnets (F2.10), air pockets (F2.15), King dominance and migration (F2.16), rainbow road (F2.17), whipsaw (F2.18) |
+
+- **Why a 7th group:** these concepts are new, untested and many (≈ 40 columns). Folding them into "confluence features" would make that cut mean two different things. Rug, pika, rolling and regime stay in the base system (§7.1 lists them as structure-model inputs).
+- **Size:** 7 groups (SPEC §7 rule 5 updated 2026-10-05).
+- **Cost:**
+  - Each arm runs the full per-fold pipeline for folds 7–9 with cached grid points: ≈ 1–2 nights.
+  - Round 1 = 7 arms ≈ 7–14 nights. Each cut adds a round over the remaining groups.
+  - Group 7 adds about one arm per round (≈ +1–2 nights per round).
+
+### F16.9 Not tuned, and no regime splits
+
+- **Fixed, not tuned-13 (owner 2026-10-05, Q31):** `lean_window` 1 min, `regime_band` 1%, `rainbow_min_nodes_per_sign` 2, `rainbow_max_dominance` 1.5. `roll_window_min` is removed: a roll stays active until rolled back (F2.11). F12 had them as "part 3 decides"; my reasons for not tuning them are below.
+  - They only shape features. Each grid value would need a full feature rebuild plus a model fit, and LightGBM can use them well at any sensible value.
+  - Leaving them fixed also keeps the number of settings tried small.
+- **No regime splits** are pre-declared for breakeven (§6.4), entry order types (§5.5b) or chart-level zone widths (§5.4b). Regime breakdowns stay report-only.
+
+### F16.10 Totals and the SPEC / config changes made
+
+| Step | Grids run | Estimate |
+|---|---|---|
+| 13 | F16.4 (19 rebuilds + 34 re-sims), then the final full rebuild | ≈ 3–4 nights |
+| 15 | F16.1–F16.3, F16.6, F16.7 per fold | ≈ 4–6 nights |
+| 19 | F16.5: 28 rebuilds (≈ 5) + 25 re-sims; full rebuild (≈ 1); walk-forward (1–2); F16.8 round 1: 7 arms × (1–2) = 7–14; structure-only and logistic arms (2–4) | ≈ 16–26 nights before any cut; each cut adds a round of ≈ 6 × (1–2) nights; ≈ 3–6 weeks of nights in all |
+
+SPEC and config changes (all applied 2026-10-05 after the owner's step-6 approval, CLAUDE.md rule 12):
+- *Done 2026-10-05 (Q30 approved):* §7 rule 5 and §11 Expected run time: six → seven ablation groups (round 1 = seven ablation arms, plus structure-only and the logistic baseline once). Step 19 "≈ 2–4 weeks" → "≈ 3–6 weeks" of nights (arithmetic above; the 2–4 weeks didn't count the later elimination rounds).
+- *Done:* §11 Where settings live: the new keys `lgbm_grid` and `ablation_groups` (settings.yaml), and `tune_grids_13` and `tune_grids_19` (features.yaml).
+- *Done:* §6.4: the breakeven candidates "(none, +X pts, +1R, first structure)" become "(none, +0.5R, +1R, first structure)". §6.4 and §11 name the key `be_trigger` (the one menu of ≤ 4 rules, as in settings.yaml) instead of `be_trigger_*`.
+- *Done:* §7.1 Tuning detector parameters: the entry-trigger parameters scored on their own style's trades also include `imb_*` (style b).
+- *Done 2026-10-05 (Q31 answered):* the F16.9 parameters are owner-fixed and `roll_window_min` is removed (F2.11, F12, F15, SPEC §5.2, §11, `features.yaml`).
