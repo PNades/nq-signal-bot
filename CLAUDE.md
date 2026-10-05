@@ -6,9 +6,10 @@ A supervised ML bot for **NQ futures**. Every time price touches a key level dur
 - **Owner's trading knowledge:** `docs/owner_notes.md` and `docs/skylit/`. When the two disagree, owner notes win. If `owner_notes.md` and SPEC.md disagree, stop, add the conflict to §13 and ask the owner; until he answers, follow SPEC.md.
 
 ## Status (update at the end of every session)
-- Current step: 1
-- Done: step 26's firm check (MyFundedFutures confirmed a TradersPost bot is allowed if supervised, 2026-10; re-read its rules before going live). Accounts: MFFU Rapid EOD 25k and Builder 25k only (§6.7); larger MFFU accounts later are entered on the Accounts page, no retraining.
-- Waiting on owner: the external SSD (owner's choice: nothing is pulled or written to `data/` until it arrives and `paths.root` is set; each trading day of waiting loses one October-2025 session of Skylit history for good). Before the SSD: steps 1, 2, the docs part of 3, step 4a (scaffold), step 5 (and the owner's step-6 review), and the code and mocked-API unit tests for steps 7, 8 and 9 (no pulls, nothing written to `data/`). On SSD day: step 4b (`paths.root`, marker file, window and ledger), then the step-7 pulls. If step 10 starts between about 2026-10-21 and 2026-10-31 (or after about 2026-11-13), the month-1 merge (§12 step 4b) applies; a later start moves the window later, and any archived gameplan that then falls in months 1–9 is held back until step 20 (§5.6). Ready (owner, 2026-10-03): the Skylit academy docs (text only, no screenshots), to be placed in `docs/skylit/` before step 5 starts (step 5 needs their node-type, rug, pika and rolling definitions), and the 28 archived gameplans (Google Drive folder "Jeron gameplans"), copied into `data/raw/gameplans/` once the SSD is set up (by step 9). From 2026-10-05 the owner saves each morning's gameplan (finished before 09:30, never edited after) to that folder (§3.4).
+- Current step: 5 (feature spec; needs no data)
+- Done: step 4a (2026-10-04, independently reviewed, 64 tests pass): uv/Python 3.12 scaffold with `uv.lock`, configs (`paths.root` and `months` left for step 4b), logging, the job runner (`nqbot run`, `nqbot status`, `nqbot unlock`, `dummy` job; chunks stop cleanly via `ctx.should_stop()` / `StopChunk`), `config/calendar.yaml` built 2025-08-04 → published schedules (owner confirms at step 6; calendar questions in §13), owner's news-blackout rule change in §9 (live-only red-folder extra). Earlier: step 26's firm check (MyFundedFutures confirmed a TradersPost bot is allowed if supervised, 2026-10; re-read its rules before going live). Accounts: MFFU Rapid EOD 25k and Builder 25k only (§6.7); larger MFFU accounts later are entered on the Accounts page, no retraining.
+- Waiting on owner: the external SSD (owner's choice: nothing is pulled or written to `data/` until it arrives and `paths.root` is set; each trading day of waiting loses one October-2025 session of Skylit history for good). Before the SSD: step 5 (and the owner's step-6 review), and the code and mocked-API unit tests for steps 7, 8 and 9 (no pulls, nothing written to `data/`). On SSD day: step 4b (`paths.root`, marker file, window and ledger), then the step-7 pulls. If step 10 starts between about 2026-10-21 and 2026-10-31 (or after about 2026-11-13), the month-1 merge (§12 step 4b) applies; a later start moves the window later, and any archived gameplan that then falls in months 1–9 is held back until step 20 (§5.6). The Skylit academy docs are in `docs/skylit/` (text only; step 5 needs their node-type, rug, pika and rolling definitions). Ready (owner, 2026-10-03): the 28 archived gameplans (Google Drive folder "Jeron gameplans"), copied into `data/raw/gameplans/` once the SSD is set up (by step 9). From 2026-10-05 the owner saves each morning's gameplan (finished before 09:30, never edited after) to that folder (§3.4).
+- Owner at step 6: confirm `config/calendar.yaml` (questions in §13, incl. the Fed Chair list Oct 2025 – May 2026). Optional: Bash deny rules for `.env` in `.claude/settings.json` (only the Read tool is blocked now).
 - Last gate passed: —
 
 ## Working rules (non-negotiable)
@@ -30,7 +31,7 @@ A supervised ML bot for **NQ futures**. Every time price touches a key level dur
    - Feed, Skylit, clock or SSD failure: no new entries, pending entries removed, brackets stay at the broker; protective signals keep going (§9). Bridge/webhook failure: no new entries, brackets stay at the broker (§10.3).
    - Never send `reverse`. Only one engine and one guard may run (exclusive lock files).
    - Direction lock: every account's positions and pending entries point the same way (`demo: true` accounts are outside the lock); an opposite entry is skipped (never queued) while any account holds, has pending, or may hold (unknown / maybe filled / flat-unconfirmed / carried, or a TradeSyncer leader whose followers aren't confirmed flat) the other direction (MFFU bans hedging across accounts; §10.3).
-   - News flatten: entries blocked and `exit` sent to every account and ticker `blackout_before_min` (30) min + `news_flatten_lead_sec` (30 s) before each release on the owner's high-impact list, so nothing is open or resting from 30 minutes before; no new entry until `blackout_after_min` (60) minutes after (§9). The guard always sends it too, `guard_flat_grace_sec` later. Labels and simulators close trades when that exit takes effect.
+   - News flatten: entries blocked and `exit` sent to every account and ticker `blackout_before_min` (30) min + `news_flatten_lead_sec` (30 s) before each release on the owner's high-impact list (plus, live only, any other US event ForexFactory rates High at the 08:30 pre-open, §9), so nothing is open or resting from 30 minutes before; no new entry until `blackout_after_min` (60) minutes after (§9). The guard always sends it too, `guard_flat_grace_sec` later. Labels and simulators close trades when that exit takes effect.
    - Every order, `exit` and `breakeven` reaches the broker `order_latency_sec` after the decision, in labels and simulators too (§5.5b).
 9. **Secrets and privacy:** secrets live only in `.env`. Never commit `.env`, `data/` or `models/`. Personal use only: data and alerts are never shared.
 10. **Scope:** NQ only, no GC. Don't propose anything listed in §10.2.
@@ -59,11 +60,12 @@ A supervised ML bot for **NQ futures**. Every time price touches a key level dur
 | 29 ongoing | §3.1, §3.2, §5.6, §7 rule 2, §8, §12 steps 18 and 27, §7 rule 2b, §7.1 (Retraining), §7.2, §6.4, §9 (calendar), §11 (Overnight jobs, Storage) |
 
 ## Commands
-Fill these in as they are built:
-- Tests: `pytest`
+Run every command through uv from the repo root (VS Code terminal on Windows), e.g. `uv run nqbot status`. Fill these in as they are built:
+- Install / update the environment: `uv sync` (from the committed `uv.lock`)
+- Tests: `uv run pytest`
+- Long jobs (overnight, resumable): `uv run nqbot run <job> --until 07:30`; progress: `uv run nqbot status` (§11). Both refuse until step 4b sets `paths.root` and the SSD marker `.nqbot_drive` is found. Test job: `dummy`. A job lock left on the SSD by an unplugged run (other machine): `uv run nqbot unlock` shows it, `--yes` removes it.
 - Control Panel: `nqbot ui`
 - Today's gameplan: `nqbot gameplan <file>`
-- Long jobs (overnight, resumable): `nqbot run <job> --until 07:30`; progress: `nqbot status` (§11)
 - Live trading: `nqbot live` (starts the engine and the guard, runs the pre-open job if needed, §9)
 - Re-run an account's threshold sweep: `nqbot run sweep --account <account>` (§6.8)
 - Pre-open job: `nqbot preopen` (Task Scheduler, 08:30) · register scheduled tasks: `nqbot setup-tasks` · guard: `nqbot guard` (started by `nqbot live`) (§9)

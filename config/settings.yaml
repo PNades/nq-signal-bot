@@ -1,0 +1,161 @@
+# Global trading / execution settings (SPEC §11 "Where settings live").
+# Values are the SPEC's start values. `null  # step 5` = no SPEC value yet: proposed at step 5, approved at step 6.
+# Machine resources (max_workers, max_fold_mem_gb, low_memory) may be overridden per machine in config/local.yaml.
+
+# --- Storage (§11 Storage, path convention) -------------------------------------------------
+paths:
+  root: null            # set at step 4b (SSD day): folder relative to the SSD's drive, e.g. "nqbot/". The drive is found
+                        # by scanning mounted drives for the marker file .nqbot_drive, never by drive letter.
+  # Derived from root (never repo-relative): data_dir = <root>/data, raw_dir = <root>/data/raw,
+  # live_dir = <root>/data/live, models_dir = <root>/models, reports_dir = <root>/reports,
+  # log_dir = <root>/logs, tmp_dir = <root>/tmp
+min_free_gb: 50
+min_free_gb_live: 20
+
+# --- Month ledger (§7 rule 2b) ----------------------------------------------------------------
+months: null            # set at step 4b (SSD day): development 1-6, walk-forward test 7-9, sealed 10-12 (+ top-up)
+min_month1_sessions: 10
+min_new_sealed_months: 2
+
+# --- Machine resources (overridable in config/local.yaml) ----------------------------------
+max_workers: null       # null = all cores but 2; capped at run time by free RAM (§11 Low memory)
+max_fold_mem_gb: 10
+low_memory: true        # 16 GB laptop mode (§11 Low memory)
+grid_sample_frac: 1.0
+
+# --- Session (§1.2) ---------------------------------------------------------------------------
+session:
+  flat_by: "15:59"      # owner; a model constant (changing it means a rebuild)
+min_minutes_before_flat: 14   # owner's rule, not tuned: last entry 15:45
+
+# --- Operations (§9, §11 Overnight jobs) -------------------------------------------------------
+ops:
+  job_lock_window: "08:30-16:15"   # ET, trading days: no nqbot run job inside it (from step 22)
+  job_lock_window_enforced: false  # step 22 sets true (§11: the ban starts once live trading starts)
+preopen_start: "08:30"
+archive_time: "17:05"
+heartbeat_min: 15
+inactivity_alert_days: 5
+retrain_every_months: 1
+
+# --- Execution and risk (§3.5, §5.5b, §6, §10.3) --------------------------------------------
+order_latency_sec: 1.0       # placeholder until step 21 measures the 95th percentile
+default_risk_usd: 333
+max_entry_slip_ticks: 4
+exit_slippage_ticks: 1       # set at step 13 (95th percentile stop slippage, months 1-4)
+default_commission_per_mini_rt: 4.68    # labeling default (owner's MFFU rate, all fees)
+default_commission_per_micro_rt: 1.90   # labeling default (owner's MFFU rate, all fees)
+exit_retry_window_sec: 120
+flat_retry_min: 11
+flat_alert_sec: 30
+unknown_alert_min: 5
+webhook_timeout_sec: 5
+entry_ttl_sec: {a: null, b: null, c: null, d: null}   # per entry style; step 5 start values, frozen on months 1-4 (step 13/19)
+stop_buffer: null            # step 5 (start value; floor = step-8b 95th percentile; frozen at step 13)
+entry_order_type:            # start values per entry style (§5.5b); frozen on months 1-4
+  a: marketable_limit
+  b: marketable_limit
+  c: stop_limit
+  d: limit
+enabled_entry_styles: [c, d]     # (a)/(b) are built at step 19 (order flow); step 20 decides whether they stay
+style_tie_ev_r: 0.05
+max_target_candidates: 10
+pair_build_min_rr: 0.8
+swing_lookback_sec: 300
+lives_dust_usd: 25
+be_trigger: null             # step 5: the be_trigger_* breakeven rules (<= 4, approved at step 6)
+be_offset_ticks: null        # step 5
+
+# --- Supervision and live engine (§9) ----------------------------------------------------------
+guard_check_sec: 10
+guard_flat_grace_sec: 30
+max_engine_restarts: 3
+guard_port: null             # step 5 (localhost ports)
+engine_port: null            # step 5
+ui_port: null                # step 5
+sleep_detect_sec: 30
+clock_max_offset_ms: 250
+clock_check_min: 10
+ntp_server: null             # step 5; step 22 confirms it answers on each network
+feed_stale_sec: 5
+feed_lag_max_ms: 500
+feed_recovery_sec: 60
+deadman_url: ""
+
+# --- Skylit (§3.1) ---------------------------------------------------------------------------------
+skylit_max_strikes: 200      # set at step 7 from full-chain calls
+strike_edge_margin: 5
+skylit_stale_sec: 45
+skylit_credit_warn: 10000
+map_latency_sec: null        # measured at step 7 (99.9th percentile stream delay)
+
+# --- News blackouts (§9) ---------------------------------------------------------------------------
+blackout_before_min: 30      # owner
+blackout_after_min: 60       # owner
+news_flatten_lead_sec: 30    # must exceed order_latency_sec + webhook_timeout_sec + 1 s
+calendar_poll_min: 15
+# ForexFactory weekly feed (checked 2026-10-04): JSON, times in ET with the UTC offset
+# (e.g. "2026-10-05T10:00:00-04:00"); covers the current week only, Sunday to Saturday.
+# The XML twin uses GMT times: not used.
+calendar_feed_url: "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+# PROPOSED at step 4a, owner approves at step 6.
+# Canonical calendar.yaml name -> ForexFactory titles (country USD), matched by exact title.
+# These are the owner's list: blackout: true whatever ForexFactory rates them.
+# Any OTHER US event ForexFactory rates High in the feed at the 08:30 pre-open gets a live-only
+# blackout (calendar.yaml live_extra; never used by backtest or labels; each one logged, §9).
+news_title_map:
+  blackout:
+    NFP: ["Non-Farm Employment Change"]
+    FOMC Rate Decision: ["Federal Funds Rate"]
+    FOMC Statement: ["FOMC Statement"]
+    FOMC Press Conference: ["FOMC Press Conference"]
+    FOMC Minutes: ["FOMC Meeting Minutes"]
+    # Every scheduled Chair testimony and speech, whatever its rating. ForexFactory titles use the Chair's
+    # name ("Fed Chairman Warsh ..." since 2026-05-22; it renamed Powell's past Chair speeches to
+    # "FOMC Member Powell Speaks"). Update when the Chair changes.
+    Fed Chair: ["Fed Chairman Warsh Speaks", "Fed Chairman Warsh Testifies"]
+    CPI: ["CPI m/m", "CPI y/y"]
+    Core PCE: ["Core PCE Price Index m/m"]
+    PPI: ["PPI m/m"]
+    Advance GDP: ["Advance GDP q/q", "Advance GDP Price Index q/q"]
+    ISM Manufacturing PMI: ["ISM Manufacturing PMI"]
+    ISM Services PMI: ["ISM Services PMI"]
+    Retail Sales: ["Retail Sales m/m"]
+  # Extra lines of the listed releases (same time as their release): blackout: false, calendar features only.
+  no_blackout:
+    Unemployment Rate: ["Unemployment Rate"]
+    Average Hourly Earnings: ["Average Hourly Earnings m/m"]
+    FOMC Economic Projections: ["FOMC Economic Projections"]   # 14:00 with the decision, projection meetings only
+    Core CPI: ["Core CPI m/m"]
+    Core PPI: ["Core PPI m/m"]
+    Core Retail Sales: ["Core Retail Sales m/m"]
+    PCE Price Index: ["PCE Price Index m/m"]
+    Personal Income: ["Personal Income m/m"]
+    Personal Spending: ["Personal Spending m/m"]
+
+# --- Gameplans (§5.6) ------------------------------------------------------------------------------
+gameplan_min_days: 20
+
+# --- Training, tuning, gates (§6.5b, §6.8, §7) -----------------------------------------------------
+tuning_start:
+  min_ev_r: 0.20
+  min_target_prob: 0.40
+threshold_grid: null         # step 5: <= 5 x 5 values of min_ev_r x min_target_prob
+last_life_grid: [0.10, 0.20, 0.33]           # fixed, owner
+profile_ev_quantiles: {conservative: 0.67, protect: 0.90}   # fixed
+profile_risk_multiplier: {aggressive: 1.0, normal: 1.0, conservative: 0.5, protect: 0.33}
+style_set_grid: null         # step 5: <= 6 sets, approved at step 6
+recency_halflife_months: null    # step 5 (grid); tuned per scorer
+bootstrap_paths: 500
+default_max_three_loss_rate: 0.15
+gate_account:                # §6.5b: account-independent choices and gates 16/20
+  risk_usd: 333              # = default_risk_usd
+  max_minis: 2
+  max_micros: 20
+  max_three_loss_rate: 0.15  # = default_max_three_loss_rate
+  daily_caps: false
+  lives: false
+  stop_at_target: false
+gates:
+  gate_calib_max: 0.05
+  gate_pass_rate_min: null   # owner decides (report-only until set)

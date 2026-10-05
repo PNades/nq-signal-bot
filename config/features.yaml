@@ -1,0 +1,105 @@
+# Detector, mapping and structure parameters (SPEC §11 "Where settings live", §5).
+# Values are the SPEC's start values. `null  # step 5` = no SPEC value yet: proposed in docs/feature_spec.md
+# at step 5, approved at step 6. Frozen execution parameters are added here at step 13/19,
+# marked `frozen_from: months 1-4` (§7.1).
+features_version: 0
+
+# --- Structure (§5.2-§5.4b) -----------------------------------------------------------------------
+zone_proximity: null            # step 5 (NQ pts)
+es_zone_proximity: null         # default = zone_proximity x ES / NQ price at the session open
+confluence_tol: null            # step 5
+max_zone_width: 60              # NQ pts
+rearm_dist: 10                  # NQ pts
+entry_reprice_tol: 2            # NQ pts
+chart_level_half_width: null    # per level type; frozen at step 13 from the reaction-distance report
+chart_level_half_width_cap: null
+node_band: {QQQ: 0.5, SPY: 0.5, SPX: 5, NDXP: 20}   # in each underlying's own units; NDXP confirmed at step 13
+min_node_pct_of_king: 0.25      # owner
+node_drop_pct: 0.20
+lean_window: null               # step 5 (minutes)
+velocity_lookback_sec: 60
+regime_band: null               # step 5 (% of spot)
+floor_search: null              # step 5
+flip_margin: 0                  # per level type, tuned at step 13 on months 1-4
+flip_bar_minutes: 5
+ib_fib_start_minute: 20         # owner rule, never tuned (golden zone opens 09:50)
+ib_lock_minute: 30              # owner rule, never tuned (all setups from 10:00)
+sweep_max_depth: 15             # NQ pts
+sweep_reclaim_bars: 3           # 1-minute bars
+retest_tol_ticks: 4
+retest_lookback_sessions: 10
+atr_period: 14                  # sessions
+rotation_min_pts: 0.25          # x ATR
+rv_lookback_sessions: 20
+
+# --- Volume profile (§5.3) ------------------------------------------------------------------------
+lvn_smooth_ticks: 8
+lvn_max_pct: 0.3
+lvn_merge_pts: 5
+profile_update_sec: 60
+tpo_tick_pts: 1
+sp_min_ticks: 8
+
+# --- Dark pools (§3.1) ---------------------------------------------------------------------------
+dp_top_n: 3
+dp_lookback_days: 45
+dp_band: 0.5                    # QQQ $; owner confirms at step 13
+dp_lag_sessions: 1              # step 7 late-print check may raise it
+
+# --- Vol context (§5.2) ---------------------------------------------------------------------------
+tempest_lag_sessions: 1         # step 7 decides (if in doubt, 2)
+
+# --- Skylit structure (§5.2) ------------------------------------------------------------------------
+roll_window_min: null           # step 5
+roll_min_shrink_pct: null       # step 5
+roll_min_shift_strikes: null    # step 5
+ib_avg_sessions: 20
+
+# --- Mapping (§5.1) ---------------------------------------------------------------------------------
+mapping:
+  ratio_outlier_bps: 3
+  ratio_reaccept_n: 3
+  ratio_open_skip_sec: 120
+  mapping_p95_max: {QQQ: 1.0, NDXP: 0.5, SPY: 0.25, SPX: 0.25}   # NQ pts for QQQ/NDXP, ES pts for SPY/SPX
+  atlas_match_tol: {NQ: 1.0, ES: 0.5}
+
+# --- Entries and order flow (§5.7) ---------------------------------------------------------------
+abs_volume: null                # step 5
+abs_ticks: null                 # step 5
+abs_seconds: null               # step 5
+abs_refills: null               # step 5
+abs_push_ticks: null            # step 5
+abs_stop_buffer: 5              # owner: about 5 NQ pts; frozen at step 19
+abs_stop_window_sec: 120
+big_trade_agg_ms: 50
+big_trade_min_contracts: null   # start: 99th percentile of combined trade size (measured)
+big_trade_lookback_sessions: 20
+imb_ratio: null                 # step 5
+exh_lookback_sec: null          # step 5
+exh_decay_ratio: null           # step 5
+div_lookback_sec: null          # step 5
+div_min_pts: null               # step 5
+trig_min_gap_sec: 5
+area_rearm_sec: 300
+
+# --- Stops (§6.2) ---------------------------------------------------------------------------------
+min_stop_pts: null              # owner: no stop guardrails
+max_stop_pts: null              # owner: no stop guardrails
+stop_merge_ticks: 2
+
+# --- Labels (§4, §7.1) ----------------------------------------------------------------------------
+hold_reaction_pts: null         # step 5
+react_pts: null                 # step 5
+react_minutes: null             # step 5
+react_width_q: null             # step 5
+hold_window_min: null           # step 5
+trig_fav_ticks: null            # step 5
+trig_adv_ticks: null            # step 5
+trig_window_sec: 120            # a label parameter, fixed
+
+# --- Day type (§7.1) -------------------------------------------------------------------------------
+daytype_snapshot_min: 15
+daytype_max_features: 8
+trend_close_pct: 0.20
+trend_max_vwap_crosses: 2
+trend_max_poc_crosses: 2

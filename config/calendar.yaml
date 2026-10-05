@@ -1,0 +1,564 @@
+# News releases, CME equity-index holidays and early closes (SPEC §1.2, §9, §12 step 4a).
+# events: the owner's list (blackout: true, backtest + live) and the extra lines released with it
+#   (blackout: false, calendar features only). Times are ET.
+# live_extra: written by the pre-open job from step 22: other US events ForexFactory rates High at 08:30.
+#   Live only: the backtest, labels and simulators never read it (§9).
+# early_close_et is the cash close (13:00 ET), not CME's 13:15 futures close (§1.2).
+# Built at step 4a by Claude Code from the agencies' schedules and archives (sources below);
+# the owner confirms it at step 6.
+meta:
+  built: 2026-10-04
+  window_from: 2025-08-04
+  window_to: 2027-12-31
+  timezone: America/New_York
+  rule: 'Past releases as scheduled at 08:30 ET on the day: a postponement or cancellation counts only if announced before then (schedule_changes lists each with its announcement date). Future dates as currently published. Owner confirms at step 6; refreshed monthly.'
+  published_through: {Advance GDP: 2026-10-29, CPI: 2026-12-10, Core PCE: 2026-12-23, FOMC Minutes: 2027-12-29, FOMC Press Conference: 2027-12-08, FOMC Rate Decision: 2027-12-08, FOMC Statement: 2027-12-08, Fed Chair: 2026-08-28, ISM Manufacturing PMI: 2026-12-01, ISM Services PMI: 2026-12-03, NFP: 2026-12-04, PPI: 2026-12-15, Retail Sales: 2026-12-16}
+  chair:
+  - {name: Powell, from: 2018-02-05, to: 2026-05-15, note: term as Chair ended Fri 2026-05-15}
+  - {name: Powell, role: chair pro tempore, from: 2026-05-15, to: 2026-05-22, note: Board named him chair pro tempore 2026-05-15 until Warsh sworn in; no public appearances in this span; stays on as Governor (term to Jan 2028)}
+  - {name: Warsh, full_name: Kevin M. Warsh, from: 2026-05-22, note: Senate confirmed 2026-05-13 (54-45); sworn in and chosen FOMC chairman 2026-05-22; Fed styles him 'Chairman'}
+  research_notes:
+  - 'bls: All past dates verified against BLS archive pages (bls.gov/bls/news-release/*.htm) and the 2025/2026 yearly schedule pages; every release in scope was at 08:30 ET. The empsit archive listing omitted the Nov-2025 release; it was confirmed directly (empsit_12162025: Tue 2025-12-16 08:30).'
+  - 'bls: Last published dates: NFP 2026-12-04 (Nov 2026), CPI 2026-12-10 (Nov 2026), PPI 2026-12-15 (Nov 2026). The 2027 BLS schedule is NOT yet published (bls.gov/schedule/2027/home.htm returns 404 as of 2026-10-04); re-check in Nov/Dec 2026.'
+  - "bls: Original (pre-shutdown) dates come from the BLS revised-dates page 'Previously Scheduled' column, except CPI Sep 2025 (2025-10-15, from the original 2025 schedule, not on that page; the reschedule notice is dated 2025-10-10)."
+  - 'bls: announced 2025-10-01 = start of the funding lapse (00:01 ET). BLS suspended all operations and published nothing during the lapse per the DOL contingency plan (source nasdaq_bls_cease_ops; NBC nbc_oct3_no_jobs confirms no Oct 3 release). I did not find a dated BLS notice per release; the lapse itself is treated as the announcement for every release scheduled Oct 1 - Nov 12.'
+  - 'bls: UNCERTAIN: CPI Oct 2025 (sched Thu 2025-11-13) and PPI Oct 2025 (sched Fri 2025-11-14). The shutdown ended late 2025-11-12 (bill signed ~night of Nov 12), i.e. before these 08:30 slots. No BLS notice reinstating them was issued and nothing was released, so they are treated as not scheduled (announced 2025-10-01). Formal cancellations came later (CPI 2025-11-21, PPI 2025-12-08).'
+  - "bls: UNCERTAIN: PPI Nov 2025 'announced' 2025-11-25 is based on the Sep-2025 PPI release text (that day 08:30) saying subsequent PPI releases would also be delayed; the explicit Jan-14 date was posted 2025-12-08 (BLS tweet / investinglive). Either way it is before the 2025-12-11 slot."
+  - 'bls: UNCERTAIN: PPI Jan 2026 and Feb 2026 reschedule announcement dates are only bounded: the new dates were stated in the 2026-01-30 and 2026-02-27 PPI releases respectively (could have been posted earlier on the revised-dates page). Both are before the original slots (Feb 12, Mar 12).'
+  - "bls: PPI Dec 2025's 'previously scheduled' date (2026-01-14) is as stated by BLS; that slot was then reused by the Nov-2025 PPI, so 2026-01-14 does carry a PPI release. Dec-PPI move to Jan 30 announced 2025-12-11 (secondary source roic.ai, not a BLS page)."
+  - "bls: 2026 lapse: CNN 2026-02-02 reported BLS would delay the Jan jobs report; new dates (NFP Feb 11, CPI Feb 13, JOLTS Feb 5) announced Wed 2026-02-04 after funding was restored. A roic.ai item of 2026-02-04 said BLS had 'confirmed' CPI on Feb 11, contradicting this; the BLS revised-dates page (updated 2026-02-12) and the actual release date (2026-02-13) confirm the move. Exact time of the Feb 4 announcement not found (articles published midday ET)."
+  - 'bls: Second 2026 shutdown (Feb 14 - Apr 30, 2026) was DHS-only; BLS unaffected. No funding lapse affected BLS around 2026-10-01 (Sep-2026 jobs report released on schedule 2026-10-02).'
+  - 'bls: Time-of-day of announcements generally not available; all listed announcement dates are at least one calendar day before the affected 08:30 slot, so the exact time does not matter for the as-of-08:30 rule.'
+  - "bea: Q3-2025 GDP: BEA itself titled the 2025-12-23 release 'Gross Domestic Product, 3rd Quarter 2025 (Initial Estimate) and Corporate Profits (Preliminary)' - NOT 'advance'. BEA (2025-12-10): the advance estimate was canceled; the Dec 23 initial estimate 'replaces the typical advance and second estimates'; the Jan 22 2026 'Updated Estimate' replaces the third. I listed Dec 23 under name 'Advance GDP' because it was the first print of Q3; drop it if your rule is strictly 'advance' by title."
+  - "bea: Shutdown 2025-10-01..2025-11-12: no per-release postponement notices were posted before the original dates (agencies were closed). BEA's schedule page still listed 2025-10-30/31 on 2025-10-17 under a banner 'Due to a lapse in appropriations, this website is not being updated'. Under a strict 'counts only from announcement' rule, 2025-10-16 (Retail), 2025-10-30 (Adv GDP), 2025-10-31 (PCE) and 2025-11-14 (Retail) were still formally 'scheduled' at 08:30 on their day but were universally known not to happen. Field announced_implicit: 2025-10-01 marks this; you decide whether to blackout those days."
+  - "bea: Post-shutdown 10:00 ET PCE releases: 2025-12-05 (Sep 2025) and 2026-01-22 (Oct+Nov 2025; the same day GDP Q3 'Updated Estimate' was at 08:30). The original 2025 schedule also had PCE at 10:00 on 2025-11-26 and 2025-12-19 (never held). From 2026 BEA releases PIO at 08:30 on the same day as GDP (BEA blog 2026-02-09)."
+  - "bea: 2026 funding lapses: Commerce (BEA, Census) got full-year FY2026 CJS appropriations in January 2026; the 2026-01-31..02-03 lapse and the ~76-day DHS-only partial shutdown (ended 2026-04-30) did not touch Commerce. All 2026 BEA/Census moves above are announced as residual 'post-shutdown' effects of the 2025 lapse. Wikipedia's 2026 budget page loosely implies Commerce was in the Jan 31-Feb 3 lapse; BEA/Census pages show no disruption then (low confidence on that point only)."
+  - 'bea: FY2027: CR (P.L. 119-103) funds the government through 2026-12-11. A lapse from 2026-12-12 could hit Retail Sales 2026-12-16 and PCE/GDP 2026-12-23. Re-check in early December.'
+  - "bea: Furthest published dates: BEA 2026-12-23 (2027 schedule not yet published); Census Advance Retail 2026-12-16 (Dec 2026 data 'TBA'); ISM 2026-12-01 Mfg / 2026-12-03 Services (no 2027 table yet); NYSE holidays through 2028 (window cut at 2027-12-31)."
+  - "bea: ISM is private and was not affected by the shutdown; the dates come from ISM's calendar (2025 table via wayback 2025-10-09, 2026 table current 2026-09-30). 2026-01-05 Manufacturing was moved for an ISM holiday; 2026-07-06 Services for July 3. I did not check each past release's press release one by one."
+  - 'bea: Census retail original dates: 2025 from the Census schedule page (wayback 2025-10-12 / 2025-11-16); 2026 originals (Jan 15, Feb 17, Mar 16, Apr 16) from the 2026 economic-indicator calendar (wayback 2025-11-01/16). Census govdelivery bulletins carry no visible date, so exact announcement days for the Dec 2025-Mar 2026 reschedulings are bracketed by wayback captures.'
+  - 'bea: CME: 2025-11-28 (day after Thanksgiving, early close) CME Globex was halted for about 10 hours by the CyrusOne CHI1 cooling failure; ES/NQ reopened that morning (around 08:30 ET per press reports, not verified to the minute). You may want to exclude that session.'
+  - 'bea: CME equity-index futures early-close time (12:15 CT / 13:15 ET; settlement 12:00 CT) comes from CME holiday memos, not checked for each date because cmegroup.com timed out. On full NYSE holidays (e.g. Labor Day, Good Friday) CME holiday hours differ by holiday. Good Friday sometimes has a short equity session when NFP is released (2026-04-03); check the CME Good Friday advisory if needed: https://www.cmegroup.com/tools-information/holiday-calendar/files/2026/2026-good-friday-clearing-advisory.pdf'
+  - 'bea: No special NYSE closures (e.g. national day of mourning) found between 2025-08-04 and 2026-10-04. NYSE stayed open on 2025-12-24 (13:00 close) and 2025-12-26 (full day) even though federal employees had those days off.'
+  - 'fed: 2027 FOMC schedule is published (announced 2025-09-05). The 2027 table footnote also gives a tentative Jan 25-26 2028 meeting, included. 2027-28 dates are tentative until confirmed at the preceding meeting.'
+  - 'fed: Minutes dates through the Oct 27-28 2026 and Dec 8-9 2026 meetings are on the Fed calendar (Oct 7, Nov 18, Dec 30 2026). 2027-28 minutes dates are derived (decision + 21 days); the Fed can shift one by a day around holidays (Dec 2025 minutes came Dec 30, not Dec 31).'
+  - 'fed: 2027-28 press conferences are assumed (every meeting since 2019 has had one); not yet on the Fed calendar.'
+  - "fed: No unscheduled/intermeeting rate actions in the window. Only off-cycle FOMC action: 2025-08-22 notation vote approving the revised Statement on Longer-Run Goals (released with Powell's Jackson Hole speech) - not a rate decision, not listed."
+  - 'fed: FF actuals: Sep 17 2025 cut to 4.00-4.25, Oct 29 2025 cut to 3.75-4.00, Dec 10 2025 cut to 3.50-3.75, holds Jan-Jul 2026, Sep 16 2026 hike to 3.75-4.00.'
+  - 'fed: No early-2026 semiannual Monetary Policy Report testimony took place (Fed MPR page lists none; first 2026 MPR testimony was Warsh, Jul 14-15).'
+  - "fed: Excluded from Fed Chair (not Chair at the time): Warsh Senate Banking confirmation hearing 2026-04-21 10:00 (FF now lists it as 'Fed Chairman Warsh Testifies', high); Senate Fed Chair nomination vote 2026-05-13 14:40 (FF 'Fed Chair Nomination Vote', high); Powell as Governor 2026-05-31 20:30 JFK award remarks (FF 'FOMC Member Powell Speaks'); Warsh swearing-in at the White House 2026-05-22 (not on Fed calendar or FF). Owner may want the Apr 21 hearing and May 13 vote added as high-impact items."
+  - 'fed: Excluded as unscheduled: Powell video statement Sun 2026-01-11 (DOJ subpoena; on the 2026 speeches page, not on the calendar).'
+  - "fed: Every Chair event time is the Fed calendar's scheduled start and matches the FF dateline exactly. 2025-12-01 (20:00), 2026-03-21 (Saturday) are outside RTH."
+  - "fed: The 'as scheduled at 08:30 ET that day' rule could not be checked per event from archives; all listed events are on the Fed's calendar and none carries an FF 'surprise / added late' notice. 2025-10-09 is itself at 08:30 (pre-recorded)."
+  - 'fed: No Warsh appearances announced yet for Oct-Dec 2026 on the Fed calendar or FF (checked 2026-10-04).'
+  - "fed: nfs.faireconomy.media only serves ff_calendar_thisweek.json (nextweek/lastweek 404); it confirms 'FOMC Meeting Minutes' 2026-10-07 14:00 High."
+sources:
+  bea_2025_10_17_wayback: https://web.archive.org/web/20251017045416/https://www.bea.gov/news/schedule
+  bea_blog_2025_11_14: https://www.bea.gov/news/blog/2025-11-14/bea-developing-updated-economic-release-schedule
+  bea_blog_2025_11_20: https://www.bea.gov/news/blog/2025-11-20/economic-release-schedule-updates-gdp-and-personal-income-and-outlays
+  bea_blog_2025_11_24a: https://www.bea.gov/news/blog/2025-11-24/economic-release-schedule-updates
+  bea_blog_2025_11_24b: https://www.bea.gov/news/blog/2025-11-24/economic-release-schedule-updates-0
+  bea_blog_2025_12_10: https://www.bea.gov/news/blog/2025-12-10/economic-release-schedule-updates
+  bea_blog_2025_12_18: https://www.bea.gov/news/blog/2025-12-18/economic-release-update-personal-income-and-outlays-september-2025
+  bea_blog_2026_01_07: https://www.bea.gov/news/blog/2026-01-07/economic-release-schedule-updates-gdp-personal-income-and-outlays
+  bea_blog_2026_01_15: https://www.bea.gov/news/blog/2026-01-15/economic-release-schedule-updates-gdp-personal-income-and-outlays
+  bea_gdp_q3_2025_initial: https://www.bea.gov/news/2025/gross-domestic-product-3rd-quarter-2025-initial-estimate-and-corporate-profits
+  bea_lapse_notice_wayback: https://web.archive.org/web/20251101010926/https://www.bea.gov/news/schedule
+  bea_schedule: https://www.bea.gov/news/schedule/full
+  bea_schedule_2025: https://www.bea.gov/news/schedule/full-2025
+  bea_schedule_2025_pdf: https://www.bea.gov/sites/default/files/2024-09/2025-News-Release-Schedule.pdf
+  bloomberg_oct_cpi_cancel: https://www.bloomberg.com/news/articles/2025-11-21/bls-cancels-us-october-cpi-report-will-publish-some-data-later
+  bloomberg_sep_nfp_nov20: https://www.bloomberg.com/news/articles/2025-11-14/bls-says-september-jobs-report-will-be-released-nov-20
+  bls_2025_schedule: https://www.bls.gov/schedule/2025/home.htm
+  bls_2026_schedule: https://www.bls.gov/schedule/2026/home.htm
+  bls_cpi_archive: https://www.bls.gov/bls/news-release/cpi.htm
+  bls_cpi_schedule: https://www.bls.gov/schedule/news_release/cpi.htm
+  bls_cpi_sep2025_notice: https://www.bls.gov/bls/092025-cpi-reschedule-notice.htm
+  bls_empsit_12162025: https://www.bls.gov/news.release/archives/empsit_12162025.htm
+  bls_empsit_archive: https://www.bls.gov/bls/news-release/empsit.htm
+  bls_empsit_schedule: https://www.bls.gov/schedule/news_release/empsit.htm
+  bls_lapse_revised: https://www.bls.gov/bls/2025-lapse-revised-release-dates.htm
+  bls_ppi_01142026: https://www.bls.gov/news.release/archives/ppi_01142026.htm
+  bls_ppi_01302026: https://www.bls.gov/news.release/archives/ppi_01302026.htm
+  bls_ppi_02272026: https://www.bls.gov/news.release/archives/ppi_02272026.htm
+  bls_ppi_11252025: https://www.bls.gov/news.release/archives/ppi_11252025.htm
+  bls_ppi_archive: https://www.bls.gov/bls/news-release/ppi.htm
+  bls_ppi_schedule: https://www.bls.gov/schedule/news_release/ppi.htm
+  census_adv_release_pdfs: https://www2.census.gov/retail/releases/historical/marts/
+  census_bulletin_dec_retail: https://content.govdelivery.com/accounts/USCENSUS/bulletins/4064773
+  census_bulletin_sep_retail: https://content.govdelivery.com/accounts/USCENSUS/bulletins/3fc1a9e
+  census_calendar_wayback_2025_11_16: https://web.archive.org/web/20251116231442/https://www.census.gov/economic-indicators/calendar-listview.html
+  census_calendar_wayback_2026_01_02: https://web.archive.org/web/20260102231332/https://www.census.gov/economic-indicators/calendar-listview.html
+  census_calendar_wayback_2026_01_17: https://web.archive.org/web/20260117231956/https://www.census.gov/economic-indicators/calendar-listview.html
+  census_calendar_wayback_2026_02_26: https://web.archive.org/web/20260226133814/https://www.census.gov/economic-indicators/calendar-listview.html
+  census_calendar_wayback_2026_03_03: https://web.archive.org/web/20260303114318/https://www.census.gov/economic-indicators/calendar-listview.html
+  census_calendar_wayback_2026_03_28: https://web.archive.org/web/20260328004851/https://www.census.gov/economic-indicators/calendar-listview.html
+  census_marts_dates_xls: https://www.census.gov/retail/marts/www/MARTSreleasedates.xls
+  census_retail_schedule: https://www.census.gov/retail/release_schedule.html
+  census_retail_schedule_wayback_2025_11_16: https://web.archive.org/web/20251116195400/https://www.census.gov/retail/release_schedule.html
+  census_retail_schedule_wayback_2025_12_28: https://web.archive.org/web/20251228101727/https://www.census.gov/retail/release_schedule.html
+  cme_holidays: https://www.cmegroup.com/trading-hours.html
+  cme_outage_2025_11_28: https://www.cnbc.com/2025/11/28/cme-halts-fx-commodities-futures-trading-after-data-center-issue.html
+  cnn_jan_nfp_delay: https://www.cnn.com/2026/02/02/economy/us-shutdown-january-jobs-report-bls
+  derived_3_weeks: 'Fed rule on fomccalendars.htm: minutes released three weeks after the decision day; date computed, not yet on the Fed calendar'
+  fed_calendar: https://www.federalreserve.gov/newsevents/calendar.htm
+  fed_press_releases: https://www.federalreserve.gov/newsevents/pressreleases.htm
+  fed_speeches: https://www.federalreserve.gov/newsevents/speeches.htm
+  fed_testimony: https://www.federalreserve.gov/newsevents/testimony.htm
+  fomc_calendar: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+  forexfactory: https://www.forexfactory.com/calendar
+  fy2027_cr: https://www.congress.gov/crs-product/R49353
+  investinglive_nov_ppi_jan14: https://investinglive.com/news/bls-will-not-publish-october-ppi-report-november-to-be-published-on-january-14-20251208/
+  investinglive_sep_ppi_nov25: https://investinglive.com/news/bls-us-ppi-to-be-released-on-november-25-20251118/
+  ism_calendar: https://www.ismworld.org/supply-management-news-and-reports/reports/rob-report-calendar/
+  ism_calendar_2025_wayback: https://web.archive.org/web/20251009234426/https://www.ismworld.org/supply-management-news-and-reports/reports/rob-report-calendar/
+  ism_calendar_2026_wayback: https://web.archive.org/web/20260930232246/https://www.ismworld.org/supply-management-news-and-reports/reports/rob-report-calendar/
+  nasdaq_bls_cease_ops: https://www.nasdaq.com/articles/bureau-labor-statistics-cease-operations-if-govt-shuts-down
+  nbc_oct3_no_jobs: https://www.nbcnews.com/business/economy/government-shutdown-jobs-report-trump-rcna235298
+  nyse_holidays: https://www.nyse.com/markets/hours-calendars
+  reuters_census_2025_11_19: https://www.investing.com/news/economy-news/us-census-bureau-to-release-sept-retail-sales-durable-goods-orders-reports-next-week-4368073
+  reuters_census_2025_12_03: https://www.marketscreener.com/news/u-s-census-bureau-october-not-december-advance-monthly-sales-for-retail-and-food-services-data-t-ce7d51ded18df32d
+  roic_dec_ppi_jan30: https://www.roic.ai/news/bls-sets-january-30-release-for-delayed-december-ppi-data-following-government-funding-lapse-12-11-2025
+  wiki_2026_shutdowns: https://en.wikipedia.org/wiki/2026_United_States_federal_government_shutdowns
+  yahoo_jan_nfp_feb11: https://finance.yahoo.com/news/delayed-by-government-shutdown-januarys-jobs-report-to-be-released-next-week-175359451.html
+  yahoo_oct_nfp_cancel: https://finance.yahoo.com/news/bls-cancels-october-jobs-report-pushes-back-november-jobs-report-release-date-184048721.html
+holidays:
+- {date: 2025-09-01, name: Labor Day, source: nyse_holidays}
+- {date: 2025-11-27, name: Thanksgiving Day, source: nyse_holidays}
+- {date: 2025-12-25, name: Christmas Day, source: nyse_holidays}
+- {date: 2026-01-01, name: New Year's Day, source: nyse_holidays}
+- {date: 2026-01-19, name: Martin Luther King Jr. Day, source: nyse_holidays}
+- {date: 2026-02-16, name: Washington's Birthday, source: nyse_holidays}
+- {date: 2026-04-03, name: Good Friday, source: nyse_holidays}
+- {date: 2026-05-25, name: Memorial Day, source: nyse_holidays}
+- {date: 2026-06-19, name: Juneteenth, source: nyse_holidays}
+- {date: 2026-07-03, name: Independence Day (observed), source: nyse_holidays}
+- {date: 2026-09-07, name: Labor Day, source: nyse_holidays}
+- {date: 2026-11-26, name: Thanksgiving Day, source: nyse_holidays}
+- {date: 2026-12-25, name: Christmas Day, source: nyse_holidays}
+- {date: 2027-01-01, name: New Year's Day, source: nyse_holidays}
+- {date: 2027-01-18, name: Martin Luther King Jr. Day, source: nyse_holidays}
+- {date: 2027-02-15, name: Washington's Birthday, source: nyse_holidays}
+- {date: 2027-03-26, name: Good Friday, source: nyse_holidays}
+- {date: 2027-05-31, name: Memorial Day, source: nyse_holidays}
+- {date: 2027-06-18, name: Juneteenth (observed), source: nyse_holidays}
+- {date: 2027-07-05, name: Independence Day (observed), source: nyse_holidays}
+- {date: 2027-09-06, name: Labor Day, source: nyse_holidays}
+- {date: 2027-11-25, name: Thanksgiving Day, source: nyse_holidays}
+- {date: 2027-12-24, name: Christmas Day (observed), source: nyse_holidays}
+early_closes:
+- {date: 2025-11-28, early_close_et: "13:00", name: Day after Thanksgiving, source: nyse_holidays}
+- {date: 2025-12-24, early_close_et: "13:00", name: Christmas Eve, source: nyse_holidays}
+- {date: 2026-11-27, early_close_et: "13:00", name: Day after Thanksgiving, source: nyse_holidays}
+- {date: 2026-12-24, early_close_et: "13:00", name: Christmas Eve, source: nyse_holidays}
+- {date: 2027-11-26, early_close_et: "13:00", name: Day after Thanksgiving, source: nyse_holidays}
+events:
+- {date: 2025-08-05, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar_2025_wayback, release: Services PMI (Jul 2025)}
+- {date: 2025-08-12, time_et: "08:30", name: CPI, blackout: true, source: bls_cpi_archive, release: CPI (Jul 2025)}
+- {date: 2025-08-12, time_et: "08:30", name: Core CPI, blackout: false, source: bls_cpi_archive, release: CPI (Jul 2025)}
+- {date: 2025-08-14, time_et: "08:30", name: PPI, blackout: true, source: bls_ppi_archive, release: PPI (Jul 2025)}
+- {date: 2025-08-14, time_et: "08:30", name: Core PPI, blackout: false, source: bls_ppi_archive, release: PPI (Jul 2025)}
+- {date: 2025-08-15, time_et: "08:30", name: Retail Sales, blackout: true, source: census_marts_dates_xls, release: Advance Retail Sales (Jul 2025)}
+- {date: 2025-08-15, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_marts_dates_xls, release: Advance Retail Sales (Jul 2025)}
+- {date: 2025-08-20, time_et: "14:00", name: FOMC Minutes, blackout: true, source: fomc_calendar, release: Minutes of Jul 29-30 2025}
+- {date: 2025-08-22, time_et: "10:00", name: Fed Chair, blackout: true, source: fed_calendar, release: "Powell speech, Jackson Hole symposium ('Monetary Policy and the Fed's Framework Review'; calendar title 'Economic Outlook and Framework Review')"}
+- {date: 2025-08-29, time_et: "08:30", name: Core PCE, blackout: true, source: bea_schedule_2025, release: Personal Income and Outlays (Jul 2025)}
+- {date: 2025-08-29, time_et: "08:30", name: PCE Price Index, blackout: false, source: bea_schedule_2025, release: Personal Income and Outlays (Jul 2025)}
+- {date: 2025-08-29, time_et: "08:30", name: Personal Income, blackout: false, source: bea_schedule_2025, release: Personal Income and Outlays (Jul 2025)}
+- {date: 2025-08-29, time_et: "08:30", name: Personal Spending, blackout: false, source: bea_schedule_2025, release: Personal Income and Outlays (Jul 2025)}
+- {date: 2025-09-02, time_et: "10:00", name: ISM Manufacturing PMI, blackout: true, source: ism_calendar_2025_wayback, release: Manufacturing PMI (Aug 2025)}
+- {date: 2025-09-04, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar_2025_wayback, release: Services PMI (Aug 2025)}
+- {date: 2025-09-05, time_et: "08:30", name: NFP, blackout: true, source: bls_empsit_archive, release: Employment Situation (Aug 2025)}
+- {date: 2025-09-05, time_et: "08:30", name: Average Hourly Earnings, blackout: false, source: bls_empsit_archive, release: Employment Situation (Aug 2025)}
+- {date: 2025-09-05, time_et: "08:30", name: Unemployment Rate, blackout: false, source: bls_empsit_archive, release: Employment Situation (Aug 2025)}
+- {date: 2025-09-10, time_et: "08:30", name: PPI, blackout: true, source: bls_ppi_archive, release: PPI (Aug 2025)}
+- {date: 2025-09-10, time_et: "08:30", name: Core PPI, blackout: false, source: bls_ppi_archive, release: PPI (Aug 2025)}
+- {date: 2025-09-11, time_et: "08:30", name: CPI, blackout: true, source: bls_cpi_archive, release: CPI (Aug 2025)}
+- {date: 2025-09-11, time_et: "08:30", name: Core CPI, blackout: false, source: bls_cpi_archive, release: CPI (Aug 2025)}
+- {date: 2025-09-16, time_et: "08:30", name: Retail Sales, blackout: true, source: census_marts_dates_xls, release: Advance Retail Sales (Aug 2025)}
+- {date: 2025-09-16, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_marts_dates_xls, release: Advance Retail Sales (Aug 2025)}
+- {date: 2025-09-17, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Sep 16-17 2025}
+- {date: 2025-09-17, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Sep 16-17 2025}
+- {date: 2025-09-17, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fed_calendar, release: FOMC Sep 16-17 2025}
+- {date: 2025-09-23, time_et: "12:35", name: Fed Chair, blackout: true, source: fed_calendar, release: "Powell speech 'Economic Outlook', Greater Providence Chamber of Commerce luncheon, Warwick RI"}
+- {date: 2025-09-26, time_et: "08:30", name: Core PCE, blackout: true, source: bea_schedule_2025, release: Personal Income and Outlays (Aug 2025)}
+- {date: 2025-09-26, time_et: "08:30", name: PCE Price Index, blackout: false, source: bea_schedule_2025, release: Personal Income and Outlays (Aug 2025)}
+- {date: 2025-09-26, time_et: "08:30", name: Personal Income, blackout: false, source: bea_schedule_2025, release: Personal Income and Outlays (Aug 2025)}
+- {date: 2025-09-26, time_et: "08:30", name: Personal Spending, blackout: false, source: bea_schedule_2025, release: Personal Income and Outlays (Aug 2025)}
+- {date: 2025-10-01, time_et: "10:00", name: ISM Manufacturing PMI, blackout: true, source: ism_calendar_2025_wayback, release: Manufacturing PMI (Sep 2025)}
+- {date: 2025-10-03, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar_2025_wayback, release: Services PMI (Sep 2025)}
+- {date: 2025-10-08, time_et: "14:00", name: FOMC Minutes, blackout: true, source: fomc_calendar, release: Minutes of Sep 16-17 2025}
+- {date: 2025-10-09, time_et: "08:30", name: Fed Chair, blackout: true, source: fed_calendar, release: 'Powell welcoming remarks (pre-recorded video), Community Bank Conference, Fed Board'}
+- {date: 2025-10-14, time_et: "12:20", name: Fed Chair, blackout: true, source: fed_calendar, release: "Powell speech, NABE annual meeting, Philadelphia (calendar 'Economic Outlook and Monetary Policy'; text 'Understanding the Fed's Balance Sheet')"}
+- {date: 2025-10-24, time_et: "08:30", name: CPI, blackout: true, source: bls_cpi_sep2025_notice, release: CPI (Sep 2025)}
+- {date: 2025-10-24, time_et: "08:30", name: Core CPI, blackout: false, source: bls_cpi_sep2025_notice, release: CPI (Sep 2025)}
+- {date: 2025-10-29, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Oct 28-29 2025}
+- {date: 2025-10-29, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Oct 28-29 2025}
+- {date: 2025-10-29, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fed_calendar, release: FOMC Oct 28-29 2025}
+- {date: 2025-11-03, time_et: "10:00", name: ISM Manufacturing PMI, blackout: true, source: ism_calendar_2025_wayback, release: Manufacturing PMI (Oct 2025)}
+- {date: 2025-11-05, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar_2025_wayback, release: Services PMI (Oct 2025)}
+- {date: 2025-11-19, time_et: "14:00", name: FOMC Minutes, blackout: true, source: fomc_calendar, release: Minutes of Oct 28-29 2025}
+- {date: 2025-11-20, time_et: "08:30", name: NFP, blackout: true, source: bls_lapse_revised, release: Employment Situation (Sep 2025)}
+- {date: 2025-11-20, time_et: "08:30", name: Average Hourly Earnings, blackout: false, source: bls_lapse_revised, release: Employment Situation (Sep 2025)}
+- {date: 2025-11-20, time_et: "08:30", name: Unemployment Rate, blackout: false, source: bls_lapse_revised, release: Employment Situation (Sep 2025)}
+- {date: 2025-11-25, time_et: "08:30", name: PPI, blackout: true, source: bls_lapse_revised, release: PPI (Sep 2025)}
+- {date: 2025-11-25, time_et: "08:30", name: Retail Sales, blackout: true, source: census_bulletin_sep_retail, release: Advance Retail Sales (Sep 2025) - orig. 2025-10-16}
+- {date: 2025-11-25, time_et: "08:30", name: Core PPI, blackout: false, source: bls_lapse_revised, release: PPI (Sep 2025)}
+- {date: 2025-11-25, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_bulletin_sep_retail, release: Advance Retail Sales (Sep 2025) - orig. 2025-10-16}
+- {date: 2025-12-01, time_et: "10:00", name: ISM Manufacturing PMI, blackout: true, source: ism_calendar_2025_wayback, release: Manufacturing PMI (Nov 2025)}
+- {date: 2025-12-01, time_et: "20:00", name: Fed Chair, blackout: true, source: fed_calendar, release: 'Powell brief remarks + panel with Boskin and Rice, Hoover Institution Shultz Memorial Lecture, Stanford'}
+- {date: 2025-12-03, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar_2025_wayback, release: Services PMI (Nov 2025)}
+- {date: 2025-12-05, time_et: "10:00", name: Core PCE, blackout: true, source: bea_blog_2025_11_24a, release: 'Personal Income and Outlays (Sep 2025) - post-shutdown, orig. 2025-10-31'}
+- {date: 2025-12-05, time_et: "10:00", name: PCE Price Index, blackout: false, source: bea_blog_2025_11_24a, release: 'Personal Income and Outlays (Sep 2025) - post-shutdown, orig. 2025-10-31'}
+- {date: 2025-12-05, time_et: "10:00", name: Personal Income, blackout: false, source: bea_blog_2025_11_24a, release: 'Personal Income and Outlays (Sep 2025) - post-shutdown, orig. 2025-10-31'}
+- {date: 2025-12-05, time_et: "10:00", name: Personal Spending, blackout: false, source: bea_blog_2025_11_24a, release: 'Personal Income and Outlays (Sep 2025) - post-shutdown, orig. 2025-10-31'}
+- {date: 2025-12-10, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Dec 9-10 2025}
+- {date: 2025-12-10, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Dec 9-10 2025}
+- {date: 2025-12-10, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fed_calendar, release: FOMC Dec 9-10 2025}
+- {date: 2025-12-16, time_et: "08:30", name: NFP, blackout: true, source: bls_empsit_12162025, release: 'Employment Situation (Nov 2025, incl. Oct 2025 establishment data)'}
+- {date: 2025-12-16, time_et: "08:30", name: Retail Sales, blackout: true, source: census_retail_schedule, release: Advance Retail Sales (Oct 2025) - orig. 2025-11-14}
+- {date: 2025-12-16, time_et: "08:30", name: Average Hourly Earnings, blackout: false, source: bls_empsit_12162025, release: 'Employment Situation (Nov 2025, incl. Oct 2025 establishment data)'}
+- {date: 2025-12-16, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_retail_schedule, release: Advance Retail Sales (Oct 2025) - orig. 2025-11-14}
+- {date: 2025-12-16, time_et: "08:30", name: Unemployment Rate, blackout: false, source: bls_empsit_12162025, release: 'Employment Situation (Nov 2025, incl. Oct 2025 establishment data)'}
+- {date: 2025-12-18, time_et: "08:30", name: CPI, blackout: true, source: bls_lapse_revised, release: CPI (Nov 2025)}
+- {date: 2025-12-18, time_et: "08:30", name: Core CPI, blackout: false, source: bls_lapse_revised, release: CPI (Nov 2025)}
+- {date: 2025-12-23, time_et: "08:30", name: Advance GDP, blackout: true, source: bea_blog_2025_11_24b, release: 'GDP Q3 2025 INITIAL estimate (BEA: replaces the cancelled advance and the second estimate) and Corporate Profits (Preliminary)'}
+- {date: 2025-12-30, time_et: "14:00", name: FOMC Minutes, blackout: true, source: fomc_calendar, release: Minutes of Dec 9-10 2025}
+- {date: 2026-01-05, time_et: "10:00", name: ISM Manufacturing PMI, blackout: true, source: ism_calendar, release: Manufacturing PMI (Dec 2025) - Jan 5 due to ISM holiday}
+- {date: 2026-01-07, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar, release: Services PMI (Dec 2025)}
+- {date: 2026-01-09, time_et: "08:30", name: NFP, blackout: true, source: bls_empsit_archive, release: Employment Situation (Dec 2025)}
+- {date: 2026-01-09, time_et: "08:30", name: Average Hourly Earnings, blackout: false, source: bls_empsit_archive, release: Employment Situation (Dec 2025)}
+- {date: 2026-01-09, time_et: "08:30", name: Unemployment Rate, blackout: false, source: bls_empsit_archive, release: Employment Situation (Dec 2025)}
+- {date: 2026-01-13, time_et: "08:30", name: CPI, blackout: true, source: bls_cpi_archive, release: CPI (Dec 2025)}
+- {date: 2026-01-13, time_et: "08:30", name: Core CPI, blackout: false, source: bls_cpi_archive, release: CPI (Dec 2025)}
+- {date: 2026-01-14, time_et: "08:30", name: PPI, blackout: true, source: bls_lapse_revised, release: 'PPI (Nov 2025, incl. Oct 2025 data)'}
+- {date: 2026-01-14, time_et: "08:30", name: Retail Sales, blackout: true, source: census_retail_schedule, release: Advance Retail Sales (Nov 2025) - orig. 2025-12-17}
+- {date: 2026-01-14, time_et: "08:30", name: Core PPI, blackout: false, source: bls_lapse_revised, release: 'PPI (Nov 2025, incl. Oct 2025 data)'}
+- {date: 2026-01-14, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_retail_schedule, release: Advance Retail Sales (Nov 2025) - orig. 2025-12-17}
+- {date: 2026-01-22, time_et: "10:00", name: Core PCE, blackout: true, source: bea_blog_2026_01_07, release: 'Personal Income and Outlays (Oct and Nov 2025, combined) - orig. 2025-11-26 and 2025-12-19'}
+- {date: 2026-01-22, time_et: "10:00", name: PCE Price Index, blackout: false, source: bea_blog_2026_01_07, release: 'Personal Income and Outlays (Oct and Nov 2025, combined) - orig. 2025-11-26 and 2025-12-19'}
+- {date: 2026-01-22, time_et: "10:00", name: Personal Income, blackout: false, source: bea_blog_2026_01_07, release: 'Personal Income and Outlays (Oct and Nov 2025, combined) - orig. 2025-11-26 and 2025-12-19'}
+- {date: 2026-01-22, time_et: "10:00", name: Personal Spending, blackout: false, source: bea_blog_2026_01_07, release: 'Personal Income and Outlays (Oct and Nov 2025, combined) - orig. 2025-11-26 and 2025-12-19'}
+- {date: 2026-01-28, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Jan 27-28 2026}
+- {date: 2026-01-28, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Jan 27-28 2026}
+- {date: 2026-01-28, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fed_calendar, release: FOMC Jan 27-28 2026}
+- {date: 2026-01-30, time_et: "08:30", name: PPI, blackout: true, source: bls_lapse_revised, release: PPI (Dec 2025)}
+- {date: 2026-01-30, time_et: "08:30", name: Core PPI, blackout: false, source: bls_lapse_revised, release: PPI (Dec 2025)}
+- {date: 2026-02-02, time_et: "10:00", name: ISM Manufacturing PMI, blackout: true, source: ism_calendar, release: Manufacturing PMI (Jan 2026)}
+- {date: 2026-02-04, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar, release: Services PMI (Jan 2026)}
+- {date: 2026-02-10, time_et: "08:30", name: Retail Sales, blackout: true, source: census_bulletin_dec_retail, release: Advance Retail Sales (Dec 2025) - orig. 2026-01-15}
+- {date: 2026-02-10, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_bulletin_dec_retail, release: Advance Retail Sales (Dec 2025) - orig. 2026-01-15}
+- {date: 2026-02-11, time_et: "08:30", name: NFP, blackout: true, source: bls_lapse_revised, release: Employment Situation (Jan 2026)}
+- {date: 2026-02-11, time_et: "08:30", name: Average Hourly Earnings, blackout: false, source: bls_lapse_revised, release: Employment Situation (Jan 2026)}
+- {date: 2026-02-11, time_et: "08:30", name: Unemployment Rate, blackout: false, source: bls_lapse_revised, release: Employment Situation (Jan 2026)}
+- {date: 2026-02-13, time_et: "08:30", name: CPI, blackout: true, source: bls_lapse_revised, release: CPI (Jan 2026)}
+- {date: 2026-02-13, time_et: "08:30", name: Core CPI, blackout: false, source: bls_lapse_revised, release: CPI (Jan 2026)}
+- {date: 2026-02-18, time_et: "14:00", name: FOMC Minutes, blackout: true, source: fomc_calendar, release: Minutes of Jan 27-28 2026}
+- {date: 2026-02-20, time_et: "08:30", name: Advance GDP, blackout: true, source: bea_blog_2026_01_07, release: GDP Q4 and Year 2025 advance - orig. 2026-01-29}
+- {date: 2026-02-20, time_et: "08:30", name: Core PCE, blackout: true, source: bea_blog_2026_01_07, release: Personal Income and Outlays (Dec 2025) - orig. 2026-01-29}
+- {date: 2026-02-20, time_et: "08:30", name: PCE Price Index, blackout: false, source: bea_blog_2026_01_07, release: Personal Income and Outlays (Dec 2025) - orig. 2026-01-29}
+- {date: 2026-02-20, time_et: "08:30", name: Personal Income, blackout: false, source: bea_blog_2026_01_07, release: Personal Income and Outlays (Dec 2025) - orig. 2026-01-29}
+- {date: 2026-02-20, time_et: "08:30", name: Personal Spending, blackout: false, source: bea_blog_2026_01_07, release: Personal Income and Outlays (Dec 2025) - orig. 2026-01-29}
+- {date: 2026-02-27, time_et: "08:30", name: PPI, blackout: true, source: bls_lapse_revised, release: PPI (Jan 2026)}
+- {date: 2026-02-27, time_et: "08:30", name: Core PPI, blackout: false, source: bls_lapse_revised, release: PPI (Jan 2026)}
+- {date: 2026-03-02, time_et: "10:00", name: ISM Manufacturing PMI, blackout: true, source: ism_calendar, release: Manufacturing PMI (Feb 2026)}
+- {date: 2026-03-04, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar, release: Services PMI (Feb 2026)}
+- {date: 2026-03-06, time_et: "08:30", name: NFP, blackout: true, source: bls_empsit_archive, release: Employment Situation (Feb 2026)}
+- {date: 2026-03-06, time_et: "08:30", name: Retail Sales, blackout: true, source: census_retail_schedule, release: Advance Retail Sales (Jan 2026) - orig. 2026-02-17}
+- {date: 2026-03-06, time_et: "08:30", name: Average Hourly Earnings, blackout: false, source: bls_empsit_archive, release: Employment Situation (Feb 2026)}
+- {date: 2026-03-06, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_retail_schedule, release: Advance Retail Sales (Jan 2026) - orig. 2026-02-17}
+- {date: 2026-03-06, time_et: "08:30", name: Unemployment Rate, blackout: false, source: bls_empsit_archive, release: Employment Situation (Feb 2026)}
+- {date: 2026-03-11, time_et: "08:30", name: CPI, blackout: true, source: bls_cpi_archive, release: CPI (Feb 2026)}
+- {date: 2026-03-11, time_et: "08:30", name: Core CPI, blackout: false, source: bls_cpi_archive, release: CPI (Feb 2026)}
+- {date: 2026-03-13, time_et: "08:30", name: Core PCE, blackout: true, source: bea_blog_2026_01_15, release: Personal Income and Outlays (Jan 2026) - orig. 2026-02-26}
+- {date: 2026-03-13, time_et: "08:30", name: PCE Price Index, blackout: false, source: bea_blog_2026_01_15, release: Personal Income and Outlays (Jan 2026) - orig. 2026-02-26}
+- {date: 2026-03-13, time_et: "08:30", name: Personal Income, blackout: false, source: bea_blog_2026_01_15, release: Personal Income and Outlays (Jan 2026) - orig. 2026-02-26}
+- {date: 2026-03-13, time_et: "08:30", name: Personal Spending, blackout: false, source: bea_blog_2026_01_15, release: Personal Income and Outlays (Jan 2026) - orig. 2026-02-26}
+- {date: 2026-03-18, time_et: "08:30", name: PPI, blackout: true, source: bls_lapse_revised, release: PPI (Feb 2026)}
+- {date: 2026-03-18, time_et: "08:30", name: Core PPI, blackout: false, source: bls_lapse_revised, release: PPI (Feb 2026)}
+- {date: 2026-03-18, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Mar 17-18 2026}
+- {date: 2026-03-18, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Mar 17-18 2026}
+- {date: 2026-03-18, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fed_calendar, release: FOMC Mar 17-18 2026}
+- {date: 2026-03-21, time_et: "13:30", name: Fed Chair, blackout: true, source: fed_calendar, release: 'Powell brief award acceptance remarks (virtual, pre-recorded), ASPA Volcker Public Integrity Award (Saturday)'}
+- {date: 2026-03-30, time_et: "10:30", name: Fed Chair, blackout: true, source: fed_calendar, release: 'Powell moderated discussion, Harvard Principles of Economics class'}
+- {date: 2026-04-01, time_et: "08:30", name: Retail Sales, blackout: true, source: census_retail_schedule, release: Advance Retail Sales (Feb 2026) - orig. 2026-03-16}
+- {date: 2026-04-01, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_retail_schedule, release: Advance Retail Sales (Feb 2026) - orig. 2026-03-16}
+- {date: 2026-04-01, time_et: "10:00", name: ISM Manufacturing PMI, blackout: true, source: ism_calendar, release: Manufacturing PMI (Mar 2026)}
+- {date: 2026-04-03, time_et: "08:30", name: NFP, blackout: true, source: bls_empsit_archive, release: Employment Situation (Mar 2026)}
+- {date: 2026-04-03, time_et: "08:30", name: Average Hourly Earnings, blackout: false, source: bls_empsit_archive, release: Employment Situation (Mar 2026)}
+- {date: 2026-04-03, time_et: "08:30", name: Unemployment Rate, blackout: false, source: bls_empsit_archive, release: Employment Situation (Mar 2026)}
+- {date: 2026-04-06, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar, release: Services PMI (Mar 2026)}
+- {date: 2026-04-08, time_et: "14:00", name: FOMC Minutes, blackout: true, source: fomc_calendar, release: Minutes of Mar 17-18 2026}
+- {date: 2026-04-09, time_et: "08:30", name: Core PCE, blackout: true, source: bea_blog_2026_01_15, release: Personal Income and Outlays (Feb 2026) - orig. 2026-03-27}
+- {date: 2026-04-09, time_et: "08:30", name: PCE Price Index, blackout: false, source: bea_blog_2026_01_15, release: Personal Income and Outlays (Feb 2026) - orig. 2026-03-27}
+- {date: 2026-04-09, time_et: "08:30", name: Personal Income, blackout: false, source: bea_blog_2026_01_15, release: Personal Income and Outlays (Feb 2026) - orig. 2026-03-27}
+- {date: 2026-04-09, time_et: "08:30", name: Personal Spending, blackout: false, source: bea_blog_2026_01_15, release: Personal Income and Outlays (Feb 2026) - orig. 2026-03-27}
+- {date: 2026-04-10, time_et: "08:30", name: CPI, blackout: true, source: bls_cpi_archive, release: CPI (Mar 2026)}
+- {date: 2026-04-10, time_et: "08:30", name: Core CPI, blackout: false, source: bls_cpi_archive, release: CPI (Mar 2026)}
+- {date: 2026-04-14, time_et: "08:30", name: PPI, blackout: true, source: bls_ppi_archive, release: PPI (Mar 2026)}
+- {date: 2026-04-14, time_et: "08:30", name: Core PPI, blackout: false, source: bls_ppi_archive, release: PPI (Mar 2026)}
+- {date: 2026-04-21, time_et: "08:30", name: Retail Sales, blackout: true, source: census_retail_schedule, release: Advance Retail Sales (Mar 2026) - orig. 2026-04-16}
+- {date: 2026-04-21, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_retail_schedule, release: Advance Retail Sales (Mar 2026) - orig. 2026-04-16}
+- {date: 2026-04-29, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Apr 28-29 2026}
+- {date: 2026-04-29, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Apr 28-29 2026}
+- {date: 2026-04-29, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fed_calendar, release: FOMC Apr 28-29 2026}
+- {date: 2026-04-30, time_et: "08:30", name: Advance GDP, blackout: true, source: bea_schedule, release: GDP Q1 2026 advance}
+- {date: 2026-04-30, time_et: "08:30", name: Core PCE, blackout: true, source: bea_schedule, release: Personal Income and Outlays (Mar 2026)}
+- {date: 2026-04-30, time_et: "08:30", name: PCE Price Index, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Mar 2026)}
+- {date: 2026-04-30, time_et: "08:30", name: Personal Income, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Mar 2026)}
+- {date: 2026-04-30, time_et: "08:30", name: Personal Spending, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Mar 2026)}
+- {date: 2026-05-01, time_et: "10:00", name: ISM Manufacturing PMI, blackout: true, source: ism_calendar, release: Manufacturing PMI (Apr 2026)}
+- {date: 2026-05-05, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar, release: Services PMI (Apr 2026)}
+- {date: 2026-05-08, time_et: "08:30", name: NFP, blackout: true, source: bls_empsit_archive, release: Employment Situation (Apr 2026)}
+- {date: 2026-05-08, time_et: "08:30", name: Average Hourly Earnings, blackout: false, source: bls_empsit_archive, release: Employment Situation (Apr 2026)}
+- {date: 2026-05-08, time_et: "08:30", name: Unemployment Rate, blackout: false, source: bls_empsit_archive, release: Employment Situation (Apr 2026)}
+- {date: 2026-05-12, time_et: "08:30", name: CPI, blackout: true, source: bls_cpi_archive, release: CPI (Apr 2026)}
+- {date: 2026-05-12, time_et: "08:30", name: Core CPI, blackout: false, source: bls_cpi_archive, release: CPI (Apr 2026)}
+- {date: 2026-05-13, time_et: "08:30", name: PPI, blackout: true, source: bls_ppi_archive, release: PPI (Apr 2026)}
+- {date: 2026-05-13, time_et: "08:30", name: Core PPI, blackout: false, source: bls_ppi_archive, release: PPI (Apr 2026)}
+- {date: 2026-05-14, time_et: "08:30", name: Retail Sales, blackout: true, source: census_retail_schedule, release: Advance Retail Sales (Apr 2026)}
+- {date: 2026-05-14, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_retail_schedule, release: Advance Retail Sales (Apr 2026)}
+- {date: 2026-05-20, time_et: "14:00", name: FOMC Minutes, blackout: true, source: fomc_calendar, release: Minutes of Apr 28-29 2026}
+- {date: 2026-05-28, time_et: "08:30", name: Core PCE, blackout: true, source: bea_schedule, release: Personal Income and Outlays (Apr 2026)}
+- {date: 2026-05-28, time_et: "08:30", name: PCE Price Index, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Apr 2026)}
+- {date: 2026-05-28, time_et: "08:30", name: Personal Income, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Apr 2026)}
+- {date: 2026-05-28, time_et: "08:30", name: Personal Spending, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Apr 2026)}
+- {date: 2026-06-01, time_et: "10:00", name: ISM Manufacturing PMI, blackout: true, source: ism_calendar, release: Manufacturing PMI (May 2026)}
+- {date: 2026-06-03, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar, release: Services PMI (May 2026)}
+- {date: 2026-06-05, time_et: "08:30", name: NFP, blackout: true, source: bls_empsit_archive, release: Employment Situation (May 2026)}
+- {date: 2026-06-05, time_et: "08:30", name: Average Hourly Earnings, blackout: false, source: bls_empsit_archive, release: Employment Situation (May 2026)}
+- {date: 2026-06-05, time_et: "08:30", name: Unemployment Rate, blackout: false, source: bls_empsit_archive, release: Employment Situation (May 2026)}
+- {date: 2026-06-10, time_et: "08:30", name: CPI, blackout: true, source: bls_cpi_archive, release: CPI (May 2026)}
+- {date: 2026-06-10, time_et: "08:30", name: Core CPI, blackout: false, source: bls_cpi_archive, release: CPI (May 2026)}
+- {date: 2026-06-11, time_et: "08:30", name: PPI, blackout: true, source: bls_ppi_archive, release: PPI (May 2026)}
+- {date: 2026-06-11, time_et: "08:30", name: Core PPI, blackout: false, source: bls_ppi_archive, release: PPI (May 2026)}
+- {date: 2026-06-17, time_et: "08:30", name: Retail Sales, blackout: true, source: census_retail_schedule, release: Advance Retail Sales (May 2026)}
+- {date: 2026-06-17, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_retail_schedule, release: Advance Retail Sales (May 2026)}
+- {date: 2026-06-17, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Jun 16-17 2026}
+- {date: 2026-06-17, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Jun 16-17 2026}
+- {date: 2026-06-17, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fed_calendar, release: FOMC Jun 16-17 2026}
+- {date: 2026-06-25, time_et: "08:30", name: Core PCE, blackout: true, source: bea_schedule, release: Personal Income and Outlays (May 2026)}
+- {date: 2026-06-25, time_et: "08:30", name: PCE Price Index, blackout: false, source: bea_schedule, release: Personal Income and Outlays (May 2026)}
+- {date: 2026-06-25, time_et: "08:30", name: Personal Income, blackout: false, source: bea_schedule, release: Personal Income and Outlays (May 2026)}
+- {date: 2026-06-25, time_et: "08:30", name: Personal Spending, blackout: false, source: bea_schedule, release: Personal Income and Outlays (May 2026)}
+- {date: 2026-07-01, time_et: "09:00", name: Fed Chair, blackout: true, source: fed_calendar, release: 'Warsh policy panel, ECB Forum on Central Banking, Sintra'}
+- {date: 2026-07-01, time_et: "10:00", name: ISM Manufacturing PMI, blackout: true, source: ism_calendar, release: Manufacturing PMI (Jun 2026)}
+- {date: 2026-07-02, time_et: "08:30", name: NFP, blackout: true, source: bls_empsit_archive, release: Employment Situation (Jun 2026)}
+- {date: 2026-07-02, time_et: "08:30", name: Average Hourly Earnings, blackout: false, source: bls_empsit_archive, release: Employment Situation (Jun 2026)}
+- {date: 2026-07-02, time_et: "08:30", name: Unemployment Rate, blackout: false, source: bls_empsit_archive, release: Employment Situation (Jun 2026)}
+- {date: 2026-07-06, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar, release: Services PMI (Jun 2026) - moved for Jul 3 holiday}
+- {date: 2026-07-08, time_et: "14:00", name: FOMC Minutes, blackout: true, source: fomc_calendar, release: Minutes of Jun 16-17 2026}
+- {date: 2026-07-14, time_et: "08:30", name: CPI, blackout: true, source: bls_cpi_archive, release: CPI (Jun 2026)}
+- {date: 2026-07-14, time_et: "08:30", name: Core CPI, blackout: false, source: bls_cpi_archive, release: CPI (Jun 2026)}
+- {date: 2026-07-14, time_et: "10:00", name: Fed Chair, blackout: true, source: fed_calendar, release: 'Warsh testimony, Semiannual Monetary Policy Report, House Financial Services'}
+- {date: 2026-07-15, time_et: "08:30", name: PPI, blackout: true, source: bls_ppi_archive, release: PPI (Jun 2026)}
+- {date: 2026-07-15, time_et: "08:30", name: Core PPI, blackout: false, source: bls_ppi_archive, release: PPI (Jun 2026)}
+- {date: 2026-07-15, time_et: "10:00", name: Fed Chair, blackout: true, source: fed_calendar, release: 'Warsh testimony, Semiannual Monetary Policy Report, Senate Banking'}
+- {date: 2026-07-16, time_et: "08:30", name: Retail Sales, blackout: true, source: census_retail_schedule, release: Advance Retail Sales (Jun 2026)}
+- {date: 2026-07-16, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_retail_schedule, release: Advance Retail Sales (Jun 2026)}
+- {date: 2026-07-29, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Jul 28-29 2026}
+- {date: 2026-07-29, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Jul 28-29 2026}
+- {date: 2026-07-29, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fed_calendar, release: FOMC Jul 28-29 2026}
+- {date: 2026-07-30, time_et: "08:30", name: Advance GDP, blackout: true, source: bea_schedule, release: GDP Q2 2026 advance}
+- {date: 2026-07-30, time_et: "08:30", name: Core PCE, blackout: true, source: bea_schedule, release: Personal Income and Outlays (Jun 2026)}
+- {date: 2026-07-30, time_et: "08:30", name: PCE Price Index, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Jun 2026)}
+- {date: 2026-07-30, time_et: "08:30", name: Personal Income, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Jun 2026)}
+- {date: 2026-07-30, time_et: "08:30", name: Personal Spending, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Jun 2026)}
+- {date: 2026-08-03, time_et: "10:00", name: ISM Manufacturing PMI, blackout: true, source: ism_calendar, release: Manufacturing PMI (Jul 2026)}
+- {date: 2026-08-05, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar, release: Services PMI (Jul 2026)}
+- {date: 2026-08-07, time_et: "08:30", name: NFP, blackout: true, source: bls_empsit_archive, release: Employment Situation (Jul 2026)}
+- {date: 2026-08-07, time_et: "08:30", name: Average Hourly Earnings, blackout: false, source: bls_empsit_archive, release: Employment Situation (Jul 2026)}
+- {date: 2026-08-07, time_et: "08:30", name: Unemployment Rate, blackout: false, source: bls_empsit_archive, release: Employment Situation (Jul 2026)}
+- {date: 2026-08-12, time_et: "08:30", name: CPI, blackout: true, source: bls_cpi_archive, release: CPI (Jul 2026)}
+- {date: 2026-08-12, time_et: "08:30", name: Core CPI, blackout: false, source: bls_cpi_archive, release: CPI (Jul 2026)}
+- {date: 2026-08-13, time_et: "08:30", name: PPI, blackout: true, source: bls_ppi_archive, release: PPI (Jul 2026)}
+- {date: 2026-08-13, time_et: "08:30", name: Core PPI, blackout: false, source: bls_ppi_archive, release: PPI (Jul 2026)}
+- {date: 2026-08-14, time_et: "08:30", name: Retail Sales, blackout: true, source: census_retail_schedule, release: Advance Retail Sales (Jul 2026)}
+- {date: 2026-08-14, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_retail_schedule, release: Advance Retail Sales (Jul 2026)}
+- {date: 2026-08-19, time_et: "14:00", name: FOMC Minutes, blackout: true, source: fomc_calendar, release: Minutes of Jul 28-29 2026}
+- {date: 2026-08-26, time_et: "08:30", name: Core PCE, blackout: true, source: bea_schedule, release: Personal Income and Outlays (Jul 2026)}
+- {date: 2026-08-26, time_et: "08:30", name: PCE Price Index, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Jul 2026)}
+- {date: 2026-08-26, time_et: "08:30", name: Personal Income, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Jul 2026)}
+- {date: 2026-08-26, time_et: "08:30", name: Personal Spending, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Jul 2026)}
+- {date: 2026-08-28, time_et: "10:00", name: Fed Chair, blackout: true, source: fed_calendar, release: "Warsh keynote 'In Our Time', Jackson Hole symposium"}
+- {date: 2026-09-01, time_et: "10:00", name: ISM Manufacturing PMI, blackout: true, source: ism_calendar, release: Manufacturing PMI (Aug 2026)}
+- {date: 2026-09-03, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar, release: Services PMI (Aug 2026)}
+- {date: 2026-09-04, time_et: "08:30", name: NFP, blackout: true, source: bls_empsit_archive, release: Employment Situation (Aug 2026)}
+- {date: 2026-09-04, time_et: "08:30", name: Average Hourly Earnings, blackout: false, source: bls_empsit_archive, release: Employment Situation (Aug 2026)}
+- {date: 2026-09-04, time_et: "08:30", name: Unemployment Rate, blackout: false, source: bls_empsit_archive, release: Employment Situation (Aug 2026)}
+- {date: 2026-09-10, time_et: "08:30", name: PPI, blackout: true, source: bls_ppi_archive, release: PPI (Aug 2026)}
+- {date: 2026-09-10, time_et: "08:30", name: Core PPI, blackout: false, source: bls_ppi_archive, release: PPI (Aug 2026)}
+- {date: 2026-09-11, time_et: "08:30", name: CPI, blackout: true, source: bls_cpi_archive, release: CPI (Aug 2026)}
+- {date: 2026-09-11, time_et: "08:30", name: Core CPI, blackout: false, source: bls_cpi_archive, release: CPI (Aug 2026)}
+- {date: 2026-09-16, time_et: "08:30", name: Retail Sales, blackout: true, source: census_retail_schedule, release: Advance Retail Sales (Aug 2026)}
+- {date: 2026-09-16, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_retail_schedule, release: Advance Retail Sales (Aug 2026)}
+- {date: 2026-09-16, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Sep 15-16 2026}
+- {date: 2026-09-16, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Sep 15-16 2026}
+- {date: 2026-09-16, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fed_calendar, release: FOMC Sep 15-16 2026}
+- {date: 2026-09-30, time_et: "08:30", name: Core PCE, blackout: true, source: bea_schedule, release: Personal Income and Outlays (Aug 2026)}
+- {date: 2026-09-30, time_et: "08:30", name: PCE Price Index, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Aug 2026)}
+- {date: 2026-09-30, time_et: "08:30", name: Personal Income, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Aug 2026)}
+- {date: 2026-09-30, time_et: "08:30", name: Personal Spending, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Aug 2026)}
+- {date: 2026-10-01, time_et: "10:00", name: ISM Manufacturing PMI, blackout: true, source: ism_calendar, release: Manufacturing PMI (Sep 2026)}
+- {date: 2026-10-02, time_et: "08:30", name: NFP, blackout: true, source: bls_empsit_archive, release: Employment Situation (Sep 2026)}
+- {date: 2026-10-02, time_et: "08:30", name: Average Hourly Earnings, blackout: false, source: bls_empsit_archive, release: Employment Situation (Sep 2026)}
+- {date: 2026-10-02, time_et: "08:30", name: Unemployment Rate, blackout: false, source: bls_empsit_archive, release: Employment Situation (Sep 2026)}
+- {date: 2026-10-05, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar, release: Services PMI (Sep 2026)}
+- {date: 2026-10-07, time_et: "14:00", name: FOMC Minutes, blackout: true, source: fomc_calendar, release: Minutes of Sep 15-16 2026}
+- {date: 2026-10-14, time_et: "08:30", name: CPI, blackout: true, source: bls_cpi_schedule, release: CPI (Sep 2026)}
+- {date: 2026-10-14, time_et: "08:30", name: Core CPI, blackout: false, source: bls_cpi_schedule, release: CPI (Sep 2026)}
+- {date: 2026-10-15, time_et: "08:30", name: PPI, blackout: true, source: bls_ppi_schedule, release: PPI (Sep 2026)}
+- {date: 2026-10-15, time_et: "08:30", name: Retail Sales, blackout: true, source: census_retail_schedule, release: Advance Retail Sales (Sep 2026)}
+- {date: 2026-10-15, time_et: "08:30", name: Core PPI, blackout: false, source: bls_ppi_schedule, release: PPI (Sep 2026)}
+- {date: 2026-10-15, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_retail_schedule, release: Advance Retail Sales (Sep 2026)}
+- {date: 2026-10-28, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Oct 27-28 2026}
+- {date: 2026-10-28, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Oct 27-28 2026}
+- {date: 2026-10-28, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fed_calendar, release: FOMC Oct 27-28 2026}
+- {date: 2026-10-29, time_et: "08:30", name: Advance GDP, blackout: true, source: bea_schedule, release: GDP Q3 2026 advance}
+- {date: 2026-10-29, time_et: "08:30", name: Core PCE, blackout: true, source: bea_schedule, release: Personal Income and Outlays (Sep 2026)}
+- {date: 2026-10-29, time_et: "08:30", name: PCE Price Index, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Sep 2026)}
+- {date: 2026-10-29, time_et: "08:30", name: Personal Income, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Sep 2026)}
+- {date: 2026-10-29, time_et: "08:30", name: Personal Spending, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Sep 2026)}
+- {date: 2026-11-02, time_et: "10:00", name: ISM Manufacturing PMI, blackout: true, source: ism_calendar, release: Manufacturing PMI (Oct 2026)}
+- {date: 2026-11-04, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar, release: Services PMI (Oct 2026)}
+- {date: 2026-11-06, time_et: "08:30", name: NFP, blackout: true, source: bls_empsit_schedule, release: Employment Situation (Oct 2026)}
+- {date: 2026-11-06, time_et: "08:30", name: Average Hourly Earnings, blackout: false, source: bls_empsit_schedule, release: Employment Situation (Oct 2026)}
+- {date: 2026-11-06, time_et: "08:30", name: Unemployment Rate, blackout: false, source: bls_empsit_schedule, release: Employment Situation (Oct 2026)}
+- {date: 2026-11-10, time_et: "08:30", name: CPI, blackout: true, source: bls_cpi_schedule, release: CPI (Oct 2026)}
+- {date: 2026-11-10, time_et: "08:30", name: Core CPI, blackout: false, source: bls_cpi_schedule, release: CPI (Oct 2026)}
+- {date: 2026-11-13, time_et: "08:30", name: PPI, blackout: true, source: bls_ppi_schedule, release: PPI (Oct 2026)}
+- {date: 2026-11-13, time_et: "08:30", name: Core PPI, blackout: false, source: bls_ppi_schedule, release: PPI (Oct 2026)}
+- {date: 2026-11-17, time_et: "08:30", name: Retail Sales, blackout: true, source: census_retail_schedule, release: Advance Retail Sales (Oct 2026)}
+- {date: 2026-11-17, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_retail_schedule, release: Advance Retail Sales (Oct 2026)}
+- {date: 2026-11-18, time_et: "14:00", name: FOMC Minutes, blackout: true, source: fomc_calendar, release: Minutes of Oct 27-28 2026}
+- {date: 2026-11-25, time_et: "08:30", name: Core PCE, blackout: true, source: bea_schedule, release: Personal Income and Outlays (Oct 2026)}
+- {date: 2026-11-25, time_et: "08:30", name: PCE Price Index, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Oct 2026)}
+- {date: 2026-11-25, time_et: "08:30", name: Personal Income, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Oct 2026)}
+- {date: 2026-11-25, time_et: "08:30", name: Personal Spending, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Oct 2026)}
+- {date: 2026-12-01, time_et: "10:00", name: ISM Manufacturing PMI, blackout: true, source: ism_calendar, release: Manufacturing PMI (Nov 2026)}
+- {date: 2026-12-03, time_et: "10:00", name: ISM Services PMI, blackout: true, source: ism_calendar, release: Services PMI (Nov 2026)}
+- {date: 2026-12-04, time_et: "08:30", name: NFP, blackout: true, source: bls_empsit_schedule, release: Employment Situation (Nov 2026)}
+- {date: 2026-12-04, time_et: "08:30", name: Average Hourly Earnings, blackout: false, source: bls_empsit_schedule, release: Employment Situation (Nov 2026)}
+- {date: 2026-12-04, time_et: "08:30", name: Unemployment Rate, blackout: false, source: bls_empsit_schedule, release: Employment Situation (Nov 2026)}
+- {date: 2026-12-09, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Dec 8-9 2026}
+- {date: 2026-12-09, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Dec 8-9 2026}
+- {date: 2026-12-09, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fed_calendar, release: FOMC Dec 8-9 2026}
+- {date: 2026-12-10, time_et: "08:30", name: CPI, blackout: true, source: bls_cpi_schedule, release: CPI (Nov 2026)}
+- {date: 2026-12-10, time_et: "08:30", name: Core CPI, blackout: false, source: bls_cpi_schedule, release: CPI (Nov 2026)}
+- {date: 2026-12-15, time_et: "08:30", name: PPI, blackout: true, source: bls_ppi_schedule, release: PPI (Nov 2026)}
+- {date: 2026-12-15, time_et: "08:30", name: Core PPI, blackout: false, source: bls_ppi_schedule, release: PPI (Nov 2026)}
+- {date: 2026-12-16, time_et: "08:30", name: Retail Sales, blackout: true, source: census_retail_schedule, release: Advance Retail Sales (Nov 2026)}
+- {date: 2026-12-16, time_et: "08:30", name: Core Retail Sales, blackout: false, source: census_retail_schedule, release: Advance Retail Sales (Nov 2026)}
+- {date: 2026-12-23, time_et: "08:30", name: Core PCE, blackout: true, source: bea_schedule, release: Personal Income and Outlays (Nov 2026)}
+- {date: 2026-12-23, time_et: "08:30", name: PCE Price Index, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Nov 2026)}
+- {date: 2026-12-23, time_et: "08:30", name: Personal Income, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Nov 2026)}
+- {date: 2026-12-23, time_et: "08:30", name: Personal Spending, blackout: false, source: bea_schedule, release: Personal Income and Outlays (Nov 2026)}
+- {date: 2026-12-30, time_et: "14:00", name: FOMC Minutes, blackout: true, source: fomc_calendar, release: Minutes of Dec 8-9 2026}
+- {date: 2027-01-27, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Jan 26-27 2027 (tentative until confirmed at preceding meeting)}
+- {date: 2027-01-27, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Jan 26-27 2027 (tentative until confirmed at preceding meeting)}
+- {date: 2027-01-27, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fomc_calendar, release: 'FOMC Jan 26-27 2027 (tentative until confirmed at preceding meeting); press conference assumed (held after every meeting since 2019), not yet on Fed calendar'}
+- {date: 2027-02-17, time_et: "14:00", name: FOMC Minutes, blackout: true, source: derived_3_weeks, release: 'Minutes of Jan 26-27 2027 (derived: decision day + 21 days; not yet published)'}
+- {date: 2027-03-17, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Mar 16-17 2027 (tentative until confirmed at preceding meeting)}
+- {date: 2027-03-17, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Mar 16-17 2027 (tentative until confirmed at preceding meeting)}
+- {date: 2027-03-17, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fomc_calendar, release: 'FOMC Mar 16-17 2027 (tentative until confirmed at preceding meeting); press conference assumed (held after every meeting since 2019), not yet on Fed calendar'}
+- {date: 2027-04-07, time_et: "14:00", name: FOMC Minutes, blackout: true, source: derived_3_weeks, release: 'Minutes of Mar 16-17 2027 (derived: decision day + 21 days; not yet published)'}
+- {date: 2027-04-28, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Apr 27-28 2027 (tentative until confirmed at preceding meeting)}
+- {date: 2027-04-28, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Apr 27-28 2027 (tentative until confirmed at preceding meeting)}
+- {date: 2027-04-28, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fomc_calendar, release: 'FOMC Apr 27-28 2027 (tentative until confirmed at preceding meeting); press conference assumed (held after every meeting since 2019), not yet on Fed calendar'}
+- {date: 2027-05-19, time_et: "14:00", name: FOMC Minutes, blackout: true, source: derived_3_weeks, release: 'Minutes of Apr 27-28 2027 (derived: decision day + 21 days; not yet published)'}
+- {date: 2027-06-09, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Jun 8-9 2027 (tentative until confirmed at preceding meeting)}
+- {date: 2027-06-09, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Jun 8-9 2027 (tentative until confirmed at preceding meeting)}
+- {date: 2027-06-09, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fomc_calendar, release: 'FOMC Jun 8-9 2027 (tentative until confirmed at preceding meeting); press conference assumed (held after every meeting since 2019), not yet on Fed calendar'}
+- {date: 2027-06-30, time_et: "14:00", name: FOMC Minutes, blackout: true, source: derived_3_weeks, release: 'Minutes of Jun 8-9 2027 (derived: decision day + 21 days; not yet published)'}
+- {date: 2027-07-28, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Jul 27-28 2027 (tentative until confirmed at preceding meeting)}
+- {date: 2027-07-28, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Jul 27-28 2027 (tentative until confirmed at preceding meeting)}
+- {date: 2027-07-28, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fomc_calendar, release: 'FOMC Jul 27-28 2027 (tentative until confirmed at preceding meeting); press conference assumed (held after every meeting since 2019), not yet on Fed calendar'}
+- {date: 2027-08-18, time_et: "14:00", name: FOMC Minutes, blackout: true, source: derived_3_weeks, release: 'Minutes of Jul 27-28 2027 (derived: decision day + 21 days; not yet published)'}
+- {date: 2027-09-15, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Sep 14-15 2027 (tentative until confirmed at preceding meeting)}
+- {date: 2027-09-15, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Sep 14-15 2027 (tentative until confirmed at preceding meeting)}
+- {date: 2027-09-15, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fomc_calendar, release: 'FOMC Sep 14-15 2027 (tentative until confirmed at preceding meeting); press conference assumed (held after every meeting since 2019), not yet on Fed calendar'}
+- {date: 2027-10-06, time_et: "14:00", name: FOMC Minutes, blackout: true, source: derived_3_weeks, release: 'Minutes of Sep 14-15 2027 (derived: decision day + 21 days; not yet published)'}
+- {date: 2027-10-27, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Oct 26-27 2027 (tentative until confirmed at preceding meeting)}
+- {date: 2027-10-27, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Oct 26-27 2027 (tentative until confirmed at preceding meeting)}
+- {date: 2027-10-27, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fomc_calendar, release: 'FOMC Oct 26-27 2027 (tentative until confirmed at preceding meeting); press conference assumed (held after every meeting since 2019), not yet on Fed calendar'}
+- {date: 2027-11-17, time_et: "14:00", name: FOMC Minutes, blackout: true, source: derived_3_weeks, release: 'Minutes of Oct 26-27 2027 (derived: decision day + 21 days; not yet published)'}
+- {date: 2027-12-08, time_et: "14:00", name: FOMC Rate Decision, blackout: true, source: fomc_calendar, release: FOMC Dec 7-8 2027 (tentative until confirmed at preceding meeting)}
+- {date: 2027-12-08, time_et: "14:00", name: FOMC Statement, blackout: true, source: fomc_calendar, release: FOMC Dec 7-8 2027 (tentative until confirmed at preceding meeting)}
+- {date: 2027-12-08, time_et: "14:30", name: FOMC Press Conference, blackout: true, source: fomc_calendar, release: 'FOMC Dec 7-8 2027 (tentative until confirmed at preceding meeting); press conference assumed (held after every meeting since 2019), not yet on Fed calendar'}
+- {date: 2027-12-29, time_et: "14:00", name: FOMC Minutes, blackout: true, source: derived_3_weeks, release: 'Minutes of Dec 7-8 2027 (derived: decision day + 21 days; not yet published)'}
+live_extra: []
+schedule_changes:
+- {name: NFP, release: Employment Situation (Sep 2025), scheduled: 2025-10-03, outcome: postponed (shutdown), new_date: 2025-11-20, announced: 2025-10-01, new_date_announced: 2025-11-14, source: bls_lapse_revised}
+- {name: NFP, release: Employment Situation (Oct 2025), scheduled: 2025-11-07, outcome: cancelled, new_date: null, announced: 2025-10-01, new_date_announced: 2025-11-19, source: yahoo_oct_nfp_cancel}
+- {name: NFP, release: Employment Situation (Nov 2025), scheduled: 2025-12-05, outcome: postponed (shutdown), new_date: 2025-12-16, announced: 2025-11-19, new_date_announced: 2025-11-19, source: yahoo_oct_nfp_cancel}
+- {name: CPI, release: CPI (Sep 2025), scheduled: 2025-10-15, outcome: postponed (shutdown), new_date: 2025-10-24, announced: 2025-10-01, new_date_announced: 2025-10-10, source: bls_cpi_sep2025_notice}
+- {name: CPI, release: CPI (Oct 2025), scheduled: 2025-11-13, outcome: cancelled, new_date: null, announced: 2025-10-01, new_date_announced: 2025-11-21, source: bloomberg_oct_cpi_cancel}
+- {name: CPI, release: CPI (Nov 2025), scheduled: 2025-12-10, outcome: postponed (shutdown), new_date: 2025-12-18, announced: 2025-11-21, new_date_announced: 2025-11-21, source: bloomberg_oct_cpi_cancel}
+- {name: PPI, release: PPI (Sep 2025), scheduled: 2025-10-16, outcome: postponed (shutdown), new_date: 2025-11-25, announced: 2025-10-01, new_date_announced: 2025-11-18, source: investinglive_sep_ppi_nov25}
+- {name: PPI, release: PPI (Oct 2025), scheduled: 2025-11-14, outcome: cancelled (Oct data folded into Nov release on 2026-01-14), new_date: null, announced: 2025-10-01, new_date_announced: 2025-12-08, source: investinglive_nov_ppi_jan14}
+- {name: PPI, release: PPI (Nov 2025), scheduled: 2025-12-11, outcome: postponed (shutdown after-effects), new_date: 2026-01-14, announced: 2025-11-25, new_date_announced: 2025-12-08, source: investinglive_nov_ppi_jan14}
+- {name: PPI, release: PPI (Dec 2025), scheduled: 2026-01-14, outcome: postponed (shutdown after-effects), new_date: 2026-01-30, announced: 2025-12-11, new_date_announced: 2025-12-11, source: roic_dec_ppi_jan30}
+- {name: PPI, release: PPI (Jan 2026), scheduled: 2026-02-12, outcome: postponed (2025 shutdown after-effects), new_date: 2026-02-27, announced: 2026-01-30, new_date_announced: 2026-01-30, source: bls_ppi_01302026}
+- {name: PPI, release: PPI (Feb 2026), scheduled: 2026-03-12, outcome: postponed (2025 shutdown after-effects), new_date: 2026-03-18, announced: 2026-02-27, new_date_announced: 2026-02-27, source: bls_ppi_02272026}
+- {name: NFP, release: Employment Situation (Jan 2026), scheduled: 2026-02-06, outcome: postponed (shutdown), new_date: 2026-02-11, announced: 2026-02-02, new_date_announced: 2026-02-04, source: cnn_jan_nfp_delay}
+- {name: CPI, release: CPI (Jan 2026), scheduled: 2026-02-11, outcome: postponed (shutdown), new_date: 2026-02-13, announced: 2026-02-04, new_date_announced: 2026-02-04, source: yahoo_jan_nfp_feb11}
+- {name: Advance GDP, release: GDP Q3 2025 advance, scheduled: 2025-10-30, scheduled_time_et: "08:30", outcome: not released (lapse in appropriations); formally CANCELLED, new_date: null, new_time_et: null, announced: 2025-11-24, announced_implicit: 2025-10-01, source: bea_blog_2025_11_24a}
+- {name: Core PCE, release: Personal Income and Outlays (Sep 2025), scheduled: 2025-10-31, scheduled_time_et: "08:30", outcome: postponed (shutdown), new_date: 2025-12-05, new_time_et: "10:00", announced: 2025-11-24, announced_implicit: 2025-10-01, source: bea_blog_2025_11_24a}
+- {name: Core PCE, release: Personal Income and Outlays (Oct 2025), scheduled: 2025-11-26, scheduled_time_et: "10:00", outcome: to be rescheduled (2025-11-20); then combined with Nov 2025 into one release (2026-01-07), new_date: 2026-01-22, new_time_et: "10:00", announced: 2025-11-20, new_date_announced: 2026-01-07, source: bea_blog_2026_01_07}
+- {name: Advance GDP, release: GDP Q3 2025 second estimate (not an advance; listed because it was replaced), scheduled: 2025-11-26, scheduled_time_et: "08:30", outcome: to be rescheduled (2025-11-20); replaced by GDP Q3 2025 INITIAL estimate (replaces advance + second), new_date: 2025-12-23, new_time_et: "08:30", announced: 2025-11-20, new_date_announced: 2025-11-24, source: bea_blog_2025_11_24b}
+- {name: Core PCE, release: Personal Income and Outlays (Nov 2025), scheduled: 2025-12-19, scheduled_time_et: "10:00", outcome: to be rescheduled (2025-11-24); combined with Oct 2025 (2026-01-07), new_date: 2026-01-22, new_time_et: "10:00", announced: 2025-11-24, new_date_announced: 2026-01-07, source: bea_blog_2026_01_07}
+- {name: Advance GDP, release: GDP Q3 2025 third estimate (not an advance; for reference), scheduled: 2025-12-19, scheduled_time_et: "08:30", outcome: to be rescheduled (2025-11-24); replaced by 'Updated Estimate' (third-estimate equivalent), new_date: 2026-01-22, new_time_et: "08:30", announced: 2025-11-24, new_date_announced: 2025-12-10, source: bea_blog_2025_12_10}
+- {name: Core PCE, release: 'Personal Income and Outlays (Jul-Sep 2025) data-only revision, no news release', scheduled: 2025-12-23, scheduled_time_et: "08:30", outcome: 'added: data-only update published with the GDP Q3 initial estimate', new_date: 2025-12-23, new_time_et: "08:30", announced: 2025-12-18, source: bea_blog_2025_12_18}
+- {name: Advance GDP, release: GDP Q4 and Year 2025 advance, scheduled: 2026-01-29, scheduled_time_et: "08:30", outcome: 'to be rescheduled (2025-12-10, insufficient source data); new date set 2026-01-07', new_date: 2026-02-20, new_time_et: "08:30", announced: 2025-12-10, new_date_announced: 2026-01-07, source: bea_blog_2026_01_07}
+- {name: Core PCE, release: Personal Income and Outlays (Dec 2025), scheduled: 2026-01-29, scheduled_time_et: "08:30", outcome: postponed, new_date: 2026-02-20, new_time_et: "08:30", announced: 2026-01-07, source: bea_blog_2026_01_07}
+- {name: Core PCE, release: Personal Income and Outlays (Jan 2026), scheduled: 2026-02-26, scheduled_time_et: "08:30", outcome: to be rescheduled (2026-01-07); new date 2026-01-15, new_date: 2026-03-13, new_time_et: "08:30", announced: 2026-01-07, new_date_announced: 2026-01-15, source: bea_blog_2026_01_15}
+- {name: Core PCE, release: Personal Income and Outlays (Feb 2026), scheduled: 2026-03-27, scheduled_time_et: "08:30", outcome: postponed, new_date: 2026-04-09, new_time_et: "08:30", announced: 2026-01-15, source: bea_blog_2026_01_15}
+- {name: Retail Sales, release: Advance Retail Sales (Sep 2025), scheduled: 2025-10-16, scheduled_time_et: "08:30", outcome: postponed (shutdown), new_date: 2025-11-25, new_time_et: "08:30", announced: 2025-11-19, announced_implicit: 2025-10-01, source: reuters_census_2025_11_19}
+- {name: Retail Sales, release: Advance Retail Sales (Oct 2025), scheduled: 2025-11-14, scheduled_time_et: "08:30", outcome: postponed (shutdown ended 2025-11-12; release did not occur; Census schedule page still showed 2025-11-14 on 2025-11-16), new_date: 2025-12-16, new_time_et: "08:30", announced: 2025-12-03, announced_implicit: 2025-10-01, source: reuters_census_2025_12_03}
+- {name: Retail Sales, release: Advance Retail Sales (Nov 2025), scheduled: 2025-12-17, scheduled_time_et: "08:30", outcome: postponed, new_date: 2026-01-14, new_time_et: "08:30", announced: 2025-12-03, announced_note: 'not pinned; between 2025-11-16 and 2025-12-28 (wayback), probably the same ~Dec 3 update', source: census_retail_schedule_wayback_2025_12_28}
+- {name: Retail Sales, release: Advance Retail Sales (Dec 2025), scheduled: 2026-01-15, scheduled_time_et: "08:30", outcome: 'TBD (on Census pages by 2025-12-28), then set to 2026-02-10', new_date: 2026-02-10, new_time_et: "08:30", announced: 2025-12-28, announced_note: 'TBD visible by 2025-12-28 (likely earlier, ~Dec 3); new date announced between 2026-01-23 and 2026-02-10 (bulletin undated)', source: census_bulletin_dec_retail}
+- {name: Retail Sales, release: Advance Retail Sales (Jan 2026), scheduled: 2026-02-17, scheduled_time_et: "08:30", outcome: 'TBD (by 2026-01-02), then set to 2026-03-06', new_date: 2026-03-06, new_time_et: "08:30", announced: 2026-01-02, announced_note: TBD visible by 2026-01-02; new date announced between 2026-01-23 and 2026-02-26, source: census_calendar_wayback_2026_02_26}
+- {name: Retail Sales, release: Advance Retail Sales (Feb 2026), scheduled: 2026-03-16, scheduled_time_et: "08:30", outcome: 'TBD (by 2026-01-02), then set to 2026-04-01', new_date: 2026-04-01, new_time_et: "08:30", announced: 2026-01-02, announced_note: new date announced between 2026-03-03 and 2026-03-19 (XLS last revised 2026-03-19), source: census_calendar_wayback_2026_03_28}
+- {name: Retail Sales, release: Advance Retail Sales (Mar 2026), scheduled: 2026-04-16, scheduled_time_et: "08:30", outcome: 'TBD (by 2026-01-02), then set to 2026-04-21', new_date: 2026-04-21, new_time_et: "08:30", announced: 2026-01-02, announced_note: new date announced between 2026-03-03 and 2026-03-19, source: census_calendar_wayback_2026_03_28}
+opex:
+- 2025-08-15
+- 2025-09-19
+- 2025-10-17
+- 2025-11-21
+- 2025-12-19
+- 2026-01-16
+- 2026-02-20
+- 2026-03-20
+- 2026-04-17
+- 2026-05-15
+- 2026-06-18
+- 2026-07-17
+- 2026-08-21
+- 2026-09-18
+- 2026-10-16
+- 2026-11-20
+- 2026-12-18
+- 2027-01-15
+- 2027-02-19
+- 2027-03-19
+- 2027-04-16
+- 2027-05-21
+- 2027-06-17
+- 2027-07-16
+- 2027-08-20
+- 2027-09-17
+- 2027-10-15
+- 2027-11-19
+- 2027-12-17
+quarter_ends:
+- 2025-09-30
+- 2025-12-31
+- 2026-03-31
+- 2026-06-30
+- 2026-09-30
+- 2026-12-31
+- 2027-03-31
+- 2027-06-30
+- 2027-09-30
+- 2027-12-31
+owner_events: []

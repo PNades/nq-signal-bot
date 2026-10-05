@@ -1,0 +1,38 @@
+[project]
+name = "nqbot"
+version = "0.1.0"
+description = "NQ GEX + order flow signal bot (personal use only)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "anthropic",
+    "databento",
+    "discord.py",
+    "httpx",
+    "httpx-sse",
+    "lightgbm",
+    "pandas",
+    "plotly",
+    "polars",
+    "psutil",
+    "pyarrow",
+    "pydantic",
+    "ruamel.yaml",
+    "scikit-learn",
+    "shap",
+    "streamlit",
+    "tzdata",
+]
+
+[project.scripts]
+nqbot = "nqbot.cli:main"
+
+[dependency-groups]
+dev = ["pytest"]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

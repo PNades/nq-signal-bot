@@ -1,0 +1,5 @@
+# Per-account rules (SPEC §6.7, §11 "Where settings live").
+# The owner enters accounts on the Control Panel's Accounts page at step 14, and the UI writes this file.
+# Field list and an annotated example: SPEC §6.7 (the MFFU Rapid EOD 25k and Builder 25k presets are in its table).
+# Daily state (balance, floor) is NOT stored here: it lives in <paths.live_dir>/account_state.json.
+accounts: []

@@ -1,9 +1,16 @@
+# Secrets
 .env
 .env.*
+# Machine-specific resources (config/local.example.yaml shows the format)
 config/local.yaml
-data/
-models/
-reports/
+# Project data lives on the external SSD under paths.root; these are a safety net only.
+# Anchored to the repo root so src/nqbot/models/ is not ignored.
+/data/
+/models/
+/reports/
 *.log
+# Python
 .venv/
 __pycache__/
+.pytest_cache/
+*.egg-info/

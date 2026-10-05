@@ -1,0 +1,55 @@
+"""`nqbot status`: SSD use and each job's progress and estimated nights left (§11)."""
+
+from __future__ import annotations
+
+import json
+import math
+import statistics
+import shutil
+from datetime import datetime
+
+from nqbot.jobs.runner import p90
+from nqbot.storage import GB, Paths
+
+
+def job_lines(paths: Paths) -> list[str]:
+    jobs_dir = paths.data_dir / "jobs"
+    lines = []
+    for spath in sorted(jobs_dir.glob("*/state.json")) if jobs_dir.exists() else []:
+        with open(spath, encoding="utf-8") as f:
+            state = json.load(f)
+        done = state.get("done", {})
+        total = state.get("total", len(done))
+        left = max(0, total - len(done))
+        chunk_p90 = p90([d["sec"] for d in done.values()])
+        line = f"{spath.parent.name}: {len(done)}/{total} chunks done"
+        if left and chunk_p90:
+            hours_left = left * chunk_p90 / 3600
+            line += f", p90 chunk {chunk_p90:.0f}s, ~{hours_left:.1f} h left"
+            window_h = _last_window_hours(state)
+            if window_h:
+                line += f", ~{math.ceil(hours_left / window_h)} night(s) left"
+        elif not left:
+            line += " (complete)"
+        lines.append(line)
+    return lines or ["no jobs yet"]
+
+
+def _last_window_hours(state: dict) -> float | None:
+    """Median run window (start -> --until) over past runs: the best guess of one night's budget."""
+    hours = []
+    for run in state.get("runs") or []:
+        start, until = (datetime.fromisoformat(run[k]) for k in ("start", "until"))
+        h = (until - start).total_seconds() / 3600
+        if h > 0:
+            hours.append(h)
+    return statistics.median(hours) if hours else None
+
+
+def status_lines(paths: Paths) -> list[str]:
+    usage = shutil.disk_usage(paths.drive)
+    lines = [
+        f"SSD {paths.drive} (root {paths.root}): {usage.used / GB:.0f} GB used, "
+        f"{usage.free / GB:.0f} GB free of {usage.total / GB:.0f} GB"
+    ]
+    return lines + job_lines(paths)
