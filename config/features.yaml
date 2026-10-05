@@ -50,6 +50,8 @@ dp_top_n: 3
 dp_lookback_days: 45
 dp_band: 0.5                    # QQQ $; owner confirms at step 13
 dp_lag_sessions: 1              # step 7 late-print check may raise it
+dp_tickers: [QQQ, SPY]          # §3.1: QQQ prints are NQ levels, SPY prints ES cross-market features
+dp_min_notional: 1000000        # USD, the API's default floor; step 7 checks the top-3 lists lose nothing by it
 
 # --- Vol context (§5.2) ---------------------------------------------------------------------------
 tempest_lag_sessions: 1         # step 7 decides (if in doubt, 2)

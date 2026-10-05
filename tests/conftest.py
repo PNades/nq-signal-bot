@@ -60,3 +60,15 @@ class FakeClock:
 @pytest.fixture
 def clock():
     return FakeClock(datetime(2026, 10, 3, 22, 0, tzinfo=ET))  # a Saturday evening
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    """Tests never reach a real API (no pulls, no credits): only httpx.MockTransport may answer."""
+    import httpx
+
+    def refuse(*args, **kwargs):
+        raise RuntimeError("a test tried to use the real network")
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", refuse)
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", refuse)

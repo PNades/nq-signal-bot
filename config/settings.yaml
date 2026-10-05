@@ -14,6 +14,8 @@ min_free_gb_live: 20
 
 # --- Month ledger (§7 rule 2b) ----------------------------------------------------------------
 months: null            # set at step 4b (SSD day): development 1-6, walk-forward test 7-9, sealed 10-12 (+ top-up)
+                        # format: {1: "2025-10", 2: "2025-11", ..., 12: "2026-09"} (month number -> YYYY-MM;
+                        # 1-6 development, 7-9 walk-forward test, 10-12 sealed); read by nqbot.months
 min_month1_sessions: 10
 min_new_sealed_months: 2
 
@@ -87,6 +89,13 @@ feed_recovery_sec: 60
 deadman_url: ""
 
 # --- Skylit (§3.1) ---------------------------------------------------------------------------------
+skylit_symbols:              # map name -> API option root (§3.1). SPX's 0DTE board is the SPXW root: the API's SPX
+  QQQ: QQQ                   # root holds only the AM-settled monthlies (Skylit OpenAPI, 2026-10-05); step 7
+  NDXP: NDXP                 # confirms with /v1/symbols and the stored expirations
+  SPY: SPY
+  SPX: SPXW
+skylit_metric: gamma         # decided (§3.1 Metric)
+skylit_max_expirations: 1    # decided (§3.1 Expirations), history and stream alike
 skylit_max_strikes: 200      # set at step 7 from full-chain calls
 strike_edge_margin: 5
 skylit_stale_sec: 45

@@ -84,3 +84,11 @@ def test_q39_calendar_rows_present():
     from nqbot import calendar
     rows = [(str(e["date"]), e["time_et"]) for e in calendar.load()["events"] if e["name"] == "Fed Chair"]
     assert ("2026-04-21", "10:00") in rows and ("2026-05-13", "14:40") in rows
+
+
+def test_step7_skylit_keys():
+    s, f = load_settings(), load_features()
+    assert set(s["skylit_symbols"]) == {"QQQ", "NDXP", "SPY", "SPX"}
+    assert s["skylit_symbols"]["SPX"] == "SPXW"  # the 0DTE S&P root (§3.1)
+    assert s["skylit_metric"] == "gamma" and s["skylit_max_expirations"] == 1
+    assert f["dp_tickers"] == ["QQQ", "SPY"] and f["dp_min_notional"] == 1_000_000

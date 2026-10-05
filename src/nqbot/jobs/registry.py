@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import Callable
 
+from nqbot.clients.skylit_pull import SkylitPullJob
 from nqbot.jobs.dummy import DummyJob
 from nqbot.jobs.runner import Job
 
 JOBS: dict[str, Callable[[], Job]] = {
     "dummy": DummyJob,
+    "skylit_sample_days": lambda: SkylitPullJob("skylit_sample_days"),  # step 7 (started by nqbot step7 sample-days)
 }
 
 
