@@ -6,14 +6,17 @@ drives for the marker file .nqbot_drive (never by drive letter); every path is b
 
 from __future__ import annotations
 
+import gc
 import json
 import os
 import shutil
-import tempfile
 import time
+import traceback
+import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePath
-from typing import Any
+from typing import Any, Iterator
 
 MARKER = ".nqbot_drive"
 GB = 1024**3
@@ -119,22 +122,49 @@ def _replace(src: str, dst: Path) -> None:
             time.sleep(REPLACE_RETRY_SEC)
 
 
-def atomic_write_bytes(path: Path, data: bytes) -> None:
-    """Temp file in the destination folder (same drive) -> fsync -> rename (§11 Overnight jobs)."""
+@contextmanager
+def atomic_path(path: Path) -> Iterator[Path]:
+    """Temp file in the destination folder (same drive) -> fsync -> rename (§11 Overnight jobs).
+
+    Yields a temp path that does not exist yet (writers such as databento's get_range refuse an existing file);
+    on success the written file is fsynced and renamed onto `path`, on any error the temp file is removed."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    tmp = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
     try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-            f.flush()
+        yield tmp
+        with open(tmp, "rb+") as f:
             os.fsync(f.fileno())
-        _replace(tmp, path)
-    except BaseException:
+        _replace(str(tmp), path)
+    except BaseException as e:
+        # A writer that failed mid-write may still hold the temp file open through its frame in the traceback,
+        # and Windows refuses to delete an open file: drop those frames' locals (closing it) before removing.
+        traceback.clear_frames(e.__traceback__)
         try:
             os.remove(tmp)
-        except OSError:
+        except FileNotFoundError:
             pass
+        except OSError:
+            gc.collect()
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass  # swept by remove_stale_temps before the next write to this path
         raise
+
+
+def remove_stale_temps(path: Path) -> None:
+    """Delete temp files an earlier atomic write to `path` left behind (killed process, open handle on Windows)."""
+    if path.parent.exists():
+        for stale in path.parent.glob(f".{path.name}.*.tmp"):
+            try:
+                stale.unlink()
+            except OSError:
+                pass
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    with atomic_path(path) as tmp:
+        tmp.write_bytes(data)
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -143,3 +173,18 @@ def atomic_write_text(path: Path, text: str) -> None:
 
 def atomic_write_json(path: Path, obj: Any) -> None:
     atomic_write_text(path, json.dumps(obj, indent=2, sort_keys=True, default=str))
+
+
+def append_jsonl(path: Path, row: dict[str, Any]) -> None:
+    """Append one line and fsync it (call ledgers: every paid or failed call is kept, CLAUDE.md rule 2)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(row, sort_keys=True, default=str) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]

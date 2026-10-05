@@ -42,6 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     unlock = sub.add_parser("unlock", help="remove the job lock left on the SSD by a job that is no longer running")
     unlock.add_argument("--yes", action="store_true", help="confirm that job is no longer running anywhere")
     _add_step7(sub)
+    _add_databento(sub)
     args = parser.parse_args(argv)
 
     try:
@@ -76,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
     log = setup_logging(paths.log_dir)
     if args.command == "step7":
         return _run_step7(args, settings, paths, log)
+    if args.command == "databento":
+        return _run_databento(args, settings, paths, log)
     job = get_job(args.job)
     until = parse_until(args.until, datetime.now(ET))
     try:
@@ -212,6 +215,37 @@ def _run_step7(args: argparse.Namespace, settings: dict, paths, log) -> int:
     finally:
         if lock is not None:
             lock.__exit__(None, None, None)
+    return 0
+
+
+def _add_databento(sub: argparse._SubParsersAction) -> None:
+    """`nqbot databento plan`: resolve contracts, print the cost estimate, write the step-8 pull plan (§12 step 8)."""
+    db = sub.add_parser("databento", help="step-8 Databento pull (SSD day)").add_subparsers(dest="action", required=True)
+    p = db.add_parser("plan", help="resolve front contracts, print metadata.get_cost, write the plan (no data pulled)")
+    p.add_argument("--approve-usd", type=float, default=None,
+                   help="owner-approved pay-as-you-go dollars (warm-up trades, days past the included window)")
+    p.add_argument("--today", type=_date, default=None, help=argparse.SUPPRESS)  # testing only
+
+
+def _run_databento(args: argparse.Namespace, settings: dict, paths, log) -> int:
+    from nqbot.clients.databento_client import DatabentoClient, DatabentoError
+    from nqbot.clients.databento_pull import PlanRefused, make_plan
+    from nqbot.clients.databento_store import DatabentoStore
+    from nqbot.config import load_features
+    from nqbot.jobs.lock import JobLock
+    from nqbot.months import LedgerMissing
+    from nqbot.secrets import MissingSecret
+
+    store = DatabentoStore(paths)
+    paths.root.mkdir(parents=True, exist_ok=True)
+    try:
+        with JobLock(paths.root / LOCK_NAME, "databento plan"):
+            client = DatabentoClient.from_env(on_call=store.log_call, log=log)
+            make_plan(client, store, settings, load_features(), args.today or datetime.now(ET).date(),
+                      approved_usd=args.approve_usd)
+    except (LedgerMissing, MissingSecret, LockHeld, DatabentoError, PlanRefused, ConfigError, ValueError) as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return EXIT_REFUSED
     return 0
 
 

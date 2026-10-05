@@ -105,3 +105,27 @@ def test_real_drive_scan_skips_the_system_drive():
 
     system = os.environ.get("SystemDrive", "C:").upper()
     assert all(not str(d).upper().startswith(system) for d in storage.candidate_drives())
+
+
+def test_atomic_path_removes_a_temp_file_a_failed_writer_left_open(tmp_path):
+    # databento's get_range opens the path ("x+b") and, if the stream fails, raises with the file still open through
+    # its frame in the traceback; Windows refuses to delete an open file. Nothing may be left behind.
+    import pytest
+
+    from nqbot.storage import atomic_path, remove_stale_temps
+
+    def writer(path):
+        f = open(path, "x+b")  # noqa: SIM115 - deliberately left open, as the library does
+        f.write(b"partial")
+        raise ConnectionError("stream dropped")
+
+    target = tmp_path / "x.dbn.zst"
+    with pytest.raises(ConnectionError):
+        with atomic_path(target) as tmp:
+            writer(tmp)
+    assert list(tmp_path.iterdir()) == []
+
+    stale = tmp_path / ".x.dbn.zst.deadbeef.tmp"
+    stale.write_bytes(b"old")
+    remove_stale_temps(target)
+    assert not stale.exists()

@@ -32,7 +32,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from nqbot.clients.skylit import CallRecord
-from nqbot.storage import Paths, atomic_write_bytes
+from nqbot.storage import Paths, append_jsonl, atomic_write_bytes, read_jsonl
 
 META_KEY = b"nqbot"
 COMPRESSION = "zstd"  # §11 Storage
@@ -239,21 +239,12 @@ class SkylitStore:
     # ledger
     def log_call(self, rec: CallRecord, **extra: Any) -> None:
         """Append one finished call (wired as the client's on_call, so every paid or failed call is logged)."""
-        path = self.root / "ledger.jsonl"
-        path.parent.mkdir(parents=True, exist_ok=True)
         row = asdict(rec)
         row.update(row.pop("context") or {})
-        line = json.dumps({**row, **extra}, sort_keys=True, default=str)
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
-            f.flush()
-            os.fsync(f.fileno())
+        append_jsonl(self.root / "ledger.jsonl", {**row, **extra})
 
     def ledger(self) -> list[dict[str, Any]]:
-        path = self.root / "ledger.jsonl"
-        if not path.exists():
-            return []
-        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        return read_jsonl(self.root / "ledger.jsonl")
 
     # range windows
     def range_paths(self, day: date, hhmm: str, base: Path | None = None) -> tuple[Path, Path]:
