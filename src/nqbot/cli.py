@@ -41,8 +41,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("status", help="SSD use and job progress")
     unlock = sub.add_parser("unlock", help="remove the job lock left on the SSD by a job that is no longer running")
     unlock.add_argument("--yes", action="store_true", help="confirm that job is no longer running anywhere")
+    unlock.add_argument("--gameplan", action="store_true", help="the gameplan commands' lock instead of the job lock")
     _add_step7(sub)
     _add_databento(sub)
+    _add_gameplan(sub)
     args = parser.parse_args(argv)
 
     try:
@@ -61,17 +63,25 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "unlock":
-        lock = paths.root / LOCK_NAME
+        if args.gameplan:
+            from nqbot.gameplan.parser import GameplanStore
+
+            lock, what, flag = GameplanStore.from_paths(paths).lock_path, "gameplan lock", " --gameplan"
+        else:
+            lock, what, flag = paths.root / LOCK_NAME, "job lock", ""
         holder = read_lock(lock)
         if not lock.exists():
-            print("no job lock on the SSD")
+            print(f"no {what} on the SSD")
             return 0
-        print(f"job lock held by: {holder or 'unreadable lock file'}")
+        print(f"{what} held by: {holder or 'unreadable lock file'}")
         if not args.yes:
-            print("Check that job is not running on any machine, then run: uv run nqbot unlock --yes")
+            print(f"Check that job is not running on any machine, then run: uv run nqbot unlock{flag} --yes")
             return EXIT_LOCKED
         force_unlock(lock)
-        print("job lock removed; the job resumes from its last finished chunk on the next nqbot run")
+        if args.gameplan:
+            print("gameplan lock removed")
+        else:
+            print("job lock removed; the job resumes from its last finished chunk on the next nqbot run")
         return 0
 
     log = setup_logging(paths.log_dir)
@@ -79,6 +89,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_step7(args, settings, paths, log)
     if args.command == "databento":
         return _run_databento(args, settings, paths, log)
+    if args.command in ("gameplan", "gameplan-batch"):
+        return _run_gameplan(args, settings, paths, log)
     job = get_job(args.job)
     until = parse_until(args.until, datetime.now(ET))
     try:
@@ -244,6 +256,65 @@ def _run_databento(args: argparse.Namespace, settings: dict, paths, log) -> int:
             make_plan(client, store, settings, load_features(), args.today or datetime.now(ET).date(),
                       approved_usd=args.approve_usd)
     except (LedgerMissing, MissingSecret, LockHeld, DatabentoError, PlanRefused, ConfigError, ValueError) as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return EXIT_REFUSED
+    return 0
+
+
+def _add_gameplan(sub: argparse._SubParsersAction) -> None:
+    """`nqbot gameplan <file>` and `nqbot gameplan-batch`: the step-9 parser (SPEC §3.4, §5.6)."""
+    p = sub.add_parser("gameplan", help="parse one gameplan (.md/.pdf/.docx) into processed/gameplans/<date>.json")
+    p.add_argument("file")
+    p.add_argument("--date", type=_date, default=None, help="the gameplan's date when neither name nor text has it")
+    p.add_argument("--reparse", action="store_true", help="send a file already parsed again (costs another call)")
+    p.add_argument("--replace", action="store_true",
+                   help="use this file for that date instead of the one parsed before (the old copy is moved aside)")
+    p.add_argument("--approve-usd", type=float, default=None,
+                   help="owner-approved dollars when the worst case is over gameplan_max_usd_per_file")
+    p = sub.add_parser("gameplan-batch", help="parse every file in raw/gameplans/ and report gameplan days per month")
+    p.add_argument("--approve-usd", type=float, default=None,
+                   help="owner-approved dollars for the batch's worst-case API cost (CLAUDE.md rule 2)")
+    p.add_argument("--reparse", action="store_true", help="send files already parsed again")
+
+
+def _run_gameplan(args: argparse.Namespace, settings: dict, paths, log) -> int:
+    from pathlib import Path
+
+    from nqbot.gameplan import parser as gp
+    from nqbot.jobs.lock import JobLock
+    from nqbot.secrets import MissingSecret
+
+    store = gp.GameplanStore.from_paths(paths)
+    store.processed_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        # Not the SSD job lock: a daily parse must not wait for an overnight pull; only the two gameplan
+        # commands share this one (they both write the gameplan index).
+        with JobLock(store.lock_path, args.command, unlock_cmd="uv run nqbot unlock --gameplan"):
+            client = gp.make_client(settings)
+            if args.command == "gameplan":
+                file = Path(args.file)
+                if not file.is_file():
+                    print(f"refused: {file} not found", file=sys.stderr)
+                    return EXIT_REFUSED
+                cap = max(settings["gameplan_max_usd_per_file"], args.approve_usd or 0)
+                r = gp.parse_file(client, settings, store, file, given_date=args.date, reparse=args.reparse,
+                                  replace=args.replace, cap_usd=cap)
+                print(f"{r.file}: {r.status} {r.date or ''} {r.message}".rstrip())
+                for f in r.flags:
+                    print(f"  flag {f['field']} ({f['origin']}): {f['reason']}")
+                if r.status in ("ok", "flagged", "cached"):
+                    print(f"{store.json_path(r.date)} (cost ${r.cost_usd:.3f})")
+                log.info("gameplan %s: %s %s %s", r.file, r.status, r.date, r.message)
+                return 0 if r.status in ("ok", "flagged", "cached") else EXIT_REFUSED
+            results, report = gp.batch(client, settings, store, approved_usd=args.approve_usd,
+                                       reparse=args.reparse, still_mounted=paths.mounted)
+            print(report.read_text(encoding="utf-8"))
+            print(f"report: {report}; spent ${sum(r.cost_usd for r in results):.2f}")
+            log.info("gameplan-batch: %d results, report %s", len(results), report)
+    except LockHeld as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return EXIT_LOCKED
+    except (gp.GameplanRefused, MissingSecret) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
     return 0

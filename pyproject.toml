@@ -16,6 +16,7 @@ dependencies = [
     "psutil",
     "pyarrow",
     "pydantic",
+    "python-docx>=1.2.0",
     "ruamel.yaml",
     "scikit-learn",
     "shap",

@@ -11,6 +11,11 @@ def test_settings_start_values():
     assert s["months"] is None  # set at step 4b
     assert s["blackout_before_min"] == 30 and s["blackout_after_min"] == 60
     assert s["ops"]["job_lock_window"] == "08:30-16:15"
+    # Step-9 gameplan parser (§3.4): model name and cost-estimate prices live in config, not code (rule 5).
+    assert s["gameplan_model"] == "claude-opus-5-5" and s["gameplan_effort"] == "medium"
+    assert s["gameplan_max_tokens"] == 16000
+    assert s["gameplan_usd_per_mtok"] == {"input": 4.0, "output": 20.0}
+    assert s["gameplan_max_usd_per_file"] == 1.00
 
 
 def test_features_and_accounts_load():

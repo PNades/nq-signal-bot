@@ -21,7 +21,7 @@ LOCK_NAME = ".nqbot_job.lock"
 
 
 class LockHeld(Exception):
-    def __init__(self, path: Path, holder: dict | None):
+    def __init__(self, path: Path, holder: dict | None, unlock_cmd: str = "uv run nqbot unlock"):
         self.holder = holder
         who = (
             f"job {holder.get('job')!r} (pid {holder.get('pid')} on {holder.get('host')}, "
@@ -31,7 +31,7 @@ class LockHeld(Exception):
         )
         super().__init__(
             f"job lock {path} is held by {who}. If that job is no longer running (e.g. the SSD was "
-            f"unplugged from the other machine), run: uv run nqbot unlock"
+            f"unplugged from the other machine), run: {unlock_cmd}"
         )
 
 
@@ -58,9 +58,10 @@ def force_unlock(path: Path) -> dict | None:
 
 
 class JobLock:
-    def __init__(self, path: Path, job: str):
+    def __init__(self, path: Path, job: str, unlock_cmd: str = "uv run nqbot unlock"):
         self.path = path
         self.job = job
+        self.unlock_cmd = unlock_cmd
         self.host = socket.gethostname()
         self.pid = os.getpid()
         self._held = False
@@ -74,7 +75,7 @@ class JobLock:
                 if attempt == 0 and self._stale(holder):
                     self.path.unlink(missing_ok=True)
                     continue
-                raise LockHeld(self.path, holder) from None
+                raise LockHeld(self.path, holder, self.unlock_cmd) from None
             info = {
                 "host": self.host,
                 "pid": self.pid,

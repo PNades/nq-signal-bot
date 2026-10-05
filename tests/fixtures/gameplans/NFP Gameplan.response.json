@@ -1,0 +1,30 @@
+{
+  "date": "2026-04-03",
+  "date_evidence": "Friday April 3rd 2026 · Non-Farm Payrolls 08:30",
+  "hvl": 25090,
+  "regime_line": [25070, 25110],
+  "zones": [
+    {"id": "E1", "side": "sell", "zone": [25240, 25285],
+     "trigger": {"type": "failed_audit", "es_below": 6905, "es_above": null, "note": null},
+     "stop": 25300, "invalidation": {"settled_1m_above": 25285, "settled_1m_below": null, "note": null},
+     "targets": [25180, 25120],
+     "source_quote": "E1 sell 25,240 – 25,285: wait for the failed audit; ES gate: ES below 6,905. Stop 25,300. Invalid on a 1m settle above 25,285. T1 25,180, T2 25,120."},
+    {"id": "E2", "side": "buy", "zone": [25000, 25035],
+     "trigger": {"type": "absorption", "es_below": null, "es_above": null, "note": "absorption at the overnight low"},
+     "stop": 24985, "invalidation": {"settled_1m_above": null, "settled_1m_below": null, "note": null},
+     "targets": [25090, 25140],
+     "source_quote": "E2 buy 25,000 – 25,035: absorption at the overnight low. Stop 24,985. T1 25,090, T2 25,140."},
+    {"id": "E4", "side": "buy", "zone": [24900, 24900],
+     "trigger": {"type": null, "es_below": null, "es_above": null, "note": "only if the flush extends"},
+     "stop": null, "invalidation": {"settled_1m_above": null, "settled_1m_below": null, "note": null},
+     "targets": [],
+     "source_quote": "E4 buy around 24,900ish (only if the flush extends; stop and target TBD)."}
+  ],
+  "scenarios": [
+    {"id": "S1", "prob": 0.6, "bias": "neutral", "desc": "chop between E1 and E2"},
+    {"id": "S2", "prob": 0.4, "bias": "up", "desc": "NFP trend continues higher"}
+  ],
+  "version_used": "RTH v2 (09:10)",
+  "dropped": ["RTH v1 (07:45)", "Observed RTH (added 11:40)"],
+  "uncertain": [{"field": "zones[E4].zone", "reason": "'around 24,900ish': no range given"}]
+}

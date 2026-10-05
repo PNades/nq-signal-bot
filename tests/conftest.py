@@ -72,3 +72,8 @@ def no_network(monkeypatch):
 
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", refuse)
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", refuse)
+    # The anthropic SDK (1.x) sends through httpx2, not httpx: block it too (tests use tests/anthropic_fakes.py).
+    import httpx2
+
+    monkeypatch.setattr(httpx2.HTTPTransport, "handle_request", refuse)
+    monkeypatch.setattr(httpx2.AsyncHTTPTransport, "handle_async_request", refuse)
