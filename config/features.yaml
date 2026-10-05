@@ -19,7 +19,6 @@ node_drop_pct: 0.20
 lean_window: null               # step 5 (minutes)
 velocity_lookback_sec: 60
 regime_band: null               # step 5 (% of spot)
-floor_search: null              # step 5
 flip_margin: 0                  # per level type, tuned at step 13 on months 1-4
 flip_bar_minutes: 5
 ib_fib_start_minute: 20         # owner rule, never tuned (golden zone opens 09:50)
@@ -51,9 +50,18 @@ tempest_lag_sessions: 1         # step 7 decides (if in doubt, 2)
 
 # --- Skylit structure (§5.2) ------------------------------------------------------------------------
 roll_window_min: null           # step 5
-roll_min_shrink_pct: null       # step 5
-roll_min_shift_strikes: null    # step 5
 ib_avg_sessions: 20
+rug_gap_strikes: 1              # owner 2026-10-05: negative node at most 1 strike step from the positive one
+pika_cloud_min_nodes: 2         # owner 2026-10-05
+pika_cloud_min_pct: 0.10        # owner 2026-10-05: members >= 10% of King, adjacent strikes
+air_pocket_max_pct: 0.02        # owner 2026-10-05: air pockets = runs of small nodes (< 2% of King) price travels through easily
+magnet_min_dist_em: null        # step 5 part 2 (NEW, expected moves)
+node_switch_min_sec: null       # step 5 part 2 (NEW; King and ceiling/floor switches)
+rainbow_min_nodes_per_sign: null  # step 5 part 2 (NEW)
+rainbow_max_dominance: null     # step 5 part 2 (NEW)
+bias_deadband: null             # step 5 part 2 (NEW, velocity-lean units)
+smt_lookback_min: null          # step 5 part 2 (NEW, NQ/ES divergence)
+rel_delta_sec: null             # step 5 part 2 (NEW, NQ vs ES relative delta)
 
 # --- Mapping (§5.1) ---------------------------------------------------------------------------------
 mapping:
@@ -75,6 +83,11 @@ big_trade_agg_ms: 50
 big_trade_min_contracts: null   # start: 99th percentile of combined trade size (measured)
 big_trade_lookback_sessions: 20
 imb_ratio: null                 # step 5
+imb_min_volume: null            # step 5 part 2 (NEW)
+imb_stack_min: null             # step 5 part 2 (NEW, FQ-17)
+cvd_slope_sec: null             # step 5 part 2 (NEW)
+tob_window_sec: null            # step 5 part 2 (NEW, refills/pulls)
+imb_window_sec: null            # step 5 part 2 (NEW; rolling footprint window)
 exh_lookback_sec: null          # step 5
 exh_decay_ratio: null           # step 5
 div_lookback_sec: null          # step 5
