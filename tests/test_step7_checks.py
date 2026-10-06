@@ -441,8 +441,12 @@ def test_report_with_backfill_estimate(env):
     env.fake.routes["/v1/vol/symbols"] = lambda r: {"data": {"symbols": [], "missing": []}}
     step7.check_symbols(env)
     text = step7.check_report(env)
-    assert "## symbols" in text and "not run yet" in text and "Step-10 backfill estimate" in text
+    assert "## symbols" in text and "pending (runs alongside)" in text and "Step-10 backfill estimate" in text
+    assert "Ready for the owner's step-10 OK: no** (missing: strike_window, sample_days)" in text
     bf = step7.backfill_estimate(env)
-    assert bf["window"] == ["2025-10-01", "2026-09-30"] and bf["windows"] > 240 * 20
+    assert bf["window"] == ["2025-10-01", "2026-09-30"]
+    # now = 2026-10-06 20:00 ET: 2025-10-01..06 have left the 365-day reach (by timestamp, not date)
+    assert bf["lost_days"] == ["2025-10-01", "2025-10-02", "2025-10-03", "2025-10-06"]
+    assert bf["estimate"][0][1] > 240 * 20  # range calls
     assert step7.warmup_sessions(env.features) >= 20
     assert (step7.reports_dir(env.paths) / "parameter_check.md").exists()

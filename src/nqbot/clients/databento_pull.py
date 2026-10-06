@@ -38,13 +38,14 @@ from nqbot.clients.databento_client import MBP1, OHLCV_1S, TRADES, DatabentoClie
 from nqbot.clients.databento_contracts import (CONTINUOUS, Roll, cme_day_span, front_by_day, micro_symbol,
                                                roll_days, roll_spread)
 from nqbot.clients.databento_store import DatabentoStore, read_records
+from nqbot.clients.skylit_pull import SKYLIT_HISTORY, day_reachable
 from nqbot.features.bars import BAR_MINUTES, PRICE_SCALE, bars_from_records, write_bars
 from nqbot.jobs.runner import Ctx, StopChunk
 from nqbot.storage import Paths, atomic_write_json
 
 ET = ZoneInfo("America/New_York")
 JOB_NAME = "databento_backfill"
-SKYLIT_HISTORY_DAYS = 365  # §3.1 / §12 Phase C: Skylit range history reaches 365 days back
+SKYLIT_HISTORY_DAYS = SKYLIT_HISTORY.days  # §3.1 / §12 Phase C: Skylit range history reaches 365 days back
 MIN_WARMUP_SESSIONS = 20  # §3.2: warmup_sessions = max(20, the longest session lookback) + 1
 # §3.2 (owner 2026-10-05): one more session than the longest lookback, because N close-to-close returns (rv_nq over
 # rv_lookback_sessions, ATR's previous close) need N + 1 closes, so every rolling statistic is complete on day 1.
@@ -87,12 +88,21 @@ def sessions_before(day: date, n: int, cal: dict[str, Any] | None = None) -> lis
     return out[::-1]
 
 
-def window_days(settings: dict[str, Any], today: date) -> tuple[list[date], list[date]]:
-    """(weekdays of the ledger window to pull, weekdays dropped as beyond Skylit's reach). Complete days only."""
+def window_days(settings: dict[str, Any], today: date, now: datetime | None = None,
+                skylit_lost: Iterable[date] = (),
+                skylit_has: Callable[[date], bool] = lambda d: False) -> tuple[list[date], list[date]]:
+    """(weekdays of the ledger window to pull, weekdays dropped as beyond Skylit's reach). Complete days only.
+
+    The same timestamp rule as the Skylit backfill (presd_fixes issue 7): a day is kept only if its last Skylit
+    window still starts after `now` - 365 days + skylit_reach_margin_min (default `now`: the start of `today`),
+    and not if the step-10 backfill already recorded it as wholly lost. A day whose Skylit boards are already
+    stored (`skylit_has`) is always kept, so a re-plan days later doesn't drop it."""
     first, last = months_mod.span(settings)
-    reach = today - timedelta(days=SKYLIT_HISTORY_DAYS)
+    now = now or datetime.combine(today, time(0), tzinfo=ET)
+    margin, lost = float(settings["skylit_reach_margin_min"]), set(skylit_lost)
     days = weekdays(first, min(last, today - timedelta(days=1)))
-    return [d for d in days if d >= reach], [d for d in days if d < reach]
+    keep = [d for d in days if skylit_has(d) or (d not in lost and day_reachable(d, now, margin))]
+    return keep, [d for d in days if d not in set(keep)]
 
 
 def mbp1_span(day: date, cal: dict[str, Any] | None = None) -> tuple[datetime, datetime]:
@@ -221,9 +231,14 @@ def plan_path(paths: Paths) -> Path:
 
 def make_plan(client: DatabentoClient, store: DatabentoStore, settings: dict[str, Any], features: dict[str, Any],
               today: date, *, approved_usd: float | None = None, cal: dict[str, Any] | None = None,
-              echo: Callable[[str], None] = print) -> dict[str, Any]:
+              echo: Callable[[str], None] = print, now: datetime | None = None) -> dict[str, Any]:
     """Resolve contracts, list the items, print the estimate, write the plan (no data is pulled here)."""
-    window, cut = window_days(settings, today)
+    from nqbot.clients.skylit_backfill import fully_lost_days
+    from nqbot.clients.skylit_store import SkylitStore
+
+    sky = SkylitStore(store.paths)
+    window, cut = window_days(settings, today, now, fully_lost_days(store.paths),
+                              skylit_has=lambda d: bool(sky.stored_windows(d)))
     sessions = [d for d in window if cal_mod.is_trading_day(d, cal)]
     if not sessions:
         raise PlanRefused("no window session to pull (is the ledger window inside Skylit's 365-day reach?)")

@@ -101,6 +101,12 @@ strike_edge_margin: 5
 skylit_stale_sec: 45
 skylit_credit_warn: 10000
 map_latency_sec: null        # measured at step 7 (99.9th percentile stream delay)
+skylit_reach_margin_min: 30  # §3.1 Backfill: a window is pulled only if it starts after now - 365 days + this margin
+skylit_pack_margin: 0.10     # step-7 report: the credit shortfall is (backfill estimate x (1 + margin)) - balance
+skylit_credit_packs:         # §3.1 top-up price list (owner, 2026-10); the step-7 report names the cheapest cover
+  - {credits: 55000, usd: 50}
+  - {credits: 175000, usd: 150}
+  - {credits: 480000, usd: 400}
 
 # --- News blackouts (§9) ---------------------------------------------------------------------------
 blackout_before_min: 30      # owner

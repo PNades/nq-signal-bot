@@ -341,11 +341,13 @@ class SkylitClient:
 
     # --- Flowseeker dark pools ---------------------------------------------------------------------
 
-    def dark_pool_trades(self, day: date, tickers: list[str], min_notional: float) -> DarkPoolPull:
+    def dark_pool_trades(self, day: date, tickers: list[str], min_notional: float,
+                         before_page: Callable[[], None] | None = None) -> DarkPoolPull:
         """Every print of one ET trade date, oldest first, walked by meta.nextCursor. 5 credits a page.
 
         A short page (count < limit) ends the date. Out-of-order pages or a runaway page count fail loudly:
-        a silently truncated day would change the top-3 list (§3.1 Dark pools).
+        a silently truncated day would change the top-3 list (§3.1 Dark pools). `before_page` runs before every
+        page's call (the step-10 credit budget; it may raise to stop).
         """
         base = {"tickers": ",".join(tickers), "date": day.isoformat(), "min_notional": min_notional,
                 "limit": DP_PAGE_LIMIT, "order": "asc", "sort": "time"}
@@ -353,6 +355,8 @@ class SkylitClient:
         records: list[CallRecord] = []
         cursor: str | None = None
         for page in range(1, DP_MAX_PAGES + 1):
+            if before_page is not None:
+                before_page()
             body, rec = self.get("/v1/dark-pool/trades", {**base, "cursor": cursor})
             records.append(rec)
             rows, meta = body.get("data") or [], body.get("meta") or {}

@@ -26,12 +26,12 @@ Each session: read this file, CLAUDE.md, and the SPEC sections listed for its st
 
 ### CRITICAL
 
-**1. The step-10 Skylit backfill isn't built (session A).** Status: open.
+**1. The step-10 Skylit backfill isn't built (session A).** Status: ✅ fixed 2026-10-05 (session A): job `skylit_backfill`, `nqbot skylit plan`; dark pools stay one date per call (owner 2026-10-05; range calls left to issue 17).
 - Evidence: `src/nqbot/jobs/registry.py` registers only `dummy`, `skylit_sample_days` and `databento_backfill` (`nqbot run skylit_backfill` → "invalid choice"). There's no backfill date plan, no dark-pool or Tempest backfill, and `step7.backfill_estimate` (`checks/step7.py` ~758) only estimates. `skylit_credits.check` (~85–87) refuses any estimate above the balance.
 - Failure: on SSD day the owner OKs step 10 and there's nothing to run. Every trading day of delay loses one session of Skylit history for good.
 - Fix: a resumable `skylit_backfill` job (one CME day per chunk). It pulls oldest first: RTH range windows, holiday probe, early-close days to `early_close_et` + one probe window. It also pulls the dark-pool prints (window + `dp_lookback_days`, oldest first, using the 31-day range calls where the API allows) and Tempest history (`warmup_sessions` + 2 sessions before month 1). It skips days already out of reach (issue 7) and stops at yesterday. It reuses cached sample days (issue 10). It writes the "days beyond 365" and "share of 1-minute sessions" reports. Credit gate: the whole estimate is approved once with `--approve-credits` after the pack is bought (decision 2). If the balance runs out anyway, the job stops cleanly at the chunk boundary and resumes after a top-up. It never pulls past the approved amount.
 
-**2. The CLAUDE.md step-7 order would delay step 10 by 1–2 weeks (session A).** Status: the CLAUDE.md order is fixed in this session (decision 1). The `report` changes are open.
+**2. The CLAUDE.md step-7 order would delay step 10 by 1–2 weeks (session A).** Status: ✅ fixed 2026-10-05 (session A): CLAUDE.md order and `report` (pending sections, shortfall, cheapest pack).
 - Evidence: CLAUDE.md put `report` (parameter check + backfill estimate) after the late-print ×5 / Tempest ×2 mornings. SPEC §12 step 7 says those don't hold up step 10.
 - Fix: the order is symbols → strike-window → owner OKs `skylit_max_strikes` → sample-days → historical-instants / darkpool / tempest-depth → **report → owner OK (+ pack purchase) → step 10 and step 8 the same day**. Stream-record, parity, late-prints and Tempest-poll run alongside. Session A makes `report` work before the live-session and morning checks exist (marking them "pending", not failing) and print the credit shortfall and the cheapest covering pack (decision 2).
 
@@ -58,7 +58,7 @@ Each session: read this file, CLAUDE.md, and the SPEC sections listed for its st
 
 ### MEDIUM
 
-**7. Skylit's 365-day limit is a moment in time, not a date (session A).** Status: open.
+**7. Skylit's 365-day limit is a moment in time, not a date (session A).** Status: ✅ fixed 2026-10-05 (session A).
 - Evidence: `docs/skylit/openapi.json` (`from`: "Up to 365 days back"). `pull_window` only tolerates a 404 (`clients/skylit_pull.py` ~139–145). `databento_pull.window_days` cuts at date level (~91–96). `backfill_estimate` excludes neither out-of-reach nor future days.
 - Failure: the oldest day's morning windows expire during the day. An out-of-range answer (probably a 400) crashes the pull. Databento may buy a day whose Skylit morning is already gone.
 - Fix: clip by timestamp (now − 365 days, with a safety margin parameter). Treat an out-of-reach answer as a "lost" window: logged, reported, not cached as empty, not an error. The estimate counts only reachable past windows. The Databento window follows the days Skylit actually got (or the same timestamp rule).
@@ -67,11 +67,11 @@ Each session: read this file, CLAUDE.md, and the SPEC sections listed for its st
 - Evidence: `checks/step7.py` `warmup_sessions` = max(20, lookbacks) = 20 (~706–718). `clients/databento_pull.py` `warmup_sessions` = 21 (~68–70, the owner's 2026-10-05 rule).
 - Fix: one shared function (max(20, lookbacks) + 1) used by both, with a test.
 
-**9. The dark-pool depth probe could stop the whole check (session A).** Status: open.
+**9. The dark-pool depth probe could stop the whole check (session A).** Status: ✅ fixed 2026-10-05 (session A); the probe outcome is kept in `darkpool/probe/<date>.json` so it isn't paid for twice.
 - Evidence: the probe date (~mid-August 2025, more than 365 days back) sorts first and is pulled first (`checks/step7.py` ~483–495). An empty answer is cached as a permanent empty trading day (~440–451).
 - Fix: the probe is best-effort and runs last. A 400 or empty answer is recorded as "out of reach / no coverage" in the report, never cached as an empty day, and never stops the check.
 
-**10. Raising `skylit_max_strikes` after the sample days would trip step 10 (session A).** Status: open.
+**10. Raising `skylit_max_strikes` after the sample days would trip step 10 (session A).** Status: ✅ fixed 2026-10-05 (session A).
 - Evidence: the cached sample days keep the old parameters, so `skylit_store` raises `CacheMismatch` (~226–243), also through `SkylitPullJob.chunks` → `uncached_windows`.
 - Fix: the step-10 job uses the `repull/strike_window_raise` copies when they match the current parameters, or pulls those days normally if not. Never `CacheMismatch` mid-backfill. Test it.
 

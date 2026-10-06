@@ -11,6 +11,7 @@ from nqbot.clients import databento_cost as cost_mod
 from nqbot.clients.databento_client import MBP1, OHLCV_1S, TRADES, DatabentoClient
 from nqbot.clients.databento_pull import (DOWNLOAD_RETRY_SEC, HOLIDAY, ROLL, WARMUP, WINDOW, DatabentoPullJob, PullItem, make_plan,
                                           mbp1_span, plan_path, sessions_before, warmup_sessions, window_days)
+from nqbot.clients.databento_pull import ET
 from nqbot.clients.databento_store import CacheMismatch, DatabentoStore
 from nqbot.config import load_features
 from nqbot.jobs.runner import Ctx, StopChunk, run_job
@@ -61,6 +62,14 @@ def test_window_days_drop_what_skylit_can_no_longer_serve(dec_settings):
     assert cut[0] == date(2025, 12, 1) and cut[-1] == date(2025, 12, 9)
     days, cut = window_days(dec_settings, date(2025, 12, 17))  # only complete days: up to yesterday
     assert days[-1] == date(2025, 12, 16) and not cut
+
+
+def test_window_days_follow_the_skylit_timestamp_rule(dec_settings):
+    """presd_fixes issue 7: the same timestamp rule as the Skylit backfill, and its wholly lost days excluded."""
+    days, cut = window_days(dec_settings, date(2026, 12, 10), now=datetime(2026, 12, 10, 16, 0, tzinfo=ET))
+    assert days[0] == date(2025, 12, 11) and cut[-1] == date(2025, 12, 10)  # its 15:45 window left at 15:15 ET
+    days, cut = window_days(dec_settings, date(2026, 12, 10), skylit_lost={date(2025, 12, 15)})
+    assert date(2025, 12, 15) in cut and date(2025, 12, 15) not in days
 
 
 def test_mbp1_window_normal_dst_and_early_close():
@@ -428,3 +437,9 @@ def test_a_transient_failure_is_retried_but_a_paid_download_is_not(paths, dec_se
     with pytest.raises(ConnectionError):
         job_for(paid).run_chunk("2025-11-03:payg:x", ctx)
     assert ctx.slept == [] and len(paid.downloads()) == 1
+
+
+def test_window_days_keep_days_skylit_already_stored(dec_settings):
+    """Review finding 2: a re-plan days later keeps the days whose Skylit boards are stored."""
+    days, _ = window_days(dec_settings, date(2026, 12, 20), skylit_has=lambda d: d == date(2025, 12, 12))
+    assert date(2025, 12, 12) in days and date(2025, 12, 11) not in days

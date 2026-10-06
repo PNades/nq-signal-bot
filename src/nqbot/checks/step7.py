@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -28,8 +27,8 @@ from nqbot import calendar as cal_mod
 from nqbot import months as months_mod
 from nqbot.checks import step7_analysis as an
 from nqbot.clients import skylit_credits as credits
-from nqbot.clients.skylit import SkylitClient, SkylitError, vol_history_cost
-from nqbot.clients.skylit_pull import MAPS, SessionResult, SkylitPullJob, Window, pull_window, session_windows
+from nqbot.clients.skylit import SkylitClient, SkylitError
+from nqbot.clients.skylit_pull import MAPS, SessionResult, SkylitPullJob, Window, pull_window
 from nqbot.clients.skylit_store import (
     SkylitStore, cached_or_mismatch, historical_to_table, prints_to_table, read_meta, stream_snapshots_to_tables,
     top_prints_to_table, vol_history_to_table, write_parquet,
@@ -441,22 +440,30 @@ def _recent(env: Env, d: date) -> bool:
     return _sessions_between(env, d, env.now().date()) < LATE_PRINT_WAIT_SESSIONS
 
 
-def pull_dp_date(env: Env, d: date, base: Path | None = None, repull: str | None = None) -> Path:
+def pull_dp_date(env: Env, d: date, base: Path | None = None, repull: str | None = None, *,
+                 keep_empty_trading_day: bool = True, before_page: Callable[[], None] | None = None) -> Path | None:
     """One ET trade date of prints, cached. A no-data answer (free) is cached only for a non-trading day or a
     settled date; on a recent trading day it is refused, never cached as a permanent empty day. Dates pulled
-    while recent are marked `provisional` (first received live: the later top-ups may re-pull them, rule 2)."""
+    while recent are marked `provisional` (first received live: the later top-ups may re-pull them, rule 2).
+
+    keep_empty_trading_day=False (the depth probe, the step-10 backfill): an empty trading day is not cached at
+    all and None is returned ("no coverage": history may simply not reach that far back)."""
     path = env.store.dp_trades_path(d, base)
     params = _dp_params(env, d)
     if cached_or_mismatch(path, params):
         return path
     try:
         with env.client.tagged(dp_date=d.isoformat(), repull=repull):
-            pull = env.client.dark_pool_trades(d, env.features["dp_tickers"], env.features["dp_min_notional"])
+            pull = env.client.dark_pool_trades(d, env.features["dp_tickers"], env.features["dp_min_notional"],
+                                               before_page=before_page)
         rows, pages, charged = pull.prints, pull.pages, sum(r.charged or 0 for r in pull.records)
     except SkylitError as e:
         if e.status != 404 or e.code not in DP_NO_DATA_CODES:
             raise
         rows, pages, charged = [], 0, 0
+    if not rows and env.trading_day(d) and not keep_empty_trading_day:
+        env.log.warning("dark pools: no prints on trading day %s: no coverage (not cached)", d)
+        return None
     if not rows and env.trading_day(d) and _recent(env, d):
         raise CheckRefused(f"no dark-pool prints for {d} yet (a recent trading day): not cached, try again later")
     if not rows and env.trading_day(d):
@@ -472,6 +479,36 @@ def read_prints(paths_: list[Path]) -> list[dict[str, Any]]:
         if not p.exists():
             raise FileNotFoundError(f"dark-pool file missing: {p}")
         out += pq.read_table(p).replace_schema_metadata(None).to_pylist()
+    return out
+
+
+def dp_out_of_reach(e: SkylitError) -> bool:
+    """A 400 (or a 404 that isn't no-data) for an old date: the history doesn't reach it (§3.1, presd_fixes 9)."""
+    return e.status == 400 or (e.status == 404 and e.code not in DP_NO_DATA_CODES)
+
+
+def depth_probe_result(env: Env, probe: date) -> dict[str, Any]:
+    """Best-effort: does Flowseeker reach the first date month 1's lookback needs? Never stops the check, never
+    caches an empty or refused date as a trading day (presd_fixes issue 9). An out-of-reach or no-coverage answer
+    is kept as a probe record (darkpool/probe/<date>.json), so the probe is not paid for twice (rule 2)."""
+    record = env.store.root / "darkpool" / "probe" / f"{probe.isoformat()}.json"
+    if record.exists() and not env.store.dp_trades_path(probe).exists():
+        return {**json.loads(record.read_text(encoding="utf-8")), "recorded_before": True}
+    out: dict[str, Any] = {"date": probe.isoformat(), "probed_at": env.now().isoformat(), "has_prints": False}
+    try:
+        path = pull_dp_date(env, probe, keep_empty_trading_day=False)
+    except SkylitError as e:
+        if not dp_out_of_reach(e):
+            env.log.warning("dark pools: depth probe %s failed (%s): reported, not cached", probe, e)
+            return {**out, "status": "error", "error": str(e)}  # not recorded: may be tried again
+        env.log.warning("dark pools: depth probe %s answered %s %s: out of reach", probe, e.status, e.code)
+        out["status"] = "out_of_reach"
+    else:
+        if path is not None:
+            has = bool(read_prints([path]))
+            return {**out, "status": "has_prints" if has else "no_coverage", "has_prints": has}
+        out["status"] = "no_coverage"
+    atomic_write_json(record, out)
     return out
 
 
@@ -500,11 +537,12 @@ def check_darkpool(env: Env, day: date, check_dates: list[date], approved: int |
     if depth_probe:  # the earliest trading day month 1's lookback needs (§3.1: ideally >= 45 days before month 1)
         m1 = months_mod.days_of(1, env.settings)[0]
         probe = next(d for d in _weekdays(_f4_lower(env, m1), m1) if env.trading_day(d))
-        dates = sorted({*dates, probe})
     todo = [d for d in dates if not env.store.dp_trades_path(d).exists()]
+    probe_todo = int(probe is not None and probe not in dates and not env.store.dp_trades_path(probe).exists())
     tickers = env.features["dp_tickers"]
     tops_todo = sum(1 for x in as_ofs for t in tickers if not env.store.dp_top_path(t, x).exists())
-    _gate(env, credits.dark_pool_estimate(f"dark pools: {len(todo)} dates + top-prints cross-check", len(todo),
+    _gate(env, credits.dark_pool_estimate(f"dark pools: {len(todo)} dates + top-prints cross-check"
+                                          + (" + best-effort depth probe" if probe_todo else ""), len(todo) + probe_todo,
                                           _pages_per_date(env), top_prints=tops_todo), approved)
     prints = read_prints([pull_dp_date(env, d) for d in dates])
     checks = []
@@ -522,13 +560,13 @@ def check_darkpool(env: Env, day: date, check_dates: list[date], approved: int |
                            "bot": [_fmt(p) for p in bot], "api": [_fmt(p) for p in api]})
     f4 = {t: dp.top_prints(prints, t, day, top_n=top_n, lookback_days=lookback, lag_sessions=env.features["dp_lag_sessions"],
                            is_trading_day=env.trading_day) for t in tickers}
+    depth = depth_probe_result(env, probe) if probe is not None else None  # last, best-effort (presd_fixes issue 9)
     ledger = [r for r in env.store.ledger() if r["endpoint"] == "/v1/dark-pool/trades" and r.get("charged") is not None]
     with_prints = sorted({p["timestamp"].astimezone(ET).date() for p in prints})
     report = {
         "date": day.isoformat(), "check_dates": [d.isoformat() for d in check_dates], "dates_pulled": len(dates),
         "prints": len(prints), "earliest_print_date": with_prints[0].isoformat() if with_prints else None,
-        "depth_probe": {"date": probe.isoformat(), "has_prints": bool(read_prints([env.store.dp_trades_path(probe)]))}
-        if probe else None,
+        "depth_probe": depth,
         "credits_per_page": sorted({r["charged"] for r in ledger}), "pages_per_date": round(_pages_per_date(env), 2),
         "top_prints_checks": checks, "all_match": all(c["match"] for c in checks),
         "f4_top": {t: [_fmt(p) for p in v.prints] for t, v in f4.items()},
@@ -755,41 +793,107 @@ def tempest_lag_recommendation(paths: Paths) -> dict[str, Any]:
 
 # --- parameter check and backfill estimate ------------------------------------------------------------------
 
+def _balance_and_symbols(env: Env) -> tuple[int | None, str, list[str]]:
+    """The live balance and the Tempest symbols served (both free calls); without a key or network, the latest
+    `symbols` report's values, labelled with its date."""
+    from nqbot.clients import skylit_backfill as bf
+
+    try:
+        through, _ = _history_through(env.client.vol_symbols())
+        return env.client.credits.remaining, "live (/v1/account)", bf.tempest_symbols(through)
+    except Exception as e:  # noqa: BLE001 - the report must still be written
+        sym = latest_report(env.paths, "symbols")
+        if sym is None:
+            return None, f"unknown ({type(e).__name__}: {e}; no symbols report yet)", bf.tempest_symbols(None)
+        served = {r.get("symbol"): True for r in sym.get("tempest") or []}
+        return ((sym.get("account") or {}).get("credits"), f"from the symbols report of {sym.get('written')}",
+                bf.tempest_symbols(served))
+
+
 def backfill_estimate(env: Env) -> dict[str, Any]:
-    first, last = months_mod.span(env.settings)
-    days = _weekdays(first, last)
-    windows = sum(len(session_windows(d, env.cal)) for d in days)
-    cached = sum(len(env.store.stored_windows(d)) for d in days)
-    dp_days = _weekdays(_f4_lower(env, first), last)
-    dp_todo = [d for d in dp_days if not env.store.dp_trades_path(d).exists()]
-    n_vol = len(TEMPEST_SYMBOLS) + 1
-    est = (credits.range_estimate("step-10 backfill", windows - cached)
-           .add("/v1/dark-pool/trades pages", int(math.ceil(len(dp_todo) * _pages_per_date(env))), credits.DP_TRADES_PAGE)
-           .add_total("/v1/vol/history", 1, vol_history_cost(n_vol, _tempest_start(env), last)))
-    return {"window": [first.isoformat(), last.isoformat()], "weekdays": len(days), "windows": windows,
-            "cached_windows": cached, "dark_pool_dates": len(dp_todo), "estimate": est.lines, "total": est.total,
-            "text": est.text()}
+    """Step 10 as a plan made now would pull it: reachable past windows only, lost days listed, the shortfall and
+    the cheapest covering pack (§3.1, decision 2 in docs/presd_fixes.md)."""
+    from nqbot.clients import skylit_backfill as bf
+
+    balance, source, symbols = _balance_and_symbols(env)
+    out = bf.report_estimate(env, balance, symbols)
+    out["balance_source"] = source
+    return out
 
 
 REPORT_NAMES = ["symbols", "strike_window", "sample_days", "historical_instants", "stream_record", "parity", "darkpool",
                 "late_prints_compare", "tempest_depth", "tempest_compare"]
+# SSD-day order (decision 1 in docs/presd_fixes.md, SPEC §12 step 7): what the owner's step-10 OK needs, what runs
+# before the report, and what runs alongside step 10 (never holds it up; needed before step 11).
+NEEDED_FOR_STEP10 = ("symbols", "strike_window", "sample_days")
+BEFORE_REPORT = ("historical_instants", "darkpool", "tempest_depth")
+ALONGSIDE = ("stream_record", "parity", "late_prints_compare", "tempest_compare")
+
+
+def _strike_check(env: Env, latest: dict[str, Any]) -> list[str]:
+    sw, sd = latest.get("strike_window"), latest.get("sample_days")
+    current = env.settings["skylit_max_strikes"]
+    lines = [f"- skylit_max_strikes now: {current}"
+             + (f"; proposed by strike-window: {sw.get('proposed_skylit_max_strikes')}" if sw else "")]
+    if sd is not None:
+        pulled = sd.get("skylit_max_strikes")
+        if pulled == current:
+            lines.append(f"- sample days pulled with {pulled}: matches")
+        else:
+            lines.append(f"- sample days pulled with {pulled}, not {current}: run `nqbot step7 sample-days --raised`, "
+                         "or the backfill pulls those days again (rule-2 exception)")
+    return lines
 
 
 def check_report(env: Env) -> str:
+    from nqbot.clients import skylit_backfill as bf_mod
+
     latest = {n: latest_report(env.paths, n) for n in REPORT_NAMES}
-    lines = ["# Step 7 parameter check", "", f"Written {env.now():%Y-%m-%d %H:%M} ET.", ""]
-    for n in REPORT_NAMES:
-        r = latest[n]
-        lines.append(f"## {n}")
-        lines.append("not run yet" if r is None else "```json\n" + json.dumps(_brief(n, r), indent=1, default=str) + "\n```")
-        lines.append("")
-    lines += ["## Tempest timing (tempest_lag_sessions)", "```json",
-              json.dumps(tempest_lag_recommendation(env.paths), indent=1), "```"]
+    missing = [n for n in NEEDED_FOR_STEP10 if latest[n] is None]
+    lines = ["# Step 7 parameter check", "", f"Written {env.now():%Y-%m-%d %H:%M} ET.", "",
+             f"**Ready for the owner's step-10 OK: {'yes' if not missing else 'no'}**"
+             + (f" (missing: {', '.join(missing)})" if missing else ""), ""]
+    lines += ["## Strike window", *_strike_check(env, latest), ""]
+    sections = [("Needed for the step-10 OK", NEEDED_FOR_STEP10, "MISSING: run it before the OK"),
+                ("Before the report (SSD-day order)", BEFORE_REPORT, "not run yet"),
+                ("Alongside step 10 (never holds it up; needed before step 11)", ALONGSIDE,
+                 "pending (runs alongside)")]
+    for title, names, absent in sections:
+        lines += [f"# {title}", ""]
+        for n in names:
+            r = latest[n]
+            lines.append(f"## {n}")
+            lines.append(absent if r is None else "```json\n" + json.dumps(_brief(n, r), indent=1, default=str) + "\n```")
+            lines.append("")
+        if names is ALONGSIDE:
+            rec = tempest_lag_recommendation(env.paths)
+            lines += ["## Tempest timing (tempest_lag_sessions)",
+                      "pending (runs alongside)" if rec["recommend_tempest_lag_sessions"] is None else "",
+                      "```json", json.dumps(rec, indent=1), "```", ""]
     try:
         bf = backfill_estimate(env)
-        lines += ["", "## Step-10 backfill estimate", "```", bf["text"], "```"]
-    except months_mod.LedgerMissing as e:
-        lines += ["", f"Backfill estimate: {e}"]
+    except (months_mod.LedgerMissing, bf_mod.BackfillRefused) as e:
+        lines += ["# Step-10 backfill estimate", f"not available: {e}"]
+    else:
+        lines += ["# Step-10 backfill estimate", "```", bf["text"], "```",
+                  f"- window {bf['window'][0]}..{bf['window'][1]}: {bf['weekdays']} weekdays still in reach, "
+                  f"{bf['dark_pool_dates']} dark-pool dates, Tempest from {bf['tempest']['from']} "
+                  f"({', '.join(bf['tempest']['symbols'])})",
+                  f"- already beyond the 365-day reach: {len(bf['lost_days'])} weekdays"
+                  + (f" ({bf['lost_days'][0]}..{bf['lost_days'][-1]})" if bf["lost_days"] else ""),
+                  f"- with a {bf['margin']:.0%} margin: {bf['with_margin']:,} credits; balance {bf['balance']} "
+                  f"({bf['balance_source']})"]
+        if bf["shortfall"] is None:
+            lines.append("- shortfall: unknown (no balance)")
+        elif bf["shortfall"] == 0:
+            lines.append("- shortfall: none, the balance covers the whole backfill")
+        else:
+            packs = bf["packs"]
+            buy = " + ".join(f"{b['count']} x {b['credits']:,} (${b['usd']})" for b in packs["buy"])
+            lines.append(f"- **shortfall {bf['shortfall']:,} credits: buy {buy} = ${packs['usd']:g} "
+                         f"({packs['credits']:,} credits)**")
+        lines.append(f"- then: `uv run nqbot skylit plan --approve-credits {bf['with_margin']}` (the estimate plus the margin) and "
+                     "`uv run nqbot run skylit_backfill --until 07:30`")
     text = "\n".join(lines) + "\n"
     path = reports_dir(env.paths) / "parameter_check.md"
     atomic_write_text(path, text)

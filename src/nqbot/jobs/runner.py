@@ -35,7 +35,14 @@ WINDOW_SEARCH_DAYS = 14  # how far ahead to look for the next trading-day job-lo
 
 
 class StopChunk(Exception):
-    """Raised by a chunk when ctx.should_stop() says stop: the chunk is not marked done."""
+    """Raised by a chunk when ctx.should_stop() says stop: the chunk is not marked done.
+
+    `status` names a stop the chunk itself found (e.g. "credits": the Skylit budget or balance ran out); the run
+    then ends with that status instead of the clock/SSD one."""
+
+    def __init__(self, reason: str = "", status: str | None = None):
+        super().__init__(reason)
+        self.status = status
 
 
 class Job(Protocol):
@@ -61,7 +68,7 @@ class Ctx:
 
 @dataclass
 class RunResult:
-    status: str  # complete | until | ssd_missing | low_space | lock_window
+    status: str  # complete | until | ssd_missing | low_space | lock_window | credits
     done: int
     total: int
     ran: list[str] = field(default_factory=list)
@@ -214,7 +221,7 @@ def run_job(
                 atomic_write_json(spath, state)
             except StopChunk as e:
                 stop = refusal()
-                result.status = stop[0] if stop else "until"
+                result.status = e.status or (stop[0] if stop else "until")
                 result.message = f"chunk {chunk} stopped early ({e}): it re-runs next time"
                 log.info("%s: %s", job.name, result.message)
                 break

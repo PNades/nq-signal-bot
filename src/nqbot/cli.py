@@ -43,6 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     unlock.add_argument("--yes", action="store_true", help="confirm that job is no longer running anywhere")
     unlock.add_argument("--gameplan", action="store_true", help="the gameplan commands' lock instead of the job lock")
     _add_step7(sub)
+    _add_skylit(sub)
     _add_databento(sub)
     _add_gameplan(sub)
     args = parser.parse_args(argv)
@@ -87,10 +88,14 @@ def main(argv: list[str] | None = None) -> int:
     log = setup_logging(paths.log_dir)
     if args.command == "step7":
         return _run_step7(args, settings, paths, log)
+    if args.command == "skylit":
+        return _run_skylit(args, settings, paths, log)
     if args.command == "databento":
         return _run_databento(args, settings, paths, log)
     if args.command in ("gameplan", "gameplan-batch"):
         return _run_gameplan(args, settings, paths, log)
+    from nqbot.clients.skylit_backfill import BackfillRefused
+
     job = get_job(args.job)
     until = parse_until(args.until, datetime.now(ET))
     try:
@@ -98,8 +103,13 @@ def main(argv: list[str] | None = None) -> int:
     except LockHeld as e:
         log.error("%s", e)
         return EXIT_LOCKED
+    except BackfillRefused as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return EXIT_REFUSED
     message = f" - {result.message}" if result.message else ""
     print(f"{job.name}: {result.status} ({result.done}/{result.total} chunks done){message}")
+    if result.status == "credits":
+        print(f"stopped cleanly on credits: top up (or re-plan with the owner's OK), then run: uv run nqbot run {job.name}")
     return 0 if result.status in ("complete", "until") else EXIT_REFUSED
 
 
@@ -230,6 +240,38 @@ def _run_step7(args: argparse.Namespace, settings: dict, paths, log) -> int:
     return 0
 
 
+def _add_skylit(sub: argparse._SubParsersAction) -> None:
+    """`nqbot skylit plan`: the step-10 backfill plan and the owner's credit approval (SPEC §3.1, §12 step 10)."""
+    sk = sub.add_parser("skylit", help="step-10 Skylit backfill (SSD day)").add_subparsers(dest="action", required=True)
+    p = sk.add_parser("plan", help="print the backfill estimate and write the plan for nqbot run skylit_backfill")
+    p.add_argument("--approve-credits", type=int, default=None,
+                   help="owner-approved credits for the whole backfill (CLAUDE.md rule 2), after the pack purchase")
+
+
+def _run_skylit(args: argparse.Namespace, settings: dict, paths, log) -> int:
+    from nqbot.checks import step7
+    from nqbot.clients import skylit_backfill as bf
+    from nqbot.clients.skylit import AccessDenied, OutOfCredits
+    from nqbot.clients.skylit_credits import CreditRefused
+    from nqbot.config import load_features
+    from nqbot.jobs.lock import JobLock
+    from nqbot.months import LedgerMissing
+    from nqbot.secrets import MissingSecret
+
+    env = step7.Env(settings=settings, features=load_features(), paths=paths, log=log)
+    paths.root.mkdir(parents=True, exist_ok=True)
+    try:
+        with JobLock(paths.root / LOCK_NAME, "skylit plan"):
+            bf.make_plan(env, args.approve_credits)
+    except LockHeld as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return EXIT_LOCKED
+    except (bf.BackfillRefused, CreditRefused, OutOfCredits, AccessDenied, LedgerMissing, MissingSecret) as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return EXIT_REFUSED
+    return 0
+
+
 def _add_databento(sub: argparse._SubParsersAction) -> None:
     """`nqbot databento plan`: resolve contracts, print the cost estimate, write the step-8 pull plan (§12 step 8)."""
     db = sub.add_parser("databento", help="step-8 Databento pull (SSD day)").add_subparsers(dest="action", required=True)
@@ -253,8 +295,9 @@ def _run_databento(args: argparse.Namespace, settings: dict, paths, log) -> int:
     try:
         with JobLock(paths.root / LOCK_NAME, "databento plan"):
             client = DatabentoClient.from_env(on_call=store.log_call, log=log)
-            make_plan(client, store, settings, load_features(), args.today or datetime.now(ET).date(),
-                      approved_usd=args.approve_usd)
+            now = datetime.now(ET)
+            make_plan(client, store, settings, load_features(), args.today or now.date(),
+                      approved_usd=args.approve_usd, now=None if args.today else now)
     except (LedgerMissing, MissingSecret, LockHeld, DatabentoError, PlanRefused, ConfigError, ValueError) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED

@@ -7,6 +7,11 @@ Early-close days are pulled to early_close_et plus one probe window after it; on
 (a weekday) one probe window is pulled, and the rest of the day only if the probe returned boards.
 Every window is stored the moment it arrives, so an interrupted session loses nothing and is never
 re-pulled.
+
+Skylit's 365-day reach is a moment in time, not a date (`from`: "Up to 365 days back", docs/skylit/openapi.json):
+the oldest day's morning windows leave it while its afternoon is still there. The step-10 backfill pulls a window
+only if its start is still after now - 365 days + skylit_reach_margin_min, checked just before the call; one that
+isn't is "lost": logged and reported, never cached as empty and never an error.
 """
 
 from __future__ import annotations
@@ -14,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
@@ -35,6 +40,12 @@ INCLUSIVE_END = timedelta(milliseconds=1)  # `to` is inclusive: end 1 ms before 
 MAPS = ("QQQ", "NDXP", "SPY", "SPX")  # §3.1 Symbols (decided); one call takes up to 5
 NO_DATA_CODES = frozenset({"no_data", "NOT_FOUND", "not_found"})
 PROBE_EMPTY_CODES = frozenset({"symbol_not_found"})  # a probe on a closed day may find none of the symbols
+SKYLIT_HISTORY = timedelta(days=365)  # §3.1: /v1/historical/range reaches 365 days back
+# A 400 (or a 404 that isn't no-data) for a window this close to the 365-day line is read as "out of reach" (lost),
+# in case the API's own cut-off differs from ours by a timezone or a day boundary (presd_fixes issue 7). Further
+# inside the reach the same answer is a real error and raises.
+REACH_ANSWER_TOLERANCE = timedelta(days=1)
+OUT_OF_REACH_STATUSES = frozenset({400, 404})
 
 
 @dataclass(frozen=True)
@@ -80,19 +91,40 @@ def full_day_windows(day: date) -> list[Window]:
     return _windows(day, RTH_OPEN, RTH_CLOSE)
 
 
+def reach(now: datetime, margin_min: float) -> datetime:
+    """The oldest instant a window may start at and still be pulled now (§3.1, presd_fixes issue 7)."""
+    return now.astimezone(timezone.utc) - SKYLIT_HISTORY + timedelta(minutes=margin_min)  # UTC: DST-safe
+
+
+def window_reachable(w: Window, now: datetime, margin_min: float) -> bool:
+    return w.start >= reach(now, margin_min)
+
+
+def day_reachable(day: date, now: datetime, margin_min: float, cal: dict[str, Any] | None = None) -> bool:
+    """True if at least the day's last window can still be pulled (weekends: False)."""
+    windows = session_windows(day, cal)
+    return bool(windows) and window_reachable(windows[-1], now, margin_min)
+
+
+def near_reach_edge(w: Window, now: datetime) -> bool:
+    return w.start < now.astimezone(timezone.utc) - SKYLIT_HISTORY + REACH_ANSWER_TOLERANCE
+
+
 @dataclass
 class SessionResult:
     day: date
     pulled: list[str] = field(default_factory=list)
     cached: list[str] = field(default_factory=list)
     empty: list[str] = field(default_factory=list)
+    lost: list[str] = field(default_factory=list)  # out of Skylit's 365-day reach: nothing called or cached
     charged: int = 0
     bytes: int = 0
     resolutions: dict[str, str] = field(default_factory=dict)  # hhmm -> meta.resolution
 
     def summary(self) -> str:
         res = sorted(set(self.resolutions.values()))
-        return (f"{self.day}: {len(self.pulled)} pulled, {len(self.cached)} cached, {len(self.empty)} empty, "
+        lost = f", {len(self.lost)} LOST (beyond 365 days)" if self.lost else ""
+        return (f"{self.day}: {len(self.pulled)} pulled, {len(self.cached)} cached, {len(self.empty)} empty{lost}, "
                 f"{self.charged} credits, {self.bytes / 1e6:.1f} MB, resolution {res or '-'}")
 
 
@@ -101,15 +133,31 @@ def range_params(client: SkylitClient, w: Window, max_strikes: int | str | None 
             **client.board_params(max_strikes)}
 
 
+def range_params_from_settings(settings: dict[str, Any], w: Window) -> dict[str, Any]:
+    """The same parameters a client built from these settings sends (no client, no call: plans and estimates)."""
+    return {"symbols": ",".join(settings["skylit_symbols"][m] for m in MAPS), "from": iso_utc(w.start),
+            "to": iso_utc(w.end), "metric": settings["skylit_metric"],
+            "maxExpirations": settings["skylit_max_expirations"], "maxStrikes": settings["skylit_max_strikes"]}
+
+
 def pull_window(client: SkylitClient, store: SkylitStore, w: Window, *, max_strikes: int | str | None = None,
                 result: SessionResult, log: logging.Logger, base: Path | None = None,
-                repull: str | None = None, tree: str | None = None) -> bool:
+                repull: str | None = None, tree: str | None = None,
+                gate: Callable[[Window], bool] | None = None, now: Callable[[], datetime] | None = None) -> bool:
     """Pull one window unless cached under `base` (default: the normal tree). Returns True if it holds boards
-    (a cached window answers from its stored row count, so a stored empty probe stays empty)."""
+    (a cached window answers from its stored row count, so a stored empty probe stays empty).
+
+    `gate(w)` runs after the cache check, just before the call: False = the window is out of reach (recorded as
+    lost, nothing called or stored); it may raise StopChunk (e.g. the credit budget can't cover the call).
+    With `now`, an out-of-reach answer for a window near the 365-day line is recorded as lost too."""
     params = range_params(client, w, max_strikes)
     if store.range_cached(w.day, w.hhmm, params, base):
         result.cached.append(w.hhmm)
         return store.range_n_boards(w.day, w.hhmm, base) > 0
+    if gate is not None and not gate(w):
+        result.lost.append(w.hhmm)
+        log.warning("%s %s: beyond Skylit's 365-day reach, lost (not pulled, not cached)", w.day, w.hhmm)
+        return False
     reason = repull
     if store.range_partial(w.day, w.hhmm, base):
         moved = store.quarantine_partial(w.day, w.hhmm, base)
@@ -123,6 +171,10 @@ def pull_window(client: SkylitClient, store: SkylitStore, w: Window, *, max_stri
     except SkylitError as e:
         if e.status == 404 and (e.code in NO_DATA_CODES or (w.probe and e.code in PROBE_EMPTY_CODES)):
             result.empty.append(w.hhmm)  # refunded: nothing stored, nothing charged
+            return False
+        if now is not None and e.status in OUT_OF_REACH_STATUSES and near_reach_edge(w, now()):
+            result.lost.append(w.hhmm)  # refunded; never cached as empty
+            log.warning("%s: answered %s %s at the 365-day line: lost (not cached)", label, e.status, e.code)
             return False
         if e.raw is not None:
             log.error("%s: undecodable answer saved to %s", label, store.save_failed(e.raw, f"range_{w.day}_{w.hhmm}"))
@@ -146,10 +198,14 @@ def pull_window(client: SkylitClient, store: SkylitStore, w: Window, *, max_stri
 
 def pull_session(client: SkylitClient, store: SkylitStore, day: date, *, max_strikes: int | str | None = None,
                  should_stop: Callable[[], str | None] = lambda: None, log: logging.Logger,
-                 cal: dict[str, Any] | None = None, base: Path | None = None, repull: str | None = None) -> SessionResult:
-    """Pull one session into `base` (default: the normal tree; a re-pull reason sends it to repull/<reason>/)."""
+                 cal: dict[str, Any] | None = None, base: Path | None = None, repull: str | None = None,
+                 gate: Callable[[Window], bool] | None = None,
+                 now: Callable[[], datetime] | None = None) -> SessionResult:
+    """Pull one session into `base` (default: the normal tree; a re-pull reason sends it to repull/<reason>/).
+    `gate` and `now`: see pull_window (the step-10 backfill's reach and credit checks)."""
     result = SessionResult(day)
-    kw = {"max_strikes": max_strikes, "result": result, "log": log, "base": base, "repull": repull}
+    kw = {"max_strikes": max_strikes, "result": result, "log": log, "base": base, "repull": repull, "gate": gate,
+          "now": now}
     windows = session_windows(day, cal)
     for w in windows:
         reason = should_stop()
@@ -169,9 +225,11 @@ def pull_session(client: SkylitClient, store: SkylitStore, day: date, *, max_str
 
 def uncached_windows(store: SkylitStore, client: SkylitClient, days: list[date],
                      max_strikes: int | str | None = None, cal: dict[str, Any] | None = None,
-                     base: Path | None = None) -> int:
+                     base: Path | None = None, now: datetime | None = None, margin_min: float = 0) -> int:
+    """Windows still to pull. With `now`: only those still inside Skylit's reach (lost ones cost nothing)."""
     return sum(1 for d in days for w in session_windows(d, cal)
-               if not store.range_cached(d, w.hhmm, range_params(client, w, max_strikes), base))
+               if (now is None or window_reachable(w, now, margin_min))
+               and not store.range_cached(d, w.hhmm, range_params(client, w, max_strikes), base))
 
 
 def make_client(settings: dict[str, Any], store: SkylitStore, log: logging.Logger, **kw: Any) -> SkylitClient:
