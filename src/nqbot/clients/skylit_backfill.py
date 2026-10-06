@@ -26,8 +26,10 @@ failed.json, its answer kept in skylit/failed/, and the job carries on; it is ne
 skylit_max_failures_in_row failures in a row stop the job cleanly (status `failures`). Every run
 tries each one again at its start and at the end of the night, oldest first (owner 2026-10-06), so nothing leaves the
 365-day reach while it waits: a refunded failure gets one more call, a paid one (its answer couldn't be converted or
-stored) is only converted again from its kept answer, for free. A failure whose window (or dark-pool date) has left
-the reach is recorded as lost. A window whose connection dropped (maybe charged, D7) gets up to
+stored) is only converted again from its kept answer, for free. The same holds for dark-pool dates (every page
+answered is kept) and the Tempest call. A paid window, dark-pool date or Tempest range whose kept copy is itself cut
+off, out of order or unreadable gets one paid re-pull while in reach, within skylit_dropped_retry_credits_per_night
+(owner 2026-10-06). A failure whose window (or dark-pool date) has left the reach is recorded as lost. A window whose connection dropped (maybe charged, D7) gets up to
 skylit_dropped_extra_tries more tries while in reach, in rounds at the end of the night (oldest first, waits between
 rounds, each try sent once), within skylit_dropped_retry_credits_per_night (owner 2026-10-06). What is still missing,
 and every such try with its credits, is listed in coverage.md.
@@ -50,7 +52,8 @@ import pyarrow.parquet as pq
 from nqbot import months as months_mod
 from nqbot.checks import step7
 from nqbot.clients import skylit_credits as credits
-from nqbot.clients.skylit import DP_PAGE_LIMIT, DP_RANGE_MAX_DAYS, OutOfCredits, SkylitError, vol_history_cost
+from nqbot.clients.skylit import (DP_PAGE_LIMIT, DP_RANGE_MAX_DAYS, DarkPoolFailed, DarkPoolPull, OutOfCredits,
+                                  SkylitError, dark_pool_prints, vol_history_cost)
 from nqbot.clients.skylit_pull import (ET, NEVER_SKIPPED, REACH_ANSWER_TOLERANCE, SKYLIT_HISTORY, SessionResult,
                                        Window, full_day_windows, make_client, pull_session, pull_window,
                                        range_params_from_settings, sample_days, session_windows, store_window,
@@ -73,6 +76,8 @@ TRANSIENT_CODES = frozenset({"gave_up"})
 WAIT_STEP_SEC = 5  # §11 Overnight jobs: a retry wait checks ctx.should_stop() this often (nqbot stop, --until)
 # Dark-pool errors raised after pages were paid for (the prints are lost with the error): never called again.
 DP_PAID_CODES = frozenset({"page_order", "no_cursor", "page_cap"})
+# A 31-day answer kept in darkpool/range/ that couldn't be split: split again from it for free.
+RANGE_KEPT_CODES = frozenset({"range_date", "range_split_failed"})
 # §3.1 Backfill (owner 2026-10-06): waits before each round of extra tries for dropped windows (1, 5, 15 minutes)
 DROPPED_ROUND_WAIT_SEC = (60, 300, 900)
 DROPPED = "dropped"
@@ -88,6 +93,15 @@ NOMINAL = {"/v1/historical/range": credits.RANGE_CALL, "/v1/dark-pool/trades": c
 
 class BackfillRefused(Exception):
     pass
+
+
+class TempestFailed(SkylitError):
+    """A paid Tempest answer that couldn't be used, kept in skylit/failed/ (presd_fixes D1). `complete`: the kept copy
+    is the whole answer (converted again for free); False: it is unreadable (one paid re-pull, owner 2026-10-06)."""
+
+    def __init__(self, code: str, message: str, raw_path: Path | None, complete: bool):
+        super().__init__(200, code, message, charged=True)
+        self.raw_path, self.complete = raw_path, complete
 
 
 # --- plan ------------------------------------------------------------------------------------------------
@@ -249,7 +263,8 @@ def windows_todo(env: step7.Env, plan: BackfillPlan, now: datetime) -> int:
     raise_base = env.store.base(RAISE, pulled=f"max{env.settings['skylit_max_strikes']}")
     done, _ = settled(env.paths)
     failed = load_failed(env.paths)
-    n = sum((1 if retry_calls(r) else dropped_tries_left(r, env.settings)) for r in failed.values()
+    n = sum((1 if retry_calls(r) or needs_repull(r) else dropped_tries_left(r, env.settings))
+            for r in failed.values()
             if r["kind"] == "window" and r["state"] == "failed"
             and r["hhmm"] in _windows_by_hhmm(date.fromisoformat(r["date"]), env.cal)
             and window_reachable(_windows_by_hhmm(date.fromisoformat(r["date"]), env.cal)[r["hhmm"]], now, margin))
@@ -314,8 +329,10 @@ def dp_todo(env: step7.Env, plan: BackfillPlan) -> list[date]:
 
 
 def dp_retries_todo(paths: Paths) -> int:
-    """Failed dark-pool dates the end-of-run retry will call once more (one date per call)."""
-    return sum(1 for r in load_failed(paths).values() if r["kind"] == "dp" and r["state"] == "failed" and retry_calls(r))
+    """Failed dark-pool dates the retry passes will call once more (one date per call): refunded ones, and paid ones
+    whose kept copy is cut off or unreadable (their one re-pull)."""
+    return sum(1 for r in load_failed(paths).values() if r["kind"] == "dp" and r["state"] == "failed"
+               and (retry_calls(r) or needs_repull(r)))
 
 
 def dp_range_groups(todo: list[date], edge: date) -> list[list[date]]:
@@ -384,9 +401,14 @@ def dp_key(d: date) -> str:
     return f"dp {d.isoformat()}"
 
 
+def tempest_key(start: date, end: date) -> str:
+    return f"tempest {start.isoformat()}..{end.isoformat()}"
+
+
 def load_failed(paths: Paths) -> dict[str, dict[str, Any]]:
-    """The failure record (presd_fixes D1): key -> {kind, date, hhmm, status, code, message, charged, raw, at,
-    retries, last_retry, state: failed | recovered | lost}."""
+    """The failure record (presd_fixes D1): key -> {kind: window | dp | tempest, date, hhmm, status, code, message,
+    charged, raw, at, retries, last_retry, state: failed | recovered | no_coverage | lost; dark pools and Tempest
+    also `complete` (the kept copy is the whole answer) and `repull` (its one paid re-pull)}."""
     path = failed_path(paths)
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
@@ -402,6 +424,44 @@ def retry_calls(rec: dict[str, Any]) -> bool:
     return not rec["charged"]
 
 
+def kept_copy(rec: dict[str, Any]) -> Any | None:
+    """The kept answer of a paid failure, or None if there is none or the copy itself can't be read."""
+    if not rec.get("raw"):
+        return None
+    if rec["kind"] == "dp":
+        return step7.read_kept_dp(Path(rec["raw"]))
+    try:
+        return json.loads(Path(rec["raw"]).read_bytes())
+    except (OSError, ValueError):
+        return None
+
+
+def copy_usable(rec: dict[str, Any]) -> bool:
+    """A paid failure whose kept answer can be converted again for free (at any age)."""
+    if not (rec["charged"] and rec.get("raw")):
+        return False
+    if rec["kind"] == "window":  # its body is only read by the retry itself (large); an unreadable one is marked then
+        return bool(rec.get("complete", True))
+    return bool(rec.get("complete", True)) and kept_copy(rec) is not None
+
+
+def needs_repull(rec: dict[str, Any]) -> bool:
+    """Owner 2026-10-06: a paid window, dark-pool date or Tempest range whose kept copy is cut off, out of order or
+    unreadable (not a conversion bug: that one is only converted again, for free) gets one paid re-pull while still in
+    reach, within skylit_dropped_retry_credits_per_night; coverage.md lists it."""
+    return (rec["state"] == "failed" and rec["charged"] and bool(rec.get("raw")) and not rec.get("repull")
+            and not copy_usable(rec))
+
+
+def complete_of(exc: Exception) -> dict[str, Any]:
+    """The `complete` field for a failure record: is the kept copy the whole answer? (Omitted when it is.)"""
+    if hasattr(exc, "complete"):
+        return {"complete": bool(exc.complete)}
+    if getattr(exc, "code", None) == "undecodable":  # a paid body that couldn't be read: the copy is unusable
+        return {"complete": False}
+    return {}
+
+
 def dropped_tries_left(rec: dict[str, Any], settings: dict[str, Any]) -> int:
     """Extra tries a dropped window still has (owner 2026-10-06); 0 for anything else."""
     if rec.get("code") != DROPPED or rec["kind"] != "window" or rec["state"] != "failed":
@@ -412,7 +472,9 @@ def dropped_tries_left(rec: dict[str, Any], settings: dict[str, Any]) -> int:
 def effective_state(env: step7.Env, rec: dict[str, Any], now: datetime) -> str:
     """The record's state, with a failure that can no longer be called (its window or date has left the 365-day
     reach) shown as lost even before the next retry pass marks it."""
-    if rec["state"] != "failed" or (rec["charged"] and rec.get("raw")):  # a kept answer converts at any age
+    if rec["state"] != "failed" or copy_usable(rec):  # a kept answer converts at any age
+        return rec["state"]
+    if rec["kind"] == "tempest":  # /v1/vol/history isn't bound by the 365-day reach
         return rec["state"]
     d = date.fromisoformat(rec["date"])
     if rec["kind"] == "window":
@@ -554,7 +616,9 @@ class SkylitBackfillJob:
         self._failed: dict[str, dict[str, Any]] = {}
         self._in_row = 0  # windows/dates failed in a row in this run's main pass (reset by any successful call)
         self._timeouts = 0  # retry pass: timeouts in a row
-        self._dropped_spent = 0  # credits of this night's extra tries for dropped windows (owner 2026-10-06)
+        # credits of this night's paid retries beyond the first (dropped windows' extra tries and the one re-pull of
+        # a window, dark-pool date or Tempest range whose kept copy is unusable): skylit_dropped_retry_credits_per_night
+        self._night_retry_spent = 0
 
     def env(self, ctx: Ctx) -> step7.Env:
         if self._env is None:
@@ -604,7 +668,7 @@ class SkylitBackfillJob:
         self._max_pages = max_pages_stored(env.store)
         self._failed = load_failed(ctx.paths)
         self._in_row = 0
-        self._dropped_spent = 0
+        self._night_retry_spent = 0
         dates = sorted(set(plan.days) | set(plan.dp_dates))
         last = plan.last.isoformat()
         return [d.isoformat() for d in dates] + [f"{TEMPEST_CHUNK}_{last}"]
@@ -635,7 +699,8 @@ class SkylitBackfillJob:
         self._failed[key] = rec
         atomic_write_json(failed_path(ctx.paths), self._failed)
 
-    def _on_error(self, ctx: Ctx, key: str, kind: str, d: date, hhmm: str | None, exc: Exception, attempt: int) -> bool:
+    def _on_error(self, ctx: Ctx, key: str, kind: str, d: date, hhmm: str | None, exc: Exception, attempt: int,
+                  extra: dict[str, Any] | None = None) -> bool:
         """True: try again now (a transient error, after a wait); False: recorded as failed, carry on. Raises
         StopChunk(status="failures") after skylit_max_failures_in_row in a row. Only Skylit's answers are skipped
         (a refusal, an answer that couldn't be converted or stored: WindowFailed); anything else is a bug and raises."""
@@ -648,13 +713,17 @@ class SkylitBackfillJob:
         charged = bool(getattr(exc, "charged", False)) or exc.code in DP_PAID_CODES \
             or exc.code == "dropped"  # D7: possibly charged, already sent twice: not called a third time
         raw = getattr(exc, "raw_path", None)
-        if isinstance(exc, SkylitError) and exc.code == "range_date":  # the 31-day answer is kept: re-split for free
+        if isinstance(exc, SkylitError) and exc.code in RANGE_KEPT_CODES:  # the 31-day answer is kept: re-split free
             charged, raw = True, None
-        self._record(ctx, key, {
-            "kind": kind, "date": d.isoformat(), "hhmm": hhmm, "status": getattr(exc, "status", None),
-            "code": getattr(exc, "code", type(exc).__name__), "message": str(exc)[:500], "charged": charged,
-            "raw": str(raw) if raw else None, "at": datetime.now(timezone.utc).isoformat(), "retries": 0,
-            "state": "failed"})
+        group = [x for x in getattr(exc, "group", []) if x != d]  # a failed 31-day call: its other dates too
+        rec = {"kind": kind, "date": d.isoformat(), "hhmm": hhmm, "status": getattr(exc, "status", None),
+               "code": getattr(exc, "code", type(exc).__name__), "message": str(exc)[:500], "charged": charged,
+               "raw": str(raw) if raw else None, "at": datetime.now(timezone.utc).isoformat(), "retries": 0,
+               "state": "failed", **complete_of(exc),
+               **({"group": [d.isoformat(), *(x.isoformat() for x in group)]} if group else {}), **(extra or {})}
+        for x in group:  # never asked again in the main pass: the kept answer covers them (rule 2)
+            self._failed[dp_key(x)] = {**rec, "date": x.isoformat(), "shares": key}
+        self._record(ctx, key, rec)
         self._in_row += 1
         k = int(ctx.settings["skylit_max_failures_in_row"])
         ctx.log.error("%s failed (%s); recorded in %s, never pulled again in this pass; carrying on (%d/%d in a row)",
@@ -685,7 +754,7 @@ class SkylitBackfillJob:
         try:
             with env.client.tagged(job=JOB_NAME, plan=plan.plan_id):
                 if chunk_id.startswith(TEMPEST_CHUNK):
-                    atomic_write_json(ctx.out_dir / "tempest.json", self._tempest(env, plan))
+                    atomic_write_json(ctx.out_dir / "tempest.json", self._tempest(env, plan, ctx))
                 else:
                     d = date.fromisoformat(chunk_id)
                     rec: dict[str, Any] = {"date": chunk_id}
@@ -795,14 +864,26 @@ class SkylitBackfillJob:
         need = dp_group_pages(env, group, step7._pages_per_date(env), step7.dp_prints_per_date(env.paths), edge)
         budget.require(int(credits.DP_TRADES_PAGE * DP_PAGE_RESERVE_FACTOR * max(need, self._max_pages)),
                        f"dark pools {d}..{group[-1]}")  # don't start a range it can't end (pages paid stay lost)
-        step7.pull_dp_range_raw(env, d, group[-1],
-                                before_page=lambda: budget.take(credits.DP_TRADES_PAGE, f"dark-pool page {d}.."))
+        try:
+            step7.pull_dp_range_raw(env, d, group[-1],
+                                    before_page=lambda: budget.take(credits.DP_TRADES_PAGE, f"dark-pool page {d}.."))
+        except DarkPoolFailed as e:  # its pages are kept: the group's other dates are recorded with it (D1)
+            e.group = group
+            raise
         return self._settle_range(env, d, d, group[-1], group, ctx)
 
     def _settle_range(self, env: step7.Env, d: date, start: date, end: date, dates: list[date],
                       ctx: Ctx) -> dict[str, Any]:
         """Split a kept range answer into its per-date files and record every date it settled (free)."""
-        got = step7.pull_dp_range(env, start, end, dates)
+        try:
+            got = step7.pull_dp_range(env, start, end, dates)
+        except (SkylitError, *NEVER_SKIPPED):
+            raise
+        except Exception as e:  # noqa: BLE001 - the answer stays kept in darkpool/range/: split again for free (D1)
+            if not env.paths.mounted():
+                raise
+            raise SkylitError(None, "range_split_failed", f"dark-pool range {start}..{end} couldn't be split "
+                              f"({type(e).__name__}: {e}); the answer is kept in darkpool/range/", charged=True) from e
         statuses = {x: ("no_coverage" if p is None else "pulled" if env.trading_day(x) else "not_a_session")
                     for x, p in got.items()}
         record = ctx.out_dir / "dp_range" / f"{start.isoformat()}_{end.isoformat()}.json"
@@ -855,7 +936,7 @@ class SkylitBackfillJob:
     def _retry_one(self, env: step7.Env, plan: BackfillPlan, ctx: Ctx, key: str, when: str) -> str:
         rec = self._failed[key]
         d = date.fromisoformat(rec["date"])
-        error = None
+        error, changes = None, {}
         state = effective_state(env, rec, env.now())
         if state == "lost":
             pass  # left the reach while it waited: never callable again
@@ -865,9 +946,11 @@ class SkylitBackfillJob:
         else:
             try:
                 if rec["kind"] == "window":
-                    state = self._retry_window(env, rec, d, margin_min(env.settings))
+                    state = self._retry_window(env, ctx, key, d, margin_min(env.settings))
+                elif rec["kind"] == "tempest":
+                    state = self._retry_tempest(env, plan, ctx, key)
                 else:
-                    state = self._retry_dp(env, rec, d, plan, ctx)
+                    state = self._retry_dp(env, key, d, plan, ctx)
             except NEVER_SKIPPED:
                 raise
             except CacheMismatch as e:  # a stored file with other parameters: stays failed, the owner is told
@@ -877,12 +960,15 @@ class SkylitBackfillJob:
                 self._timeouts = self._timeouts + 1 if e.code in TRANSIENT_CODES else 0
                 if getattr(e, "charged", False):  # the retry paid for an answer it couldn't use: keep where it is
                     raw = getattr(e, "raw_path", None)
-                    rec = {**rec, "charged": True, "raw": str(raw) if raw else rec.get("raw")}
+                    changes = {"charged": True, "raw": str(raw) if raw else rec.get("raw"), "code": e.code,
+                               **complete_of(e)}
             if state == "recovered":
                 self._timeouts = 0
         ctx.log.log(30 if state == "failed" else 20, "retry of %s: %s%s", key, state, f" ({error})" if error else "")
-        self._record(ctx, key, {**rec, "retries": rec.get("retries", 0) + 1, "last_retry": f"{when} {env.now().isoformat()}",
-                                "state": state, **({"retry_error": error} if error else {})})
+        rec = self._failed[key]  # re-read: a re-pull records itself before its call
+        self._record(ctx, key, {**rec, **changes, "retries": rec.get("retries", 0) + 1,
+                                "last_retry": f"{when} {env.now().isoformat()}", "state": state,
+                                **({"retry_error": error} if error else {})})
         return state
 
     def _dropped_rounds(self, env: step7.Env, ctx: Ctx, keys: list[str]) -> dict[str, str]:
@@ -897,14 +983,14 @@ class SkylitBackfillJob:
             left = [k for k in keys if dropped_tries_left(self._failed[k], ctx.settings)]
             if not left:
                 break
-            if self._dropped_spent + credits.RANGE_CALL > cap:
+            if self._night_retry_spent + credits.RANGE_CALL > cap:
                 ctx.log.warning("%s: tonight's cap for dropped-window retries (%d credits) is used up: %d window(s) "
                                 "wait for the next night", JOB_NAME, cap, len(left))
                 break
             ctx.log.info("%s: %d dropped window(s) get another try in %ss", JOB_NAME, len(left), wait)
             self._wait(ctx, wait)
             for key in left:
-                if self._dropped_spent + credits.RANGE_CALL > cap:
+                if self._night_retry_spent + credits.RANGE_CALL > cap:
                     break
                 out[key] = self._dropped_try(env, ctx, key, margin)
         return out
@@ -922,7 +1008,7 @@ class SkylitBackfillJob:
             if not window_reachable(win, env.now(), margin):
                 return False
             self._budget.take(credits.RANGE_CALL, f"dropped-window retry {win.day} {win.hhmm}")
-            self._dropped_spent += credits.RANGE_CALL
+            self._night_retry_spent += credits.RANGE_CALL
             paid.append(credits.RANGE_CALL)
             return True
 
@@ -936,7 +1022,7 @@ class SkylitBackfillJob:
             state, error = "failed", f"{type(e).__name__}: {e}"[:300]
             if e.code != DROPPED:  # answered this time: now an ordinary failure (refused, or paid and kept)
                 raw = getattr(e, "raw_path", None)
-                update = {"code": e.code, "status": e.status, "charged": bool(e.charged),
+                update = {"code": e.code, "status": e.status, "charged": bool(e.charged), **complete_of(e),
                           "raw": str(raw) if raw else rec.get("raw")}
         tries = [*rec.get("dropped_tries", []), {"at": env.now().isoformat(), "credits": sum(paid),
                                                  "outcome": state if error is None else error}]
@@ -945,25 +1031,34 @@ class SkylitBackfillJob:
                     error or state)
         return state
 
-    def _retry_window(self, env: step7.Env, rec: dict[str, Any], d: date, margin: float) -> str:
+    def _retry_window(self, env: step7.Env, ctx: Ctx, key: str, d: date, margin: float) -> str:
+        rec = self._failed[key]
         w = _windows_by_hhmm(d, env.cal).get(rec["hhmm"])
         if w is None:  # the calendar no longer has this window (e.g. an edited early close): nothing to pull
             return "lost"
         if env.store.range_cached(d, w.hhmm, range_params_from_settings(env.settings, w)):
             return "recovered"
-        if rec["charged"]:  # paid already: only converted again from the kept answer (free, never called again)
-            raw = Path(rec["raw"]) if rec.get("raw") else None
-            if raw is None or not raw.exists():
-                return "failed"
-            try:
-                body = json.loads(raw.read_bytes())
-            except ValueError:
-                return "failed"  # an undecodable answer stays failed (kept in failed/)
-            record = SimpleNamespace(at=rec["at"], credits_remaining=None, charged=None, bytes=raw.stat().st_size)
-            root_to_map = {v: k for k, v in env.settings["skylit_symbols"].items()}
-            store_window(env.store, w, body, record, range_params_from_settings(env.settings, w), root_to_map,
-                         result=SessionResult(d), raw_path=raw)
-            return "recovered"
+        if rec["charged"]:  # paid already: converted again from the kept answer (free)
+            if copy_usable(rec):
+                raw = Path(rec["raw"])
+                try:
+                    body = json.loads(raw.read_bytes())
+                except (OSError, ValueError):  # the kept copy itself is unreadable: one paid re-pull (owner)
+                    self._record(ctx, key, {**rec, "complete": False})
+                else:
+                    record = SimpleNamespace(at=rec["at"], credits_remaining=None, charged=None,
+                                             bytes=raw.stat().st_size)
+                    root_to_map = {v: k for k, v in env.settings["skylit_symbols"].items()}
+                    store_window(env.store, w, body, record, range_params_from_settings(env.settings, w), root_to_map,
+                                 result=SessionResult(d), raw_path=raw)
+                    return "recovered"
+            if needs_repull(self._failed[key]):
+                return self._repull(env, ctx, key, lambda: self._pull_retry_window(env, w, d, margin),
+                                    credits.RANGE_CALL, gone=not window_reachable(w, env.now(), margin))
+            return "failed"  # paid, nothing usable kept and its re-pull used: never called again (rule 2)
+        return self._pull_retry_window(env, w, d, margin)
+
+    def _pull_retry_window(self, env: step7.Env, w: Window, d: date, margin: float) -> str:
         result = SessionResult(d)
 
         def gate(win: Window) -> bool:
@@ -977,29 +1072,165 @@ class SkylitBackfillJob:
             return "lost"
         return "recovered" if (result.pulled or result.empty) else "failed"
 
-    def _retry_dp(self, env: step7.Env, rec: dict[str, Any], d: date, plan: BackfillPlan, ctx: Ctx) -> str:
+    def _retry_dp(self, env: step7.Env, key: str, d: date, plan: BackfillPlan, ctx: Ctx) -> str:
+        rec = self._failed[key]
         if env.store.dp_trades_path(d).exists() or d in dp_range_covered(env.paths):
             return "recovered"
+        if copy_usable(rec):  # its pages are kept whole: converted again, for free (rule 2)
+            return self._reconvert_dp(env, rec, d, ctx)
+        if needs_repull(rec):  # the kept copy is cut off, out of order or unreadable: one paid re-pull (owner)
+            return self._repull(env, ctx, key, lambda: self._dp_status(self._dp_date(env, d, plan, ctx, single=True)),
+                                credits.DP_TRADES_PAGE * self._max_pages, gone=d <= dp_reach_edge(env.now()))
         if rec["charged"] and kept_range_covering(env, d) is None:
-            return "failed"  # its pages were paid and lost with the error: never called again (rule 2)
+            return "failed"  # paid, nothing usable kept and its re-pull used: never called again (rule 2)
         if d <= dp_reach_edge(env.now()) and not rec["charged"]:
             return "lost"
-        out = self._dp_date(env, d, plan, ctx, single=True)  # a kept range answer is split again for free
+        return self._dp_status(self._dp_date(env, d, plan, ctx, single=True))  # a kept range is split again, free
+
+    @staticmethod
+    def _dp_status(out: dict[str, Any]) -> str:
         return {"out_of_reach": "lost", "no_coverage": "no_coverage"}.get(out["status"], "recovered")
 
+    def _reconvert_dp(self, env: step7.Env, rec: dict[str, Any], d: date, ctx: Ctx) -> str:
+        """A kept dark-pool answer converted and stored again (free); a 31-day one is then split for its dates."""
+        raw = Path(rec["raw"])
+        kept = kept_copy(rec)
+        span = kept["span"]
+        try:
+            prints = dark_pool_prints(kept["pages"], "..".join(span.values()), span)
+        except DarkPoolFailed as e:
+            raise step7.keep_dp_failure(env, e, raw) from None
+        pull = DarkPoolPull(prints, len(kept["pages"]), [], kept["pages"], span)
+        if "date" in span:
+            got = step7.store_dp_date(env, d, pull, keep_empty_trading_day=False, raw_path=raw)
+            return "recovered" if got is not None else "no_coverage"
+        start, end = date.fromisoformat(span["date_start"]), date.fromisoformat(span["date_end"])
+        step7.store_dp_range_raw(env, start, end, pull, raw_path=raw)
+        dates = sorted({d, *(date.fromisoformat(x) for x in rec.get("group", []))})
+        return self._dp_status(self._settle_range(env, d, start, end, dates, ctx))
+
+    def _repull(self, env: step7.Env, ctx: Ctx, key: str, call: Callable[[], str], need: int, gone: bool) -> str:
+        """The one paid re-pull of a window, dark-pool date or Tempest range whose kept copy is unusable (owner 2026-10-06):
+        while in reach, within skylit_dropped_retry_credits_per_night (else it waits for the next night). It is
+        marked used before the call (a crash never allows a second one) and listed with its credits in coverage.md."""
+        if gone:
+            return "lost"
+        cap = int(ctx.settings["skylit_dropped_retry_credits_per_night"])
+        if self._night_retry_spent + need > cap:
+            ctx.log.warning("%s: tonight's retry cap (%d credits) can't cover the re-pull of %s (~%d): it waits for "
+                            "the next night", JOB_NAME, cap, key, need)
+            return "failed"
+        before = self._failed[key]
+        self._record(ctx, key, {**before, "repull": {"at": env.now().isoformat(), "credits": None,
+                                                      "outcome": "started"}})
+        n = len(self._budget.taken)
+        outcome = "failed"
+        try:
+            outcome = call()
+            return outcome
+        except NEVER_SKIPPED:
+            if len(self._budget.taken) == n:  # stopped before paying anything: the re-pull is still unused
+                self._record(ctx, key, before)
+                raise
+            outcome = "stopped"
+            raise
+        except SkylitError as e:
+            outcome = f"{type(e).__name__}: {e}"[:300]
+            raise
+        finally:
+            spent = sum(self._budget.taken[n:])
+            self._night_retry_spent += spent
+            if "repull" in self._failed[key]:
+                self._record(ctx, key, {**self._failed[key], "repull": {**self._failed[key]["repull"],
+                                                                         "credits": spent, "outcome": outcome}})
+
     # Tempest, once
-    def _tempest(self, env: step7.Env, plan: BackfillPlan) -> dict[str, Any]:
+    def _tempest(self, env: step7.Env, plan: BackfillPlan, ctx: Ctx) -> dict[str, Any]:
+        """Only the range not stored yet (a re-plan later in the month adds just the new tail). A failure follows the
+        window rule (D1): recorded, its answer kept, retried by the retry passes, never called again here."""
         todo = tempest_todo(env.store, plan)
-        if todo:  # only the range not stored yet (a re-plan later in the month adds just the new tail)
-            symbols = plan.tempest_symbols
+        waiting = sorted(k for k, r in self._failed.items() if r["kind"] == "tempest" and r["state"] == "failed")
+        if todo and not waiting:
+            attempt = 0
+            while True:
+                try:
+                    self._tempest_call(env, plan, todo)
+                    self._succeeded()
+                    break
+                except NEVER_SKIPPED:
+                    raise
+                except SkylitError as e:
+                    if self._on_error(ctx, tempest_key(*todo), "tempest", todo[0], None, e, attempt,
+                                      {"to": todo[1].isoformat()}):
+                        attempt += 1
+                        continue
+                    break
+        return self._tempest_summary(env, plan)
+
+    def _tempest_call(self, env: step7.Env, plan: BackfillPlan, todo: tuple[date, date], body: Any = None,
+                      raw_path: Path | None = None) -> None:
+        """Pull (or, with `body`, convert a kept answer again for free) and store one Tempest range."""
+        symbols = plan.tempest_symbols
+        label = f"vol_history_{todo[0].isoformat()}_{todo[1].isoformat()}"
+        if body is None:
             self._budget.take(vol_history_cost(len(symbols), *todo), "Tempest history")
-            with env.client.tagged(tempest="backfill"):
-                body, rec = env.client.vol_history(symbols, *todo)
-            pulled = env.now().astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-            write_parquet(env.store.vol_path(*todo, pulled), vol_history_to_table(body),
-                          {"params": {"symbols": symbols, "from": todo[0].isoformat(), "to": todo[1].isoformat()},
-                           "backfill_from": plan.tempest_from.isoformat(),
-                           "pulled_at": env.now().isoformat(), "missing": (body.get("data") or {}).get("missing")})
+            try:
+                with env.client.tagged(tempest="backfill"):
+                    body, _ = env.client.vol_history(symbols, *todo)
+            except SkylitError as e:
+                if not (e.charged and e.raw):
+                    raise
+                path = env.store.save_failed(e.raw, label + "_unreadable")  # paid, unreadable: one re-pull (owner)
+                raise TempestFailed(e.code, f"Tempest {todo[0]}..{todo[1]}: {e.message}; kept in {path}", path,
+                                    complete=False) from e
+
+        def keep() -> Path | None:
+            if raw_path is not None:
+                return raw_path
+            try:
+                return env.store.save_failed(json.dumps(body).encode(), label)
+            except Exception:  # noqa: BLE001 - e.g. the SSD is gone: the original error is the one to report
+                return None
+
+        try:
+            table = vol_history_to_table(body)
+            missing = (body.get("data") or {}).get("missing")
+        except Exception as e:  # noqa: BLE001 - any conversion failure: the paid answer is kept (D1)
+            path = keep()
+            raise TempestFailed("convert_failed", f"Tempest {todo[0]}..{todo[1]}: answer couldn't be converted "
+                                f"({type(e).__name__}: {e}); kept in {path}", path, complete=True) from e
+        pulled = env.now().astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        meta = {"params": {"symbols": symbols, "from": todo[0].isoformat(), "to": todo[1].isoformat()},
+                "backfill_from": plan.tempest_from.isoformat(), "pulled_at": env.now().isoformat(), "missing": missing,
+                **({"converted_from": raw_path.name} if raw_path is not None else {})}
+        try:
+            write_parquet(env.store.vol_path(*todo, pulled), table, meta)
+        except Exception as e:  # noqa: BLE001 - a failed write must not lose the paid answer (D1)
+            if not env.paths.mounted():
+                raise
+            path = keep()
+            raise TempestFailed("write_failed", f"Tempest {todo[0]}..{todo[1]}: couldn't be stored "
+                                f"({type(e).__name__}: {e}); kept in {path}", path, complete=True) from e
+
+    def _retry_tempest(self, env: step7.Env, plan: BackfillPlan, ctx: Ctx, key: str) -> str:
+        rec = self._failed[key]
+        todo = (date.fromisoformat(rec["date"]), date.fromisoformat(rec["to"]))
+        if not any(read_meta(p)["params"]["from"] == rec["date"] for p in tempest_files(env.store, plan.tempest_from)):
+            if copy_usable(rec):  # converted again from the kept answer, for free
+                self._tempest_call(env, plan, todo, body=kept_copy(rec), raw_path=Path(rec["raw"]))
+            elif needs_repull(rec):  # the kept copy is unreadable: one paid re-pull (owner 2026-10-06)
+                state = self._repull(env, ctx, key, lambda: self._tempest_call(env, plan, todo) or "recovered",
+                                     vol_history_cost(len(plan.tempest_symbols), *todo), gone=False)
+                if state != "recovered":
+                    return state
+            elif rec["charged"]:
+                return "failed"  # paid, nothing usable kept and its re-pull used: never called again (rule 2)
+            else:
+                self._tempest_call(env, plan, todo)  # refunded: one more call
+        atomic_write_json(job_dir(env.paths) / "tempest.json", self._tempest_summary(env, plan))
+        return "recovered"
+
+    def _tempest_summary(self, env: step7.Env, plan: BackfillPlan) -> dict[str, Any]:
         files = tempest_files(env.store, plan.tempest_from)
         rows = [r for p in files for r in pq.read_table(p, columns=["symbol", "date"]).to_pylist()]
         first = {s: min((r["date"] for r in rows if r["symbol"] == s), default=None) for s in plan.tempest_symbols}
@@ -1007,7 +1238,9 @@ class SkylitBackfillJob:
                 "first_row": {s: d.isoformat() if d else None for s, d in first.items()},
                 "covered": {s: d is not None and step7._sessions_between(env, plan.tempest_from, d) <= 1
                             for s, d in first.items()},
-                "missing": [m for p in files for m in (read_meta(p).get("missing") or [])]}
+                "missing": [m for p in files for m in (read_meta(p).get("missing") or [])],
+                "failed": sorted(k for k, r in self._failed.items() if r["kind"] == "tempest"
+                                 and r["state"] == "failed")}
 
 
 # --- sample days pulled before skylit_max_strikes was raised (presd_fixes issue 10) -----------------------------
@@ -1201,7 +1434,8 @@ def _failed_section(failed: dict[str, dict[str, Any]], listable: Callable[[str],
     missing = {k: r for k, r in sorted(failed.items()) if r["state"] != "recovered"}
     return {"counts": counts, "still_missing_count": len(missing),
             "still_missing": {k: {"error": f"{r.get('status')} {r.get('code')}", "state": r["state"],
-                                  "charged": r["charged"], "retries": r.get("retries", 0), "raw": r.get("raw")}
+                                  "charged": r["charged"], "retries": r.get("retries", 0), "raw": r.get("raw"),
+                                  "usable": copy_usable(r), "repulled": bool(r.get("repull"))}
                               for k, r in missing.items() if listable(r["date"])},
             "not_retried_yet": sum(1 for r in failed.values() if r["state"] == "failed" and not r.get("retries")),
             "dropped_in_reach": len([r for r in failed.values() if r.get("code") == "dropped" and r["state"] == "failed"]),
@@ -1211,7 +1445,12 @@ def _failed_section(failed: dict[str, dict[str, Any]], listable: Callable[[str],
                 "credits": sum(t["credits"] for r in failed.values() for t in r.get("dropped_tries", [])),
                 "listed": {k: {"tries": len(r["dropped_tries"]), "credits": sum(t["credits"] for t in r["dropped_tries"]),
                                "state": r["state"]}
-                           for k, r in sorted(failed.items()) if r.get("dropped_tries") and listable(r["date"])}}}
+                           for k, r in sorted(failed.items()) if r.get("dropped_tries") and listable(r["date"])}},
+            "repulls": {  # owner 2026-10-06: the one paid re-pull of an unusable kept copy
+                "count": sum(1 for r in failed.values() if r.get("repull")),
+                "credits": sum(r["repull"].get("credits") or 0 for r in failed.values() if r.get("repull")),
+                "listed": {k: {**r["repull"], "state": r["state"]} for k, r in sorted(failed.items())
+                           if r.get("repull") and listable(r["date"])}}}
 
 
 def _failed_markdown(f: dict[str, Any]) -> list[str]:
@@ -1225,9 +1464,20 @@ def _failed_markdown(f: dict[str, Any]) -> list[str]:
     lines.append(f"- Dropped-window retries: {d['windows']} window(s), {d['tries']} tries, {d['credits']} credits "
                  "(walk-forward and sealed months as counts only)")
     lines += [f"  - {k}: {v['tries']} tries, {v['credits']} credits, {v['state']}" for k, v in d["listed"].items()]
+    r = f["repulls"]
+    lines.append(f"- Paid re-pulls of a kept answer (window, dark-pool date or Tempest) that was cut off, out of order or unreadable "
+                 f"(one each, within the nightly cap): {r['count']}, {r['credits']} credits")
+    lines += [f"  - {k}: {v['credits']} credits, {v['outcome']}, now {v['state']}" for k, v in r["listed"].items()]
     for k, v in f["still_missing"].items():
-        paid = (f" (paid; answer kept in {v['raw']})" if v["raw"] else " (paid; never called again)") if v["charged"] \
-            else ""
+        if not v["charged"]:
+            paid = ""
+        elif not v["raw"]:
+            paid = " (paid; never called again)"
+        elif v["usable"]:
+            paid = f" (paid; answer kept in {v['raw']}, converted again for free)"
+        else:
+            paid = f" (paid; the copy kept in {v['raw']} is cut off or unreadable: " + \
+                ("its one re-pull is used)" if v["repulled"] else "one paid re-pull while in reach)")
         lines.append(f"  - {k}: {v['state']}, {v['error']}{paid}")
     return lines + [""]
 

@@ -728,3 +728,253 @@ def test_a_refused_piece_never_leaves_a_shorter_measurement(env):  # noqa: F811
         step7.check_strike_window(env, d, [d])
     assert not list((env.store.fullchain / "pieces").glob("*.json"))  # no manifest, no report
     assert not list(step7.reports_dir(env.paths).glob("strike_window_*.json"))
+
+
+# --- D1 for dark pools and Tempest (check-D, owner 2026-10-06) ---------------------------------------------------
+
+def _dp_calls_for(s, day):
+    return [c for c in s.fake.calls if c.url.path == "/v1/dark-pool/trades" and c.url.params.get("date") == day]
+
+
+def _fail_dp_table_once(monkeypatch, day, exc=TypeError("unexpected null")):
+    """step7's conversion fails once for the answer holding `day`'s prints (a converter bug, fixed by the retry)."""
+    real, fails = step7.prints_to_table, []
+
+    def flaky(rows):
+        if rows and any(str(r.get("timestamp", "")).startswith(day) for r in rows) and not fails:
+            fails.append(1)
+            raise exc
+        return real(rows)
+
+    monkeypatch.setattr(step7, "prints_to_table", flaky)
+    return fails
+
+
+def test_an_unconvertible_dark_pool_answer_is_kept_and_converted_again_for_free(setup, monkeypatch):
+    s = setup
+    fails = _fail_dp_table_once(monkeypatch, "2025-10-21")
+    _plan(s, approved=20_000)
+    assert s.run().status == "complete"  # the night goes on
+    assert fails
+    rec = bf.load_failed(s.paths)["dp 2025-10-21"]
+    assert rec["code"] == "convert_failed" and rec["charged"] and rec["complete"] and rec["state"] == "recovered"
+    kept = json.loads(Path(rec["raw"]).read_text(encoding="utf-8"))
+    assert kept["complete"] and kept["span"] == {"date": "2025-10-21"} and kept["pages"][0]["data"]
+    assert len(_dp_calls_for(s, "2025-10-21")) == 1  # paid once, never again
+    meta = read_meta(s.store.dp_trades_path(date(2025, 10, 21)))
+    assert meta["converted_from"] == Path(rec["raw"]).name
+    assert len(step7.read_prints([s.store.dp_trades_path(date(2025, 10, 21))])) == 2
+
+
+def test_a_malformed_dark_pool_print_never_ends_the_night_or_pays_twice(setup):
+    """The check-D case: a paid page with a print missing its timestamp was a KeyError that ended the night and lost
+    the pages (paid again on every re-run)."""
+    s = setup
+    real_page = s.fake._dp_page
+
+    def page(q):
+        out = real_page(q)
+        if q.get("date") == "2025-10-21":
+            out["data"] = [*out["data"], {"ticker": "QQQ", "price": 600.0, "size": 1, "notional": 600.0}]
+        return out
+
+    s.fake._dp_page = page
+    _plan(s, approved=20_000)
+    assert s.run().status == "complete"
+    rec = bf.load_failed(s.paths)["dp 2025-10-21"]
+    assert rec["code"] == "convert_failed" and rec["charged"] and rec["complete"] and rec["state"] == "failed"
+    assert Path(rec["raw"]).exists() and len(_dp_calls_for(s, "2025-10-21")) == 1
+    assert s.store.dp_trades_path(date(2025, 10, 22)).exists()  # the dates after it were pulled
+    assert s.run().status == "complete"  # the start and end retries convert the kept copy again: no call
+    assert len(_dp_calls_for(s, "2025-10-21")) == 1
+    assert bf.load_failed(s.paths)["dp 2025-10-21"]["retries"] == 2  # end of night 1, start of run 2
+    md = (bf.coverage_dir(s.paths) / "coverage.md").read_text(encoding="utf-8")
+    assert "dp 2025-10-21: failed, 200 convert_failed (paid; answer kept in" in md and "converted again for free" in md
+
+
+def _cut_off_page_two(s, monkeypatch, day, times=1):
+    """Pages of one print; the second page of `day` is refused `times` times (the first page was paid)."""
+    import nqbot.clients.skylit as sk
+
+    monkeypatch.setattr(sk, "DP_PAGE_LIMIT", 1)
+    original, left = s.fake.handler, [times]
+
+    def handler(request):
+        q = request.url.params
+        if request.url.path == "/v1/dark-pool/trades" and q.get("date") == day and q.get("cursor") == "1" \
+                and left[0] > 0:
+            left[0] -= 1
+            s.fake.calls.append(request)
+            return httpx.Response(400, json={"error": {"code": "INVALID_CURSOR", "message": "x"}},
+                                  headers={"X-Credits-Remaining": str(s.fake.credits)})
+        return original(request)
+
+    s.fake.handler = handler
+
+
+def test_a_cut_off_dark_pool_answer_is_kept_and_gets_one_paid_re_pull(setup, monkeypatch):
+    s = setup
+    _cut_off_page_two(s, monkeypatch, "2025-10-21")
+    _plan(s, approved=20_000)
+    assert s.run().status == "complete"
+    rec = bf.load_failed(s.paths)["dp 2025-10-21"]
+    assert rec["code"] == "cut_off" and rec["charged"] and not rec["complete"] and rec["state"] == "recovered"
+    kept = json.loads(Path(rec["raw"]).read_text(encoding="utf-8"))
+    assert not kept["complete"] and len(kept["pages"]) == 1  # the paid first page is kept
+    assert rec["repull"]["outcome"] == "recovered" and rec["repull"]["credits"] == 15  # 3 pages of 5
+    assert len(_dp_calls_for(s, "2025-10-21")) == 2 + 3  # page 1 + the refused page 2, then the re-pull
+    assert len(step7.read_prints([s.store.dp_trades_path(date(2025, 10, 21))])) == 2
+    md = (bf.coverage_dir(s.paths) / "coverage.md").read_text(encoding="utf-8")
+    assert "Paid re-pulls of a kept answer" in md and ": 1, 15 credits" in md
+    assert "dp 2025-10-21: 15 credits, recovered, now recovered" in md
+
+
+def test_a_dark_pool_re_pull_is_used_once_then_never_called_again_and_lost_out_of_reach(setup, monkeypatch):
+    s = setup
+    _cut_off_page_two(s, monkeypatch, "2025-10-21", times=2)  # the re-pull is cut off too
+    _plan(s, approved=20_000)
+    assert s.run().status == "complete"
+    rec = bf.load_failed(s.paths)["dp 2025-10-21"]
+    # 10: page 1 and the refused page 2 (counted on the safe side until the next run re-reads the ledger)
+    assert rec["state"] == "failed" and rec["repull"]["credits"] == 10 and "cut_off" in rec["repull"]["outcome"]
+    n = len(_dp_calls_for(s, "2025-10-21"))
+    assert s.run().status == "complete" and len(_dp_calls_for(s, "2025-10-21")) == n  # its one re-pull is used
+    md = (bf.coverage_dir(s.paths) / "coverage.md").read_text(encoding="utf-8")
+    assert "is cut off or unreadable: its one re-pull is used)" in md
+    s.clock.t += timedelta(days=20)  # 2025-10-21 has left the reach
+    assert s.run(until=s.clock.t + timedelta(hours=10)).status == "complete"
+    assert bf.load_failed(s.paths)["dp 2025-10-21"]["state"] == "lost"
+
+
+def test_a_dark_pool_re_pull_waits_for_the_nightly_cap(setup, monkeypatch):
+    s = setup
+    s.settings["skylit_dropped_retry_credits_per_night"] = 0
+    _cut_off_page_two(s, monkeypatch, "2025-10-21")
+    _plan(s, approved=20_000)
+    assert s.run().status == "complete"
+    rec = bf.load_failed(s.paths)["dp 2025-10-21"]
+    assert rec["state"] == "failed" and "repull" not in rec and len(_dp_calls_for(s, "2025-10-21")) == 2
+    md = (bf.coverage_dir(s.paths) / "coverage.md").read_text(encoding="utf-8")
+    assert "one paid re-pull while in reach)" in md
+    s.settings["skylit_dropped_retry_credits_per_night"] = 500  # the next night has room
+    assert s.run().status == "complete"
+    assert bf.load_failed(s.paths)["dp 2025-10-21"]["state"] == "recovered"
+
+
+def test_a_31_day_answer_that_cant_be_converted_keeps_its_dates_and_is_never_paid_twice(setup, monkeypatch):
+    from tests.test_skylit_backfill import _dp_calls, _range_report
+
+    s = setup
+    s.clock.t = datetime(2026, 1, 15, 10, 0, tzinfo=ET)
+    _range_report(s)
+    fails = _fail_dp_table_once(monkeypatch, "2025-08-18")  # the first 31-day call (8/18..9/17)
+    _plan(s, approved=20_000)
+    assert s.run().status == "complete" and fails
+    failed = bf.load_failed(s.paths)
+    group = [k for k, r in failed.items() if r.get("shares") == "dp 2025-08-18"]
+    assert len(group) == 22 and failed["dp 2025-08-18"]["code"] == "convert_failed"
+    assert all(r["state"] == "recovered" for r in failed.values())  # the end retry converted the kept copy
+    calls = _dp_calls(s.fake)
+    assert len(calls) == 3 and [q["date_start"] for q in calls].count("2025-08-18") == 1  # never paid twice
+    assert s.store.dp_trades_path(date(2025, 9, 17)).exists() and s.store.dp_trades_path(date(2025, 8, 18)).exists()
+
+
+def test_an_unconvertible_tempest_answer_is_kept_and_converted_again_for_free(setup, monkeypatch):
+    s = setup
+    real, fails = bf.vol_history_to_table, []
+
+    def flaky(body):
+        if not fails:
+            fails.append(1)
+            raise KeyError("columns")
+        return real(body)
+
+    monkeypatch.setattr(bf, "vol_history_to_table", flaky)
+    _plan(s, approved=20_000)
+    assert s.run().status == "complete"
+    (rec,) = [r for r in bf.load_failed(s.paths).values() if r["kind"] == "tempest"]
+    assert rec["code"] == "convert_failed" and rec["complete"] and rec["state"] == "recovered"
+    assert len([c for c in s.fake.calls if c.url.path == "/v1/vol/history"]) == 1  # paid once
+    plan = bf.BackfillPlan.from_json(json.loads(bf.plan_path(s.paths).read_text(encoding="utf-8")))
+    assert bf.tempest_todo(s.store, plan) is None
+    assert json.loads((bf.job_dir(s.paths) / "tempest.json").read_text(encoding="utf-8"))["files"]
+
+
+def test_an_unreadable_tempest_answer_gets_one_paid_re_pull(setup):
+    s = setup
+    _plan(s, approved=20_000)
+    original, served = s.fake.handler, []
+
+    def handler(request):
+        if request.url.path == "/v1/vol/history" and not served:
+            served.append(1)
+            s.fake.calls.append(request)
+            s.fake.credits -= 1
+            return httpx.Response(200, content=b"{not json", headers={"X-Credits-Remaining": str(s.fake.credits)})
+        return original(request)
+
+    s.fake.handler = handler
+    assert s.run().status == "complete"
+    (rec,) = [r for r in bf.load_failed(s.paths).values() if r["kind"] == "tempest"]
+    assert rec["code"] == "undecodable" and not rec["complete"] and rec["state"] == "recovered"
+    assert Path(rec["raw"]).read_bytes() == b"{not json" and rec["repull"]["outcome"] == "recovered"
+    assert len([c for c in s.fake.calls if c.url.path == "/v1/vol/history"]) == 2
+
+
+def test_an_unreadable_window_answer_gets_one_paid_re_pull_within_the_cap(setup):
+    """Owner 2026-10-06: a paid window whose kept body is itself unreadable (not a conversion bug) gets one paid
+    re-pull while in reach, within the nightly cap; coverage.md lists it."""
+    s = setup
+    at = datetime(2025, 10, 21, 12, 0, tzinfo=ET)
+    original, served = s.fake.handler, []
+
+    def handler(request):
+        if request.url.path == "/v1/historical/range" and parse_z(request.url.params["from"]).astimezone(ET) == at \
+                and len(served) < 2:
+            served.append(1)
+            s.fake.calls.append(request)
+            s.fake.credits -= 25
+            return httpx.Response(200, content=b'{"data": {"symbols": [', headers={"X-Credits-Remaining": str(s.fake.credits)})
+        return original(request)
+
+    s.fake.handler = handler
+    s.settings["skylit_dropped_retry_credits_per_night"] = 0  # night 1: no room for the re-pull
+    _plan(s, approved=20_000)
+    assert s.run().status == "complete"
+    rec = bf.load_failed(s.paths)["2025-10-21 1200"]
+    assert rec["code"] == "undecodable" and rec["charged"] and rec["complete"] is False and rec["state"] == "failed"
+    assert Path(rec["raw"]).read_bytes() == b'{"data": {"symbols": [' and "repull" not in rec
+    assert len(_calls_for(s, "2025-10-21", "1200")) == 1
+    md = (bf.coverage_dir(s.paths) / "coverage.md").read_text(encoding="utf-8")
+    assert "2025-10-21 1200: failed" in md and "one paid re-pull while in reach)" in md
+    s.settings["skylit_dropped_retry_credits_per_night"] = 500
+    assert s.run().status == "complete"  # the re-pull is unreadable again: its one re-pull is now used
+    rec = bf.load_failed(s.paths)["2025-10-21 1200"]
+    assert rec["state"] == "failed" and rec["repull"]["credits"] == 25 and len(_calls_for(s, "2025-10-21", "1200")) == 2
+    assert s.run().status == "complete" and len(_calls_for(s, "2025-10-21", "1200")) == 2  # never a third
+    md = (bf.coverage_dir(s.paths) / "coverage.md").read_text(encoding="utf-8")
+    assert "2025-10-21 1200: 25 credits" in md and "its one re-pull is used)" in md
+
+
+def test_an_unreadable_window_answer_re_pulled_successfully_is_recovered(setup):
+    s = setup
+    at = datetime(2025, 10, 21, 12, 0, tzinfo=ET)
+    original, served = s.fake.handler, []
+
+    def handler(request):
+        if request.url.path == "/v1/historical/range" and parse_z(request.url.params["from"]).astimezone(ET) == at \
+                and not served:
+            served.append(1)
+            s.fake.calls.append(request)
+            s.fake.credits -= 25
+            return httpx.Response(200, content=b"garbled", headers={"X-Credits-Remaining": str(s.fake.credits)})
+        return original(request)
+
+    s.fake.handler = handler
+    _plan(s, approved=20_000)
+    assert s.run().status == "complete"
+    rec = bf.load_failed(s.paths)["2025-10-21 1200"]
+    assert rec["state"] == "recovered" and rec["repull"]["outcome"] == "recovered"
+    assert len(_calls_for(s, "2025-10-21", "1200")) == 2
+    assert s.store.range_cached(date(2025, 10, 21), "1200",
+                                sp.range_params_from_settings(s.settings, bf._windows_by_hhmm(date(2025, 10, 21), CAL)["1200"]))

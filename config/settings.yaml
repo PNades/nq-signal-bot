@@ -111,7 +111,8 @@ skylit_max_failures_in_row: 5   # §3.1 Backfill (decision 4, 2026-10-06): a fai
 skylit_dropped_extra_tries: 3     # §3.1 Backfill (owner 2026-10-06): a window whose connection dropped (maybe charged)
                                   # gets up to this many more tries while still in reach, in the end-of-night retry pass
 skylit_dropped_retry_credits_per_night: 500  # §3.1 Backfill (owner 2026-10-06): cap on those tries' credits per night
-                                  # (25 each; can go if Skylit confirms a dropped call isn't charged)
+                                  # (25 each; can go if Skylit confirms a dropped call isn't charged), shared with the
+                                  # one paid re-pull of a window, dark-pool date or Tempest range whose kept copy is cut off or corrupt
 skylit_alongside_reserve_credits: 1000  # §3.1 Backfill (decision 2): credits the backfill never spends, kept for the
                                 # step-7 checks running alongside it (stream-record worst case 92, parity 25,
                                 # late-print mornings + compare up to ~300 when the lookback dates aren't cached

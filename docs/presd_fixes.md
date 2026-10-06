@@ -10,7 +10,7 @@ All 17 issues are fixed **before the SSD arrives**, in three sessions the owner 
 | **B** ✅ done 2026-10-05 | 3, 4, 5, 6, 8, 11 | separate locks, Databento retries and cost guard, `nqbot setup-ssd`, warm-up, keep-awake and checks (independently reviewed twice; 363 tests pass) |
 | **C** ✅ done 2026-10-06 | 12, 13, 15, 16, 17 | step-8b gate code, rclone backup command, the small ones (independently reviewed twice) |
 | – | 14 | resolved by owner decision 4 |
-| **D** ✅ done 2026-10-06 | D1–D12 (dry run 2) | failing backfill windows recorded and retried each night, strike-window gate, lock-free alongside checks, `nqbot stop`, dropped-connection tries, strike-window split, SSD-day checklist (independently reviewed three times; 462 tests pass) |
+| **D** ✅ done 2026-10-06 | D1–D12 (dry run 2) | failing backfill windows recorded and retried each night, strike-window gate, lock-free alongside checks, `nqbot stop`, dropped-connection tries, strike-window split, SSD-day checklist (independently reviewed three times; 462 tests pass); **check D** ✅ 2026-10-06: D1 and D12 gaps fixed (472 tests pass) |
 
 Each session: read this file, CLAUDE.md, and the SPEC sections listed for its steps; fix, test, get an independent review, update SPEC/CLAUDE.md, tick the issues off here, commit and push.
 
@@ -136,7 +136,7 @@ Before starting: `SKYLIT_API_KEY`, `DATABENTO_API_KEY` and `ANTHROPIC_API_KEY` i
 
 ### Findings (most harmful first)
 
-**D1. HIGH: one bad Skylit window stops the whole step-10 backfill, and each re-run pays for it again.** Status: ✅ fixed 2026-10-06 (session D): failed windows and dark-pool dates are recorded in `data/jobs/skylit_backfill/failed.json` (answer kept in `skylit/failed/`, any conversion or write failure included), the job carries on, `skylit_max_failures_in_row` (5) in a row stop it (status `failures`), each is retried at the start of every run and the end of every night, oldest first, until it leaves the reach (then lost; owner decision after session D) (refunded: one more call; paid: converted again for free), coverage.md lists the rest; only Skylit answers are skipped. `step7 oldest-window` added. The backfill prints the balance first.
+**D1. HIGH: one bad Skylit window stops the whole step-10 backfill, and each re-run pays for it again.** Status: ✅ fixed 2026-10-06 (session D): failed windows and dark-pool dates are recorded in `data/jobs/skylit_backfill/failed.json` (answer kept in `skylit/failed/`, any conversion or write failure included), the job carries on, `skylit_max_failures_in_row` (5) in a row stop it (status `failures`), each is retried at the start of every run and the end of every night, oldest first, until it leaves the reach (then lost; owner decision after session D) (refunded: one more call; paid: converted again for free), coverage.md lists the rest; only Skylit answers are skipped. `step7 oldest-window` added. The backfill prints the balance first. **Check D (2026-10-06):** dark-pool dates were not covered (a malformed print was a plain KeyError that ended the night and lost the paid pages); fixed, with Tempest and the owner's one-re-pull rule (see Check D below).
 - Cause:
   - `run_chunk` (`src/nqbot/clients/skylit_backfill.py:503-517`) retries only a `SkylitError` with a transient code and re-raises anything else:
     - a 400/404 away from the 365-day edge;
@@ -208,7 +208,7 @@ Before starting: `SKYLIT_API_KEY`, `DATABENTO_API_KEY` and `ANTHROPIC_API_KEY` i
 - Cause: `src/nqbot/clients/databento_pull.py:549`.
 - Fix: log the roll without the number, or show the number only for development months.
 
-**D12. LOW: the "back up after warm-up + months 1–6" step needs the backfill stopped (Skylit lock).** Status: ✅ fixed 2026-10-06 (session D): one backup when step 10 finishes (CLAUDE.md, SPEC §3.1 and §11, `backup.py`); `repull/` is now backed up last, with the other folders lock-free checks write.
+**D12. LOW: the "back up after warm-up + months 1–6" step needs the backfill stopped (Skylit lock).** Status: ✅ fixed 2026-10-06 (session D): one backup when step 10 finishes (CLAUDE.md, SPEC §3.1 and §11, `backup.py`); `repull/` is now backed up last, with the other folders lock-free checks write. **Check D (2026-10-06):** the CLAUDE.md Commands line still said to back up after the warm-up and months 1–6; fixed.
 - Cause: `nqbot backup` takes the Skylit lock, and so does the backfill. The whole backfill probably finishes in about 1–2 nights anyway (unverified).
 - Fix: one backup when step 10 finishes, or let the backup run without the lock once decision 2's own-files rule makes that safe.
 
@@ -231,3 +231,11 @@ Before starting: `SKYLIT_API_KEY`, `DATABENTO_API_KEY` and `ANTHROPIC_API_KEY` i
 
 1. **Dropped connections.** Losing history is worse than a few credits: a window whose connection dropped gets up to 3 more tries (`skylit_dropped_extra_tries`) while still inside the 365-day reach, in the end-of-night retry pass, oldest first, spaced out (1, 5, 15 minutes between rounds), each try sent once (25 credits at most), within a nightly cap (`skylit_dropped_retry_credits_per_night`, 500). coverage.md lists every retried window and its credits. Given up only once it leaves the reach or uses up its tries. The owner asks Skylit whether a dropped call after a successful answer is charged; if not, the cap can go.
 2. **Strike-window timeouts.** Never a shorter sample: a timed-out full-chain call is split into consecutive shorter calls (3 × 5 minutes, then 5 × 1 minute) that together cover the same full 15 minutes; a manifest records the pieces and the check refuses unless they cover all of it.
+
+### Check D (2026-10-06)
+
+A fresh agent that hadn't seen the work checked D1–D12 against the code and tests (not the summaries). D2–D11: fixed. D1: not fixed for dark-pool dates; D12: a stale backup line in CLAUDE.md. Both fixed the same day (472 tests pass):
+
+- **D1, dark pools and Tempest.** Once a dark-pool page is paid for, any failure keeps every page answered in `skylit/failed/` (`DarkPoolFailed`, `step7.keep_dp_failure`); a conversion or write failure (any exception) is recorded in `failed.json` and the night carries on, like a window. A failed 31-day call records all its dates with that one answer, so none is paid twice. The retry passes convert a complete kept copy again for free. The Tempest call follows the same rule (`TempestFailed`). Tests in `tests/test_presd_session_d.py`.
+- **Owner decision (2026-10-06): one paid re-pull of an unusable kept copy.** A conversion bug is fixed in code and converted again from the kept copy for free. If the kept copy itself is incomplete or corrupt (cut off part-way, out of time order, or unreadable), the window, dark-pool date or Tempest range gets **one** paid re-pull while it is still in reach, within `skylit_dropped_retry_credits_per_night` (shared with the dropped-window tries; else it waits for the next night). It is marked used before the call and listed with its credits in coverage.md. Still failing when it leaves the reach: lost.
+- **D12.** The CLAUDE.md Commands line now says to back up once, when step 10 finishes.

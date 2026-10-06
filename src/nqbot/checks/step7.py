@@ -28,7 +28,8 @@ from nqbot import calendar as cal_mod
 from nqbot import months as months_mod
 from nqbot.checks import step7_analysis as an
 from nqbot.clients import skylit_credits as credits
-from nqbot.clients.skylit import DP_RANGE_MAX_DAYS, OutOfCredits, SkylitClient, SkylitError
+from nqbot.clients.skylit import (DP_RANGE_MAX_DAYS, DarkPoolFailed, DarkPoolPull, OutOfCredits, SkylitClient,
+                                  SkylitError)
 from nqbot.clients.skylit_pull import (INCLUSIVE_END, MAPS, SessionResult, SkylitPullJob, Window, pull_window,
                                        session_windows, window_reachable)
 from nqbot.clients.skylit_store import (
@@ -643,11 +644,21 @@ def pull_dp_date(env: Env, d: date, base: Path | None = None, repull: str | None
         with env.client.tagged(dp_date=d.isoformat(), repull=repull):
             pull = env.client.dark_pool_trades(d, env.features["dp_tickers"], env.features["dp_min_notional"],
                                                before_page=before_page)
-        rows, pages, charged = pull.prints, pull.pages, sum(r.charged or 0 for r in pull.records)
+    except DarkPoolFailed as e:
+        keep_dp_failure(env, e)
+        raise
     except SkylitError as e:
         if e.status != 404 or e.code not in DP_NO_DATA_CODES:
             raise
-        rows, pages, charged = [], 0, 0
+        pull = DarkPoolPull([], 0, span={"date": d.isoformat()})
+    return store_dp_date(env, d, pull, base=base, repull=repull, keep_empty_trading_day=keep_empty_trading_day)
+
+
+def store_dp_date(env: Env, d: date, pull: DarkPoolPull, *, base: Path | None = None, repull: str | None = None,
+                  keep_empty_trading_day: bool = True, raw_path: Path | None = None) -> Path | None:
+    """Store one date's answer (pull_dp_date's rules). `raw_path`: a kept failed answer converted again for free."""
+    path = env.store.dp_trades_path(d, base)
+    rows, pages, charged = pull.prints, pull.pages, sum(r.charged or 0 for r in pull.records)
     if not rows and env.trading_day(d) and not keep_empty_trading_day:
         env.log.warning("dark pools: no prints on trading day %s: no coverage (not cached)", d)
         return None
@@ -655,9 +666,57 @@ def pull_dp_date(env: Env, d: date, base: Path | None = None, repull: str | None
         raise CheckRefused(f"no dark-pool prints for {d} yet (a recent trading day): not cached, try again later")
     if not rows and env.trading_day(d):
         env.log.warning("dark pools: no prints at all on trading day %s (cached as empty)", d)
-    write_parquet(path, prints_to_table(rows), {"params": params, "pages": pages, "repull": repull, "charged": charged,
-                                                "pulled_at": env.now().isoformat(), "provisional": _recent(env, d)})
+    meta = {"params": _dp_params(env, d), "pages": pages, "repull": repull, "charged": charged,
+            "pulled_at": env.now().isoformat(), "provisional": _recent(env, d)}
+    _write_dp(env, path, pull, meta, str(d), raw_path)
     return path
+
+
+def keep_dp_failure(env: Env, e: DarkPoolFailed, raw_path: Path | None = None) -> DarkPoolFailed:
+    """Keep a paid dark-pool answer that couldn't be used in skylit/failed/, every page as answered, so it is never
+    paid for twice (rule 2, presd_fixes D1). `raw_path`: it is already kept there (a free re-conversion)."""
+    if raw_path is not None:
+        e.raw_path = raw_path
+        return e
+    doc = {"kind": "dark_pool_trades", "span": e.span, "complete": e.complete, "code": e.code, "message": e.message,
+           "pages": e.bodies, "unreadable": e.raw.decode("utf-8", "replace") if e.raw else None}
+    label = "dp_" + "_".join(e.span.values()) + ("" if e.complete else "_incomplete")
+    try:
+        e.raw_path = env.store.save_failed(json.dumps(doc).encode(), label)
+    except Exception:  # noqa: BLE001 - e.g. the SSD is gone: the original error is the one to report
+        e.raw_path = None
+    env.log.error("dark pools %s: %s; answer kept in %s", "..".join(e.span.values()), e, e.raw_path)
+    return e
+
+
+def read_kept_dp(raw_path: Path) -> dict[str, Any] | None:
+    """A kept failed answer, or None if the copy itself can't be read (corrupt)."""
+    try:
+        doc = json.loads(raw_path.read_bytes())
+        return doc if isinstance(doc, dict) and isinstance(doc.get("pages"), list) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _write_dp(env: Env, path: Path, pull: DarkPoolPull, meta: dict[str, Any], label: str,
+              raw_path: Path | None) -> None:
+    """Convert and write a paid answer; any failure keeps every page first and raises DarkPoolFailed (D1)."""
+    try:
+        table = prints_to_table(pull.prints)
+    except Exception as e:  # noqa: BLE001 - any conversion failure: the paid pages are kept, converted again later
+        raise keep_dp_failure(env, DarkPoolFailed("convert_failed", f"dark pools {label}: answer couldn't be "
+                                                  f"converted ({type(e).__name__}: {e})", pull.bodies, True,
+                                                  pull.span), raw_path) from e
+    if raw_path is not None:
+        meta = {**meta, "converted_from": raw_path.name}
+    try:
+        write_parquet(path, table, meta)
+    except Exception as e:  # noqa: BLE001 - a failed write must not lose the paid answer (D1)
+        if not env.paths.mounted():
+            raise  # the SSD is gone: the runner stops cleanly and nothing was lost that a re-run can't fetch
+        raise keep_dp_failure(env, DarkPoolFailed("write_failed", f"dark pools {label}: couldn't be stored "
+                                                  f"({type(e).__name__}: {e})", pull.bodies, True, pull.span),
+                              raw_path) from e
 
 
 def dp_trade_date(p: dict[str, Any]) -> date:
@@ -680,21 +739,33 @@ def pull_dp_range_raw(env: Env, start: date, end: date,
     done with it, so a paid answer is never paid for twice (rule 2) even if splitting it fails. A no-data 404 (free)
     is kept as an empty answer."""
     path = dp_range_path(env, start, end)
-    params = {"tickers": ",".join(env.features["dp_tickers"]), "date_start": start.isoformat(),
-              "date_end": end.isoformat(), "min_notional": env.features["dp_min_notional"]}
-    if cached_or_mismatch(path, params):
+    if cached_or_mismatch(path, _dp_range_params(env, start, end)):
         return path
     try:
         with env.client.tagged(dp_range=f"{start.isoformat()}..{end.isoformat()}"):
             pull = env.client.dark_pool_trades(start, env.features["dp_tickers"], env.features["dp_min_notional"],
                                                before_page=before_page, end=end)
-        rows, pages, charged = pull.prints, pull.pages, sum(r.charged or 0 for r in pull.records)
+    except DarkPoolFailed as e:
+        keep_dp_failure(env, e)
+        raise
     except SkylitError as e:
         if e.status != 404 or e.code not in DP_NO_DATA_CODES:
             raise
-        rows, pages, charged = [], 0, 0
-    write_parquet(path, prints_to_table(rows), {"params": params, "pages": pages, "charged": charged,
-                                                "pulled_at": env.now().isoformat()})
+        pull = DarkPoolPull([], 0, span={"date_start": start.isoformat(), "date_end": end.isoformat()})
+    return store_dp_range_raw(env, start, end, pull)
+
+
+def _dp_range_params(env: Env, start: date, end: date) -> dict[str, Any]:
+    return {"tickers": ",".join(env.features["dp_tickers"]), "date_start": start.isoformat(),
+            "date_end": end.isoformat(), "min_notional": env.features["dp_min_notional"]}
+
+
+def store_dp_range_raw(env: Env, start: date, end: date, pull: DarkPoolPull, raw_path: Path | None = None) -> Path:
+    """Keep a 31-day answer whole in darkpool/range/ (`raw_path`: a kept failed answer converted again for free)."""
+    path = dp_range_path(env, start, end)
+    meta = {"params": _dp_range_params(env, start, end), "pages": pull.pages,
+            "charged": sum(r.charged or 0 for r in pull.records), "pulled_at": env.now().isoformat()}
+    _write_dp(env, path, pull, meta, f"{start}..{end}", raw_path)
     return path
 
 

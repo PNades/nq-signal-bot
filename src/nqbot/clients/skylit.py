@@ -154,6 +154,45 @@ class DarkPoolPull:
     prints: list[dict[str, Any]]
     pages: int
     records: list[CallRecord] = field(default_factory=list)
+    bodies: list[dict[str, Any]] = field(default_factory=list)  # every page as answered (kept if storing fails)
+    span: dict[str, str] = field(default_factory=dict)  # {"date": ...} or {"date_start": ..., "date_end": ...}
+
+
+class DarkPoolFailed(SkylitError):
+    """Paid dark-pool pages that couldn't be used (presd_fixes D1). `bodies`: every page answered, kept in
+    skylit/failed/ by the caller (never paid for twice, rule 2). `complete`: the walk reached its last page and the
+    pages are in order, so the kept copy can be converted again for free; False: the answer was cut off, out of
+    order or unreadable, and the date may get one paid re-pull while in reach (owner 2026-10-06)."""
+
+    def __init__(self, code: str, message: str, bodies: list[dict[str, Any]], complete: bool, span: dict[str, str],
+                 status: int | None = 200, unreadable: bytes | None = None):
+        super().__init__(status, code, message, raw=unreadable, charged=True)
+        self.bodies, self.complete, self.span = bodies, complete, span
+        self.raw_path: Any = None  # set once the caller has kept the pages
+        self.group: list[date] = []  # step 10: the other dates of a failed 31-day call
+
+
+def dark_pool_prints(bodies: list[dict[str, Any]], label: str, span: dict[str, str]) -> list[dict[str, Any]]:
+    """The prints of a whole walk, checked (the same check for a fresh answer and for a kept copy converted again).
+    Out-of-order pages fail loudly (a silently wrong day would change the top-3 list, §3.1 Dark pools)."""
+    prints: list[dict[str, Any]] = []
+    last: int | None = None
+    for page, body in enumerate(bodies, 1):
+        rows = body.get("data") or []
+        try:
+            times = [_ts_ns(r["timestamp"]) for r in rows]
+        except Exception as e:  # noqa: BLE001 - any malformed print: the whole answer is kept, converted again later
+            raise DarkPoolFailed("convert_failed", f"dark-pool page {page} for {label}: a print couldn't be read "
+                                 f"({type(e).__name__}: {e})", bodies, True, span) from e
+        if last is not None and rows and times[0] < last:
+            raise DarkPoolFailed("page_order", f"dark-pool page {page} for {label} starts before the last page ended",
+                                 bodies, False, span)
+        if any(a > b for a, b in zip(times, times[1:])):
+            raise DarkPoolFailed("page_order", f"dark-pool page {page} for {label} is not in time order", bodies,
+                                 False, span)
+        last = times[-1] if times else last
+        prints.extend(rows)
+    return prints
 
 
 class SkylitClient:
@@ -369,7 +408,8 @@ class SkylitClient:
 
         A short page (count < limit) ends the pull. Out-of-order pages or a runaway page count fail loudly:
         a silently truncated day would change the top-3 list (§3.1 Dark pools). `before_page` runs before every
-        page's call (the step-10 credit budget; it may raise to stop).
+        page's call (the step-10 credit budget; it may raise to stop). Once a page has been paid for, any failure
+        raises DarkPoolFailed carrying every page answered, so the caller keeps them (presd_fixes D1).
         """
         span = {"date": day.isoformat()}
         label = str(day)
@@ -379,28 +419,50 @@ class SkylitClient:
             span, label = {"date_start": day.isoformat(), "date_end": end.isoformat()}, f"{day}..{end}"
         base = {"tickers": ",".join(tickers), **span, "min_notional": min_notional,
                 "limit": DP_PAGE_LIMIT, "order": "asc", "sort": "time"}
-        prints: list[dict[str, Any]] = []
+        bodies: list[dict[str, Any]] = []
         records: list[CallRecord] = []
         cursor: str | None = None
-        for page in range(1, DP_MAX_PAGES + 1):
-            if before_page is not None:
-                before_page()
-            body, rec = self.get("/v1/dark-pool/trades", {**base, "cursor": cursor})
-            records.append(rec)
-            rows, meta = body.get("data") or [], body.get("meta") or {}
-            times = [_ts_ns(r["timestamp"]) for r in rows]
-            if prints and rows and times[0] < _ts_ns(prints[-1]["timestamp"]):
-                raise SkylitError(None, "page_order", f"dark-pool page {page} for {label} starts before the last page ended")
-            if any(a > b for a, b in zip(times, times[1:])):
-                raise SkylitError(None, "page_order", f"dark-pool page {page} for {label} is not in time order")
-            prints.extend(rows)
-            limit = int(meta.get("limit", DP_PAGE_LIMIT))
-            if len(rows) < limit:
-                return DarkPoolPull(prints, page, records)
-            cursor = meta.get("nextCursor")
-            if not cursor:
-                raise SkylitError(None, "no_cursor", f"dark-pool page {page} for {label} is full but has no nextCursor")
-        raise SkylitError(None, "page_cap", f"dark-pool pull for {label} reached {DP_MAX_PAGES} pages")
+        last: int | None = None  # the last print time seen
+        readable = True
+        try:
+            for page in range(1, DP_MAX_PAGES + 1):
+                if before_page is not None:
+                    before_page()
+                body, rec = self.get("/v1/dark-pool/trades", {**base, "cursor": cursor})
+                records.append(rec)
+                bodies.append(body)
+                try:
+                    rows, meta = body.get("data") or [], body.get("meta") or {}
+                    limit = int(meta.get("limit", DP_PAGE_LIMIT))
+                except (AttributeError, TypeError, ValueError) as e:  # a page of another shape: what was paid is kept
+                    raise DarkPoolFailed("cut_off", f"dark-pool page {page} for {label} can't be read "
+                                         f"({type(e).__name__}: {e})", bodies, False, span) from e
+                # out of order: stop at once (the answer can't be trusted); a print that can't be read is a
+                # conversion matter: the walk goes on and dark_pool_prints checks the whole answer at the end
+                try:
+                    times = [_ts_ns(r["timestamp"]) for r in rows] if readable else []
+                except Exception:  # noqa: BLE001
+                    readable, times = False, []
+                if (last is not None and times and times[0] < last) or any(a > b for a, b in zip(times, times[1:])):
+                    dark_pool_prints(bodies, label, span)  # raises page_order with the page named
+                last = times[-1] if times else last
+                if len(rows) < limit:
+                    break
+                cursor = meta.get("nextCursor")
+                if not cursor:
+                    raise DarkPoolFailed("no_cursor", f"dark-pool page {page} for {label} is full but has no "
+                                         "nextCursor", bodies, False, span)
+            else:
+                raise DarkPoolFailed("page_cap", f"dark-pool pull for {label} reached {DP_MAX_PAGES} pages", bodies,
+                                     False, span)
+        except (DarkPoolFailed, OutOfCredits, AccessDenied):
+            raise
+        except SkylitError as e:  # a later page failed (or an answer was unreadable): the paid pages are kept
+            if not bodies and e.code != "undecodable":
+                raise
+            raise DarkPoolFailed("cut_off", f"dark-pool pull for {label} cut off at page {len(bodies) + 1} ({e})",
+                                 bodies, False, span, status=e.status, unreadable=e.raw if e.charged else None) from e
+        return DarkPoolPull(dark_pool_prints(bodies, label, span), len(bodies), records, bodies, span)
 
     def top_prints(self, ticker: str, as_of: date, top_n: int, lookback_days: int) -> tuple[list[dict[str, Any]], CallRecord]:
         """Skylit's own top-N over [as_of - lookback_days, as_of] (cross-check only). 3 credits."""
