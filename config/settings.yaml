@@ -4,7 +4,7 @@
 
 # --- Storage (§11 Storage, path convention) -------------------------------------------------
 paths:
-  root: null            # set at step 4b (SSD day): folder relative to the SSD's drive, e.g. "nqbot/". The drive is found
+  root: "nqbot/"        # set at step 4b (SSD day): folder relative to the SSD's drive, e.g. "nqbot/". The drive is found
                         # by scanning mounted drives for the marker file .nqbot_drive, never by drive letter.
   # Derived from root (never repo-relative): data_dir = <root>/data, raw_dir = <root>/data/raw,
   # live_dir = <root>/data/live, models_dir = <root>/models, reports_dir = <root>/reports,
@@ -17,7 +17,7 @@ backup:                 # nqbot backup: data/raw/skylit/ -> Google Drive with rc
   rclone_exe: rclone            # the rclone command (or its full path if it isn't on PATH)
 
 # --- Month ledger (§7 rule 2b) ----------------------------------------------------------------
-months: null            # set at step 4b (SSD day): development 1-6, walk-forward test 7-9, sealed 10-12 (+ top-up)
+months: {1: "2025-10", 2: "2025-11", 3: "2025-12", 4: "2026-01", 5: "2026-02", 6: "2026-03", 7: "2026-04", 8: "2026-05", 9: "2026-06", 10: "2026-07", 11: "2026-08", 12: "2026-09"} # set at step 4b (SSD day): development 1-6, walk-forward test 7-9, sealed 10-12 (+ top-up)
                         # format: {1: "2025-10", 2: "2025-11", ..., 12: "2026-09"} (month number -> YYYY-MM;
                         # 1-6 development, 7-9 walk-forward test, 10-12 sealed); read by nqbot.months
 min_month1_sessions: 10
