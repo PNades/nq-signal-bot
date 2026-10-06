@@ -777,12 +777,15 @@ def test_a_range_answer_is_kept_before_it_is_split(setup):
     stray = _dp_print(date(2025, 12, 1))
     real = s.fake._dp_page
     s.fake._dp_page = lambda q: {**real(q), "data": real(q)["data"] + ([stray] if "date_start" in q else [])}
-    r = s.run()  # each date of the kept answer fails the same way: K in a row stop the job cleanly (D1)
-    assert r.status == "failures" and "range_date" in r.message
+    r = s.run()  # each call's dates are recorded together with it (check D): three failures, never five in a row
+    assert r.status == "complete"
     n = len(_dp_calls(s.fake))
-    assert s.run().status == "failures"
-    assert len(_dp_calls(s.fake)) == n
-    assert all(v["charged"] and v["code"] == "range_date" for v in bf.load_failed(s.paths).values())
+    assert n == 3 and s.run().status == "complete"
+    assert len(_dp_calls(s.fake)) == n  # never paid again
+    failed = bf.load_failed(s.paths)
+    assert all(v["charged"] and v["code"] == "range_date" for v in failed.values())
+    plan = bf.BackfillPlan.from_json(json.loads(bf.plan_path(s.paths).read_text(encoding="utf-8")))
+    assert {bf.dp_key(d) for d in plan.dp_dates} <= set(failed)
     assert list((s.store.root / "darkpool" / "range").glob("*.parquet"))
 
 

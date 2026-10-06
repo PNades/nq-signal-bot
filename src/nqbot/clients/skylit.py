@@ -455,13 +455,23 @@ class SkylitClient:
             else:
                 raise DarkPoolFailed("page_cap", f"dark-pool pull for {label} reached {DP_MAX_PAGES} pages", bodies,
                                      False, span)
-        except (DarkPoolFailed, OutOfCredits, AccessDenied):
+        except DarkPoolFailed:
+            raise
+        except (OutOfCredits, AccessDenied) as e:
+            if bodies:  # the caller keeps the pages already paid for, then stops
+                e.dp_pages = DarkPoolFailed("stopped", f"dark-pool pull for {label} stopped after page {len(bodies)} "
+                                            f"({e})", bodies, False, span)
             raise
         except SkylitError as e:  # a later page failed (or an answer was unreadable): the paid pages are kept
             if not bodies and e.code != "undecodable":
                 raise
             raise DarkPoolFailed("cut_off", f"dark-pool pull for {label} cut off at page {len(bodies) + 1} ({e})",
                                  bodies, False, span, status=e.status, unreadable=e.raw if e.charged else None) from e
+        except Exception as e:  # e.g. StopChunk from before_page (the approval or the balance ran out mid-walk)
+            if bodies:  # the caller keeps the pages already paid for, then stops
+                e.dp_pages = DarkPoolFailed("stopped", f"dark-pool pull for {label} stopped after page {len(bodies)} "
+                                            f"({type(e).__name__}: {e})", bodies, False, span)
+            raise
         return DarkPoolPull(dark_pool_prints(bodies, label, span), len(bodies), records, bodies, span)
 
     def top_prints(self, ticker: str, as_of: date, top_n: int, lookback_days: int) -> tuple[list[dict[str, Any]], CallRecord]:

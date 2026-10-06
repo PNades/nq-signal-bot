@@ -424,16 +424,64 @@ def retry_calls(rec: dict[str, Any]) -> bool:
     return not rec["charged"]
 
 
+# Kept copies read once per (path, kind), reused while the file's size and modified time are unchanged (coverage
+# is rewritten after every chunk; a 31-day failure shares one file across its dates). Never changes what is recorded.
+_KEPT_CACHE: dict[tuple[str, str], tuple[tuple[int, int], Any]] = {}
+
+
+def _cached(path: Path, what: str, read: Callable[[], Any]) -> Any:
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    stamp = (st.st_size, st.st_mtime_ns)
+    hit = _KEPT_CACHE.get((str(path), what))
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    value = read()
+    _KEPT_CACHE[(str(path), what)] = (stamp, value)
+    return value
+
+
+def _read_json(path: Path) -> Any | None:
+    try:
+        return json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        return None
+
+
 def kept_copy(rec: dict[str, Any]) -> Any | None:
     """The kept answer of a paid failure, or None if there is none or the copy itself can't be read."""
     if not rec.get("raw"):
         return None
+    path = Path(rec["raw"])
     if rec["kind"] == "dp":
-        return step7.read_kept_dp(Path(rec["raw"]))
-    try:
-        return json.loads(Path(rec["raw"]).read_bytes())
-    except (OSError, ValueError):
+        return _cached(path, "dp", lambda: step7.read_kept_dp(path))
+    return _cached(path, "json", lambda: _read_json(path))
+
+
+def kept_range_prefix(rec: dict[str, Any]) -> tuple[list[dict[str, Any]], frozenset[date]] | None:
+    """A cut-off 31-day dark-pool answer: (its prints, the dates its pages fully cover). Pages come in time order, so
+    every date before the last print's date is whole; only the rest is pulled again, one date per call (owner
+    2026-10-06: never pay again for prints already held). None if it isn't one, or its pages can't be trusted."""
+    if rec["kind"] != "dp" or rec.get("complete", True) or not rec.get("raw"):
         return None
+    kept = kept_copy(rec)
+    if kept is None or "date_start" not in (kept.get("span") or {}) or not kept["pages"]:
+        return None
+
+    def read() -> tuple[list[dict[str, Any]], frozenset[date]] | None:
+        span = kept["span"]
+        try:
+            prints = dark_pool_prints(kept["pages"], "..".join(span.values()), span)
+        except DarkPoolFailed:  # out of order or an unreadable print: nothing in it is trusted
+            return None
+        if not prints:
+            return None
+        start, last = date.fromisoformat(span["date_start"]), step7.dp_trade_date(prints[-1])
+        return prints, frozenset(start + timedelta(days=i) for i in range((last - start).days))
+
+    return _cached(Path(rec["raw"]), "prefix", read)
 
 
 def copy_usable(rec: dict[str, Any]) -> bool:
@@ -477,6 +525,11 @@ def effective_state(env: step7.Env, rec: dict[str, Any], now: datetime) -> str:
     if rec["kind"] == "tempest":  # /v1/vol/history isn't bound by the 365-day reach
         return rec["state"]
     d = date.fromisoformat(rec["date"])
+    if rec["kind"] == "dp" and rec["charged"] and not rec.get("raw") and kept_range_covering(env, d) is not None:
+        return rec["state"]  # its 31-day answer is kept in darkpool/range/: split again for free at any age
+    prefix = kept_range_prefix(rec)
+    if prefix is not None and d in prefix[1]:
+        return rec["state"]  # a cut-off 31-day answer that already holds this whole date
     if rec["kind"] == "window":
         w = _windows_by_hhmm(d, env.cal).get(rec["hhmm"])
         gone = w is None or not window_reachable(w, now, margin_min(env.settings))
@@ -699,6 +752,23 @@ class SkylitBackfillJob:
         self._failed[key] = rec
         atomic_write_json(failed_path(ctx.paths), self._failed)
 
+    def _record_failure(self, ctx: Ctx, key: str, kind: str, d: date, hhmm: str | None, exc: Exception,
+                        extra: dict[str, Any] | None = None) -> None:
+        charged = bool(getattr(exc, "charged", False)) or getattr(exc, "code", None) in DP_PAID_CODES \
+            or getattr(exc, "code", None) == "dropped"  # D7: possibly charged, already sent twice: not called a third time
+        raw = getattr(exc, "raw_path", None)
+        if getattr(exc, "code", None) in RANGE_KEPT_CODES:  # the 31-day answer is kept: re-split free
+            charged, raw = True, None
+        group = [x for x in getattr(exc, "group", []) if x != d]  # a failed 31-day call: its other dates too
+        rec = {"kind": kind, "date": d.isoformat(), "hhmm": hhmm, "status": getattr(exc, "status", None),
+               "code": getattr(exc, "code", type(exc).__name__), "message": str(exc)[:500], "charged": charged,
+               "raw": str(raw) if raw else None, "at": datetime.now(timezone.utc).isoformat(), "retries": 0,
+               "state": "failed", **complete_of(exc),
+               **({"group": [d.isoformat(), *(x.isoformat() for x in group)]} if group else {}), **(extra or {})}
+        for x in group:  # never asked again in the main pass: the kept answer covers them (rule 2)
+            self._failed[dp_key(x)] = {**rec, "date": x.isoformat(), "shares": key}
+        self._record(ctx, key, rec)
+
     def _on_error(self, ctx: Ctx, key: str, kind: str, d: date, hhmm: str | None, exc: Exception, attempt: int,
                   extra: dict[str, Any] | None = None) -> bool:
         """True: try again now (a transient error, after a wait); False: recorded as failed, carry on. Raises
@@ -710,20 +780,7 @@ class SkylitBackfillJob:
             ctx.log.warning("%s: %s; trying it again in %ss", key, exc, CHUNK_RETRY_SEC[attempt])
             self._wait(ctx, CHUNK_RETRY_SEC[attempt])
             return True
-        charged = bool(getattr(exc, "charged", False)) or exc.code in DP_PAID_CODES \
-            or exc.code == "dropped"  # D7: possibly charged, already sent twice: not called a third time
-        raw = getattr(exc, "raw_path", None)
-        if isinstance(exc, SkylitError) and exc.code in RANGE_KEPT_CODES:  # the 31-day answer is kept: re-split free
-            charged, raw = True, None
-        group = [x for x in getattr(exc, "group", []) if x != d]  # a failed 31-day call: its other dates too
-        rec = {"kind": kind, "date": d.isoformat(), "hhmm": hhmm, "status": getattr(exc, "status", None),
-               "code": getattr(exc, "code", type(exc).__name__), "message": str(exc)[:500], "charged": charged,
-               "raw": str(raw) if raw else None, "at": datetime.now(timezone.utc).isoformat(), "retries": 0,
-               "state": "failed", **complete_of(exc),
-               **({"group": [d.isoformat(), *(x.isoformat() for x in group)]} if group else {}), **(extra or {})}
-        for x in group:  # never asked again in the main pass: the kept answer covers them (rule 2)
-            self._failed[dp_key(x)] = {**rec, "date": x.isoformat(), "shares": key}
-        self._record(ctx, key, rec)
+        self._record_failure(ctx, key, kind, d, hhmm, exc, extra)
         self._in_row += 1
         k = int(ctx.settings["skylit_max_failures_in_row"])
         ctx.log.error("%s failed (%s); recorded in %s, never pulled again in this pass; carrying on (%d/%d in a row)",
@@ -803,7 +860,10 @@ class SkylitBackfillJob:
             calls = len(self._budget.taken)
             try:
                 out = self._dp_date(env, d, plan, ctx, single=single)
-            except NEVER_SKIPPED:
+            except NEVER_SKIPPED as e:
+                pages = getattr(e, "dp_pages", None)
+                if pages is not None and pages.raw_path is not None:  # paid pages kept: recorded, never paid twice
+                    self._record_failure(ctx, dp_key(d), "dp", d, None, pages)
                 raise
             except Exception as e:  # noqa: BLE001 - _on_error decides; an unplugged SSD always stops
                 if not env.paths.mounted():
@@ -870,6 +930,10 @@ class SkylitBackfillJob:
         except DarkPoolFailed as e:  # its pages are kept: the group's other dates are recorded with it (D1)
             e.group = group
             raise
+        except NEVER_SKIPPED as e:  # stopped mid-walk: the pages kept so far cover the group's dates too
+            if getattr(e, "dp_pages", None) is not None:
+                e.dp_pages.group = group
+            raise
         return self._settle_range(env, d, d, group[-1], group, ctx)
 
     def _settle_range(self, env: step7.Env, d: date, start: date, end: date, dates: list[date],
@@ -877,13 +941,18 @@ class SkylitBackfillJob:
         """Split a kept range answer into its per-date files and record every date it settled (free)."""
         try:
             got = step7.pull_dp_range(env, start, end, dates)
-        except (SkylitError, *NEVER_SKIPPED):
+        except NEVER_SKIPPED:
+            raise
+        except SkylitError as e:  # e.g. range_date: every date of the call is recorded with it, split again later
+            e.group = list(dates)
             raise
         except Exception as e:  # noqa: BLE001 - the answer stays kept in darkpool/range/: split again for free (D1)
             if not env.paths.mounted():
                 raise
-            raise SkylitError(None, "range_split_failed", f"dark-pool range {start}..{end} couldn't be split "
-                              f"({type(e).__name__}: {e}); the answer is kept in darkpool/range/", charged=True) from e
+            err = SkylitError(None, "range_split_failed", f"dark-pool range {start}..{end} couldn't be split "
+                              f"({type(e).__name__}: {e}); the answer is kept in darkpool/range/", charged=True)
+            err.group = list(dates)
+            raise err from e
         statuses = {x: ("no_coverage" if p is None else "pulled" if env.trading_day(x) else "not_a_session")
                     for x, p in got.items()}
         record = ctx.out_dir / "dp_range" / f"{start.isoformat()}_{end.isoformat()}.json"
@@ -1053,12 +1122,14 @@ class SkylitBackfillJob:
                                  result=SessionResult(d), raw_path=raw)
                     return "recovered"
             if needs_repull(self._failed[key]):
-                return self._repull(env, ctx, key, lambda: self._pull_retry_window(env, w, d, margin),
+                return self._repull(env, ctx, key, lambda: self._pull_retry_window(env, w, d, margin, drop_retries=0),
                                     credits.RANGE_CALL, gone=not window_reachable(w, env.now(), margin))
             return "failed"  # paid, nothing usable kept and its re-pull used: never called again (rule 2)
         return self._pull_retry_window(env, w, d, margin)
 
-    def _pull_retry_window(self, env: step7.Env, w: Window, d: date, margin: float) -> str:
+    def _pull_retry_window(self, env: step7.Env, w: Window, d: date, margin: float,
+                           drop_retries: int | None = None) -> str:
+        """drop_retries=0 for the one re-pull: a dropped connection is never re-sent (it may have been charged)."""
         result = SessionResult(d)
 
         def gate(win: Window) -> bool:
@@ -1067,7 +1138,8 @@ class SkylitBackfillJob:
             self._budget.take(credits.RANGE_CALL, f"retry of window {win.day} {win.hhmm}")
             return True
 
-        pull_window(env.client, env.store, w, result=result, log=env.log, gate=gate, now=env.now)
+        kw = {"drop_retries": drop_retries} if drop_retries is not None else {}
+        pull_window(env.client, env.store, w, result=result, log=env.log, gate=gate, now=env.now, **kw)
         if result.lost:
             return "lost"
         return "recovered" if (result.pulled or result.empty) else "failed"
@@ -1078,6 +1150,9 @@ class SkylitBackfillJob:
             return "recovered"
         if copy_usable(rec):  # its pages are kept whole: converted again, for free (rule 2)
             return self._reconvert_dp(env, rec, d, ctx)
+        prefix = kept_range_prefix(rec)
+        if prefix is not None and d in prefix[1]:  # a cut-off 31-day answer that holds this whole date: free
+            return self._salvage_dp(env, rec, d, prefix[0])
         if needs_repull(rec):  # the kept copy is cut off, out of order or unreadable: one paid re-pull (owner)
             return self._repull(env, ctx, key, lambda: self._dp_status(self._dp_date(env, d, plan, ctx, single=True)),
                                 credits.DP_TRADES_PAGE * self._max_pages, gone=d <= dp_reach_edge(env.now()))
@@ -1090,6 +1165,17 @@ class SkylitBackfillJob:
     @staticmethod
     def _dp_status(out: dict[str, Any]) -> str:
         return {"out_of_reach": "lost", "no_coverage": "no_coverage"}.get(out["status"], "recovered")
+
+    def _salvage_dp(self, env: step7.Env, rec: dict[str, Any], d: date, prints: list[dict[str, Any]]) -> str:
+        """Store one whole date from a cut-off 31-day answer's kept pages (free; owner 2026-10-06)."""
+        rows = [p for p in prints if step7.dp_trade_date(p) == d]
+        try:
+            got = step7.store_dp_date(env, d, DarkPoolPull(rows, 0, [], [], {"date": d.isoformat()}),
+                                      keep_empty_trading_day=False, raw_path=Path(rec["raw"]))
+        except DarkPoolFailed as e:  # a conversion bug: the kept copy stays a cut-off one, salvaged again later
+            e.complete = False
+            raise
+        return "recovered" if got is not None else "no_coverage"
 
     def _reconvert_dp(self, env: step7.Env, rec: dict[str, Any], d: date, ctx: Ctx) -> str:
         """A kept dark-pool answer converted and stored again (free); a 31-day one is then split for its dates."""
@@ -1121,28 +1207,37 @@ class SkylitBackfillJob:
                             "the next night", JOB_NAME, cap, key, need)
             return "failed"
         before = self._failed[key]
-        self._record(ctx, key, {**before, "repull": {"at": env.now().isoformat(), "credits": None,
-                                                      "outcome": "started"}})
+        at = env.now().isoformat()
+        self._record(ctx, key, {**before, "repull": {"at": at, "credits": None, "outcome": "started"}})
         n = len(self._budget.taken)
-        outcome = "failed"
+        outcome, used, update = "failed", True, {}
         try:
             outcome = call()
             return outcome
-        except NEVER_SKIPPED:
-            if len(self._budget.taken) == n:  # stopped before paying anything: the re-pull is still unused
-                self._record(ctx, key, before)
-                raise
-            outcome = "stopped"
+        except NEVER_SKIPPED as e:  # our stop (approval, balance): the re-pull stays unused; paid pages are kept
+            outcome, used = "stopped", False
+            pages = getattr(e, "dp_pages", None)
+            if pages is not None and pages.raw_path is not None:
+                update = {"raw": str(pages.raw_path), "complete": False, "code": pages.code}
             raise
         except SkylitError as e:
             outcome = f"{type(e).__name__}: {e}"[:300]
+            used = bool(e.charged) or e.code == DROPPED  # refunded (outage, refusal): it is still to come
             raise
         finally:
             spent = sum(self._budget.taken[n:])
-            self._night_retry_spent += spent
-            if "repull" in self._failed[key]:
-                self._record(ctx, key, {**self._failed[key], "repull": {**self._failed[key]["repull"],
-                                                                         "credits": spent, "outcome": outcome}})
+            cur = {k: v for k, v in self._failed[key].items() if k != "repull"}
+            if used:
+                over = max(0, self._night_retry_spent + spent - cap) - max(0, self._night_retry_spent - cap)
+                self._night_retry_spent += spent  # a date in progress is finished; any overage is counted and listed
+                if over:
+                    ctx.log.warning("%s: the re-pull of %s went %d credits over tonight's retry cap (%d) to finish "
+                                    "its date", JOB_NAME, key, over, cap)
+                self._record(ctx, key, {**cur, "repull": {"at": at, "credits": spent, "outcome": outcome,
+                                                          **({"over_cap": over} if over else {})}})
+            else:
+                tries = [*cur.get("repull_attempts", []), {"at": at, "credits": spent, "outcome": outcome}]
+                self._record(ctx, key, {**cur, **update, "repull_attempts": tries})
 
     # Tempest, once
     def _tempest(self, env: step7.Env, plan: BackfillPlan, ctx: Ctx) -> dict[str, Any]:
@@ -1449,6 +1544,8 @@ def _failed_section(failed: dict[str, dict[str, Any]], listable: Callable[[str],
             "repulls": {  # owner 2026-10-06: the one paid re-pull of an unusable kept copy
                 "count": sum(1 for r in failed.values() if r.get("repull")),
                 "credits": sum(r["repull"].get("credits") or 0 for r in failed.values() if r.get("repull")),
+                "over_cap": sum(r["repull"].get("over_cap") or 0 for r in failed.values() if r.get("repull")),
+                "unpaid_attempts": sum(len(r.get("repull_attempts", [])) for r in failed.values()),
                 "listed": {k: {**r["repull"], "state": r["state"]} for k, r in sorted(failed.items())
                            if r.get("repull") and listable(r["date"])}}}
 
@@ -1466,8 +1563,12 @@ def _failed_markdown(f: dict[str, Any]) -> list[str]:
     lines += [f"  - {k}: {v['tries']} tries, {v['credits']} credits, {v['state']}" for k, v in d["listed"].items()]
     r = f["repulls"]
     lines.append(f"- Paid re-pulls of a kept answer (window, dark-pool date or Tempest) that was cut off, out of order or unreadable "
-                 f"(one each, within the nightly cap): {r['count']}, {r['credits']} credits")
-    lines += [f"  - {k}: {v['credits']} credits, {v['outcome']}, now {v['state']}" for k, v in r["listed"].items()]
+                 f"(one each, within the nightly cap): {r['count']}, {r['credits']} credits"
+                 + (f", {r['over_cap']} of them over the cap to finish a date in progress" if r["over_cap"] else "")
+                 + (f"; {r['unpaid_attempts']} attempt(s) refunded or stopped (the re-pull is still to come)"
+                    if r["unpaid_attempts"] else ""))
+    lines += [f"  - {k}: {v['credits']} credits" + (f" ({v['over_cap']} over the cap)" if v.get("over_cap") else "")
+              + f", {v['outcome']}, now {v['state']}" for k, v in r["listed"].items()]
     for k, v in f["still_missing"].items():
         if not v["charged"]:
             paid = ""

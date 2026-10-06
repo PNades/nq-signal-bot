@@ -978,3 +978,178 @@ def test_an_unreadable_window_answer_re_pulled_successfully_is_recovered(setup):
     assert len(_calls_for(s, "2025-10-21", "1200")) == 2
     assert s.store.range_cached(date(2025, 10, 21), "1200",
                                 sp.range_params_from_settings(s.settings, bf._windows_by_hhmm(date(2025, 10, 21), CAL)["1200"]))
+
+
+# --- check-D review fixes (2026-10-06) ---------------------------------------------------------------------------
+
+def _garble_window_once(s, at, then=None):
+    """The first range call for window `at` answers an unreadable 200 (paid); the next one `then` (status, body)."""
+    original, served = s.fake.handler, []
+
+    def handler(request):
+        if request.url.path == "/v1/historical/range" and parse_z(request.url.params["from"]).astimezone(ET) == at:
+            served.append(1)
+            if len(served) == 1:
+                s.fake.calls.append(request)
+                s.fake.credits -= 25
+                return httpx.Response(200, content=b"garbled", headers={"X-Credits-Remaining": str(s.fake.credits)})
+            if then is not None and len(served) <= 1 + then[2]:
+                s.fake.calls.append(request)
+                return httpx.Response(then[0], json=then[1], headers={"X-Credits-Remaining": str(s.fake.credits)})
+        return original(request)
+
+    s.fake.handler = handler
+
+
+def test_a_refunded_re_pull_does_not_use_up_the_one_re_pull(setup):
+    """Review finding 1: a re-pull Skylit refuses or can't serve (refunded) leaves the re-pull still to come."""
+    s = setup
+    at = datetime(2025, 10, 21, 12, 0, tzinfo=ET)
+    _garble_window_once(s, at, then=(503, {"error": {"code": "unavailable", "message": "x"}}, 5))  # one gave_up
+    _plan(s, approved=20_000)
+    assert s.run().status == "complete"
+    rec = bf.load_failed(s.paths)["2025-10-21 1200"]
+    assert rec["state"] == "failed" and "repull" not in rec and len(rec["repull_attempts"]) == 1
+    assert "gave_up" in rec["repull_attempts"][0]["outcome"]
+    md = (bf.coverage_dir(s.paths) / "coverage.md").read_text(encoding="utf-8")
+    assert "1 attempt(s) refunded or stopped (the re-pull is still to come)" in md
+    assert s.run().status == "complete"  # Skylit serves it again: the re-pull happens and is used
+    rec = bf.load_failed(s.paths)["2025-10-21 1200"]
+    assert rec["state"] == "recovered" and rec["repull"]["outcome"] == "recovered"
+
+
+def test_a_window_re_pull_is_never_re_sent_after_a_dropped_connection(setup):
+    """Review finding 2: the one re-pull is sent once (drop_retries=0)."""
+    s = setup
+    at = datetime(2025, 10, 21, 12, 0, tzinfo=ET)
+    _garble_window_once(s, at)
+    original, drops = s.fake.handler, []
+
+    def handler(request):
+        if request.url.path == "/v1/historical/range" and parse_z(request.url.params["from"]).astimezone(ET) == at \
+                and len(_calls_for(s, "2025-10-21", "1200")) >= 1:
+            drops.append(1)
+            s.fake.calls.append(request)
+            raise httpx.ReadError("connection dropped")
+        return original(request)
+
+    s.fake.handler = handler
+    _plan(s, approved=20_000)
+    assert s.run().status == "complete"
+    assert len(drops) == 1  # the re-pull's request went out once and was not re-sent
+    rec = bf.load_failed(s.paths)["2025-10-21 1200"]
+    assert rec["repull"]["credits"] == 25 and "dropped" in rec["repull"]["outcome"] and rec["state"] == "failed"
+
+
+def test_a_stop_mid_walk_keeps_and_records_the_paid_dark_pool_pages(setup, monkeypatch):
+    """Review finding 3: out of credits on page 2: page 1 is kept and recorded; the date gets its one re-pull."""
+    import nqbot.clients.skylit as sk
+
+    s = setup
+    monkeypatch.setattr(sk, "DP_PAGE_LIMIT", 1)
+    original, left = s.fake.handler, [1]
+
+    def handler(request):
+        q = request.url.params
+        if request.url.path == "/v1/dark-pool/trades" and q.get("date") == "2025-10-21" and q.get("cursor") == "1" \
+                and left[0]:
+            left[0] -= 1
+            s.fake.calls.append(request)
+            return httpx.Response(402, json={"error": {"code": "INSUFFICIENT_CREDITS", "message": "x"}},
+                                  headers={"X-Credits-Remaining": "0"})
+        return original(request)
+
+    s.fake.handler = handler
+    _plan(s, approved=20_000)
+    assert s.run().status == "credits"
+    rec = bf.load_failed(s.paths)["dp 2025-10-21"]
+    assert rec["code"] == "stopped" and rec["charged"] and not rec["complete"] and rec["state"] == "failed"
+    kept = json.loads(Path(rec["raw"]).read_text(encoding="utf-8"))
+    assert len(kept["pages"]) == 1 and kept["pages"][0]["data"]
+    assert s.run().status == "complete"  # the start pass re-pulls it once; the main pass never asks it
+    rec = bf.load_failed(s.paths)["dp 2025-10-21"]
+    assert rec["state"] == "recovered" and rec["repull"]["outcome"] == "recovered"
+    assert len(_dp_calls_for(s, "2025-10-21")) == 2 + 3
+
+
+def test_a_failed_31_day_split_records_its_group_and_never_ages_out(setup, monkeypatch):
+    """Review finding 4: a split that fails records every date of the call at once (no K-in-a-row stop from one
+    answer) and, since the answer is kept in darkpool/range/, is never lost when it leaves the reach."""
+    from tests.test_skylit_backfill import _dp_calls, _range_report
+
+    s = setup
+    s.clock.t = datetime(2026, 1, 15, 10, 0, tzinfo=ET)
+    _range_report(s)
+    real, fails = step7.pull_dp_range, []
+
+    def flaky(env, start, end, dates, **kw):
+        if start == date(2025, 8, 18):
+            fails.append(1)
+            raise PermissionError(13, "held by antivirus")
+        return real(env, start, end, dates, **kw)
+
+    monkeypatch.setattr(step7, "pull_dp_range", flaky)
+    _plan(s, approved=20_000)
+    assert s.run().status == "complete"
+    failed = bf.load_failed(s.paths)
+    group = {k for k, r in failed.items() if r["code"] == "range_split_failed"}
+    assert len(group) == 23 and all(r["charged"] and not r["raw"] for r in failed.values())
+    assert len(_dp_calls(s.fake)) == 3
+    s.clock.t = datetime(2026, 10, 1, 10, 0, tzinfo=ET)  # 8/18..9/17 2025 have left the reach
+    plan = bf.BackfillPlan.from_json(json.loads(bf.plan_path(s.paths).read_text(encoding="utf-8")))
+    assert all(bf.effective_state(s.env, failed[k], s.clock.t) == "failed" for k in group)  # still splittable
+    monkeypatch.setattr(step7, "pull_dp_range", real)
+    assert s.run(until=s.clock.t + timedelta(hours=10)).status == "complete"
+    assert all(bf.load_failed(s.paths)[k]["state"] == "recovered" for k in group)
+    assert len(_dp_calls(s.fake)) == 3 and s.store.dp_trades_path(date(2025, 9, 17)).exists()
+    assert plan.dp_range
+
+
+def test_a_cut_off_31_day_answer_re_pulls_only_the_dates_it_does_not_hold(setup, monkeypatch):
+    """Owner 2026-10-06: dates wholly inside the kept pages are stored from them for free; only the rest are pulled
+    again, one date per call."""
+    import nqbot.clients.skylit as sk
+    from tests.test_skylit_backfill import _range_report
+
+    s = setup
+    s.clock.t = datetime(2026, 1, 15, 10, 0, tzinfo=ET)
+    _range_report(s)
+    monkeypatch.setattr(sk, "DP_PAGE_LIMIT", 1)  # one print a page: 8/18, 8/19, 8/20 (2 each), then 8/21 cut off
+    original, left = s.fake.handler, [1]
+
+    def handler(request):
+        q = request.url.params
+        if request.url.path == "/v1/dark-pool/trades" and q.get("date_start") == "2025-08-18" \
+                and q.get("cursor") == "7" and left[0]:
+            left[0] -= 1
+            s.fake.calls.append(request)
+            return httpx.Response(400, json={"error": {"code": "INVALID_CURSOR", "message": "x"}},
+                                  headers={"X-Credits-Remaining": str(s.fake.credits)})
+        return original(request)
+
+    s.fake.handler = handler
+    _plan(s, approved=20_000)
+    assert s.run().status == "complete"
+    failed = bf.load_failed(s.paths)
+    one_date = {c.url.params["date"] for c in s.fake.calls
+                if c.url.path == "/v1/dark-pool/trades" and "date" in c.url.params}
+    assert not one_date & {"2025-08-18", "2025-08-19", "2025-08-20"}  # held already: never paid again
+    assert "2025-08-21" in one_date
+    for d in ("2025-08-18", "2025-08-19", "2025-08-20"):
+        rec = failed[f"dp {d}"]
+        assert rec["state"] == "recovered" and "repull" not in rec
+        assert read_meta(s.store.dp_trades_path(date.fromisoformat(d)))["converted_from"] == Path(rec["raw"]).name
+        assert len(step7.read_prints([s.store.dp_trades_path(date.fromisoformat(d))])) == 2
+    assert failed["dp 2025-08-21"]["repull"]["outcome"] == "recovered"
+
+
+def test_kept_copies_are_read_once_while_unchanged(setup, monkeypatch, tmp_path):
+    raw = tmp_path / "copy.json"
+    raw.write_text(json.dumps({"pages": [], "span": {"date": "2025-10-21"}, "complete": True}), encoding="utf-8")
+    reads = []
+    real = step7.read_kept_dp
+    monkeypatch.setattr(step7, "read_kept_dp", lambda p: reads.append(p) or real(p))
+    rec = {"kind": "dp", "raw": str(raw), "charged": True}
+    assert bf.kept_copy(rec) == bf.kept_copy(rec) and len(reads) == 1
+    raw.write_text(json.dumps({"pages": [{}], "span": {"date": "2025-10-21"}, "complete": True}), encoding="utf-8")
+    assert bf.kept_copy(rec)["pages"] == [{}] and len(reads) == 2  # changed on disk: read again

@@ -12,6 +12,7 @@ appear in reports only as counts, timings and yes/no answers, never with prices 
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 from dataclasses import dataclass, field
@@ -647,8 +648,9 @@ def pull_dp_date(env: Env, d: date, base: Path | None = None, repull: str | None
     except DarkPoolFailed as e:
         keep_dp_failure(env, e)
         raise
-    except SkylitError as e:
-        if e.status != 404 or e.code not in DP_NO_DATA_CODES:
+    except Exception as e:  # noqa: BLE001 - re-raised unless it is a free no-data answer
+        keep_stopped_pages(env, e)
+        if not isinstance(e, SkylitError) or e.status != 404 or e.code not in DP_NO_DATA_CODES:
             raise
         pull = DarkPoolPull([], 0, span={"date": d.isoformat()})
     return store_dp_date(env, d, pull, base=base, repull=repull, keep_empty_trading_day=keep_empty_trading_day)
@@ -679,7 +681,7 @@ def keep_dp_failure(env: Env, e: DarkPoolFailed, raw_path: Path | None = None) -
         e.raw_path = raw_path
         return e
     doc = {"kind": "dark_pool_trades", "span": e.span, "complete": e.complete, "code": e.code, "message": e.message,
-           "pages": e.bodies, "unreadable": e.raw.decode("utf-8", "replace") if e.raw else None}
+           "pages": e.bodies, "unreadable_b64": base64.b64encode(e.raw).decode("ascii") if e.raw else None}
     label = "dp_" + "_".join(e.span.values()) + ("" if e.complete else "_incomplete")
     try:
         e.raw_path = env.store.save_failed(json.dumps(doc).encode(), label)
@@ -687,6 +689,14 @@ def keep_dp_failure(env: Env, e: DarkPoolFailed, raw_path: Path | None = None) -
         e.raw_path = None
     env.log.error("dark pools %s: %s; answer kept in %s", "..".join(e.span.values()), e, e.raw_path)
     return e
+
+
+def keep_stopped_pages(env: Env, e: BaseException) -> None:
+    """A walk stopped part-way (approval or balance used up, out of credits): keep the pages already paid for
+    (presd_fixes D1, check D); the stop itself goes on."""
+    pages = getattr(e, "dp_pages", None)
+    if pages is not None and pages.raw_path is None:
+        keep_dp_failure(env, pages)
 
 
 def read_kept_dp(raw_path: Path) -> dict[str, Any] | None:
@@ -748,8 +758,9 @@ def pull_dp_range_raw(env: Env, start: date, end: date,
     except DarkPoolFailed as e:
         keep_dp_failure(env, e)
         raise
-    except SkylitError as e:
-        if e.status != 404 or e.code not in DP_NO_DATA_CODES:
+    except Exception as e:  # noqa: BLE001 - re-raised unless it is a free no-data answer
+        keep_stopped_pages(env, e)
+        if not isinstance(e, SkylitError) or e.status != 404 or e.code not in DP_NO_DATA_CODES:
             raise
         pull = DarkPoolPull([], 0, span={"date_start": start.isoformat(), "date_end": end.isoformat()})
     return store_dp_range_raw(env, start, end, pull)
