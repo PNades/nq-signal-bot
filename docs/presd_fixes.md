@@ -7,7 +7,7 @@ All 17 issues are fixed **before the SSD arrives**, in three sessions the owner 
 | Session | Issues | Theme |
 |---|---|---|
 | **A** ✅ done 2026-10-05 | 1, 2, 7, 9, 10 | step-10 backfill job, step-7 order and report, 365-day reach (independently reviewed twice; 311 tests pass) |
-| **B** ✅ done 2026-10-05 | 3, 4, 5, 6, 8, 11 | separate locks, Databento retries and cost guard, `nqbot setup-ssd`, warm-up, keep-awake and checks |
+| **B** ✅ done 2026-10-05 | 3, 4, 5, 6, 8, 11 | separate locks, Databento retries and cost guard, `nqbot setup-ssd`, warm-up, keep-awake and checks (independently reviewed twice; 363 tests pass) |
 | **C** | 12, 13, 15, 16, 17 | step-8b gate code, rclone backup command, the small ones |
 | – | 14 | resolved by owner decision 4 |
 
