@@ -109,3 +109,112 @@ Each session: read this file, CLAUDE.md, and the SPEC sections listed for its st
 
 - TLS: plain `httpx` (sync and async) and `requests` work in this venv with pip-system-certs active, so the explicit TLS context in `gameplan/parser.py` isn't needed for the Skylit or Databento clients (checked against python.org, not their hosts).
 - Step 7 as a whole costs about 4,000–4,700 credits, and no single check needs the 5,000-credit approval.
+
+## Dry run 2 findings and decisions
+
+Second SSD-day dry run, 2026-10-06. A fresh agent read CLAUDE.md, this file, the SPEC sections for steps 4b, 7, 8, 8b, 9 and 10, and the code, and walked through SSD day read-only: nothing changed, no network, no credits. 411 tests pass. Without the SSD, `nqbot status` and `nqbot setup-ssd` refuse cleanly (exit 2). The main session re-checked findings D1, D2, D4 and D5 in the code. Nothing is fixed yet: this section records the findings and the owner's decisions for a later session.
+
+### SSD day as it runs today
+
+Before starting: `SKYLIT_API_KEY`, `DATABENTO_API_KEY` and `ANTHROPIC_API_KEY` in `.env` (there is no `.env.example`); the SSD formatted as NTFS; the CLAUDE.md power checklist; rclone installed and the `gdrive` remote set up; the Databento Standard subscription before `databento plan` (the plan refuses unless a one-hour `get_cost` probe comes back at $0).
+
+| # | Command | Writes (all under `<SSD>:\nqbot\`) | Credits / $ | Gate |
+|---|---|---|---|---|
+| 4b | `uv run nqbot setup-ssd --drive E:`, then the same with `--yes` | With `--yes`: `E:\.nqbot_drive`, `E:\nqbot\`, `paths.root` and `months` in the repo's `config/settings.yaml` (commit) | 0 | Owner OKs the diff. Today the window is 2025-10..2026-09; the month-1 merge applies from about 2026-10-20 |
+| 7a | `step7 symbols` | `reports/step7/symbols_*.json` | free | – |
+| 7b | `step7 strike-window --busy-day D --sample-days D1,…,D5` (month 6 = Mar 2026) | `raw/skylit/fullchain/` | ≈ 150 | Owner OKs `skylit_max_strikes` (a hand edit) |
+| 7c | `step7 sample-days --dates D1..D5` (job `skylit_sample_days`) | `raw/skylit/range/<date>/` | ≈ 3,250 | Printed first; under 5,000 needs no OK |
+| 7d | `step7 historical-instants`, `step7 darkpool --date D [--check-dates …]`, `step7 tempest-depth` | `historical/`, `darkpool/{trades,range,top_prints,probe}/`, `vol/` | ≈ 200 + 300–700 + 1–2 | – |
+| 7e | `step7 report` | `reports/step7/parameter_check.md` (backfill estimate, shortfall, cheapest pack) | free | Owner OKs, buys the pack (likely about $100), approves N |
+| 10 | `skylit plan --approve-credits N`, then `run skylit_backfill --until 07:30` | `data/jobs/skylit_backfill/…`, `raw/skylit/…`, `reports/step10/coverage.{md,json}` | ≈ 155–160k | Owner's N |
+| 8 | `databento plan`, `databento plan --approve-usd X`, `run databento_backfill --until 07:30` | `raw/databento/…`, `processed/bars/`, `processed/rolls/`, `data/jobs/databento_backfill/` | $199/month + pay-as-you-go (warm-up trades, the oldest L1 days); the amount is printed by `get_cost` | Owner approves X |
+| Alongside | `step7 stream-record` (RTH, ≈ 90), `parity --session D` (25), `late-prints-morning` ×5, `late-prints-compare`, `tempest-poll` ×2, `tempest-compare`, then `report` again | `raw/skylit/{stream,repull/…}`, `reports/step7/` | small | Owner stops if parity shows revised boards |
+| 8b | After the first Databento night: `step8b precision`, `spot-lag`, `atlas --date D --minutes …`, `report` | `reports/step8b/mapping_gate.md` | free | Owner's Atlas replay check |
+| 9 | Download the Drive folder into `<SSD>\nqbot\data\raw\gameplans\`, then `gameplan-batch --approve-usd X` | `data/processed/gameplans/`, `reports/gameplans/step9_report.md` | ≈ $9 worst case for 28 files | Owner approves X and confirms the file → date list |
+| Backup | `uv run nqbot backup` | `gdrive:NQ bot backup/raw/skylit/`, `reports/backup/backup.md` | Drive quota | Takes the Skylit lock |
+
+### Findings (most harmful first)
+
+**D1. HIGH: one bad Skylit window stops the whole step-10 backfill, and each re-run pays for it again.** Status: open.
+- Cause:
+  - `run_chunk` (`src/nqbot/clients/skylit_backfill.py:503-517`) retries only a `SkylitError` with a transient code and re-raises anything else:
+    - a 400/404 away from the 365-day edge;
+    - a 404 `symbol_not_found` (`src/nqbot/clients/skylit_pull.py:173-183`);
+    - a conversion failure: `pull_window` re-raises `ValueError` (`skylit_pull.py:186-188`), and a `TypeError` isn't caught at all, so that paid body isn't saved.
+  - The runner re-raises it (`src/nqbot/jobs/runner.py:232-239`) and the run ends.
+  - The window is never marked as failed, so every re-run pulls it again (25 credits) and fails the same way while the oldest sessions age out of reach.
+  - This breaks SPEC §11: a charged answer that can't be converted is kept in `failed/` and never retried.
+  - Step 7 only tests conversion on March 1-second days. The oldest days, pulled first, may be 1-minute data.
+- Fix: decision 4 below. Also catch `Exception` around the conversion so the raw body is always saved, and add one 25-credit test window from the oldest day still in reach to step 7.
+
+**D2. HIGH: nothing stops a backfill with a strike window narrower than step 7 proposed.** Status: open.
+- Cause:
+  - `_strike_check` (`src/nqbot/checks/step7.py:1002-1014`) only prints "now: N; proposed by strike-window: M". It says the sample days "match" whenever they were pulled with the current value, even if that value is below the proposal.
+  - `skylit plan` (`skylit_backfill.py:354-392`) doesn't check the proposal or the sample days' `edge_violations`.
+  - If the settings.yaml edit is forgotten, every backfill day loses its edge strikes for good.
+- Fix: decision 3 below.
+
+**D3. MEDIUM-HIGH: the "alongside" checks can't run while the backfill does.** Status: open.
+- Cause:
+  - `stream-record`, `parity`, `late-prints-*` and `tempest-compare` take the Skylit lock (`src/nqbot/cli.py:264-266`). So do `skylit_backfill` (`skylit_backfill.py:445`) and `nqbot backup`.
+  - CLAUDE.md and decision 1 say these checks never hold up step 10.
+  - There is no clean stop command, and Ctrl-C during a call can throw away a paid 25-credit answer.
+- Fix: decision 2 below.
+
+**D4. MEDIUM: `step7 sample-days --raised` silently pulls nothing, and the report then says the sample days match.** Status: open.
+- Cause:
+  - `plan_sample_days(raised=True)` (`src/nqbot/checks/step7.py:236-247`) writes a plan for the same job name, `skylit_sample_days`, with the same chunk ids (the dates).
+  - That job's `state.json` already marks them done (`runner.py:203`), so the run reports "complete 5/5" without pulling.
+  - `sample_days_report` then reads the old tree but records the raised `skylit_max_strikes`, so `_strike_check` says "matches".
+  - The test passes only because it deletes `state.json` by hand (`tests/test_step7_review_fixes.py:274`).
+  - No money is lost (the backfill re-pulls those days), but the raised edge check never happens.
+- Fix: give the raised run its own job name (e.g. `skylit_sample_days_raise`), or reset its state when the plan is written. The report reads the `strike_window_raise` tree.
+
+**D5. MEDIUM: an antivirus lock or another unexpected error ends the night.** Status: open.
+- Cause:
+  - `replace_retry` waits only 20 × 0.1 s (`src/nqbot/storage.py:25-26`). Windows Defender scanning a freshly written parquet of tens of MB may hold it longer (unverified).
+  - Any non-Skylit exception in a chunk is re-raised by `runner.py:232-239`, so the overnight job dies. A failed window write is a lost paid window.
+- Fix: retry for about 30 s with backoff. Checklist: decision 5 below.
+
+**D6. MEDIUM: nothing guards against Windows Update restarting the laptop on backfill nights.** Status: open.
+- Cause: active hours and paused updates are only in the live-trading checklist (SPEC §9).
+- Fix: decision 5 below.
+
+**D7. LOW-MEDIUM (billing unverified): a connection dropped after a 200 is retried as if refunded.** Status: open.
+- Cause: `src/nqbot/clients/skylit.py:229` treats a dropped connection as refunded. A read error after the server answered 200 is probably charged (25 credits), and the retry pays again.
+- Fix: ask Skylit, or retry a large range call only once per error.
+
+**D8. LOW: step-7 refusals don't catch a plain `SkylitError` or `CacheMismatch`.** Status: open.
+- Cause: the refusal tuple at `src/nqbot/cli.py:254-255`. A traceback appears for a 504 "gave up" on the big full-chain `strike-window` call. It may also appear for `darkpool --date` in month 1–2, whose 45-day lookback may fall outside the 365-day reach (unverified).
+- Fix: catch `SkylitError`/`CacheMismatch` and print a hint. Advise a `--date` in month 3 or later. Consider a shorter `--minutes` option for `strike-window` in case the full-chain call times out.
+
+**D9. LOW: `gameplan-batch` reads only the top level of `raw/gameplans/`.** Status: open.
+- Cause: `src/nqbot/gameplan/parser.py:432`. A Drive folder zip probably extracts into a `Jeron gameplans\` subfolder (unverified), and the batch then says "0 files" with no hint.
+- Fix: warn about subfolders that hold files (or read one level down), and print the absolute folder path.
+
+**D10. LOW: the docs never list what the owner must pick or edit by hand.** Status: open.
+- Cause: nowhere says:
+  - to choose the busy day and the 5 month-6 sample days before `strike-window`, and reuse them for `sample-days` and the Atlas check;
+  - which `darkpool --date/--check-dates` and `parity --session` values to use;
+  - which settings to edit and commit: `skylit_max_strikes` and `map_latency_sec` in settings.yaml, `dp_lag_sessions` and `tempest_lag_sessions` in features.yaml;
+  - that the Modern Standby check with `run dummy` takes both locks, so it goes before the backfills;
+  - that `data/raw/gameplans/` means `<SSD>\nqbot\data\raw\gameplans`, not the repo.
+  
+  There is also no `.env.example`.
+- Fix: an SSD-day checklist in CLAUDE.md, and a `.env.example` listing the three API keys.
+
+**D11. LOW (sealed months): `build_day_outputs` prints every roll spread value to the console and log, including the Sep-2026 sealed-month roll.** Status: open.
+- Cause: `src/nqbot/clients/databento_pull.py:549`.
+- Fix: log the roll without the number, or show the number only for development months.
+
+**D12. LOW: the "back up after warm-up + months 1–6" step needs the backfill stopped (Skylit lock).** Status: open.
+- Cause: `nqbot backup` takes the Skylit lock, and so does the backfill. The whole backfill probably finishes in about 1–2 nights anyway (unverified).
+- Fix: one backup when step 10 finishes, or let the backup run without the lock once decision 2's own-files rule makes that safe.
+
+### Owner decisions (2026-10-06)
+
+1. **Pack credits.** The owner checks on Skylit's site whether pack credits add to the API balance and whether they expire, and buys the pack on SSD day after the step-7 estimate. The backfill prints the balance before it starts and stops cleanly (status `credits`, no crash) if the balance runs out, so the owner can top up and re-run.
+2. **Alongside checks (D3, D12).** The short checks (stream recording, parity, late prints, Tempest) run alongside the backfill without its lock, as long as each writes only to its own files and the backfill's credit guard leaves enough credits for them. Step 10 never waits for a market session. Add `nqbot stop <job>`, which finishes and saves the current call before stopping.
+3. **Strike window (D2).** `skylit plan` refuses outright until the strike-window check passes, with no override flag. If it fails, the fix is to raise `skylit_max_strikes` and re-check.
+4. **Failing windows (D1).** Skip a window that keeps failing, save its raw answer, record it so it is never re-pulled, and carry on. Stop only after K failures in a row (K in config). Retry all skipped windows once at the end of the run, and list any still missing in `coverage.md`.
+5. **Laptop (D5, D6).** Add a Windows Defender exclusion for the SSD folder and pausing Windows Update for 1 week to the SSD-day checklist.
