@@ -56,11 +56,12 @@ MBP1_EARLY_CLOSE_PAD = timedelta(minutes=5)  # §3.2: on early-close days to ear
 # Waits before retrying a failed included download (transient network errors overnight). Operational, not a SPEC
 # number; a pay-as-you-go download is never retried automatically (CLAUDE.md rule 2).
 DOWNLOAD_RETRY_SEC = (30, 120, 300)
-# The `metadata.get_cost` probe before a plan (presd_fixes issue 5): one hour of the last window session's NQ contract
+# The `metadata.get_cost` probe before a plan (§3.2 Cost guard; presd_fixes issue 5): one hour of the last window session's NQ contract
 # must cost $0 in both an always-included schema and L1, or the subscription isn't active / get_cost doesn't show
 # included data as $0, and every printed amount would be wrong.
 PROBE_START, PROBE_END = time(10, 0), time(11, 0)
-# make_plan refuses if more than this share of the requests the date rule calls included come back priced ("most").
+# §3.2 Cost guard: make_plan refuses if more than this share of the requests the date rule calls included come back
+# priced ("most", presd_fixes issue 5).
 INCLUDED_PRICED_MAX_SHARE = 0.5
 ROOTS = ("NQ", "ES")  # §3.2, §3.3; MNQ follows the NQ contract
 WINDOW, HOLIDAY, WARMUP, ROLL = "window", "holiday", "warmup", "roll"

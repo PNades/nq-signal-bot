@@ -11,7 +11,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-FORMAT = "%(asctime)s.%(msecs)03dZ %(levelname)s %(name)s: %(message)s"
+# The pid tells the two parallel backfills' lines apart in the shared daily log (§11 One machine).
+FORMAT = "%(asctime)s.%(msecs)03dZ [%(process)d] %(levelname)s %(name)s: %(message)s"
 DATEFMT = "%Y-%m-%dT%H:%M:%S"
 
 

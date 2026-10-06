@@ -99,7 +99,26 @@ def test_run_prints_power_warnings(settings, drive, monkeypatch, capsys):
     monkeypatch.setattr(cli, "load_settings", lambda: settings)
     monkeypatch.setattr("nqbot.jobs.registry.JOBS", {"dummy": lambda: DummyJob(1, 0)})
     monkeypatch.setattr(power.os, "name", "nt")
-    monkeypatch.setattr(power, "powercfg_query", lambda sub, setting: "Current AC Power Setting Index: 0x00000e10")
+    monkeypatch.setattr(power, "powercfg_query", lambda sub, setting: "Current AC Power Setting Index: 0x00000e10\n"
+                        "Current DC Power Setting Index: 0x00000e10\n")
     assert cli.main(["run", "dummy"]) == 0
     err = capsys.readouterr().err
     assert "sleep after (on AC) could stop an overnight job" in err and "standby-timeout-ac 0" in err
+
+
+def test_malformed_ledger_refused_at_startup(tmp_path, monkeypatch, capsys):
+    from nqbot.config import load_settings
+
+    (tmp_path / "settings.yaml").write_text("months: {1: 2025-10-01}\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "load_settings", lambda: load_settings(tmp_path))
+    assert cli.main(["status"]) == cli.EXIT_REFUSED
+    assert "config error" in capsys.readouterr().err
+
+
+def test_step7_checks_keep_windows_awake(settings, drive, monkeypatch, no_power_calls):
+    from nqbot import power
+
+    monkeypatch.setattr(cli, "load_settings", lambda: settings)
+    monkeypatch.setattr(power.os, "name", "nt")
+    assert cli.main(["step7", "historical-instants"]) == cli.EXIT_REFUSED  # no ledger yet: refused, still cleared
+    assert no_power_calls == [power.ES_CONTINUOUS | power.ES_SYSTEM_REQUIRED, power.ES_CONTINUOUS]

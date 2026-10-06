@@ -196,3 +196,13 @@ def test_run_job_keeps_windows_awake(settings, paths, log, clock, monkeypatch, n
     monkeypatch.setattr(power.os, "name", "nt")
     run(DummyJob(1, 1), settings, paths, log, clock)
     assert no_power_calls == [power.ES_CONTINUOUS | power.ES_SYSTEM_REQUIRED, power.ES_CONTINUOUS]
+
+
+def test_empty_locks_means_both(settings, paths, log, clock):
+    class NoLocks(DummyJob):
+        locks = ()
+
+    paths.root.mkdir(parents=True)
+    lock_path(paths.root, SKYLIT).write_text(json.dumps({"host": "home-pc", "pid": 1, "job": "skylit_backfill"}))
+    with pytest.raises(LockHeld):
+        run(NoLocks(1, 1), settings, paths, log, clock)

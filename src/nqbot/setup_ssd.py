@@ -26,6 +26,7 @@ from typing import Any, Callable
 
 import psutil
 from ruamel.yaml import YAML
+from ruamel.yaml.error import YAMLError
 
 from nqbot import calendar as cal_mod
 from nqbot import months as months_mod
@@ -138,10 +139,12 @@ def merge_needed(first_ym: str, now: datetime, settings: dict[str, Any], cal: di
 
 
 def ledger_fixed(paths: Paths) -> bool:
-    """The ledger is fixed once either backfill has a plan (step 10 or step 8 started, §12 step 4b)."""
-    from nqbot.clients import databento_pull, skylit_backfill
+    """The ledger is fixed once step 10 has started, i.e. the Skylit backfill has a plan (§12 step 4b). A Databento
+    plan alone doesn't fix it: its window follows the ledger, so `databento plan` is simply run again after a
+    rewrite."""
+    from nqbot.clients import skylit_backfill
 
-    return skylit_backfill.plan_path(paths).exists() or databento_pull.plan_path(paths).exists()
+    return skylit_backfill.plan_path(paths).exists()
 
 
 def check_month1(settings: dict[str, Any], now: datetime, cal: dict[str, Any] | None = None) -> None:
@@ -191,7 +194,10 @@ def render_settings(text: str, *, root: str | None = None, months: dict[int, Any
         new = _set_line(new, r"^(  root:)\s*(\S*?)(\s+#.*)?\s*$", f'"{root}"', "paths.root")
     if months is not None:
         new = _set_line(new, r"^(months:)\s*(.*?)(\s+#.*)?\s*$", _flow(months), "months")
-    before, after = YAML(typ="safe").load(text), YAML(typ="safe").load(new)
+    try:
+        before, after = YAML(typ="safe").load(text), YAML(typ="safe").load(new)
+    except YAMLError as e:
+        raise SetupRefused(f"settings.yaml: the rewritten file doesn't load ({e}): edit it by hand") from None
     if root is not None:
         before["paths"]["root"] = root
     if months is not None:
@@ -217,6 +223,7 @@ def setup(settings: dict[str, Any], settings_path: Path, *, now: datetime, drive
         from nqbot.power import power_warnings as power
     current_root = (settings.get("paths") or {}).get("root")
     current_months = settings.get("months")
+    root = root.replace("\\", "/")  # `--root nqbot\` (Windows habit): YAML double quotes treat \ as an escape
 
     drive = choose_drive(drive_arg, candidates)
     try:
@@ -233,7 +240,7 @@ def setup(settings: dict[str, Any], settings_path: Path, *, now: datetime, drive
         if not current_months or not current_root:
             raise SetupRefused("--rewrite-ledger needs the ledger and paths.root written first (run setup-ssd without it)")
         if ledger_fixed(Paths.under(drive, current_root)):
-            raise SetupRefused("step 10 or step 8 has started (a backfill plan exists): the ledger is fixed now "
+            raise SetupRefused("step 10 has started (the Skylit backfill has a plan): the ledger is fixed now "
                                "(§12 step 4b)")
         first = months_mod.ledger(settings)[1][0]
         root_to_write = None
@@ -244,10 +251,16 @@ def setup(settings: dict[str, Any], settings_path: Path, *, now: datetime, drive
         root_to_write = None if current_root else root
 
     merge, in_reach, total = merge_needed(first, now, settings, cal)
+    if merge:
+        second, _ = month1_sessions(months_mod.ym_add(first, 1), now, settings, cal)
+        if in_reach + second < int(settings["min_month1_sessions"]):
+            raise SetupRefused(f"even merged with {months_mod.ym_add(first, 1)}, month 1 has only {in_reach + second} "
+                               "sessions inside Skylit's reach: the whole window must move later, which this command "
+                               "doesn't do (ask Claude Code; §12 step 4b)")
     led = build_ledger(first, merge)
     echo(f"window: 12 complete months from {first}; month 1 ({first}): {in_reach} of {total} sessions still inside "
          f"Skylit's 365-day reach (min_month1_sessions {settings['min_month1_sessions']}) -> "
-         + (f"MERGED with {months_mod.ym_add(first, 1)}; the window ends one month later (that month 12 is pulled "
+         + (f"MERGED with {months_mod.ym_add(first, 1)}; the window ends one month later (the new month 12 is pulled "
             "with the step-18 top-up once complete)" if merge else "no merge"))
     if current_months and months_mod.validate(current_months) == months_mod.validate(led):
         if root_to_write is None:
@@ -266,8 +279,12 @@ def setup(settings: dict[str, Any], settings_path: Path, *, now: datetime, drive
              f"before {sealed} fall in months 1-9 and are held back until step 20 (§5.6)")
         if rewrite_ledger:
             _report_moves(settings, led_to_write, Paths.under(drive, current_root), echo)
+            from nqbot.clients.databento_pull import plan_path as databento_plan
 
-    old = settings_path.read_text(encoding="utf-8")
+            if databento_plan(Paths.under(drive, current_root)).exists():
+                echo("then re-run `uv run nqbot databento plan` (its window follows the new ledger)")
+
+    old = settings_path.read_bytes().decode("utf-8")  # as is: a CRLF working copy stays CRLF
     new = render_settings(old, root=root_to_write, months=led_to_write)
     months_mod.validate(YAML(typ="safe").load(new)["months"], full=True)  # what is written must load
     echo(diff(old, new, settings_path.name))

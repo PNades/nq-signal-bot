@@ -86,5 +86,6 @@ def no_power_calls(monkeypatch):
 
     calls: list[int] = []
     monkeypatch.setattr(power, "_set_state", calls.append)
-    monkeypatch.setattr(power, "powercfg_query", lambda subgroup, setting: "Current AC Power Setting Index: 0x00000000")
+    monkeypatch.setattr(power, "powercfg_query", lambda subgroup, setting: "Current AC Power Setting Index: 0x00000000\n"
+                        "Current DC Power Setting Index: 0x00000000\n")
     return calls

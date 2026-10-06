@@ -9,6 +9,7 @@ returns a warning for each AC setting that could still stop a job; it never chan
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
@@ -34,13 +35,16 @@ CHECKS = (
      'Power Options > Change plan settings > Change advanced power settings > USB settings > '
      'USB selective suspend setting, Plugged in = Disabled'),
 )
-AC_INDEX = re.compile(r"Current AC Power Setting Index:\s*0x([0-9a-fA-F]+)")
+# powercfg prints the AC index then the DC index as the last two "...: 0x........" lines; matched by position, so a
+# non-English Windows (translated labels) is read too.
+HEX_LINE = re.compile(r":\s*0x([0-9a-fA-F]+)\s*$", re.MULTILINE)
 
 
 def _set_state(flags: int) -> None:
     import ctypes
 
-    ctypes.windll.kernel32.SetThreadExecutionState(flags)
+    if not ctypes.windll.kernel32.SetThreadExecutionState(ctypes.c_uint(flags)):
+        logging.getLogger("nqbot.power").warning("SetThreadExecutionState failed: Windows may sleep during the job")
 
 
 @contextmanager
@@ -74,9 +78,9 @@ def power_warnings(query: Callable[[str, str], str | None] | None = None) -> lis
         query = powercfg_query
     warnings = []
     for what, subgroup, setting, ok, fix in CHECKS:
-        m = AC_INDEX.search(query(subgroup, setting) or "")
-        if m is None:
+        values = HEX_LINE.findall(query(subgroup, setting) or "")
+        if len(values) < 2:
             warnings.append(f"power: couldn't read {what}; check it by hand ({fix})")
-        elif int(m.group(1), 16) != ok:
-            warnings.append(f"power: {what} could stop an overnight job (value {int(m.group(1), 16)}). Fix: {fix}")
+        elif int(values[-2], 16) != ok:  # the AC index
+            warnings.append(f"power: {what} could stop an overnight job (value {int(values[-2], 16)}). Fix: {fix}")
     return warnings

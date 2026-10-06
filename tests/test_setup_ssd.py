@@ -127,18 +127,6 @@ def test_bad_root_refused_before_anything_is_written(cfg, ssd):
     assert not (ssd / MARKER).exists()
 
 
-def test_rewrite_refused_once_either_backfill_is_planned(cfg, ssd):
-    from nqbot.clients.databento_pull import plan_path
-    from nqbot.storage import Paths
-
-    run(cfg, ssd, yes=True)
-    p = plan_path(Paths.under(ssd, "nqbot/"))
-    p.parent.mkdir(parents=True)
-    p.write_text("{}")
-    with pytest.raises(su.SetupRefused, match="ledger is fixed"):
-        run(cfg, ssd, now=OCT_21, rewrite_ledger=True)
-
-
 def test_rewrite_ledger_when_step_10_starts(cfg, ssd, monkeypatch):
     from nqbot.clients.skylit_backfill import plan_path
     from nqbot.clients.skylit_pull import SkylitPullJob
@@ -199,3 +187,47 @@ def test_cli_setup_ssd_before_paths_root(settings, monkeypatch, capsys, tmp_path
     monkeypatch.setattr(su, "candidate_drives", lambda: [])
     assert cli.main(["setup-ssd"]) == cli.EXIT_REFUSED
     assert "no external drive" in capsys.readouterr().err
+
+
+# --- second review (2026-10-05) ------------------------------------------------------------------------------
+
+def test_windows_style_root_and_crlf_file(cfg, ssd):
+    cfg.write_bytes(cfg.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))  # a CRLF working copy
+    wrote, _ = run(cfg, ssd, root="nqbot\\", yes=True)  # `--root nqbot\` would be a YAML escape in double quotes
+    assert wrote and load_settings(cfg.parent)["paths"]["root"] == "nqbot/" and (ssd / "nqbot").is_dir()
+    raw = cfg.read_bytes()
+    assert raw.count(b"\r\n") == raw.count(b"\n")  # line endings kept
+
+
+def test_a_databento_plan_alone_does_not_fix_the_ledger(cfg, ssd):
+    """§12 step 4b: the ledger is rewritten when step 10 starts; a Databento plan made earlier is just re-run."""
+    from nqbot.clients.databento_pull import plan_path
+    from nqbot.storage import Paths
+
+    run(cfg, ssd, yes=True)
+    p = plan_path(Paths.under(ssd, "nqbot/"))
+    p.parent.mkdir(parents=True)
+    p.write_text("{}")
+    assert not su.ledger_fixed(Paths.under(ssd, "nqbot/"))
+    wrote, out = run(cfg, ssd, now=OCT_21, rewrite_ledger=True, yes=True)
+    assert wrote and "re-run `uv run nqbot databento plan`" in out and "sample days" not in out
+
+
+def test_a_merged_month_1_still_short_is_refused(cfg, ssd):
+    run(cfg, ssd, yes=True)
+    with pytest.raises(su.SetupRefused, match="whole window must move later"):
+        run(cfg, ssd, now=datetime(2026, 12, 1, 12, 0, tzinfo=ET), rewrite_ledger=True)
+
+
+def test_drive_info_and_check_drive(monkeypatch, tmp_path):
+    from collections import namedtuple
+
+    part = namedtuple("part", "device mountpoint fstype opts")
+    monkeypatch.setattr(su.psutil, "disk_partitions", lambda all=False: [part("X", str(tmp_path), "NTFS", "rw,fixed")])
+    info = su.drive_info(tmp_path)
+    assert info.fstype == "NTFS" and info.total_gb > 0
+    su.check_drive(info, 0)
+    with pytest.raises(su.SetupRefused, match="not NTFS"):
+        su.check_drive(su.Drive(tmp_path, "FAT32", 931, 900), 0)
+    monkeypatch.setattr(su.psutil, "disk_partitions", lambda all=False: [])
+    assert su.drive_info(tmp_path).fstype == ""  # unknown: refused by check_drive

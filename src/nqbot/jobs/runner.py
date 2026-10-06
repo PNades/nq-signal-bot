@@ -184,7 +184,7 @@ def run_job(
     spath = state_path(paths, job.name)
     paths.root.mkdir(parents=True, exist_ok=True)
     # Keep Windows awake while the job runs (owner 2026-10-05, §11 Overnight jobs; lid-close sleep still applies).
-    with keep_awake(), job_locks(paths.root, getattr(job, "locks", ALL_LOCKS), job.name):
+    with keep_awake(), job_locks(paths.root, getattr(job, "locks", None) or ALL_LOCKS, job.name):
         state = load_state(spath)
         done: dict[str, Any] = state["done"]
         peaks = [d["peak_gb"] for d in done.values() if d.get("peak_gb")]
