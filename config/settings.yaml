@@ -11,6 +11,10 @@ paths:
   # log_dir = <root>/logs, tmp_dir = <root>/tmp
 min_free_gb: 50
 min_free_gb_live: 20
+backup:                 # nqbot backup: data/raw/skylit/ -> Google Drive with rclone (§11 Storage; owner 2026-10-05)
+  rclone_remote: gdrive         # the owner's rclone Google Drive remote (made once with `rclone config`)
+  drive_folder: "NQ bot backup" # folder on that Drive; the copy lands in <drive_folder>/raw/skylit/
+  rclone_exe: rclone            # the rclone command (or its full path if it isn't on PATH)
 
 # --- Month ledger (§7 rule 2b) ----------------------------------------------------------------
 months: null            # set at step 4b (SSD day): development 1-6, walk-forward test 7-9, sealed 10-12 (+ top-up)

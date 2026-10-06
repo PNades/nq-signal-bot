@@ -8,7 +8,7 @@ All 17 issues are fixed **before the SSD arrives**, in three sessions the owner 
 |---|---|---|
 | **A** ✅ done 2026-10-05 | 1, 2, 7, 9, 10 | step-10 backfill job, step-7 order and report, 365-day reach (independently reviewed twice; 311 tests pass) |
 | **B** ✅ done 2026-10-05 | 3, 4, 5, 6, 8, 11 | separate locks, Databento retries and cost guard, `nqbot setup-ssd`, warm-up, keep-awake and checks (independently reviewed twice; 363 tests pass) |
-| **C** | 12, 13, 15, 16, 17 | step-8b gate code, rclone backup command, the small ones |
+| **C** ✅ done 2026-10-06 | 12, 13, 15, 16, 17 | step-8b gate code, rclone backup command, the small ones (independently reviewed twice) |
 | – | 14 | resolved by owner decision 4 |
 
 Each session: read this file, CLAUDE.md, and the SPEC sections listed for its steps; fix, test, get an independent review, update SPEC/CLAUDE.md, tick the issues off here, commit and push.
@@ -79,11 +79,11 @@ Each session: read this file, CLAUDE.md, and the SPEC sections listed for its st
 - Evidence: no `SetThreadExecutionState`, and no check of power, sleep, lid or USB selective suspend.
 - Fix (decision 6): `nqbot run` calls `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)` while a job runs and clears it at the end (no-op off Windows). `nqbot setup-ssd` and `nqbot run` print warnings (no changes) if `powercfg` shows AC sleep on, the lid action isn't "Do nothing", or USB selective suspend is on. Owner checklist for SSD day: `powercfg /change standby-timeout-ac 0`, lid close on AC = "Do nothing", USB selective suspend off. The keep-awake call doesn't stop lid-close sleep.
 
-**12. The step-8b mapping gate isn't built (session C).** Status: open.
+**12. The step-8b mapping gate isn't built (session C).** Status: ✅ fixed 2026-10-05 (session C): `nqbot step8b precision|spot-lag|atlas|report` (`checks/step8b.py`, maths in `features/mapping.py`: F1.2 re-accept, F1.3 open skip, F2.3 % of King, F1.6 error, ±120 s spot lag, trailing 15-minute RV terciles (owner)); the Databento job pulls the step-7 sample days first (8b needs no warm-up).
 - Evidence: `features/mapping.py` only rebuilds R. There's no error report against `mapping_p95_max`, no spot-lag cross-correlation (±120 s) and no Atlas side-by-side procedure.
 - Fix: `nqbot step8b` (or a `checks/step8b.py`) producing the §5.1 / §12 step-8b report. The Databento plan pulls the step-7 sample days (and their warm-up) first, so 8b can run on night 1 instead of waiting for the oldest-first pull to reach month 6.
 
-**13. There's no backup command (session C).** Status: open.
+**13. There's no backup command (session C).** Status: ✅ fixed 2026-10-05 (session C): `nqbot backup` (`backup.py`, job `skylit_backup`): `raw/skylit/` only (owner) to `gdrive:NQ bot backup/raw/skylit/`, `rclone copy --checksum` + `rclone check --one-way` per folder (per month under `range/`), fingerprinted chunks, Skylit job lock.
 - Evidence: SPEC §11 Storage requires two Google Drive copies with checksums. Nothing implements it.
 - Fix (decision 5): `nqbot backup`, using rclone from the SSD to the owner's Google Drive remote (`rclone copy` + `rclone check`, with checksums). It checks rclone is installed and the remote is configured, writes a report, and is resumable. Owner one-time setup: install rclone, run `rclone config` to authorise Google Drive (the owner does the OAuth in the browser; the token stays outside the repo). The remote name is a setting.
 
@@ -91,15 +91,15 @@ Each session: read this file, CLAUDE.md, and the SPEC sections listed for its st
 
 ### LOW
 
-**15. `stream-record` timing and reconnect cost (session C).** Status: open.
+**15. `stream-record` timing and reconnect cost (session C).** Status: ✅ fixed 2026-10-05 (session C): refuses a start whose 15 min + 60 s would pass the close, hard wall-clock end, at most 3 reconnects (`SkylitStream.max_reconnects`), incomplete recordings marked.
 - Evidence: only the start time is checked, so a start near 15:50 records past the close (`checks/step7.py` ~302–305). The `_record` loop never ends if no events arrive, and keeps reconnecting at 4 credits each time.
 - Fix: refuse a start that can't finish 15 minutes before 16:00 (or `early_close_et`), add a hard wall-clock end, and cap the reconnects.
 
-**16. CLAUDE.md drift (session C).** Status: open.
+**16. CLAUDE.md drift (session C).** Status: ✅ fixed 2026-10-05 (session C): unbuilt commands marked with their step; the lock sentence was already right after session B; step8b and backup commands added.
 - Evidence: CLAUDE.md lists commands that don't exist yet (`ui`, `live`, `preopen`, `setup-tasks`, `guard`, `run sweep`). It says every step-7 check except `tempest-poll` holds the lock, but `report` and `sample-days` don't take it themselves.
 - Fix: mark the not-yet-built commands "(step N, not built yet)" and correct the lock sentence (after session B's lock split).
 
-**17. Smaller robustness gaps (session C).** Status: open.
+**17. Smaller robustness gaps (session C).** Status: ✅ fixed 2026-10-05 (session C): `storage.replace_retry` for every rename; `OutOfCredits` is a clean `credits` stop / message; step-7 `LockHeld` exits 3; dark pools by 31-day calls once the step-7 darkpool check proves them print by print (owner 2026-10-05), else one date per call.
 - Evidence and fixes:
   - `quarantine_partial` calls `os.replace` with no retry if antivirus is holding the file (`clients/skylit_store.py` ~259) → short retry loop on `PermissionError`.
   - `nqbot run skylit_sample_days` shows a raw traceback on `OutOfCredits` / `CreditRefused` (only `LockHeld` is caught, `cli.py` ~83–88) → a clean message and exit code.

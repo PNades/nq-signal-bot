@@ -26,7 +26,7 @@ from zoneinfo import ZoneInfo
 
 from nqbot import calendar as cal_mod
 from nqbot.clients import skylit_credits as credits
-from nqbot.clients.skylit import SkylitClient, SkylitError, iso_utc
+from nqbot.clients.skylit import OutOfCredits, SkylitClient, SkylitError, iso_utc
 from nqbot.clients.skylit_store import SkylitStore, range_to_tables
 from nqbot.jobs.lock import SKYLIT
 from nqbot.jobs.runner import Ctx, StopChunk
@@ -301,6 +301,18 @@ class SkylitPullJob:
     def run_chunk(self, chunk_id: str, ctx: Ctx) -> None:
         plan = self._plan(ctx)
         store = SkylitStore(ctx.paths)
-        pull_session(self._client_for(ctx, store), store, date.fromisoformat(chunk_id),
-                     max_strikes=plan.get("max_strikes"), should_stop=ctx.should_stop, log=ctx.log,
-                     base=self._base(store, plan), repull=plan.get("repull"))
+        try:
+            pull_session(self._client_for(ctx, store), store, date.fromisoformat(chunk_id),
+                         max_strikes=plan.get("max_strikes"), should_stop=ctx.should_stop, log=ctx.log,
+                         base=self._base(store, plan), repull=plan.get("repull"))
+        except OutOfCredits as e:  # a clean stop, like the step-10 backfill (presd_fixes 17)
+            raise StopChunk(f"Skylit answered 402 out of credits ({e.message}): top up, then re-run nqbot run "
+                            f"{self.name}", status="credits") from None
+
+
+def sample_days(paths: Paths) -> set[date]:
+    """The step-7 Skylit sample days (nqbot step7 sample-days wrote them); empty before step 7."""
+    path = SkylitPullJob.plan_path(paths, "skylit_sample_days")
+    if not path.exists():
+        return set()
+    return {date.fromisoformat(d) for d in json.loads(path.read_text(encoding="utf-8"))["dates"]}

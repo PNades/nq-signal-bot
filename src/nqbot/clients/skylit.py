@@ -37,6 +37,7 @@ RATE_LOW_REMAINING = 1  # sleep until X-RateLimit-Reset when this few requests a
 RETRYABLE = frozenset({429, 500, 502, 503, 504})
 TIMEOUT_SEC = 90.0  # client timeout; the server answers 504 after 20-25 s, a 15-min 1-s range body is large
 DP_PAGE_LIMIT = 5000  # /v1/dark-pool/trades server cap per page
+DP_RANGE_MAX_DAYS = 31  # Flowseeker: date_start..date_end spans at most 31 days per request (§3.1 Endpoints)
 DP_MAX_PAGES = 200  # §3.1 Dark pools: fail loudly, never truncate silently (one ET date of $1M+ QQQ/SPY prints is ~1 page)
 
 log_default = logging.getLogger("nqbot.skylit")
@@ -342,14 +343,21 @@ class SkylitClient:
     # --- Flowseeker dark pools ---------------------------------------------------------------------
 
     def dark_pool_trades(self, day: date, tickers: list[str], min_notional: float,
-                         before_page: Callable[[], None] | None = None) -> DarkPoolPull:
-        """Every print of one ET trade date, oldest first, walked by meta.nextCursor. 5 credits a page.
+                         before_page: Callable[[], None] | None = None, end: date | None = None) -> DarkPoolPull:
+        """Every print of one ET trade date (or of the trade dates day..end, at most DP_RANGE_MAX_DAYS), oldest
+        first, walked by meta.nextCursor. 5 credits a page.
 
-        A short page (count < limit) ends the date. Out-of-order pages or a runaway page count fail loudly:
+        A short page (count < limit) ends the pull. Out-of-order pages or a runaway page count fail loudly:
         a silently truncated day would change the top-3 list (§3.1 Dark pools). `before_page` runs before every
         page's call (the step-10 credit budget; it may raise to stop).
         """
-        base = {"tickers": ",".join(tickers), "date": day.isoformat(), "min_notional": min_notional,
+        span = {"date": day.isoformat()}
+        label = str(day)
+        if end is not None and end != day:
+            if not day < end <= day + timedelta(days=DP_RANGE_MAX_DAYS - 1):
+                raise ValueError(f"dark-pool range {day}..{end}: at most {DP_RANGE_MAX_DAYS} days, oldest first")
+            span, label = {"date_start": day.isoformat(), "date_end": end.isoformat()}, f"{day}..{end}"
+        base = {"tickers": ",".join(tickers), **span, "min_notional": min_notional,
                 "limit": DP_PAGE_LIMIT, "order": "asc", "sort": "time"}
         prints: list[dict[str, Any]] = []
         records: list[CallRecord] = []
@@ -362,17 +370,17 @@ class SkylitClient:
             rows, meta = body.get("data") or [], body.get("meta") or {}
             times = [_ts_ns(r["timestamp"]) for r in rows]
             if prints and rows and times[0] < _ts_ns(prints[-1]["timestamp"]):
-                raise SkylitError(None, "page_order", f"dark-pool page {page} for {day} starts before the last page ended")
+                raise SkylitError(None, "page_order", f"dark-pool page {page} for {label} starts before the last page ended")
             if any(a > b for a, b in zip(times, times[1:])):
-                raise SkylitError(None, "page_order", f"dark-pool page {page} for {day} is not in time order")
+                raise SkylitError(None, "page_order", f"dark-pool page {page} for {label} is not in time order")
             prints.extend(rows)
             limit = int(meta.get("limit", DP_PAGE_LIMIT))
             if len(rows) < limit:
                 return DarkPoolPull(prints, page, records)
             cursor = meta.get("nextCursor")
             if not cursor:
-                raise SkylitError(None, "no_cursor", f"dark-pool page {page} for {day} is full but has no nextCursor")
-        raise SkylitError(None, "page_cap", f"dark-pool pull for {day} reached {DP_MAX_PAGES} pages")
+                raise SkylitError(None, "no_cursor", f"dark-pool page {page} for {label} is full but has no nextCursor")
+        raise SkylitError(None, "page_cap", f"dark-pool pull for {label} reached {DP_MAX_PAGES} pages")
 
     def top_prints(self, ticker: str, as_of: date, top_n: int, lookback_days: int) -> tuple[list[dict[str, Any]], CallRecord]:
         """Skylit's own top-N over [as_of - lookback_days, as_of] (cross-check only). 3 credits."""

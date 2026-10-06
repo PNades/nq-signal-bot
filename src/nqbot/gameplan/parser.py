@@ -32,7 +32,7 @@ from nqbot import months
 from nqbot.gameplan import validate
 from nqbot.gameplan.convert import SUPPORTED_SUFFIXES, CannotConvert, Converted, convert
 from nqbot.gameplan.schema import GAMEPLAN_SCHEMA, SPEC_FIELDS
-from nqbot.storage import append_jsonl, atomic_write_json, atomic_write_text
+from nqbot.storage import append_jsonl, atomic_write_json, atomic_write_text, replace_retry
 
 PARSER_VERSION = 1  # bump when SYSTEM_PROMPT or GAMEPLAN_SCHEMA changes (then re-parse with --reparse)
 MTOK = 1_000_000
@@ -280,7 +280,7 @@ def _move_aside(store: GameplanStore, path: Path) -> None:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     dest = store.raw_dir / "replaced" / f"{path.stem}.{stamp}{path.suffix}"
     dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(path), str(dest))
+    replace_retry(path, dest)  # same drive (raw/gameplans/): a rename, retried if antivirus holds the file
 
 
 def _retire_date(store: GameplanStore, day: date, file: Path, conv: Converted, index: dict, keep: str) -> None:

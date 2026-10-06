@@ -379,9 +379,28 @@ def test_darkpool_check(env):
     assert rep["all_match"] and len(rep["top_prints_checks"]) == 4
     assert rep["depth_probe"]["date"] == "2025-08-18" and rep["depth_probe"]["has_prints"] is False
     assert rep["credits_per_page"] == [5]
+    # the 31-day comparison (owner 2026-10-05): one date_start..date_end call over the last 31 days, print by print
+    assert rep["range_check"] == {"start": "2026-02-16", "end": "2026-03-18", "range_prints": 2 * 23,
+                                  "mismatches": [], "weekend_dates": [], "matches": True}
+    assert step7.dp_range_ok(env.paths)
+    assert step7.dp_prints_per_date(env.paths) == rep["prints"] / rep["trading_dates_pulled"]  # holidays left out
     n = len(env.fake.calls)
     step7.check_darkpool(env, date(2026, 3, 16), [date(2026, 3, 18)])
-    assert env.fake.calls[n:] == []  # every date and top list cached
+    assert env.fake.calls[n:] == []  # every date, the range answer and top list cached
+
+
+def test_darkpool_range_that_loses_prints_keeps_one_date_calls(env):
+    days = [date(2026, 2, 1) + timedelta(days=i) for i in range(50)]
+    env.fake.dp_prints = [_dp_print(d, 11, 1e6 * (1 + i % 7), t) for i, d in enumerate(days) if d.weekday() < 5
+                          for t in ("QQQ", "SPY")]
+    env.fake.routes["/v1/dark-pool/top-prints/QQQ"] = _top_route(env.fake)
+    env.fake.routes["/v1/dark-pool/top-prints/SPY"] = _top_route(env.fake)
+    env.fake.dp_range_drops = 1  # the range answer is missing its first print
+    rep = step7.check_darkpool(env, date(2026, 3, 16), [date(2026, 3, 18)], depth_probe=False)
+    assert rep["range_check"]["matches"] is False
+    assert rep["range_check"]["mismatches"] == [{"date": "2026-02-16", "single": 2, "range": 1, "only_single": 1,
+                                                 "only_range": 0}]
+    assert not step7.dp_range_ok(env.paths)  # step 10 then pulls one date per call
 
 
 def test_late_prints_morning_then_compare(env):
@@ -450,3 +469,75 @@ def test_report_with_backfill_estimate(env):
     assert bf["estimate"][0][1] > 240 * 20  # range calls
     assert step7.warmup_sessions(env.features) == 21  # the shared §3.2 count (tests/test_warmup.py)
     assert (step7.reports_dir(env.paths) / "parameter_check.md").exists()
+
+
+# --- presd_fixes 15: stream-record ends on time and caps its reconnects ------------------------------------
+
+def _silent_stream(replies, sleep):
+    """A stream whose connections end without any board (a ping, then a clean end)."""
+    return SkylitStream(Secret(KEY), symbols_map=SYMBOLS_MAP, maps=["QQQ", "NDXP", "SPY", "SPX"], metric="gamma",
+                        max_expirations=1, max_strikes=200, sleep=sleep, max_reconnects=step7.STREAM_MAX_RECONNECTS,
+                        transport=httpx.MockTransport(lambda r: (replies.append(r), httpx.Response(
+                            200, content=sse(("ping", None, None)), headers={"Content-Type": "text/event-stream"}))[1]))
+
+
+def test_stream_record_refuses_a_start_that_runs_past_the_close(env):
+    env.now.t = datetime(2026, 10, 6, 15, 50, tzinfo=ET)
+    with pytest.raises(step7.CheckRefused, match="past today's close.*start by 15:44"):
+        step7.check_stream_record(env)
+    env.now.t = datetime(2026, 11, 27, 12, 50, tzinfo=ET)  # day after Thanksgiving: 13:00 close
+    with pytest.raises(step7.CheckRefused, match=r"close \(13:00 ET\)"):
+        step7.check_stream_record(env)
+
+
+def test_stream_record_caps_reconnects_and_keeps_what_it_got(env):
+    seen = []
+
+    async def nosleep(s):
+        pass
+
+    env.stream_factory = lambda: _silent_stream(seen, nosleep)
+    rep = step7.check_stream_record(env, minutes=0.1, force=True)
+    assert len(seen) == 1 + step7.STREAM_MAX_RECONNECTS  # never an endless reconnect loop (4 credits each)
+    assert rep["complete"] is False and rep["ended"].startswith("stopped: stream reconnected")
+
+
+def test_stream_record_has_a_hard_wall_clock_end(env, monkeypatch):
+    import asyncio
+
+    seen = []
+
+    async def slow(s):  # the backoff between reconnects never returns in time
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(step7, "STREAM_GRACE_SEC", 0)
+    env.stream_factory = lambda: _silent_stream(seen, slow)
+    with pytest.raises(step7.CheckRefused, match="no board"):  # never an endless wait, nothing to write
+        asyncio.run(step7._record(env.stream_factory(), 0.001, grace_sec=0))
+    assert len(seen) == 1
+
+
+def test_stream_record_estimate_covers_the_worst_case(env):
+    from nqbot.clients import skylit_credits as credits
+
+    est = credits.stream_estimate("x", 4, 15 + step7.STREAM_GRACE_SEC / 60, reconnects=step7.STREAM_MAX_RECONNECTS)
+    assert est.total == 4 * (1 + 3) + 4 * (16 + 3)
+
+
+def test_darkpool_range_call_refused_is_recorded_not_fatal(env):
+    days = [date(2026, 2, 1) + timedelta(days=i) for i in range(50)]
+    env.fake.dp_prints = [_dp_print(d, 11, 1e6, t) for d in days if d.weekday() < 5 for t in ("QQQ", "SPY")]
+    env.fake.routes["/v1/dark-pool/top-prints/QQQ"] = _top_route(env.fake)
+    env.fake.routes["/v1/dark-pool/top-prints/SPY"] = _top_route(env.fake)
+    real = env.fake.handler
+
+    def refuse_ranges(request):
+        if request.url.path == "/v1/dark-pool/trades" and "date_start" in request.url.params:
+            env.fake.calls.append(request)
+            return httpx.Response(400, json={"error": {"code": "INVALID_PARAMETER", "message": "no ranges"}})
+        return real(request)
+
+    env.fake.handler = refuse_ranges
+    rep = step7.check_darkpool(env, date(2026, 3, 16), [date(2026, 3, 18)], depth_probe=False)
+    assert rep["range_check"]["matches"] is False and "400" in rep["range_check"]["error"]
+    assert rep["all_match"] and not step7.dp_range_ok(env.paths)  # the report is written; step 10 one date per call

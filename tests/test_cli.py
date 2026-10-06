@@ -122,3 +122,18 @@ def test_step7_checks_keep_windows_awake(settings, drive, monkeypatch, no_power_
     monkeypatch.setattr(power.os, "name", "nt")
     assert cli.main(["step7", "historical-instants"]) == cli.EXIT_REFUSED  # no ledger yet: refused, still cleared
     assert no_power_calls == [power.ES_CONTINUOUS | power.ES_SYSTEM_REQUIRED, power.ES_CONTINUOUS]
+
+
+def test_run_prints_a_clean_out_of_credits_message(settings, drive, monkeypatch, capsys):
+    """presd_fixes 17: a 402 outside a chunk (e.g. while planning) is a message and exit 2, not a traceback."""
+    from nqbot.clients.skylit import OutOfCredits
+
+    class Broke(DummyJob):
+        def chunks(self, ctx):
+            raise OutOfCredits(402, "insufficient_credits", "balance 0")
+
+    monkeypatch.setattr(cli, "load_settings", lambda: settings)
+    monkeypatch.setattr("nqbot.jobs.registry.JOBS", {"dummy": lambda: Broke(1, 0)})
+    assert cli.main(["run", "dummy"]) == cli.EXIT_REFUSED
+    err = capsys.readouterr().err
+    assert "out of credits" in err and "uv run nqbot run dummy" in err

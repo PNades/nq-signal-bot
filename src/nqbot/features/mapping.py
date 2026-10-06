@@ -1,5 +1,7 @@
-"""Strike -> futures mapping ratio R = F / S (SPEC §5.1). Step 7 starts it; step 11 adds the rest of §5.1
-(outlier rejection, re-acceptance, the open skip, band conversion and rounding).
+"""Strike -> futures mapping ratio R = F / S (SPEC §5.1, feature_spec F1). Step 7 started it; the step-8b gate adds
+outlier rejection and re-acceptance (F1.2), the open skip (F1.3), % of King (F2.3), the precision metric (F1.6), the
+spot-lag cross-correlation and the trailing realized vol used to split the 8b report. Step 11 adds band conversion
+and rounding.
 
 S is the board's own `spot`; F is the last NQ/ES trade at or before the board's effective time τ:
 τ = asOf for 1-second boards, asOf + 60 s for 1-minute boards until the spot-lag test clears them (§3.1 Ingest).
@@ -10,7 +12,12 @@ from __future__ import annotations
 
 import numpy as np
 
-ONE_MINUTE_TAU_SHIFT_NS = 60 * 1_000_000_000  # §3.1 Ingest: uncleared 1-minute boards hold the minute's end state
+NS = 1_000_000_000
+ONE_MINUTE_TAU_SHIFT_NS = 60 * NS  # §3.1 Ingest: uncleared 1-minute boards hold the minute's end state
+RATIO_MEDIAN_N = 5  # §5.1 / F1.2: median of the last 5 accepted R
+OPEN_SKIP_MAPS = ("SPX", "NDXP")  # F1.3: index maps skip the opening seconds
+SPOT_LAG_MAX_S = 120  # §12 step 8b: cross-correlate over +-120 s
+RV_WINDOW_MIN = 15  # step-8b volatility split: trailing 15 minutes of 1-minute returns (owner 2026-10-05)
 
 
 def board_tau_ns(as_of_ns: np.ndarray, resolution: np.ndarray | str, *, spot_lag_cleared: bool = False) -> np.ndarray:
@@ -39,3 +46,128 @@ def ratio_for_boards(as_of_ns: np.ndarray, spot: np.ndarray, resolution: np.ndar
     """R = F(τ) / spot per board (NaN when no trade precedes τ)."""
     tau = board_tau_ns(as_of_ns, resolution, spot_lag_cleared=spot_lag_cleared)
     return last_price_at_or_before(trade_ts_ns, trade_px, tau) / np.asarray(spot, dtype=np.float64)
+
+
+def accept_ratios(r: np.ndarray, outlier_bps: float, reaccept_n: int) -> tuple[np.ndarray, int, bool]:
+    """F1.2 for one map's boards of one session, in order: (accepted mask, rejected count, ratio_shift_day).
+
+    A NaN R (no futures price at τ) is neither accepted nor rejected. A new R is rejected if it is more than
+    outlier_bps from the median of the last RATIO_MEDIAN_N accepted values (the first finite R is always accepted).
+    If reaccept_n rejected updates in a row lie within outlier_bps of each other (relative to their own median),
+    the latest is accepted, the history resets to it and the day is flagged."""
+    thr = outlier_bps * 1e-4
+    r = np.asarray(r, dtype=np.float64)
+    accepted = np.zeros(len(r), dtype=bool)
+    hist: list[float] = []
+    run: list[float] = []
+    rejected, shifted = 0, False
+    for i, x in enumerate(r):
+        if not np.isfinite(x):
+            continue
+        if hist:
+            med = float(np.median(hist[-RATIO_MEDIAN_N:]))
+            if abs(x - med) / med > thr:
+                run.append(x)
+                last = run[-reaccept_n:]
+                if len(last) < reaccept_n or (max(last) - min(last)) / float(np.median(last)) > thr:
+                    rejected += 1
+                    continue
+                hist, run, shifted = [], [], True
+        accepted[i] = True
+        hist.append(x)
+        run = []
+    return accepted, rejected, shifted
+
+
+def open_skip_mask(as_of_ns: np.ndarray, map_name: str, open_ns: int, skip_sec: float) -> np.ndarray:
+    """Boards that may be applied: asOf >= 09:30:00 (F0.1), and for SPX/NDXP >= 09:30:00 + skip_sec (F1.3)."""
+    as_of_ns = np.asarray(as_of_ns, dtype=np.int64)
+    first = open_ns + (int(skip_sec * NS) if map_name in OPEN_SKIP_MAPS else 0)
+    return as_of_ns >= first
+
+
+def board_kings(board_idx: np.ndarray, values: np.ndarray, n_boards: int) -> np.ndarray:
+    """|value| of each board's King (F2.3: the largest |value| on the board; NaN for a board without strikes).
+    board_idx: each strike row's board number (0..n_boards-1)."""
+    king = np.full(n_boards, np.nan)
+    if len(values):
+        np.fmax.at(king, np.asarray(board_idx), np.abs(np.asarray(values, dtype=np.float64)))
+    return king
+
+
+def pct_of_king(board_idx: np.ndarray, values: np.ndarray, n_boards: int) -> np.ndarray:
+    """F2.3 pct_of_king for every strike row (|value| / |King value| of its own board)."""
+    king = board_kings(board_idx, values, n_boards)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.abs(np.asarray(values, dtype=np.float64)) / king[np.asarray(board_idx)]
+
+
+def prev_accepted(accepted: np.ndarray) -> np.ndarray:
+    """For each board, the index of the last accepted board before it (-1 if none): the R in force just before."""
+    idx = np.where(accepted, np.arange(len(accepted)), -1)
+    last = np.maximum.accumulate(np.concatenate([[-1], idx[:-1]])) if len(idx) else idx
+    return last
+
+
+def step_errors(r: np.ndarray, accepted: np.ndarray, applied: np.ndarray, board_idx: np.ndarray,
+                strikes: np.ndarray, relevant: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """F1.6: at each applied board with an R in force before it, |k*R_prev - k*R_cur| for each relevant node, where
+    R_cur is the board's own R if accepted, else (a rejected update, F1.2) the R in force, so its error is 0.
+    Returns (errors, their board numbers)."""
+    r = np.asarray(r, dtype=np.float64)
+    prev = prev_accepted(accepted)
+    r_prev = np.where(prev >= 0, r[np.clip(prev, 0, None)], np.nan) if len(r) else r
+    r_cur = np.where(accepted, r, r_prev)
+    b = np.asarray(board_idx)
+    ok = np.asarray(relevant, dtype=bool) & np.asarray(applied, dtype=bool)[b] & (prev[b] >= 0)
+    rows = b[ok]
+    err = np.abs(np.asarray(strikes, dtype=np.float64)[ok]) * np.abs(r_prev[rows] - r_cur[rows])
+    return err, rows
+
+
+def last_on_grid(ts_ns: np.ndarray, values: np.ndarray, grid_ns: np.ndarray) -> np.ndarray:
+    """The last value at or before each grid instant (NaN before the first). ts_ns sorted."""
+    return last_price_at_or_before(ts_ns, values, grid_ns)
+
+
+def spot_lag(spot_ts_ns: np.ndarray, spot: np.ndarray, fut_ts_ns: np.ndarray, fut_px: np.ndarray,
+             start_ns: int, end_ns: int, max_lag_s: int = SPOT_LAG_MAX_S) -> dict[str, float | int | None]:
+    """§12 step 8b: cross-correlate 1-second changes of the board `spot` with 1-second changes of the futures price
+    over lags -max_lag_s..+max_lag_s. A positive peak lag L means spot moves L seconds after the futures (spot lags);
+    0-1 s passes on 1-second boards."""
+    grid = np.arange(start_ns, end_ns + 1, NS, dtype=np.int64)
+    ds = np.diff(last_on_grid(spot_ts_ns, spot, grid))
+    df = np.diff(last_on_grid(fut_ts_ns, fut_px, grid))
+    best: tuple[float, int] | None = None
+    n = len(ds)
+    for lag in range(-max_lag_s, max_lag_s + 1):
+        a, b = (ds[lag:], df[:n - lag]) if lag >= 0 else (ds[:n + lag], df[-lag:])
+        ok = np.isfinite(a) & np.isfinite(b)
+        if ok.sum() < 3:
+            continue
+        a, b = a[ok], b[ok]
+        if a.std() == 0 or b.std() == 0:
+            continue
+        c = float(np.corrcoef(a, b)[0, 1])
+        if best is None or c > best[0]:
+            best = (c, lag)
+    return {"peak_lag_s": best[1] if best else None, "corr": round(best[0], 4) if best else None,
+            "seconds": n}
+
+
+def trailing_rv(fut_ts_ns: np.ndarray, fut_px: np.ndarray, at_ns: np.ndarray, start_ns: int, end_ns: int,
+                minutes: int = RV_WINDOW_MIN) -> np.ndarray:
+    """Realized vol (sqrt of summed squared 1-minute log returns) over the `minutes` whole minutes before each
+    instant, from the last trade of each minute (known-at-time: only minutes ended by the instant)."""
+    marks = np.arange(start_ns - minutes * 60 * NS, end_ns + 60 * NS, 60 * NS, dtype=np.int64)
+    closes = last_on_grid(fut_ts_ns, fut_px, marks)
+    lr = np.diff(np.log(closes))
+    sq = np.where(np.isfinite(lr), lr * lr, np.nan)
+    csum = np.concatenate([[0.0], np.cumsum(np.nan_to_num(sq))])
+    cnt = np.concatenate([[0], np.cumsum(np.isfinite(sq))])
+    k = np.searchsorted(marks, np.asarray(at_ns, dtype=np.int64), side="right") - 1  # last mark <= instant
+    lo = np.clip(k - minutes, 0, None)
+    total, have = csum[np.clip(k, 0, None)] - csum[lo], cnt[np.clip(k, 0, None)] - cnt[lo]
+    out = np.sqrt(total)
+    out[(k < minutes) | (have < minutes)] = np.nan
+    return out

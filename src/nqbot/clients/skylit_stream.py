@@ -107,6 +107,7 @@ class SkylitStream:
         sleep: Callable[[float], Any] = asyncio.sleep,
         rng: Callable[[], float] = random.random,
         max_failures: int | None = None,
+        max_reconnects: int | None = None,
     ):
         self.root_to_map = {v: k for k, v in symbols_map.items()}
         self.params = {"symbols": ",".join(symbols_map[m] for m in maps), "format": "v2", "metric": metric,
@@ -114,6 +115,7 @@ class SkylitStream:
         self.credits = credits or CreditTracker(None, log)
         self.log, self.clock_ns, self.sleep, self.rng = log, clock_ns, sleep, rng
         self.max_failures = max_failures
+        self.max_reconnects = max_reconnects  # every reconnect counts (each costs a new open, §3.1); None = no cap
         self.last_event_id: str | None = None
         self.last_activity_ns: int | None = None
         self.connection = -1
@@ -159,6 +161,8 @@ class SkylitStream:
         while True:
             headers = {"Last-Event-ID": self.last_event_id} if self.last_event_id else {}
             self.connection += 1
+            if self.max_reconnects is not None and self.connection > self.max_reconnects:
+                raise StreamStopped(f"stream reconnected {self.connection - 1} times: the cap is {self.max_reconnects}")
             self._reconnect_requested = False
             retry_after: str | None = None
             reconnect_now = False

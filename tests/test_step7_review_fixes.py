@@ -232,7 +232,8 @@ def test_darkpool_pull_covers_f4_lookback_on_a_monday(env):
     env.fake.routes["/v1/dark-pool/top-prints/SPY"] = lambda r: {"data": [], "meta": {}}
     monday = date(2026, 3, 16)
     step7.check_darkpool(env, monday, [], depth_probe=False)
-    pulled = sorted(r.url.params["date"] for r in env.fake.calls if r.url.path == "/v1/dark-pool/trades")
+    pulled = sorted(r.url.params["date"] for r in env.fake.calls if r.url.path == "/v1/dark-pool/trades"
+              and "date" in r.url.params)  # one-date calls (the 31-day comparison call is apart)
     f4_lower = (datetime(2026, 3, 13, 16, 0, tzinfo=ET) - timedelta(days=45)).date()  # Friday's cutoff - 45 days
     assert pulled[0] <= f4_lower.isoformat()
 
@@ -437,7 +438,7 @@ def test_cli_step7_refusals_and_lock(settings, drive, monkeypatch, capsys):
     lock_path(paths.root, DATABENTO).write_text(json.dumps({"host": "elsewhere", "pid": 1, "job": "databento_backfill"}))
     assert cli.main(["step7", "symbols"]) == 0  # the Databento backfill never blocks a step-7 check
     lock_path(paths.root, SKYLIT).write_text(json.dumps({"host": "elsewhere", "pid": 1, "job": "skylit_backfill"}))
-    assert cli.main(["step7", "symbols"]) == cli.EXIT_REFUSED  # another process holds the Skylit job lock
+    assert cli.main(["step7", "symbols"]) == cli.EXIT_LOCKED  # another process holds the Skylit job lock
     lock_path(paths.root, SKYLIT).unlink()
     assert cli.main(["step7", "symbols"]) == 0 and not lock_path(paths.root, SKYLIT).exists()
     assert cli.main(["step7", "report"]) == 0

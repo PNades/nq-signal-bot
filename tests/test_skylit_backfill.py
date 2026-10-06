@@ -657,3 +657,135 @@ def test_cli_skylit_plan_end_to_end(setup, monkeypatch, capsys):
     assert "--approve-credits" in capsys.readouterr().err and not bf.plan_path(s.paths).exists()
     assert cli.main(["skylit", "plan", "--approve-credits", "20000"]) == 0
     assert bf.plan_path(s.paths).exists()
+
+
+# --- 31-day dark-pool calls (presd_fixes 17, owner 2026-10-05) ------------------------------------------------
+
+def _range_report(s, matches=True, prints=2, dates=1):
+    step7.write_report(s.env, "darkpool", {"prints": prints, "dates_pulled": dates,
+                                           "range_check": {"matches": matches, "mismatches": []}})
+
+
+def _dp_calls(fake):
+    return [r.url.params for r in fake.calls if r.url.path == "/v1/dark-pool/trades"]
+
+
+def test_dp_range_groups_keep_the_edge_one_date_per_call():
+    edge = date(2025, 8, 20)
+    todo = [date(2025, 8, 18), date(2025, 8, 19), date(2025, 8, 20), date(2025, 8, 21), date(2025, 8, 22),
+            date(2025, 9, 19), date(2025, 9, 22), date(2025, 10, 31)]
+    groups = bf.dp_range_groups(todo, edge)
+    assert groups == [[date(2025, 8, 18)], [date(2025, 8, 19)], [date(2025, 8, 20)], [date(2025, 8, 21)],  # edge + 1 day
+                      [date(2025, 8, 22)], [date(2025, 9, 19), date(2025, 9, 22)], [date(2025, 10, 31)]]  # gaps split
+    run = [date(2025, 9, 1) + timedelta(days=i) for i in range(40) if (date(2025, 9, 1) + timedelta(days=i)).weekday() < 5]
+    assert [len(g) for g in bf.dp_range_groups(run, edge)] == [23, 7]  # 9/1..10/1 (31 days), then 10/2..10/10
+    assert all(g[-1] - g[0] <= timedelta(days=30) for g in groups)
+
+
+def test_backfill_uses_31_day_calls_once_step7_matched(setup):
+    s = setup
+    s.clock.t = datetime(2026, 1, 15, 10, 0, tzinfo=ET)  # the whole dark-pool span is well inside the reach
+    _range_report(s)
+    plan = _plan(s, approved=20_000)
+    assert plan.dp_range
+    est_dp = next(line for line in bf.estimate(s.env, plan, s.clock.t).lines if "dark-pool" in line[0])
+    assert "31-day" in est_dp[0] and est_dp[1] == 3  # 8/18..9/17, 9/18..10/17, 10/20..10/31: 1 page each
+    assert s.run().status == "complete"
+    calls = _dp_calls(s.fake)
+    assert all("date_start" in q for q in calls) and len(calls) == 3
+    assert [(q["date_start"], q["date_end"]) for q in calls][0] == ("2025-08-18", "2025-09-17")
+    for d in plan.dp_dates:  # every date cached per date, same parameters as a one-date call
+        assert bf.read_meta(s.store.dp_trades_path(d))["params"] == step7._dp_params(s.env, d)
+    assert len(step7.read_prints([s.store.dp_trades_path(date(2025, 9, 2))])) == 2
+    n = len(s.fake.calls)
+    assert s.run().status == "complete" and len(s.fake.calls) - n <= 2  # nothing pulled twice
+
+
+def test_backfill_stays_one_date_per_call_without_the_step7_match(setup):
+    s = setup
+    s.clock.t = datetime(2026, 1, 15, 10, 0, tzinfo=ET)
+    _range_report(s, matches=False)
+    plan = _plan(s, approved=20_000)
+    assert not plan.dp_range
+    assert s.run().status == "complete"
+    assert all("date" in q and "date_start" not in q for q in _dp_calls(s.fake))
+
+
+def test_an_empty_trading_day_in_a_range_is_not_asked_again(setup):
+    s = setup
+    s.clock.t = datetime(2026, 1, 15, 10, 0, tzinfo=ET)
+    gap = date(2025, 9, 3)
+    s.fake.dp_prints = [p for p in s.fake.dp_prints if not p["timestamp"].startswith(gap.isoformat())]
+    _range_report(s)
+    _plan(s, approved=20_000)
+    assert s.run().status == "complete"
+    assert not s.store.dp_trades_path(gap).exists()  # no coverage: never cached as a permanent empty day
+    assert _day_record(s, gap.isoformat())["dp"] == {"status": "no_coverage", "prints": 0, "via_range": True}
+    assert len(_dp_calls(s.fake)) == 3  # the gap's own chunk didn't start another range call
+
+
+def test_range_groups_never_span_a_date_already_paid_for():
+    edge = date(2025, 1, 1)
+    todo = [date(2025, 9, 1), date(2025, 9, 2), date(2025, 9, 4), date(2025, 9, 5)]  # 9/3 cached
+    assert bf.dp_range_groups(todo, edge) == [[date(2025, 9, 1), date(2025, 9, 2)], [date(2025, 9, 4), date(2025, 9, 5)]]
+    fri_mon = [date(2025, 9, 5), date(2025, 9, 8)]  # a weekend in between is fine
+    assert bf.dp_range_groups(fri_mon, edge) == [fri_mon]
+
+
+def test_range_no_data_404_settles_the_dates(setup):
+    s = setup
+    s.clock.t = datetime(2026, 1, 15, 10, 0, tzinfo=ET)
+    s.fake.dp_prints = []
+    _range_report(s)
+    plan = _plan(s, approved=20_000)
+    s.fake.queue["/v1/dark-pool/trades"] = [(404, {"error": {"code": "no_data", "message": "none"}}, {})] * 3
+    assert s.run().status == "complete"
+    rec = _day_record(s, plan.dp_dates[0].isoformat())["dp"]
+    assert rec["status"] == "no_coverage" and rec["via_range"]
+    n = len(_dp_calls(s.fake))
+    assert s.run().status == "complete" and len(_dp_calls(s.fake)) == n  # never asked again
+
+
+def test_a_range_answer_is_kept_before_it_is_split(setup):
+    """A range answer that can't be split (a print outside its dates) is kept: re-runs never pay for it again."""
+    s = setup
+    s.clock.t = datetime(2026, 1, 15, 10, 0, tzinfo=ET)
+    _range_report(s)
+    _plan(s, approved=20_000)
+    stray = _dp_print(date(2025, 12, 1))
+    real = s.fake._dp_page
+    s.fake._dp_page = lambda q: {**real(q), "data": real(q)["data"] + ([stray] if "date_start" in q else [])}
+    with pytest.raises(SkylitError, match="range_date"):
+        s.run()
+    n = len(_dp_calls(s.fake))
+    with pytest.raises(SkylitError, match="range_date"):
+        s.run()
+    assert len(_dp_calls(s.fake)) == n
+    assert list((s.store.root / "darkpool" / "range").glob("*.parquet"))
+
+
+def test_a_crash_before_the_range_record_never_pays_again(setup, monkeypatch):
+    """Fresh review #1: the per-date files are written, then the process dies before the dp_range record: the empty
+    trading day in that range is settled again from the kept answer, never by a new call (rule 2)."""
+    s = setup
+    s.clock.t = datetime(2026, 1, 15, 10, 0, tzinfo=ET)
+    gap = date(2025, 9, 3)
+    s.fake.dp_prints = [p for p in s.fake.dp_prints if not p["timestamp"].startswith(gap.isoformat())]
+    _range_report(s)
+    _plan(s, approved=20_000)
+    real, failed = bf.atomic_write_json, []
+
+    def crash_once(path, obj):
+        if "dp_range" in str(path) and not failed:
+            failed.append(path)
+            raise OSError("unplugged")
+        real(path, obj)
+
+    monkeypatch.setattr(bf, "atomic_write_json", crash_once)
+    with pytest.raises(OSError):
+        s.run()
+    n = len(_dp_calls(s.fake))
+    assert s.run().status == "complete"
+    later = _dp_calls(s.fake)[n:]
+    assert all(q["date_start"] > "2025-09-17" for q in later)  # 8/18..9/17 (gap included) never asked again
+    assert _day_record(s, gap.isoformat())["dp"]["status"] == "no_coverage"

@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import io
 import json
-import os
 from dataclasses import asdict
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -32,7 +31,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from nqbot.clients.skylit import CallRecord
-from nqbot.storage import Paths, append_jsonl, atomic_write_bytes, read_jsonl
+from nqbot.storage import Paths, append_jsonl, atomic_write_bytes, read_jsonl, replace_retry
 
 META_KEY = b"nqbot"
 COMPRESSION = "zstd"  # §11 Storage
@@ -283,7 +282,7 @@ class SkylitStore:
             if path.exists():
                 dest = self.base("partial_write", pulled=stamp) / "orphans" / day.isoformat() / path.name
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(path, dest)
+                replace_retry(path, dest)
                 return dest
         return None
 

@@ -40,7 +40,7 @@ from nqbot.clients.databento_client import MBP1, OHLCV_1S, TRADES, DatabentoClie
 from nqbot.clients.databento_contracts import (CONTINUOUS, Roll, cme_day_span, front_by_day, micro_symbol,
                                                roll_days, roll_spread)
 from nqbot.clients.databento_store import DatabentoStore, read_records
-from nqbot.clients.skylit_pull import SKYLIT_HISTORY, day_reachable
+from nqbot.clients.skylit_pull import SKYLIT_HISTORY, day_reachable, sample_days
 from nqbot.features.bars import BAR_MINUTES, PRICE_SCALE, bars_from_records, write_bars
 from nqbot.jobs.lock import DATABENTO
 from nqbot.jobs.runner import Ctx, StopChunk
@@ -425,10 +425,13 @@ class DatabentoPullJob:
             if (day, "incl") not in parts and needs_outputs(store, plan, day):
                 parts[(day, "incl")] = []
         order = {"payg": 0, "incl": 1}
-        # A paid chunk's id also carries the plan: after a --retry-failed-payg re-plan the same missing requests
-        # form a new chunk (a finished one held only requests that broke, and stays "done" otherwise).
+        # The step-7 sample days first, so the step-8b gate can run after the first night (presd_fixes 12); then
+        # oldest day first. A paid chunk's id also carries the plan: after a --retry-failed-payg re-plan the same
+        # missing requests form a new chunk (a finished one held only requests that broke, and stays "done" otherwise).
+        samples = sample_days(ctx.paths)
         return [f"{day.isoformat()}:{part}:{_fingerprint(keys + ([plan['created']] if part == 'payg' else []))}"
-                for (day, part), keys in sorted(parts.items(), key=lambda kv: (kv[0][0], order[kv[0][1]]))]
+                for (day, part), keys in sorted(parts.items(),
+                                                key=lambda kv: (kv[0][0] not in samples, kv[0][0], order[kv[0][1]]))]
 
     def run_chunk(self, chunk_id: str, ctx: Ctx) -> None:
         plan = self._plan(ctx)

@@ -111,7 +111,8 @@ def free_gb(path: Path) -> float:
     return shutil.disk_usage(path).free / GB
 
 
-def _replace(src: str, dst: Path) -> None:
+def replace_retry(src: str | Path, dst: str | Path) -> None:
+    """os.replace that waits out a short-lived lock (an antivirus scan, a reader) on Windows (presd_fixes 17)."""
     for attempt in range(REPLACE_RETRIES):
         try:
             os.replace(src, dst)
@@ -134,7 +135,7 @@ def atomic_path(path: Path) -> Iterator[Path]:
         yield tmp
         with open(tmp, "rb+") as f:
             os.fsync(f.fileno())
-        _replace(str(tmp), path)
+        replace_retry(tmp, path)
     except BaseException as e:
         # A writer that failed mid-write may still hold the temp file open through its frame in the traceback,
         # and Windows refuses to delete an open file: drop those frames' locals (closing it) before removing.

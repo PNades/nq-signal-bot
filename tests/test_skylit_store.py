@@ -258,3 +258,41 @@ def test_vol_history_table():
     t = vol_history_to_table(body).to_pylist()
     assert t[1] == {"symbol": "QQQ", "date": date(2026, 3, 3), "close": 601.5, "svx30": None}
     assert t[2]["close"] is None and t[2]["svx30"] == 15.0
+
+
+def test_quarantine_waits_out_an_antivirus_lock(paths, monkeypatch):
+    """presd_fixes 17: moving the orphan aside retries while Windows reports the file busy."""
+    from nqbot import storage
+
+    store = SkylitStore(paths)
+    day = date(2026, 3, 5)
+    strikes = store.range_paths(day, "0930")[1]
+    strikes.parent.mkdir(parents=True, exist_ok=True)
+    strikes.write_bytes(b"orphan")
+    real, calls = storage.os.replace, []
+
+    def busy(src, dst):
+        calls.append(1)
+        if len(calls) < 3:
+            raise PermissionError(13, "Access is denied")
+        real(src, dst)
+
+    monkeypatch.setattr(storage.os, "replace", busy)
+    monkeypatch.setattr(storage, "REPLACE_RETRY_SEC", 0)
+    dest = store.quarantine_partial(day, "0930")
+    assert dest is not None and dest.read_bytes() == b"orphan" and not strikes.exists() and len(calls) == 3
+
+
+def test_job_stops_cleanly_on_402(paths, settings, log, clock, monkeypatch):
+    """presd_fixes 17: a 402 mid-pull is a clean "credits" stop, not a traceback; the day re-runs after a top-up."""
+    import nqbot.clients.skylit_pull as sp
+
+    monkeypatch.setattr(sp.cal_mod, "is_trading_day", lambda d, cal=None: d.weekday() < 5)
+    monkeypatch.setattr(sp.cal_mod, "early_close_et", lambda d, cal=None: None)
+    fake = FakeSkylit()
+    fake.queue["/v1/historical/range"] = [(402, {"error": {"code": "insufficient_credits", "message": "top up"}}, None)]
+    job = SkylitPullJob("skylit_sample_days", client_factory=lambda s, store, lg: make_client(fake))
+    SkylitPullJob.write_plan(paths, "skylit_sample_days", [date(2026, 3, 2)], approved=None)
+    result = run_job(job, settings, paths, until=clock.now() + timedelta(hours=8), log=log, now=clock.now,
+                     sleep=clock.sleep, is_trading_day=lambda d: d.weekday() < 5)
+    assert result.status == "credits" and result.done == 0 and "top up" in result.message

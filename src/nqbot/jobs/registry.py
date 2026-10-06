@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+from nqbot.backup import SkylitBackupJob
 from nqbot.clients.databento_pull import DatabentoPullJob
 from nqbot.clients.skylit_backfill import SkylitBackfillJob
 from nqbot.clients.skylit_pull import SkylitPullJob
@@ -15,6 +16,7 @@ JOBS: dict[str, Callable[[], Job]] = {
     "skylit_sample_days": lambda: SkylitPullJob("skylit_sample_days"),  # step 7 (started by nqbot step7 sample-days)
     "skylit_backfill": SkylitBackfillJob,  # step 10 (plan first: nqbot skylit plan)
     "databento_backfill": DatabentoPullJob,  # step 8 (plan first: nqbot databento plan)
+    "skylit_backup": SkylitBackupJob,  # §11 Storage: Skylit history to Google Drive (also: nqbot backup)
 }
 
 

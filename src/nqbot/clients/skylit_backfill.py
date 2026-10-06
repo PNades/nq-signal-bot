@@ -7,7 +7,9 @@ oldest day first, one date per chunk:
 - the Skylit RTH windows of every weekday of the ledger window up to yesterday (holiday probe, early closes to
   early_close_et plus a probe window: skylit_pull.session_windows). A window is pulled only while it is still
   inside Skylit's 365-day reach, checked just before its call; one that isn't is recorded as lost;
-- that date's QQQ/SPY dark-pool prints, one date per call (the window plus dp_lookback_days before month 1);
+- that date's QQQ/SPY dark-pool prints (the window plus dp_lookback_days before month 1): 31-day range calls when
+  the step-7 darkpool check showed they return the same prints as one-date calls (owner 2026-10-05), else one
+  date per call; dates near the 365-day edge always one date per call;
   a refused (out-of-reach) or empty trading date is recorded, never cached as an empty day;
 - last, one Tempest /v1/vol/history call (QQQ, SPY, plus NDXP/SPXW/VIX if served) from warmup_sessions + 2
   sessions before month 1.
@@ -25,7 +27,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -36,14 +37,14 @@ import pyarrow.parquet as pq
 from nqbot import months as months_mod
 from nqbot.checks import step7
 from nqbot.clients import skylit_credits as credits
-from nqbot.clients.skylit import OutOfCredits, SkylitError, vol_history_cost
+from nqbot.clients.skylit import DP_PAGE_LIMIT, DP_RANGE_MAX_DAYS, OutOfCredits, SkylitError, vol_history_cost
 from nqbot.clients.skylit_pull import (ET, REACH_ANSWER_TOLERANCE, SKYLIT_HISTORY, Window, full_day_windows,
-                                       make_client, pull_session, range_params_from_settings, session_windows,
-                                       window_reachable)
+                                       make_client, pull_session, range_params_from_settings, sample_days,
+                                       session_windows, window_reachable)
 from nqbot.clients.skylit_store import CacheMismatch, SkylitStore, _norm, read_meta, vol_history_to_table, write_parquet
 from nqbot.jobs.lock import SKYLIT
 from nqbot.jobs.runner import Ctx, StopChunk
-from nqbot.storage import Paths, append_jsonl, atomic_write_bytes, atomic_write_json, atomic_write_text
+from nqbot.storage import Paths, append_jsonl, atomic_write_bytes, atomic_write_json, atomic_write_text, replace_retry
 
 JOB_NAME = "skylit_backfill"
 TEMPEST_CHUNK = "tempest"  # last: a Tempest problem never holds up the time-critical days
@@ -58,6 +59,9 @@ TRANSIENT_CODES = frozenset({"gave_up"})
 # §3.1 Backfill: pages reserved before a dark-pool date starts: twice the most pages any date has needed, so a stop mid-date
 # (which would throw paid pages away) needs a date with more than twice the largest seen.
 DP_PAGE_RESERVE_FACTOR = 2
+# §3.1 Dark pools: a range call starts only on a date at least this far inside the reach (an out-of-reach answer to a
+# range call couldn't be told apart per date; the dates at the edge go one per call, which can).
+DP_RANGE_REACH_MARGIN = timedelta(days=1)
 NOMINAL = {"/v1/historical/range": credits.RANGE_CALL, "/v1/dark-pool/trades": credits.DP_TRADES_PAGE,
            "/v1/historical": credits.HISTORICAL_CALL}
 
@@ -81,6 +85,7 @@ class BackfillPlan:
     created: str = ""
     approved_credits: int | None = None
     estimate_total: int = 0
+    dp_range: bool = False  # dark pools by 31-day calls (the step-7 range check matched when planned)
 
     @property
     def plan_id(self) -> str:
@@ -93,7 +98,7 @@ class BackfillPlan:
                 "lost_days": iso(self.lost_days), "dp_dates": iso(self.dp_dates),
                 "tempest": {"from": self.tempest_from.isoformat(), "to": self.last.isoformat(),
                             "symbols": self.tempest_symbols},
-                "estimate_total": self.estimate_total}
+                "estimate_total": self.estimate_total, "dp_range": self.dp_range}
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> BackfillPlan:
@@ -102,7 +107,7 @@ class BackfillPlan:
                    days=ds(d["days"]), lost_days=ds(d["lost_days"]), dp_dates=ds(d["dp_dates"]),
                    tempest_from=date.fromisoformat(d["tempest"]["from"]), tempest_symbols=list(d["tempest"]["symbols"]),
                    max_strikes=d["max_strikes"], created=d["created"], approved_credits=d["approved_credits"],
-                   estimate_total=d.get("estimate_total", 0))
+                   estimate_total=d.get("estimate_total", 0), dp_range=d.get("dp_range", False))
 
 
 def tempest_symbols(through: dict[str, Any] | None) -> list[str]:
@@ -129,7 +134,7 @@ def plan_backfill(env: step7.Env, now: datetime, symbols: list[str]) -> Backfill
     dp_dates = step7._weekdays(step7._f4_lower(env, first), last)
     return BackfillPlan(first=first, last=last, days=reachable, lost_days=lost, dp_dates=dp_dates,
                         tempest_from=step7._tempest_start(env), tempest_symbols=symbols,
-                        max_strikes=env.settings["skylit_max_strikes"])
+                        max_strikes=env.settings["skylit_max_strikes"], dp_range=step7.dp_range_ok(env.paths))
 
 
 def _day_reachable(day: date, now: datetime, margin: float, cal: dict[str, Any] | None) -> bool:
@@ -194,14 +199,6 @@ def max_pages_stored(store: SkylitStore) -> int:
     return max([1, *pages])
 
 
-def sample_days(paths: Paths) -> set[date]:
-    """The step-7 sample days (nqbot step7 sample-days wrote their plan)."""
-    path = paths.data_dir / "jobs" / "skylit_sample_days" / "dates.json"
-    if not path.exists():
-        return set()
-    return {date.fromisoformat(d) for d in json.loads(path.read_text(encoding="utf-8"))["dates"]}
-
-
 def _raise_copy_ok(env: step7.Env, day: date, hhmm: str, w: Window, base: Path) -> bool:
     try:
         return env.store.range_cached(day, hhmm, range_params_from_settings(env.settings, w), base)
@@ -257,13 +254,76 @@ def tempest_todo(store: SkylitStore, plan: BackfillPlan) -> tuple[date, date] | 
     return (start, plan.last) if start <= plan.last else None
 
 
-def estimate(env: step7.Env, plan: BackfillPlan, now: datetime) -> credits.Estimate:
+def dp_reach_edge(now: datetime) -> date:
+    """The last ET date a refusal may mean "out of reach" (§3.1: 365 days back, with the answer tolerance)."""
+    return (now.astimezone(timezone.utc) - SKYLIT_HISTORY + REACH_ANSWER_TOLERANCE).astimezone(ET).date()
+
+
+def dp_range_covered(paths: Paths) -> dict[date, str]:
+    """Dates a range call already settled (incl. empty trading days, which aren't cached): never asked again."""
+    folder = job_dir(paths) / "dp_range"
+    out: dict[date, str] = {}
+    for f in sorted(folder.glob("*.json")) if folder.exists() else []:
+        out.update({date.fromisoformat(d): st for d, st in json.loads(f.read_text(encoding="utf-8"))["dates"].items()})
+    return out
+
+
+def kept_range_covering(env: step7.Env, d: date) -> tuple[date, date] | None:
+    """A range answer already kept in darkpool/range/ whose dates include d (paid for; reusing it is free)."""
+    folder = env.store.root / "darkpool" / "range"
+    for f in sorted(folder.glob("*.parquet")) if folder.exists() else []:
+        start, end = (date.fromisoformat(x) for x in f.stem.split("_"))
+        if start <= d <= end:
+            return start, end
+    return None
+
+
+def dp_todo(env: step7.Env, plan: BackfillPlan) -> list[date]:
+    """Dark-pool dates still to ask for: not cached, not settled by a chunk, a range call or the step-7 probe."""
     _, dp_done = settled(env.paths)
-    dp_todo = [d for d in plan.dp_dates if not env.store.dp_trades_path(d).exists() and d not in dp_done
-               and not (env.store.root / "darkpool" / "probe" / f"{d.isoformat()}.json").exists()]
+    covered = dp_range_covered(env.paths)
+    return [d for d in plan.dp_dates if not env.store.dp_trades_path(d).exists() and d not in dp_done
+            and d not in covered and not (env.store.root / "darkpool" / "probe" / f"{d.isoformat()}.json").exists()]
+
+
+def dp_range_groups(todo: list[date], edge: date) -> list[list[date]]:
+    """The calls the job makes, oldest first: one date per call up to the reach edge (+ margin), then runs of
+    consecutive to-do weekdays spanning at most 31 calendar days (§3.1). A run ends at any weekday not to do (cached,
+    settled or probed), so a range never pays for a date already paid for (rule 2)."""
+    todo_set = set(todo)
+    groups: list[list[date]] = []
+    inside = edge + DP_RANGE_REACH_MARGIN
+    for d in sorted(todo):
+        g = groups[-1] if groups else None
+        if g and d > inside and g[0] > inside and d <= g[0] + timedelta(days=DP_RANGE_MAX_DAYS - 1) \
+                and all(x in todo_set for x in step7._weekdays(g[-1], d)):
+            g.append(d)
+        else:
+            groups.append([d])
+    return groups
+
+
+def dp_group_pages(env: step7.Env, group: list[date], per_date: float, ppd: float | None, edge: date) -> float:
+    """Pages one call of the group needs (the plan's estimate and the job's reserve use the same number)."""
+    if (len(group) == 1 and group[0] <= edge + DP_RANGE_REACH_MARGIN) or ppd is None:
+        return per_date * len(group)
+    return max(1, math.ceil(ppd * sum(env.trading_day(d) for d in group) / DP_PAGE_LIMIT))
+
+
+def dp_pages_estimate(env: step7.Env, plan: BackfillPlan, todo: list[date], now: datetime) -> int:
+    per_date = step7._pages_per_date(env)
+    ppd = step7.dp_prints_per_date(env.paths)
+    if not plan.dp_range or ppd is None:
+        return int(math.ceil(len(todo) * per_date))
+    edge = dp_reach_edge(now)
+    return int(math.ceil(sum(dp_group_pages(env, g, per_date, ppd, edge) for g in dp_range_groups(todo, edge))))
+
+
+def estimate(env: step7.Env, plan: BackfillPlan, now: datetime) -> credits.Estimate:
+    todo_dp = dp_todo(env, plan)
     est = (credits.range_estimate(f"step-10 backfill {plan.first}..{plan.last}", windows_todo(env, plan, now))
-           .add("/v1/dark-pool/trades pages", int(math.ceil(len(dp_todo) * step7._pages_per_date(env))),
-                credits.DP_TRADES_PAGE))
+           .add("/v1/dark-pool/trades pages" + (" (31-day calls)" if plan.dp_range else " (one date per call)"),
+                dp_pages_estimate(env, plan, todo_dp, now), credits.DP_TRADES_PAGE))
     todo = tempest_todo(env.store, plan)
     if todo:
         est.add_total(f"/v1/vol/history {todo[0]}..{todo[1]} ({', '.join(plan.tempest_symbols)})", 1,
@@ -469,7 +529,7 @@ class SkylitBackfillJob:
                     if d in set(plan.days):
                         rec["skylit"] = self._skylit_day(env, plan, d, ctx)
                     if d in set(plan.dp_dates):
-                        rec["dp"] = self._dp_date(env, d)
+                        rec["dp"] = self._dp_date(env, d, plan, ctx)
                     atomic_write_json(ctx.out_dir / "days" / f"{chunk_id}.json", rec)
         except OutOfCredits as e:
             raise StopChunk(f"Skylit answered 402 out of credits ({e.message}): top up, then re-run nqbot run "
@@ -493,8 +553,8 @@ class SkylitBackfillJob:
         return {"windows": len(session_windows(d, env.cal)), "pulled": res.pulled, "cached": res.cached,
                 "empty": res.empty, "lost": res.lost, "reuse": reuse, "resolutions": stored_resolutions(env.store, d)}
 
-    # one dark-pool date
-    def _dp_date(self, env: step7.Env, d: date) -> dict[str, Any]:
+    # one dark-pool date (or, in range mode, the 31-day call that starts at it)
+    def _dp_date(self, env: step7.Env, d: date, plan: BackfillPlan, ctx: Ctx) -> dict[str, Any]:
         path = env.store.dp_trades_path(d)
         if path.exists():
             step7.pull_dp_date(env, d)  # parameter check only (cached)
@@ -502,7 +562,17 @@ class SkylitBackfillJob:
         probe = env.store.root / "darkpool" / "probe" / f"{d.isoformat()}.json"
         if probe.exists():  # step 7 already paid for this answer: not asked again (rule 2)
             return {"status": json.loads(probe.read_text(encoding="utf-8"))["status"], "prints": 0, "from_probe": True}
+        covered = dp_range_covered(env.paths)
+        if d in covered:  # an earlier range call answered for it (an empty trading day isn't cached)
+            return {"status": covered[d], "prints": 0, "via_range": True}
+        kept = kept_range_covering(env, d)
+        if kept is not None:  # an answer already paid for (a crash before its record was written): split it again
+            return self._settle_range(env, d, kept[0], kept[1], [x for x in dp_todo(env, plan) if kept[0] <= x <= kept[1]]
+                                      or [d], ctx)
         budget = self._budget
+        edge = dp_reach_edge(env.now())
+        if plan.dp_range and d > edge + DP_RANGE_REACH_MARGIN:
+            return self._dp_range(env, d, plan, ctx, edge)
         budget.require(credits.DP_TRADES_PAGE * DP_PAGE_RESERVE_FACTOR * self._max_pages,
                        f"dark pools {d}")  # don't start a date it can't end
         try:
@@ -511,7 +581,6 @@ class SkylitBackfillJob:
         except OutOfCredits:
             raise
         except SkylitError as e:
-            edge = (env.now().astimezone(timezone.utc) - SKYLIT_HISTORY + REACH_ANSWER_TOLERANCE).astimezone(ET).date()
             if not step7.dp_out_of_reach(e) or d > edge:
                 raise  # a refusal for a date well inside the reach is a real error, not "out of reach"
             env.log.warning("dark pools %s: answered %s %s: out of reach (not cached)", d, e.status, e.code)
@@ -522,6 +591,31 @@ class SkylitBackfillJob:
         self._max_pages = max(self._max_pages, int(meta.get("pages") or 1))
         n = pq.ParquetFile(got).metadata.num_rows
         return {"status": "pulled" if env.trading_day(d) else "not_a_session", "prints": n, "pages": meta.get("pages")}
+
+    def _dp_range(self, env: step7.Env, d: date, plan: BackfillPlan, ctx: Ctx, edge: date) -> dict[str, Any]:
+        group = dp_range_groups([x for x in dp_todo(env, plan) if x >= d], edge)[0]
+        assert group[0] == d, (group, d)
+        budget = self._budget
+        need = dp_group_pages(env, group, step7._pages_per_date(env), step7.dp_prints_per_date(env.paths), edge)
+        budget.require(int(credits.DP_TRADES_PAGE * DP_PAGE_RESERVE_FACTOR * max(need, self._max_pages)),
+                       f"dark pools {d}..{group[-1]}")  # don't start a range it can't end (pages paid stay lost)
+        step7.pull_dp_range_raw(env, d, group[-1],
+                                before_page=lambda: budget.take(credits.DP_TRADES_PAGE, f"dark-pool page {d}.."))
+        return self._settle_range(env, d, d, group[-1], group, ctx)
+
+    def _settle_range(self, env: step7.Env, d: date, start: date, end: date, dates: list[date],
+                      ctx: Ctx) -> dict[str, Any]:
+        """Split a kept range answer into its per-date files and record every date it settled (free)."""
+        got = step7.pull_dp_range(env, start, end, dates)
+        statuses = {x: ("no_coverage" if p is None else "pulled" if env.trading_day(x) else "not_a_session")
+                    for x, p in got.items()}
+        atomic_write_json(ctx.out_dir / "dp_range" / f"{start.isoformat()}_{end.isoformat()}.json",
+                          {"start": start.isoformat(), "end": end.isoformat(),
+                           "dates": {x.isoformat(): st for x, st in statuses.items()}})
+        pages = int(read_meta(step7.dp_range_path(env, start, end)).get("pages") or 1)
+        mine = env.store.dp_trades_path(d)
+        return {"status": statuses.get(d, "cached"), "prints": pq.ParquetFile(mine).metadata.num_rows if mine.exists() else 0,
+                "via_range": [start.isoformat(), end.isoformat()], "pages": pages}
 
     # Tempest, once
     def _tempest(self, env: step7.Env, plan: BackfillPlan) -> dict[str, Any]:
@@ -568,7 +662,7 @@ def replace_raised_sample_day(env: step7.Env, d: date) -> dict[str, Any]:
             if dst.exists():
                 raise BackfillRefused(f"{dst} already exists: won't overwrite a moved-aside window")
             dst.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(src, dst)
+            replace_retry(src, dst)
         moved.append(hhmm)
     for hhmm in sorted(set(moved) | set_aside):  # also windows moved by an earlier run that crashed before copying
         b_dst, s_dst = env.store.range_paths(d, hhmm)

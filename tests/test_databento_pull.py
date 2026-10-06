@@ -530,3 +530,18 @@ def test_plan_refused_when_most_included_requests_are_priced(paths, dec_settings
     with pytest.raises(PlanRefused, match="get_cost priced"):
         plan_with(fake, paths, dec_settings, approved=10**6)
     assert not plan_path(paths).exists()
+
+
+def test_step7_sample_days_are_pulled_first(paths, dec_settings, clock, log):
+    """presd_fixes 12: the sample days (and only they) jump the queue, so step 8b can run after night 1."""
+    from nqbot.clients.skylit_pull import SkylitPullJob
+
+    samples = [date(2025, 12, 18), date(2025, 12, 10)]
+    SkylitPullJob.write_plan(paths, "skylit_sample_days", samples, approved=None)
+    fake = FakeHistorical()
+    plan_with(fake, paths, dec_settings)
+    result = run(job_for(fake), dec_settings, paths, clock, log)
+    assert result.status == "complete"
+    days = [date.fromisoformat(c.split(":")[0]) for c in result.ran]
+    assert days[:2] == sorted(samples) and days[2:] == sorted(days[2:])  # then oldest first, as before
+    assert all(c[3][:10] in ("2025-12-09", "2025-12-10") for c in fake.downloads()[:2])  # CME day 12-10 first

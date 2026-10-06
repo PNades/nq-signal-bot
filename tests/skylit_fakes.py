@@ -76,6 +76,12 @@ class FakeSkylit:
         self.queue: dict[str, list[tuple[int, Any, dict[str, str]]]] = {}
         self.routes: dict[str, Callable[[httpx.Request], Any]] = {}
         self.dp_prints: list[dict[str, Any]] = []
+        self.dp_range_drops = 0  # > 0: a date_start/date_end call loses that many prints (the step-7 comparison)
+
+    @staticmethod
+    def dp_trade_date(p: dict[str, Any]) -> str:
+        """A print's ET trade date (what `date` / `date_start`..`date_end` filter on)."""
+        return parse_z(p["timestamp"]).astimezone(ZoneInfo("America/New_York")).date().isoformat()
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handler)
@@ -108,6 +114,10 @@ class FakeSkylit:
         if path == "/v1/historical/range":
             roots = q["symbols"].split(",")
             return self._reply(200, range_body(roots, parse_z(q["from"]), parse_z(q["to"]), self.step_sec), path=path)
+        if path == "/v1/dark-pool/trades" and self.dp_range_drops and "date_start" in q:  # a range that loses prints
+            page = self._dp_page(q)
+            page["data"] = page["data"][self.dp_range_drops:]
+            return self._reply(200, page, path=path)
         if path == "/v1/dark-pool/trades":
             return self._reply(200, self._dp_page(q), path=path)
         if path.startswith("/v1/dark-pool/top-prints/"):
@@ -115,8 +125,8 @@ class FakeSkylit:
         return httpx.Response(404, json={"error": {"code": "not_found", "message": path}})
 
     def _dp_page(self, q: httpx.QueryParams) -> dict[str, Any]:
-        day = q["date"]
-        rows = [p for p in self.dp_prints if p["timestamp"][:10] == day and p["ticker"] in q["tickers"].split(",")]
+        lo, hi = (q["date"], q["date"]) if "date" in q else (q["date_start"], q["date_end"])
+        rows = [p for p in self.dp_prints if lo <= self.dp_trade_date(p) <= hi and p["ticker"] in q["tickers"].split(",")]
         rows.sort(key=lambda p: p["timestamp"])
         limit = int(q.get("limit", 500))
         start = int(q.get("cursor") or 0)

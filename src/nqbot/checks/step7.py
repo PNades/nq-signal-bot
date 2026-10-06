@@ -21,19 +21,20 @@ from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from nqbot import calendar as cal_mod
 from nqbot import months as months_mod
 from nqbot.checks import step7_analysis as an
 from nqbot.clients import skylit_credits as credits
-from nqbot.clients.skylit import SkylitClient, SkylitError
+from nqbot.clients.skylit import DP_RANGE_MAX_DAYS, OutOfCredits, SkylitClient, SkylitError
 from nqbot.clients.skylit_pull import MAPS, SessionResult, SkylitPullJob, Window, pull_window
 from nqbot.clients.skylit_store import (
     SkylitStore, cached_or_mismatch, historical_to_table, prints_to_table, read_meta, stream_snapshots_to_tables,
     top_prints_to_table, vol_history_to_table, write_parquet,
 )
-from nqbot.clients.skylit_stream import SkylitStream
+from nqbot.clients.skylit_stream import SkylitStream, StreamStopped
 from nqbot.features import darkpool as dp
 from nqbot.storage import Paths, atomic_write_json, atomic_write_text
 from nqbot.warmup import warmup_sessions
@@ -46,6 +47,8 @@ INSTANTS = 40  # §12 step 7: 40 /v1/historical instants over development months
 INSTANT_SEED = 7  # fixed, so the 40 instants are reproducible
 STREAM_MINUTES = 15  # §12 step 7: record 15 minutes of the stream
 STREAM_RECONNECT_AT = 0.5  # force the one Last-Event-ID reconnect halfway through
+STREAM_MAX_RECONNECTS = 3  # the forced one plus two spare; each costs 4 opens + 4 minutes (presd_fixes 15)
+STREAM_GRACE_SEC = 60  # hard wall-clock end: minutes + this, even if no event ever arrives (presd_fixes 15)
 LATE_PRINT_MORNINGS = 5  # §12 step 7: >= 5 mornings
 LATE_PRINT_WAIT_SESSIONS = 5  # re-pulled >= 5 trading days later; also how long a date's prints count as provisional
 TEMPEST_MIN_MORNINGS = 2  # §12 step 7: record the first appearance on two or more mornings
@@ -302,45 +305,70 @@ def check_historical_instants(env: Env, approved: int | None = None) -> dict[str
 
 # --- stream recording ---------------------------------------------------------------------------------
 
-async def _record(stream: SkylitStream, minutes: float) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    snaps, events = [], []
+async def _record(stream: SkylitStream, minutes: float,
+                  grace_sec: float = STREAM_GRACE_SEC) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str]:
+    """Record until `minutes` after the first event, or the wall-clock end (minutes + grace from now), or the
+    stream stops (e.g. the reconnect cap). Returns what was received and why it ended."""
+    snaps: list[dict[str, Any]] = []
+    events: list[dict[str, Any]] = []
     start = None
     reconnected = False
+    ended = "deadline"
     try:
-        async for ev in stream.events():
-            start = start or ev.arrival_ns
-            elapsed_min = (ev.arrival_ns - start) / 6e10
-            events.append({"kind": ev.kind, "arrival_ns": ev.arrival_ns, "event_id": ev.event_id,
-                           "connection": ev.connection, "data": None if ev.kind in ("snapshot", "velocity") else ev.data,
-                           "symbol": (ev.data or {}).get("symbol") if ev.kind in ("snapshot", "velocity") else None})
-            if ev.kind == "snapshot" and ev.data:
-                snaps.append({"payload": ev.data, "arrival_ns": ev.arrival_ns, "event_id": ev.event_id,
-                              "connection": ev.connection})
-            if not reconnected and elapsed_min >= minutes * STREAM_RECONNECT_AT:
-                stream.request_reconnect()
-                reconnected = True
-            if elapsed_min >= minutes:
-                break
+        async with asyncio.timeout(minutes * 60 + grace_sec):
+            async for ev in stream.events():
+                start = start or ev.arrival_ns
+                elapsed_min = (ev.arrival_ns - start) / 6e10
+                events.append({"kind": ev.kind, "arrival_ns": ev.arrival_ns, "event_id": ev.event_id,
+                               "connection": ev.connection,
+                               "data": None if ev.kind in ("snapshot", "velocity") else ev.data,
+                               "symbol": (ev.data or {}).get("symbol") if ev.kind in ("snapshot", "velocity") else None})
+                if ev.kind == "snapshot" and ev.data:
+                    snaps.append({"payload": ev.data, "arrival_ns": ev.arrival_ns, "event_id": ev.event_id,
+                                  "connection": ev.connection})
+                if not reconnected and elapsed_min >= minutes * STREAM_RECONNECT_AT:
+                    stream.request_reconnect()
+                    reconnected = True
+                if elapsed_min >= minutes:
+                    ended = "minutes"
+                    break
+    except TimeoutError:
+        ended = "deadline"
+        if not snaps:
+            raise CheckRefused(f"no board in {minutes:g} minutes + {grace_sec:g} s: nothing recorded") from None
+    except StreamStopped as e:
+        if not events:
+            raise CheckRefused(f"stream stopped before any event: {e}") from None
+        ended = f"stopped: {e}"
     finally:
         await stream.aclose()
-    return snaps, events
+    return snaps, events, ended
 
 
 def check_stream_record(env: Env, minutes: float = STREAM_MINUTES, approved: int | None = None,
                         force: bool = False) -> dict[str, Any]:
     now = env.now()
-    if not force and not (env.trading_day(now.date()) and RTH_OPEN <= now.time() < env.close_of(now.date())):
-        raise CheckRefused("record the stream during a live session (09:30-16:00 ET on a trading day)")
-    _gate(env, credits.stream_estimate(f"stream recording, {minutes:g} min, 4 maps", len(MAPS), minutes, reconnects=1), approved)
+    if not force:
+        close = env.close_of(now.date())
+        if not (env.trading_day(now.date()) and RTH_OPEN <= now.time() < close):
+            raise CheckRefused("record the stream during a live session (09:30-16:00 ET on a trading day)")
+        longest = timedelta(minutes=minutes, seconds=STREAM_GRACE_SEC)  # the wall-clock end included
+        if now + longest > datetime.combine(now.date(), close, tzinfo=ET):
+            raise CheckRefused(f"{minutes:g} minutes from {now:%H:%M} could run past today's close ({close:%H:%M} ET): "
+                               f"start by {(datetime.combine(now.date(), close) - longest):%H:%M}")
+    # worst case: open until the wall-clock end, with every reconnect the cap allows
+    _gate(env, credits.stream_estimate(f"stream recording, {minutes:g} min, 4 maps", len(MAPS),
+                                       minutes + STREAM_GRACE_SEC / 60, reconnects=STREAM_MAX_RECONNECTS), approved)
     offset = (env.clock_offset_ms or _default_offset(env.settings))()
     if env.stream_factory is None:
         from nqbot.secrets import get_secret
 
         stream = SkylitStream.from_settings(env.settings, get_secret("SKYLIT_API_KEY"), list(MAPS),
-                                            credits=env.client.credits, log=env.log)
+                                            credits=env.client.credits, log=env.log,
+                                            max_reconnects=STREAM_MAX_RECONNECTS)
     else:
         stream = env.stream_factory()
-    snaps, events = asyncio.run(_record(stream, minutes))
+    snaps, events, ended = asyncio.run(_record(stream, minutes))
     # A resume re-sends each symbol's latest board even if it was already received: keep its first arrival.
     seen: set[tuple[str, str]] = set()
     unique = []
@@ -355,13 +383,14 @@ def check_stream_record(env: Env, minutes: float = STREAM_MINUTES, approved: int
     folder = env.store.stream_dir(now.date())
     tag = now.strftime("%H%M%S")
     meta = {"params": stream.params, "minutes": minutes, "recorded_at": now.isoformat(), "lagged": stream.lagged_count,
-            "clock_offset_ms": [offset, offset_after]}
+            "clock_offset_ms": [offset, offset_after], "ended": ended}
     write_parquet(folder / f"{tag}_boards.parquet", boards, meta)
     write_parquet(folder / f"{tag}_strikes.parquet", strikes, meta)
     atomic_write_text(folder / f"{tag}_events.jsonl", "".join(json.dumps(e, default=str) + "\n" for e in events))
     summary = an.event_report(events)
     stale = env.settings["skylit_stale_sec"]
     report = {"folder": str(folder), "tag": tag, "boards": boards.num_rows, "events": len(events),
+              "ended": ended, "complete": ended == "minutes",  # not complete: record again (parity needs all of it)
               "resent_boards_dropped": duplicates,
               "clock_offset_ms": [offset, offset_after],
               "latency": an.latency_report(boards), "events_summary": summary,
@@ -371,7 +400,8 @@ def check_stream_record(env: Env, minutes: float = STREAM_MINUTES, approved: int
               "ping_gap_within_stale": summary["ping_gap_max"] is not None and summary["ping_gap_max"] < stale}
     env.echo(f"  {boards.num_rows} boards, proposed map_latency_sec (99.9th pct) "
              f"{report['latency']['proposed_map_latency_sec']}, clock offset {offset} ms, "
-             f"credits used {summary['credits_used']}, max ping gap {summary['ping_gap_max']} s")
+             f"credits used {summary['credits_used']}, max ping gap {summary['ping_gap_max']} s"
+             + ("" if report["complete"] else f"; INCOMPLETE ({ended}): record again"))
     write_report(env, "stream_record", report)
     return report
 
@@ -474,6 +504,129 @@ def pull_dp_date(env: Env, d: date, base: Path | None = None, repull: str | None
     return path
 
 
+def dp_trade_date(p: dict[str, Any]) -> date:
+    """A print's ET trade date (prints come as dicts with a UTC `timestamp`, from the API or from read_prints)."""
+    t = p["timestamp"]
+    return (t if isinstance(t, datetime) else _parse_ts(t)).astimezone(ET).date()
+
+
+def _parse_ts(s: str) -> datetime:
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def dp_range_path(env: Env, start: date, end: date) -> Path:
+    return env.store.root / "darkpool" / "range" / f"{start.isoformat()}_{end.isoformat()}.parquet"
+
+
+def pull_dp_range_raw(env: Env, start: date, end: date,
+                      before_page: Callable[[], None] | None = None) -> Path:
+    """One date_start..date_end call (at most 31 days, §3.1), kept whole in darkpool/range/ before anything else is
+    done with it, so a paid answer is never paid for twice (rule 2) even if splitting it fails. A no-data 404 (free)
+    is kept as an empty answer."""
+    path = dp_range_path(env, start, end)
+    params = {"tickers": ",".join(env.features["dp_tickers"]), "date_start": start.isoformat(),
+              "date_end": end.isoformat(), "min_notional": env.features["dp_min_notional"]}
+    if cached_or_mismatch(path, params):
+        return path
+    try:
+        with env.client.tagged(dp_range=f"{start.isoformat()}..{end.isoformat()}"):
+            pull = env.client.dark_pool_trades(start, env.features["dp_tickers"], env.features["dp_min_notional"],
+                                               before_page=before_page, end=end)
+        rows, pages, charged = pull.prints, pull.pages, sum(r.charged or 0 for r in pull.records)
+    except SkylitError as e:
+        if e.status != 404 or e.code not in DP_NO_DATA_CODES:
+            raise
+        rows, pages, charged = [], 0, 0
+    write_parquet(path, prints_to_table(rows), {"params": params, "pages": pages, "charged": charged,
+                                                "pulled_at": env.now().isoformat()})
+    return path
+
+
+def _et_dates(table: pa.Table) -> list[date]:
+    return [t.astimezone(ET).date() for t in table.column("timestamp").to_pylist()]
+
+
+def pull_dp_range(env: Env, start: date, end: date, dates: list[date], *,
+                  before_page: Callable[[], None] | None = None) -> dict[date, Path | None]:
+    """A 31-day answer split by ET trade date and cached per date in the same files and with the same parameters as
+    one-date calls, so either kind of cache serves both (owner 2026-10-05: 31-day calls once step 7 has shown they
+    return the same prints). Only `dates` are written (never an already cached date). The step-10 rules of
+    pull_dp_date(keep_empty_trading_day=False) apply per date: an empty trading day is not cached (None, "no
+    coverage"), an empty non-trading day is cached empty, a recent date is marked provisional."""
+    todo = [d for d in dates if start <= d <= end and not cached_or_mismatch(env.store.dp_trades_path(d), _dp_params(env, d))]
+    if not todo:
+        return {}
+    raw = pull_dp_range_raw(env, start, end, before_page)
+    table = pq.read_table(raw).replace_schema_metadata(None)
+    meta = read_meta(raw)
+    days = _et_dates(table)
+    outside = sorted({d for d in days if not start <= d <= end})
+    if outside:  # kept in darkpool/range/: re-running never pays again; ask before trusting this answer
+        raise SkylitError(None, "range_date", f"dark-pool range {start}..{end} returned prints dated {outside[:3]}; "
+                          f"the answer is kept in {raw} (never paid for again): ask Claude Code before going on")
+    day_col = pa.array(days, type=pa.date32())
+    out: dict[date, Path | None] = {}
+    for d in todo:
+        rows = table.filter(pc.equal(day_col, pa.scalar(d, pa.date32())))
+        if rows.num_rows == 0 and env.trading_day(d):
+            env.log.warning("dark pools: no prints on trading day %s in range %s..%s: no coverage (not cached)",
+                            d, start, end)
+            out[d] = None
+            continue
+        path = env.store.dp_trades_path(d)
+        write_parquet(path, rows, {
+            "params": _dp_params(env, d), "pages": None, "repull": None, "charged": None,
+            "via_range": {"start": start.isoformat(), "end": end.isoformat(), "pages": meta.get("pages"),
+                          "charged": meta.get("charged")},
+            "pulled_at": env.now().isoformat(), "provisional": _recent(env, d)})
+        out[d] = path
+    return out
+
+
+def _print_key(p: dict[str, Any]) -> tuple[Any, ...]:
+    t = p["timestamp"]
+    ts = (t if isinstance(t, datetime) else _parse_ts(t)).astimezone(timezone.utc)
+    return (ts.isoformat(), p["ticker"], float(p["price"]), int(p["size"]), float(p["notional"]), p.get("venue"))
+
+
+def compare_range_with_dates(env: Env, start: date, end: date) -> dict[str, Any]:
+    """Step 7: do 31-day calls return exactly the prints of one-date calls? Pulls start..end once (its answer is
+    kept in darkpool/range/, never paid twice) and compares, print by print, with the cached one-date files.
+    The step-10 backfill uses range calls only if this matched (owner 2026-10-05)."""
+    path = pull_dp_range_raw(env, start, end)
+    ranged: dict[date, list[tuple[Any, ...]]] = {}
+    for p in read_prints([path]):
+        ranged.setdefault(dp_trade_date(p), []).append(_print_key(p))
+    mismatches = []
+    for d in _weekdays(start, end):
+        single = env.store.dp_trades_path(d)
+        one = sorted(_print_key(p) for p in read_prints([single])) if single.exists() else None
+        got = sorted(ranged.get(d, []))
+        if one is None:
+            if got:
+                mismatches.append({"date": d.isoformat(), "single": None, "range": len(got)})
+            continue
+        if one != got:
+            mismatches.append({"date": d.isoformat(), "single": len(one), "range": len(got),
+                               "only_single": len(set(one) - set(got)), "only_range": len(set(got) - set(one))})
+    extra = sorted(d.isoformat() for d in ranged if d.weekday() >= 5)
+    return {"start": start.isoformat(), "end": end.isoformat(), "range_prints": sum(len(v) for v in ranged.values()),
+            "mismatches": mismatches, "weekend_dates": extra, "matches": not mismatches and not extra}
+
+
+def dp_range_ok(paths_: Paths) -> bool:
+    """The latest step-7 darkpool report showed 31-day calls return the same prints (step 10 then uses them)."""
+    rep = latest_report(paths_, "darkpool")
+    return bool(rep and (rep.get("range_check") or {}).get("matches"))
+
+
+def dp_prints_per_date(paths_: Paths) -> float | None:
+    """Prints per pulled trading day in the latest step-7 darkpool report (sizes the step-10 range-call estimate)."""
+    rep = latest_report(paths_, "darkpool")
+    n = (rep or {}).get("trading_dates_pulled") or (rep or {}).get("dates_pulled")
+    return rep["prints"] / n if n else None
+
+
 def read_prints(paths_: list[Path]) -> list[dict[str, Any]]:
     out = []
     for p in paths_:
@@ -539,12 +692,19 @@ def check_darkpool(env: Env, day: date, check_dates: list[date], approved: int |
         m1 = months_mod.days_of(1, env.settings)[0]
         probe = next(d for d in _weekdays(_f4_lower(env, m1), m1) if env.trading_day(d))
     todo = [d for d in dates if not env.store.dp_trades_path(d).exists()]
+    # the range comparison: the last <= 31 days of the span, one call (priced like one page per date: an upper bound)
+    r_end = as_ofs[-1]
+    r_start = max(first, r_end - timedelta(days=DP_RANGE_MAX_DAYS - 1))
+    range_todo = 0 if dp_range_path(env, r_start, r_end).exists() else len(_weekdays(r_start, r_end))
     probe_todo = int(probe is not None and probe not in dates and not env.store.dp_trades_path(probe).exists())
     tickers = env.features["dp_tickers"]
     tops_todo = sum(1 for x in as_ofs for t in tickers if not env.store.dp_top_path(t, x).exists())
     _gate(env, credits.dark_pool_estimate(f"dark pools: {len(todo)} dates + top-prints cross-check"
-                                          + (" + best-effort depth probe" if probe_todo else ""), len(todo) + probe_todo,
-                                          _pages_per_date(env), top_prints=tops_todo), approved)
+                                          + (f" + one {r_start}..{r_end} range call (<= {range_todo} pages)"
+                                             if range_todo else "")
+                                          + (" + best-effort depth probe" if probe_todo else ""),
+                                          len(todo) + probe_todo + range_todo, _pages_per_date(env),
+                                          top_prints=tops_todo), approved)
     prints = read_prints([pull_dp_date(env, d) for d in dates])
     checks = []
     for x in as_ofs:
@@ -561,19 +721,28 @@ def check_darkpool(env: Env, day: date, check_dates: list[date], approved: int |
                            "bot": [_fmt(p) for p in bot], "api": [_fmt(p) for p in api]})
     f4 = {t: dp.top_prints(prints, t, day, top_n=top_n, lookback_days=lookback, lag_sessions=env.features["dp_lag_sessions"],
                            is_trading_day=env.trading_day) for t in tickers}
+    try:  # best-effort: a refused range call only keeps step 10 on one date per call
+        range_check = compare_range_with_dates(env, r_start, r_end)
+    except OutOfCredits:
+        raise
+    except SkylitError as e:
+        env.log.warning("dark pools: the 31-day comparison call failed (%s): step 10 stays one date per call", e)
+        range_check = {"start": r_start.isoformat(), "end": r_end.isoformat(), "matches": False, "error": str(e)}
     depth = depth_probe_result(env, probe) if probe is not None else None  # last, best-effort (presd_fixes issue 9)
     ledger = [r for r in env.store.ledger() if r["endpoint"] == "/v1/dark-pool/trades" and r.get("charged") is not None]
     with_prints = sorted({p["timestamp"].astimezone(ET).date() for p in prints})
     report = {
         "date": day.isoformat(), "check_dates": [d.isoformat() for d in check_dates], "dates_pulled": len(dates),
+        "trading_dates_pulled": sum(env.trading_day(d) for d in dates),
         "prints": len(prints), "earliest_print_date": with_prints[0].isoformat() if with_prints else None,
-        "depth_probe": depth,
+        "depth_probe": depth, "range_check": range_check,
         "credits_per_page": sorted({r["charged"] for r in ledger}), "pages_per_date": round(_pages_per_date(env), 2),
         "top_prints_checks": checks, "all_match": all(c["match"] for c in checks),
         "f4_top": {t: [_fmt(p) for p in v.prints] for t, v in f4.items()},
     }
     env.echo(f"  {len(prints)} prints over {len(dates)} dates; top-prints matches: "
-             f"{sum(c['match'] for c in checks)}/{len(checks)}; depth probe {report['depth_probe']}")
+             f"{sum(c['match'] for c in checks)}/{len(checks)}; 31-day call matches one-date calls: "
+             f"{range_check['matches']}; depth probe {report['depth_probe']}")
     write_report(env, "darkpool", report)
     return report
 
@@ -907,9 +1076,11 @@ def _brief(name: str, r: dict[str, Any]) -> dict[str, Any]:
         "strike_window": ["per_symbol", "proposed_skylit_max_strikes", "current_skylit_max_strikes"],
         "sample_days": ["per_day", "zero_dte_misses"],
         "historical_instants": ["node_types"],
-        "stream_record": ["boards", "clock_offset_ms", "latency", "events_summary", "stream_shape", "ping_gap_within_stale"],
+        "stream_record": ["complete", "ended", "boards", "clock_offset_ms", "latency", "events_summary", "stream_shape",
+                          "ping_gap_within_stale"],
         "parity": ["matched", "n_only_stream", "n_only_history", "n_revised", "STOP_ask_owner", "extra_history", "latency"],
-        "darkpool": ["prints", "earliest_print_date", "depth_probe", "credits_per_page", "pages_per_date", "all_match"],
+        "darkpool": ["prints", "earliest_print_date", "depth_probe", "credits_per_page", "pages_per_date", "all_match",
+                     "range_check"],
         "late_prints_compare": ["compared", "enough", "any_top_list_changed", "recommend_dp_lag_sessions"],
         "tempest_depth": ["needed_from", "first_row", "covered"],
         "tempest_compare": ["changed_cells"],

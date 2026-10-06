@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from contextlib import ExitStack
 from datetime import date, datetime, time
 
 from nqbot.config import ConfigError, load_settings
@@ -39,6 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("job", choices=sorted(JOBS))
     run.add_argument("--until", default=DEFAULT_UNTIL, type=_until,
                      help="stop before this ET time (HH:MM, default 07:30)")
+    backup = sub.add_parser("backup", help="copy data/raw/skylit/ to Google Drive with rclone and verify the "
+                                           "checksums (SPEC section 11 Storage; = nqbot run skylit_backup)")
+    backup.add_argument("--until", default=DEFAULT_UNTIL, type=_until,
+                        help="stop before this ET time (HH:MM, default 07:30); the next run resumes")
     sub.add_parser("status", help="SSD use and job progress")
     unlock = sub.add_parser("unlock", help="remove a job lock left on the SSD by a job that is no longer running")
     unlock.add_argument("--yes", action="store_true", help="confirm that job is no longer running anywhere")
@@ -54,6 +59,7 @@ def main(argv: list[str] | None = None) -> int:
                        help="when step 10 starts: re-check the month-1 merge and rewrite only the ledger")
     setup.add_argument("--yes", action="store_true", help="write it (after the owner saw the diff)")
     _add_step7(sub)
+    _add_step8b(sub)
     _add_skylit(sub)
     _add_databento(sub)
     _add_gameplan(sub)
@@ -82,18 +88,21 @@ def main(argv: list[str] | None = None) -> int:
     log = setup_logging(paths.log_dir)
     if args.command == "step7":
         return _run_step7(args, settings, paths, log)
+    if args.command == "step8b":
+        return _run_step8b(args, settings, paths, log)
     if args.command == "skylit":
         return _run_skylit(args, settings, paths, log)
     if args.command == "databento":
         return _run_databento(args, settings, paths, log)
     if args.command in ("gameplan", "gameplan-batch"):
         return _run_gameplan(args, settings, paths, log)
-    from nqbot.clients.skylit import SkylitError
+    from nqbot.backup import BackupRefused
+    from nqbot.clients.skylit import OutOfCredits, SkylitError
     from nqbot.clients.skylit_backfill import BackfillRefused
     from nqbot.clients.skylit_credits import CreditRefused
     from nqbot.secrets import MissingSecret
 
-    job = get_job(args.job)
+    job = get_job("skylit_backup" if args.command == "backup" else args.job)
     until = parse_until(args.until, datetime.now(ET))
     _print_power_warnings()
     try:
@@ -101,8 +110,13 @@ def main(argv: list[str] | None = None) -> int:
     except LockHeld as e:
         log.error("%s", e)
         return EXIT_LOCKED
-    except (BackfillRefused, CreditRefused, MissingSecret) as e:
+    except (BackfillRefused, BackupRefused, CreditRefused, MissingSecret) as e:
         print(f"refused: {e}", file=sys.stderr)
+        return EXIT_REFUSED
+    except OutOfCredits as e:  # a 402 outside a chunk (a chunk turns it into the clean "credits" stop)
+        log.error("%s stopped: Skylit is out of credits: %s", job.name, e)
+        print(f"stopped: Skylit is out of credits ({e}); top up (with the owner's OK), then run: "
+              f"uv run nqbot run {job.name}", file=sys.stderr)
         return EXIT_REFUSED
     except SkylitError as e:  # e.g. an undecodable answer (kept in skylit/failed/) or a 4xx: the chunk re-runs
         log.error("%s stopped on a Skylit error: %s", job.name, e)
@@ -113,6 +127,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{job.name}: {result.status} ({result.done}/{result.total} chunks done){message}")
     if result.status == "credits":
         print(f"stopped cleanly on credits: top up (or re-plan with the owner's OK), then run: uv run nqbot run {job.name}")
+    if job.name == "skylit_backup":
+        print(f"backup report: {paths.reports_dir / 'backup' / 'backup.md'}")
     return 0 if result.status in ("complete", "until") else EXIT_REFUSED
 
 
@@ -231,13 +247,12 @@ def _run_step7(args: argparse.Namespace, settings: dict, paths, log) -> int:
     from nqbot.checks import step7
     from nqbot.clients.skylit import AccessDenied, OutOfCredits
     from nqbot.clients.skylit_credits import CreditRefused
-    from nqbot.clients.skylit_pull import SkylitPullJob
     from nqbot.config import load_features
     from nqbot.months import LedgerMissing, NotDevelopmentMonth
     from nqbot.secrets import MissingSecret
 
     refusals = (step7.CheckRefused, CreditRefused, OutOfCredits, AccessDenied, LedgerMissing, MissingSecret,
-                LockHeld, NotDevelopmentMonth)
+                NotDevelopmentMonth)
 
     env = step7.Env(settings=settings, features=load_features(), paths=paths, log=log)
     approve = args.approve_credits
@@ -251,53 +266,97 @@ def _run_step7(args: argparse.Namespace, settings: dict, paths, log) -> int:
         lock = job_locks(paths.root, (SKYLIT,), f"step7 {args.check}")
     from nqbot.power import keep_awake
 
-    awake = keep_awake()  # stream-record and tempest-poll run for a long time
     try:
-        awake.__enter__()
-        if lock is not None:
-            lock.__enter__()
-        match args.check:
-            case "symbols":
-                step7.check_symbols(env)
-            case "strike-window":
-                step7.check_strike_window(env, args.busy_day, args.sample_days,
-                                          args.start or step7.STRIKE_WINDOW_DEFAULT_START, approve)
-            case "sample-days":
-                step7.plan_sample_days(env, args.dates, approve, raised=args.raised)
-                result = run_job(SkylitPullJob("skylit_sample_days"), settings, paths,
-                                 until=parse_until(args.until, datetime.now(ET)), log=log)
-                print(f"skylit_sample_days: {result.status} ({result.done}/{result.total} sessions)")
-                if result.status != "complete":
-                    print("resume with: uv run nqbot run skylit_sample_days, then re-run this command for the report")
-                    return EXIT_REFUSED
-                step7.sample_days_report(env, args.dates)
-            case "historical-instants":
-                step7.check_historical_instants(env, approve)
-            case "stream-record":
-                step7.check_stream_record(env, approved=approve, force=args.force)
-            case "parity":
-                step7.check_parity(env, args.session, args.tag, approve)
-            case "darkpool":
-                step7.check_darkpool(env, args.date, args.check_dates, approve, depth_probe=not args.no_depth_probe)
-            case "late-prints-morning":
-                step7.check_late_prints_morning(env, approve, force=args.force)
-            case "late-prints-compare":
-                step7.check_late_prints_compare(env, approve)
-            case "tempest-poll":
-                step7.check_tempest_poll(env, args.until or step7.RTH_OPEN, approve)
-            case "tempest-compare":
-                step7.check_tempest_compare(env, approve)
-            case "tempest-depth":
-                step7.check_tempest_depth(env, approve)
-            case "report":
-                step7.check_report(env)
+        with ExitStack() as stack:
+            stack.enter_context(keep_awake())  # stream-record and tempest-poll run for a long time
+            if lock is not None:
+                stack.enter_context(lock)
+            return _step7_check(args, settings, paths, log, env, approve)
+    except LockHeld as e:  # like nqbot run: exit 3, the lock holder is named
+        print(f"locked: {e}", file=sys.stderr)
+        return EXIT_LOCKED
     except refusals as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
-    finally:
-        if lock is not None:
-            lock.__exit__(None, None, None)
-        awake.__exit__(None, None, None)
+
+
+def _step7_check(args: argparse.Namespace, settings, paths, log, env, approve) -> int:
+    from nqbot.checks import step7
+    from nqbot.clients.skylit_pull import SkylitPullJob
+
+    match args.check:
+        case "symbols":
+            step7.check_symbols(env)
+        case "strike-window":
+            step7.check_strike_window(env, args.busy_day, args.sample_days,
+                                      args.start or step7.STRIKE_WINDOW_DEFAULT_START, approve)
+        case "sample-days":
+            step7.plan_sample_days(env, args.dates, approve, raised=args.raised)
+            result = run_job(SkylitPullJob("skylit_sample_days"), settings, paths,
+                             until=parse_until(args.until, datetime.now(ET)), log=log)
+            print(f"skylit_sample_days: {result.status} ({result.done}/{result.total} sessions)")
+            if result.status != "complete":
+                print("resume with: uv run nqbot run skylit_sample_days, then re-run this command for the report")
+                return EXIT_REFUSED
+            step7.sample_days_report(env, args.dates)
+        case "historical-instants":
+            step7.check_historical_instants(env, approve)
+        case "stream-record":
+            step7.check_stream_record(env, approved=approve, force=args.force)
+        case "parity":
+            step7.check_parity(env, args.session, args.tag, approve)
+        case "darkpool":
+            step7.check_darkpool(env, args.date, args.check_dates, approve, depth_probe=not args.no_depth_probe)
+        case "late-prints-morning":
+            step7.check_late_prints_morning(env, approve, force=args.force)
+        case "late-prints-compare":
+            step7.check_late_prints_compare(env, approve)
+        case "tempest-poll":
+            step7.check_tempest_poll(env, args.until or step7.RTH_OPEN, approve)
+        case "tempest-compare":
+            step7.check_tempest_compare(env, approve)
+        case "tempest-depth":
+            step7.check_tempest_depth(env, approve)
+        case "report":
+            step7.check_report(env)
+    return 0
+
+
+def _add_step8b(sub: argparse._SubParsersAction) -> None:
+    """`nqbot step8b <check>`: the level-mapping precision gate (SPEC §5.1, §12 step 8b). Reads stored data only."""
+    s8 = sub.add_parser("step8b", help="step-8b mapping precision gate (reads stored data only)").add_subparsers(
+        dest="check", required=True)
+    for name, help_ in (("precision", "mapping error per chain vs mapping_p95_max (the step-7 sample days)"),
+                        ("spot-lag", "spot vs futures cross-correlation over +-120 s (peak at 0-1 s)")):
+        p = s8.add_parser(name, help=help_)
+        p.add_argument("--dates", type=_dates, default=None,
+                       help="comma-separated development-month dates (default: the step-7 sample days)")
+    p = s8.add_parser("atlas", help="the QQQ/SPY nodes and strike crossings for the owner's Atlas replay check")
+    p.add_argument("--date", type=_date, required=True, help="a sample day (YYYY-MM-DD)")
+    p.add_argument("--minutes", type=lambda t: [_hhmm(x.strip()) for x in t.split(",") if x.strip()], required=True,
+                   help="comma-separated ET minutes the owner picks (HH:MM,HH:MM)")
+    s8.add_parser("report", help="write <reports_dir>/step8b/mapping_gate.md from the latest checks")
+
+
+def _run_step8b(args: argparse.Namespace, settings, paths, log) -> int:
+    from nqbot.checks import step8b
+    from nqbot.config import load_features
+    from nqbot.months import LedgerMissing, NotDevelopmentMonth
+
+    env = step8b.Env(settings=settings, features=load_features(), paths=paths, log=log)
+    try:
+        match args.check:
+            case "precision":
+                step8b.check_precision(env, args.dates)
+            case "spot-lag":
+                step8b.check_spot_lag(env, args.dates)
+            case "atlas":
+                step8b.check_atlas(env, args.date, args.minutes)
+            case "report":
+                step8b.check_report(env)
+    except (step8b.CheckRefused, LedgerMissing, NotDevelopmentMonth) as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return EXIT_REFUSED
     return 0
 
 
