@@ -7,7 +7,7 @@ All 17 issues are fixed **before the SSD arrives**, in three sessions the owner 
 | Session | Issues | Theme |
 |---|---|---|
 | **A** ✅ done 2026-10-05 | 1, 2, 7, 9, 10 | step-10 backfill job, step-7 order and report, 365-day reach (independently reviewed twice; 311 tests pass) |
-| **B** | 3, 4, 5, 6, 8, 11 | separate locks, Databento retries and cost guard, `nqbot setup-ssd`, warm-up, keep-awake and checks |
+| **B** ✅ done 2026-10-05 | 3, 4, 5, 6, 8, 11 | separate locks, Databento retries and cost guard, `nqbot setup-ssd`, warm-up, keep-awake and checks |
 | **C** | 12, 13, 15, 16, 17 | step-8b gate code, rclone backup command, the small ones |
 | – | 14 | resolved by owner decision 4 |
 
@@ -37,22 +37,22 @@ Each session: read this file, CLAUDE.md, and the SPEC sections listed for its st
 
 ### HIGH
 
-**3. One SSD job lock makes everything take turns (session B).** Status: open.
+**3. One SSD job lock makes everything take turns (session B).** Status: ✅ fixed 2026-10-05 (session B): `.nqbot_skylit.lock` / `.nqbot_databento.lock` (`jobs/lock.py` `job_locks`); jobs declare `locks`, any other job holds both; `nqbot unlock [--skylit|--databento] --yes` (never a live holder on this machine); `nqbot status` shows both locks and each job's peak RAM. Parallel fit: neither pull job uses workers, and `min_free_gb` reads the drive's free space, so it counts both.
 - Evidence: `jobs/runner.py` ~178 (every `nqbot run` job), `cli.py` ~178–183 (step-7 checks), `cli.py` ~242 (`databento plan`).
 - Failure: steps 10 and 8 can't run in parallel. While either runs, `stream-record` (RTH only), `parity` and `darkpool` are refused. If Skylit holds the lock all night, Databento's oldest included days slip into pay-as-you-go.
 - Fix (decision 3): two job locks on the SSD. The Skylit lock is held by step-7 checks and Skylit jobs. The Databento lock is held by `databento plan` and Databento jobs. Every other job holds both. Both lock files record the machine, so a second machine is still refused (§11 One machine). Step-7 checks that only read the Skylit cache don't block the Databento backfill. `nqbot status` / `unlock` show both locks. Also check that the two parallel jobs' combined memory and `max_workers` fit the 16 GB laptop and that the `min_free_gb` check counts both.
 
-**4. A Databento download that breaks mid-way stops the overnight job (session B).** Status: open (confirmed in code).
+**4. A Databento download that breaks mid-way stops the overnight job (session B).** Status: ✅ fixed 2026-10-05 (session B): included items retry `BentoError` (not `BentoClientError`) with the backoff, then stop cleanly (`api_error`); a broken paid item is recorded in `payg_failed.jsonl` and waits for `databento plan --retry-failed-payg`. Billing (Databento docs, "Streaming vs. batch download"): a streamed request is billed for the data sent, and a re-stream is billed again.
 - Evidence: databento 0.87.0 `common/http.py` wraps any mid-stream error as `BentoError("Error streaming response: …")`. `DOWNLOAD_RETRYABLE = (OSError, BentoServerError)` (`clients/databento_pull.py:60`) doesn't catch it, and `run_job` re-raises.
 - Failure: one Wi-Fi blip at 01:00 ends the night.
 - Fix: for included items, retry `BentoError` (but not `BentoClientError`) with the existing backoff. For pay-as-you-go items, stop the item cleanly, record it, and carry on with the rest. Find out (Databento docs/support) whether a broken paid download is billed before any paid item is ever re-run.
 
-**5. "`get_cost` > 0 means pay-as-you-go" might flag the whole window (session B).** Status: open (unverified).
+**5. "`get_cost` > 0 means pay-as-you-go" might flag the whole window (session B).** Status: ✅ fixed 2026-10-05 (session B): the one-hour `ohlcv-1s` + `trades` probe and the "more than half of the included requests priced" refusal; the dead note removed.
 - Evidence: `clients/databento_pull.py` ~226–233. The "included, get_cost says $X" branch in `databento_cost.py` ~76–77 can never fire.
 - Failure: if `get_cost` quotes list prices for plan-included data, or the plan runs before the Standard subscription is active, every request prints as pay-as-you-go. Approving that total could bill it for real.
 - Fix: `databento plan` first prices one tiny included request (e.g. one recent hour of NQ `ohlcv-1s`). If it isn't $0, it refuses with "subscription not active, or get_cost doesn't show included data as $0: check before approving". `make_plan` also refuses when most date-included items are priced above $0. Mark the dead branch or remove it.
 
-**6. Nothing supports step 4b (session B).** Status: open.
+**6. Nothing supports step 4b (session B).** Status: ✅ fixed 2026-10-05 (session B): `nqbot setup-ssd [--drive] [--root] [--rewrite-ledger] [--yes]` (`setup_ssd.py`; a first setup must name the drive; NTFS via psutil, edits only the two settings.yaml lines), strict `months.validate` on every read (all 12 months when settings.yaml loads), merge guard while neither backfill has a plan. Independent review (2026-10-05) found and we fixed: a paid chunk whose items all broke stayed "done" after `--retry-failed-payg` (its id now carries the plan), the guard could lock out `databento plan` (now the ledger is fixed once either plan exists), and a single internal second partition could be picked as the SSD.
 - Evidence: the marker, `paths.root`, window and ledger are hand edits. `months.ledger` (`months.py` ~28–35) doesn't check for 12 consecutive months or `YYYY-MM` strings (an unquoted `2025-10-01` turns into a date and matches nothing). The `min_month1_sessions` merge isn't computed anywhere. The marker is only found at the drive root (`storage.py` ~54–59).
 - Fix: `nqbot setup-ssd`. It finds the SSD (asking which drive if more than one is plugged in), checks it's NTFS (`fsutil fsinfo volumeinfo`) and the free space, and creates `.nqbot_drive` at the drive root and the `paths.root` folder. It computes the 12-month window from today (the last full month before the step-7 pull) and the month-1 merge from Skylit's reach. It validates and writes `paths.root` and `months` into `settings.yaml` with a round-trip YAML writer (comments kept), printing the diff and asking first. `months.ledger` validates strictly on every load. A second command, or a flag, rewrites the ledger when step 10 starts if the merge applies.
 
@@ -63,7 +63,7 @@ Each session: read this file, CLAUDE.md, and the SPEC sections listed for its st
 - Failure: the oldest day's morning windows expire during the day. An out-of-range answer (probably a 400) crashes the pull. Databento may buy a day whose Skylit morning is already gone.
 - Fix: clip by timestamp (now − 365 days, with a safety margin parameter). Treat an out-of-reach answer as a "lost" window: logged, reported, not cached as empty, not an error. The estimate counts only reachable past windows. The Databento window follows the days Skylit actually got (or the same timestamp rule).
 
-**8. The warm-up count is defined twice and the copies disagree (session B).** Status: open.
+**8. The warm-up count is defined twice and the copies disagree (session B).** Status: ✅ fixed 2026-10-05 (session B): `nqbot/warmup.py` (21); the Tempest start is now 23 sessions before month 1.
 - Evidence: `checks/step7.py` `warmup_sessions` = max(20, lookbacks) = 20 (~706–718). `clients/databento_pull.py` `warmup_sessions` = 21 (~68–70, the owner's 2026-10-05 rule).
 - Fix: one shared function (max(20, lookbacks) + 1) used by both, with a test.
 
@@ -75,7 +75,7 @@ Each session: read this file, CLAUDE.md, and the SPEC sections listed for its st
 - Evidence: the cached sample days keep the old parameters, so `skylit_store` raises `CacheMismatch` (~226–243), also through `SkylitPullJob.chunks` → `uncached_windows`.
 - Fix: the step-10 job uses the `repull/strike_window_raise` copies when they match the current parameters, or pulls those days normally if not. Never `CacheMismatch` mid-backfill. Test it.
 
-**11. Nothing keeps the laptop awake overnight (session B).** Status: open.
+**11. Nothing keeps the laptop awake overnight (session B).** Status: ✅ fixed 2026-10-05 (session B): `power.keep_awake()` around every `run_job`; `power_warnings()` (`powercfg /qh`, which also shows the lid action some laptops hide from `/query`; hibernate added) printed by `nqbot run` and `setup-ssd`.
 - Evidence: no `SetThreadExecutionState`, and no check of power, sleep, lid or USB selective suspend.
 - Fix (decision 6): `nqbot run` calls `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)` while a job runs and clears it at the end (no-op off Windows). `nqbot setup-ssd` and `nqbot run` print warnings (no changes) if `powercfg` shows AC sleep on, the lid action isn't "Do nothing", or USB selective suspend is on. Owner checklist for SSD day: `powercfg /change standby-timeout-ac 0`, lid close on AC = "Do nothing", USB selective suspend off. The keep-awake call doesn't stop lid-close sleep.
 

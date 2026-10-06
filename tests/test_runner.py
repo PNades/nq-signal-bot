@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 import pytest
 
 from nqbot.jobs.dummy import DummyJob
-from nqbot.jobs.lock import LOCK_NAME, LockHeld
+from nqbot.jobs.lock import ALL_LOCKS, DATABENTO, SKYLIT, LockHeld, lock_path
 from nqbot.jobs import runner as runner_mod
 from nqbot.jobs.runner import (ET, effective_max_workers, in_lock_window, next_window_start, p90,
                                parse_until, run_job, state_path)
@@ -27,7 +27,7 @@ def test_runs_all_chunks(settings, paths, log, clock):
     r = run(DummyJob(4, 10), settings, paths, log, clock)
     assert (r.status, r.done, r.total) == ("complete", 4, 4)
     assert outputs(paths) == [f"chunk-00{i}.txt" for i in range(4)]
-    assert not (paths.root / LOCK_NAME).exists()
+    assert not any(lock_path(paths.root, k).exists() for k in ALL_LOCKS)
 
 
 def test_stops_at_until_and_resumes(settings, paths, log, clock):
@@ -89,9 +89,12 @@ def test_lock_window_only_when_enforced(settings, paths, log):
 
 def test_job_lock_held_by_other_machine(settings, paths, log, clock):
     paths.root.mkdir(parents=True)
-    (paths.root / LOCK_NAME).write_text(json.dumps({"host": "home-pc", "pid": 1, "job": "fold"}))
-    with pytest.raises(LockHeld):
-        run(DummyJob(1, 1), settings, paths, log, clock)
+    for kind in ALL_LOCKS:  # a job without `locks` needs both
+        lock_path(paths.root, kind).write_text(json.dumps({"host": "home-pc", "pid": 1, "job": "fold"}))
+        with pytest.raises(LockHeld, match=f"unlock --{kind}"):
+            run(DummyJob(1, 1), settings, paths, log, clock)
+        lock_path(paths.root, kind).unlink()
+        assert not any(lock_path(paths.root, k).exists() for k in ALL_LOCKS)  # the other one was let go
 
 
 def test_low_memory_reaches_chunks(settings, paths, log, clock):
@@ -161,7 +164,35 @@ def test_effective_max_workers(monkeypatch):
     assert effective_max_workers(None, 20.0) == 1  # never below one
 
 
-def test_status_estimates_nights_left(settings, paths, log, clock):
+def test_status_estimates_nights_left(settings, paths, log, clock, monkeypatch):
+    monkeypatch.setattr(runner_mod, "_peak_gb", lambda: 1.25)
     run(DummyJob(10, 3600), settings, paths, log, clock, until_min=150)  # 2 chunks fit, 8 left
     lines = job_lines(paths)
-    assert lines == ["dummy: 2/10 chunks done, p90 chunk 3600s, ~8.0 h left, ~4 night(s) left"]
+    assert lines == ["dummy: 2/10 chunks done, p90 chunk 3600s, ~8.0 h left, ~4 night(s) left, peak 1.2 GB RAM"]
+
+
+def test_jobs_hold_only_their_own_lock(settings, paths, log, clock):
+    """presd_fixes issue 3: the Skylit and Databento backfills run in parallel; other jobs need both locks."""
+    from nqbot.clients.databento_pull import DatabentoPullJob
+    from nqbot.clients.skylit_backfill import SkylitBackfillJob
+    from nqbot.clients.skylit_pull import SkylitPullJob
+
+    assert SkylitBackfillJob.locks == (SKYLIT,) and SkylitPullJob.locks == (SKYLIT,)
+    assert DatabentoPullJob.locks == (DATABENTO,)
+
+    class SkylitLike(DummyJob):
+        locks = (SKYLIT,)
+
+    paths.root.mkdir(parents=True)
+    lock_path(paths.root, DATABENTO).write_text(json.dumps({"host": "home-pc", "pid": 1, "job": "databento_backfill"}))
+    assert run(SkylitLike(1, 1), settings, paths, log, clock).status == "complete"
+    with pytest.raises(LockHeld):
+        run(DummyJob(1, 1), settings, paths, log, clock)
+
+
+def test_run_job_keeps_windows_awake(settings, paths, log, clock, monkeypatch, no_power_calls):
+    from nqbot import power
+
+    monkeypatch.setattr(power.os, "name", "nt")
+    run(DummyJob(1, 1), settings, paths, log, clock)
+    assert no_power_calls == [power.ES_CONTINUOUS | power.ES_SYSTEM_REQUIRED, power.ES_CONTINUOUS]

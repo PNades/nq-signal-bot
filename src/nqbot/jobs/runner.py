@@ -2,8 +2,8 @@
 
 A job is an ordered list of chunk ids plus `run_chunk`. Progress is saved after every chunk, so the next
 run resumes where the last one stopped. Before every chunk the runner checks: the SSD marker is still
-there, free space >= min_free_gb, the job-lock window (once enforced, step 22), and that the chunk's
-measured 90th-percentile duration fits before --until. Long chunks call `ctx.should_stop()` between
+there, free space >= min_free_gb (the drive's, so a job running in parallel counts too), the job-lock
+window (once enforced, step 22), and that the chunk's measured 90th-percentile duration fits before --until. Long chunks call `ctx.should_stop()` between
 their own work units (§11: work is checked against the clock between work units) and raise `StopChunk`
 to give up the chunk cleanly; it then re-runs from its start next time.
 """
@@ -23,7 +23,8 @@ from zoneinfo import ZoneInfo
 
 import psutil
 
-from nqbot.jobs.lock import LOCK_NAME, JobLock
+from nqbot.jobs.lock import ALL_LOCKS, job_locks
+from nqbot.power import keep_awake
 from nqbot.storage import GB, Paths, atomic_write_json, free_gb
 
 ET = ZoneInfo("America/New_York")
@@ -46,6 +47,8 @@ class StopChunk(Exception):
 
 
 class Job(Protocol):
+    """A job may also set `locks` (a tuple of nqbot.jobs.lock kinds); without it the job holds every job lock."""
+
     name: str
 
     def chunks(self, ctx: Ctx) -> list[str]: ...
@@ -180,7 +183,8 @@ def run_job(
     out_dir = paths.data_dir / "jobs" / job.name
     spath = state_path(paths, job.name)
     paths.root.mkdir(parents=True, exist_ok=True)
-    with JobLock(paths.root / LOCK_NAME, job.name):
+    # Keep Windows awake while the job runs (owner 2026-10-05, §11 Overnight jobs; lid-close sleep still applies).
+    with keep_awake(), job_locks(paths.root, getattr(job, "locks", ALL_LOCKS), job.name):
         state = load_state(spath)
         done: dict[str, Any] = state["done"]
         peaks = [d["peak_gb"] for d in done.values() if d.get("peak_gb")]

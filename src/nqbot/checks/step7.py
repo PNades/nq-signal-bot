@@ -36,6 +36,7 @@ from nqbot.clients.skylit_store import (
 from nqbot.clients.skylit_stream import SkylitStream
 from nqbot.features import darkpool as dp
 from nqbot.storage import Paths, atomic_write_json, atomic_write_text
+from nqbot.warmup import warmup_sessions
 
 ET = ZoneInfo("America/New_York")
 SAMPLE_DAYS = 5  # §12 step 7: pull 5 days from development month 6
@@ -740,12 +741,6 @@ def check_tempest_compare(env: Env, approved: int | None = None) -> dict[str, An
     env.echo(f"  {len(diffs)} Tempest cells changed between pulls")
     write_report(env, "tempest_compare", report)
     return report
-
-
-def warmup_sessions(features: dict[str, Any]) -> int:
-    """§3.2: max(20, the longest session lookback in features.yaml)."""
-    keys = ("atr_period", "rv_lookback_sessions", "big_trade_lookback_sessions", "ib_avg_sessions", "retest_lookback_sessions")
-    return max(20, *(int(features[k]) for k in keys if features.get(k) is not None))
 
 
 def _tempest_start(env: Env) -> date:

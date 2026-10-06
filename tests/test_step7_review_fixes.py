@@ -22,7 +22,7 @@ from nqbot.clients.skylit_pull import SessionResult, SkylitPullJob, pull_session
 from nqbot.clients.skylit_store import SkylitStore
 from nqbot.clients.skylit_stream import SkylitStream
 from nqbot.config import load_features
-from nqbot.jobs.lock import LOCK_NAME
+from nqbot.jobs.lock import ALL_LOCKS, DATABENTO, SKYLIT, lock_path
 from nqbot.jobs.runner import run_job
 from nqbot.secrets import Secret
 from tests.skylit_fakes import KEY, SYMBOLS_MAP, FakeClock, FakeSkylit, sse, z
@@ -434,10 +434,12 @@ def test_cli_step7_refusals_and_lock(settings, drive, monkeypatch, capsys):
     assert cli.main(["step7", "darkpool", "--date", "2026-04-15"]) == cli.EXIT_REFUSED  # month 7
     assert "development months" in capsys.readouterr().err
     paths = storage.resolve_paths(settings)
-    (paths.root / LOCK_NAME).write_text(json.dumps({"host": "elsewhere", "pid": 1, "job": "skylit_backfill"}))
-    assert cli.main(["step7", "symbols"]) == cli.EXIT_REFUSED  # another process holds the SSD job lock
-    (paths.root / LOCK_NAME).unlink()
-    assert cli.main(["step7", "symbols"]) == 0 and not (paths.root / LOCK_NAME).exists()
+    lock_path(paths.root, DATABENTO).write_text(json.dumps({"host": "elsewhere", "pid": 1, "job": "databento_backfill"}))
+    assert cli.main(["step7", "symbols"]) == 0  # the Databento backfill never blocks a step-7 check
+    lock_path(paths.root, SKYLIT).write_text(json.dumps({"host": "elsewhere", "pid": 1, "job": "skylit_backfill"}))
+    assert cli.main(["step7", "symbols"]) == cli.EXIT_REFUSED  # another process holds the Skylit job lock
+    lock_path(paths.root, SKYLIT).unlink()
+    assert cli.main(["step7", "symbols"]) == 0 and not lock_path(paths.root, SKYLIT).exists()
     assert cli.main(["step7", "report"]) == 0
     assert (step7.reports_dir(paths) / "parameter_check.md").exists()
 

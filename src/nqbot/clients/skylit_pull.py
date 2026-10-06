@@ -28,6 +28,7 @@ from nqbot import calendar as cal_mod
 from nqbot.clients import skylit_credits as credits
 from nqbot.clients.skylit import SkylitClient, SkylitError, iso_utc
 from nqbot.clients.skylit_store import SkylitStore, range_to_tables
+from nqbot.jobs.lock import SKYLIT
 from nqbot.jobs.runner import Ctx, StopChunk
 from nqbot.secrets import get_secret
 from nqbot.storage import Paths, atomic_write_json
@@ -251,6 +252,8 @@ class SkylitPullJob:
     on every run the remaining (uncached) windows are re-estimated and refused over 5,000 credits unless
     approved_credits covers them (CLAUDE.md rule 2).
     """
+
+    locks = (SKYLIT,)  # the Skylit lock only: the Databento backfill may run alongside (§11 One machine)
 
     def __init__(self, name: str = "skylit_sample_days",
                  client_factory: Callable[..., SkylitClient] = make_client):

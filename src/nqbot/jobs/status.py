@@ -1,4 +1,4 @@
-"""`nqbot status`: SSD use and each job's progress and estimated nights left (§11)."""
+"""`nqbot status`: SSD use, the job locks, and each job's progress, peak memory and estimated nights left (§11)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import statistics
 import shutil
 from datetime import datetime
 
+from nqbot.jobs.lock import ALL_LOCKS, lock_path, read_lock
 from nqbot.jobs.runner import p90
 from nqbot.storage import GB, Paths
 
@@ -31,8 +32,24 @@ def job_lines(paths: Paths) -> list[str]:
                 line += f", ~{math.ceil(hours_left / window_h)} night(s) left"
         elif not left:
             line += " (complete)"
+        peaks = [d["peak_gb"] for d in done.values() if d.get("peak_gb")]
+        if peaks:  # two backfills may run side by side on the 16 GB laptop (§11 Low memory)
+            line += f", peak {max(peaks):.1f} GB RAM"
         lines.append(line)
     return lines or ["no jobs yet"]
+
+
+def lock_lines(paths: Paths) -> list[str]:
+    lines = []
+    for kind in ALL_LOCKS:
+        path = lock_path(paths.root, kind)
+        if not path.exists():
+            lines.append(f"{kind} job lock: free")
+            continue
+        h = read_lock(path)
+        lines.append(f"{kind} job lock: held by job {h.get('job')!r} (pid {h.get('pid')} on {h.get('host')}, since "
+                     f"{h.get('started_utc')})" if h else f"{kind} job lock: unreadable lock file {path}")
+    return lines
 
 
 def _last_window_hours(state: dict) -> float | None:
@@ -52,4 +69,4 @@ def status_lines(paths: Paths) -> list[str]:
         f"SSD {paths.drive} (root {paths.root}): {usage.used / GB:.0f} GB used, "
         f"{usage.free / GB:.0f} GB free of {usage.total / GB:.0f} GB"
     ]
-    return lines + job_lines(paths)
+    return lines + lock_lines(paths) + job_lines(paths)

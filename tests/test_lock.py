@@ -58,3 +58,41 @@ def test_force_unlock(tmp_path):
     assert force_unlock(path)["host"] == "home-pc"
     assert not path.exists()
     assert force_unlock(path) is None
+
+
+# --- two job locks (presd_fixes issue 3, §11 One machine) ----------------------------------------------------
+
+def test_job_locks_take_only_the_named_ones(tmp_path):
+    from nqbot.jobs.lock import ALL_LOCKS, DATABENTO, SKYLIT, job_locks, lock_path
+
+    with job_locks(tmp_path, (SKYLIT,), "skylit_backfill"):
+        with job_locks(tmp_path, (DATABENTO,), "databento_backfill"):  # the two backfills run side by side
+            assert all(lock_path(tmp_path, k).exists() for k in ALL_LOCKS)
+            with pytest.raises(LockHeld, match="unlock --skylit"):
+                with job_locks(tmp_path, ALL_LOCKS, "dummy"):
+                    pass
+        with pytest.raises(LockHeld, match="unlock --skylit"):
+            with job_locks(tmp_path, (SKYLIT,), "step7 symbols"):
+                pass
+        assert not lock_path(tmp_path, DATABENTO).exists()
+
+
+def test_job_locks_keep_nothing_when_the_second_is_held(tmp_path):
+    from nqbot.jobs.lock import DATABENTO, SKYLIT, job_locks, lock_path
+
+    lock_path(tmp_path, DATABENTO).write_text(json.dumps({"host": "home-pc", "pid": 1, "job": "databento_backfill"}))
+    with pytest.raises(LockHeld, match="unlock --databento"):
+        with job_locks(tmp_path, (SKYLIT, DATABENTO), "dummy"):
+            pass
+    assert not lock_path(tmp_path, SKYLIT).exists()
+
+
+def test_holder_alive():
+    from nqbot.jobs.lock import _create_time, holder_alive
+
+    me = {"host": socket.gethostname(), "pid": os.getpid(), "pid_created": _create_time(os.getpid())}
+    assert holder_alive(me)
+    assert not holder_alive({**me, "pid_created": 1.0})  # pid reused
+    assert not holder_alive({**me, "host": "home-pc"})
+    assert not holder_alive({"host": socket.gethostname(), "pid": 2**22 + 12345})
+    assert not holder_alive(None)

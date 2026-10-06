@@ -352,11 +352,11 @@ def test_cli_needs_the_api_key(settings, drive, monkeypatch, capsys, tmp_path):
 
 
 def test_cli_gameplan_ignores_the_job_lock(cli_env, capsys):
-    from nqbot.jobs.lock import LOCK_NAME, JobLock
+    from nqbot.jobs.lock import ALL_LOCKS, job_locks
 
     _, paths = cli_env
     paths.root.mkdir(parents=True)
-    with JobLock(paths.root / LOCK_NAME, "databento_backfill"):  # an overnight pull still running
+    with job_locks(paths.root, ALL_LOCKS, "databento_backfill"):  # overnight pulls still running
         assert cli.main(["gameplan", str(FIXTURES / CANON)]) == 0
 
 

@@ -77,3 +77,14 @@ def no_network(monkeypatch):
 
     monkeypatch.setattr(httpx2.HTTPTransport, "handle_request", refuse)
     monkeypatch.setattr(httpx2.AsyncHTTPTransport, "handle_async_request", refuse)
+
+
+@pytest.fixture(autouse=True)
+def no_power_calls(monkeypatch):
+    """Tests never call powercfg or SetThreadExecutionState: the calls are recorded instead (tests/test_power.py)."""
+    from nqbot import power
+
+    calls: list[int] = []
+    monkeypatch.setattr(power, "_set_state", calls.append)
+    monkeypatch.setattr(power, "powercfg_query", lambda subgroup, setting: "Current AC Power Setting Index: 0x00000000")
+    return calls

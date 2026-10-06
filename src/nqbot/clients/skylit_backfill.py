@@ -41,6 +41,7 @@ from nqbot.clients.skylit_pull import (ET, REACH_ANSWER_TOLERANCE, SKYLIT_HISTOR
                                        make_client, pull_session, range_params_from_settings, session_windows,
                                        window_reachable)
 from nqbot.clients.skylit_store import CacheMismatch, SkylitStore, _norm, read_meta, vol_history_to_table, write_parquet
+from nqbot.jobs.lock import SKYLIT
 from nqbot.jobs.runner import Ctx, StopChunk
 from nqbot.storage import Paths, append_jsonl, atomic_write_bytes, atomic_write_json, atomic_write_text
 
@@ -294,6 +295,10 @@ def make_plan(env: step7.Env, approved: int | None) -> BackfillPlan:
     """`nqbot skylit plan`: print the estimate, balance and shortfall; refuse over 5,000 credits without an
     approval at least as large (rule 2); write the plan."""
     now = env.now()
+    from nqbot.setup_ssd import check_month1, ledger_fixed
+
+    if not ledger_fixed(env.paths):  # step 10 starts: is the ledger's month-1 merge still right (§12 step 4b)?
+        check_month1(env.settings, now, env.cal)
     through, _ = step7._history_through(env.client.vol_symbols())  # free
     plan = plan_backfill(env, now, tempest_symbols(through))
     refuse_hard_mismatches(env, plan.days, plan.dp_dates)
@@ -377,6 +382,7 @@ class Budget:
 
 class SkylitBackfillJob:
     name = JOB_NAME
+    locks = (SKYLIT,)  # its own lock only: the other backfill may run alongside (§11 One machine)
 
     def __init__(self, client_factory: Callable[..., Any] = make_client, now: Callable[[], datetime] | None = None,
                  cal: dict[str, Any] | None = None, features: dict[str, Any] | None = None):

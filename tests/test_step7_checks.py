@@ -448,5 +448,5 @@ def test_report_with_backfill_estimate(env):
     # now = 2026-10-06 20:00 ET: 2025-10-01..06 have left the 365-day reach (by timestamp, not date)
     assert bf["lost_days"] == ["2025-10-01", "2025-10-02", "2025-10-03", "2025-10-06"]
     assert bf["estimate"][0][1] > 240 * 20  # range calls
-    assert step7.warmup_sessions(env.features) >= 20
+    assert step7.warmup_sessions(env.features) == 21  # the shared §3.2 count (tests/test_warmup.py)
     assert (step7.reports_dir(env.paths) / "parameter_check.md").exists()

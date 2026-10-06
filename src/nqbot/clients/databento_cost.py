@@ -66,15 +66,15 @@ class Estimate:
         return sum(usd for _, _, usd, payg in self.lines if not payg)
 
     def text(self) -> str:
-        # Owner (2026-10-05): data the Standard plan includes costs nothing extra, so it is shown as $0; get_cost's
-        # figure for it (list price, or 0) is kept only as a note.
+        # Owner (2026-10-05): data the Standard plan includes costs nothing extra, so it is shown as $0. A request
+        # get_cost prices above $0 is pay-as-you-go whatever its date (databento_pull.estimate), so an included line
+        # is always $0.
         rows = [f"Databento cost estimate (metadata.get_cost) - {self.what}:"]
         for item, days, usd, payg in self.lines:
             if payg:
                 rows.append(f"  {item}: {days} day(s) -> ${usd:,.2f} PAY-AS-YOU-GO")
             else:
-                note = f" (included in Standard; get_cost says ${usd:,.2f})" if usd else " (included in Standard)"
-                rows.append(f"  {item}: {days} day(s) -> $0.00{note}")
+                rows.append(f"  {item}: {days} day(s) -> $0.00 (included in Standard)")
         rows.append(f"  total extra charge: ${self.payg_usd:,.2f} (pay-as-you-go only; included data is $0)")
         return "\n".join(rows)
 

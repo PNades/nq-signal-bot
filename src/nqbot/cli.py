@@ -7,7 +7,8 @@ import sys
 from datetime import date, datetime, time
 
 from nqbot.config import ConfigError, load_settings
-from nqbot.jobs.lock import LOCK_NAME, LockHeld, force_unlock, read_lock
+from nqbot.jobs.lock import (ALL_LOCKS, DATABENTO, SKYLIT, LockHeld, force_unlock, holder_alive, job_locks, lock_path,
+                             read_lock)
 from nqbot.jobs.registry import JOBS, get_job
 from nqbot.jobs.runner import DEFAULT_UNTIL, ET, parse_until, run_job
 from nqbot.jobs.status import status_lines
@@ -39,9 +40,19 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--until", default=DEFAULT_UNTIL, type=_until,
                      help="stop before this ET time (HH:MM, default 07:30)")
     sub.add_parser("status", help="SSD use and job progress")
-    unlock = sub.add_parser("unlock", help="remove the job lock left on the SSD by a job that is no longer running")
+    unlock = sub.add_parser("unlock", help="remove a job lock left on the SSD by a job that is no longer running")
     unlock.add_argument("--yes", action="store_true", help="confirm that job is no longer running anywhere")
-    unlock.add_argument("--gameplan", action="store_true", help="the gameplan commands' lock instead of the job lock")
+    which = unlock.add_mutually_exclusive_group()
+    which.add_argument("--skylit", action="store_true", help="only the Skylit job lock")
+    which.add_argument("--databento", action="store_true", help="only the Databento job lock")
+    which.add_argument("--gameplan", action="store_true", help="the gameplan commands' lock instead of the job locks")
+    setup = sub.add_parser("setup-ssd", help="step 4b: find and check the SSD, write paths.root, the marker and the "
+                                             "month ledger (prints the diff; --yes writes)")
+    setup.add_argument("--drive", default=None, help="the SSD's drive letter (needed if several drives are plugged in)")
+    setup.add_argument("--root", default=None, help="folder on the SSD for all project data (default nqbot/)")
+    setup.add_argument("--rewrite-ledger", action="store_true",
+                       help="when step 10 starts: re-check the month-1 merge and rewrite only the ledger")
+    setup.add_argument("--yes", action="store_true", help="write it (after the owner saw the diff)")
     _add_step7(sub)
     _add_skylit(sub)
     _add_databento(sub)
@@ -53,6 +64,8 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as e:
         print(f"config error: {e}", file=sys.stderr)
         return EXIT_REFUSED
+    if args.command == "setup-ssd":  # before resolve_paths: paths.root and the marker don't exist yet
+        return _run_setup_ssd(args, settings)
     try:
         paths = resolve_paths(settings)
     except SSDNotFound as e:
@@ -64,26 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "unlock":
-        if args.gameplan:
-            from nqbot.gameplan.parser import GameplanStore
-
-            lock, what, flag = GameplanStore.from_paths(paths).lock_path, "gameplan lock", " --gameplan"
-        else:
-            lock, what, flag = paths.root / LOCK_NAME, "job lock", ""
-        holder = read_lock(lock)
-        if not lock.exists():
-            print(f"no {what} on the SSD")
-            return 0
-        print(f"{what} held by: {holder or 'unreadable lock file'}")
-        if not args.yes:
-            print(f"Check that job is not running on any machine, then run: uv run nqbot unlock{flag} --yes")
-            return EXIT_LOCKED
-        force_unlock(lock)
-        if args.gameplan:
-            print("gameplan lock removed")
-        else:
-            print("job lock removed; the job resumes from its last finished chunk on the next nqbot run")
-        return 0
+        return _unlock(args, paths)
 
     log = setup_logging(paths.log_dir)
     if args.command == "step7":
@@ -101,6 +95,7 @@ def main(argv: list[str] | None = None) -> int:
 
     job = get_job(args.job)
     until = parse_until(args.until, datetime.now(ET))
+    _print_power_warnings()
     try:
         result = run_job(job, settings, paths, until=until, log=log)
     except LockHeld as e:
@@ -119,6 +114,59 @@ def main(argv: list[str] | None = None) -> int:
     if result.status == "credits":
         print(f"stopped cleanly on credits: top up (or re-plan with the owner's OK), then run: uv run nqbot run {job.name}")
     return 0 if result.status in ("complete", "until") else EXIT_REFUSED
+
+
+def _unlock(args: argparse.Namespace, paths) -> int:
+    """Show the job locks (or the gameplan lock) and, with --yes, remove them; never one a live process here holds."""
+    if args.gameplan:
+        from nqbot.gameplan.parser import GameplanStore
+
+        locks, flag = [("gameplan lock", GameplanStore.from_paths(paths).lock_path)], " --gameplan"
+    else:
+        kinds = [SKYLIT] if args.skylit else [DATABENTO] if args.databento else list(ALL_LOCKS)
+        locks = [(f"{k} job lock", lock_path(paths.root, k)) for k in kinds]
+        flag = " --skylit" if args.skylit else " --databento" if args.databento else ""
+    held = [(what, lock, read_lock(lock)) for what, lock in locks if lock.exists()]
+    if not held:
+        print(f"no {' or '.join(what for what, _ in locks)} on the SSD")
+        return 0
+    for what, _, holder in held:
+        print(f"{what} held by: {holder or 'unreadable lock file'}")
+    alive = [what for what, _, holder in held if holder_alive(holder)]
+    if alive:
+        print(f"refused: {', '.join(alive)} belongs to a job still running on this machine: stop it first "
+              "(or wait for it to finish); --skylit or --databento removes only the other one")
+        return EXIT_LOCKED
+    if not args.yes:
+        print(f"Check that job is not running on any machine, then run: uv run nqbot unlock{flag} --yes")
+        return EXIT_LOCKED
+    for what, lock, _ in held:
+        force_unlock(lock)
+        print(f"{what} removed")
+    if not args.gameplan:
+        print("the job resumes from its last finished chunk on the next nqbot run")
+    return 0
+
+
+def _run_setup_ssd(args: argparse.Namespace, settings: dict) -> int:
+    from nqbot import setup_ssd
+    from nqbot.config import CONFIG_DIR
+    from nqbot.months import LedgerMissing
+
+    try:
+        setup_ssd.setup(settings, CONFIG_DIR / "settings.yaml", now=datetime.now(ET), drive_arg=args.drive,
+                        root=args.root or setup_ssd.DEFAULT_ROOT, yes=args.yes, rewrite_ledger=args.rewrite_ledger)
+    except (setup_ssd.SetupRefused, LedgerMissing, SSDNotFound) as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return EXIT_REFUSED
+    return 0
+
+
+def _print_power_warnings() -> None:
+    from nqbot.power import power_warnings
+
+    for line in power_warnings():
+        print(line, file=sys.stderr)
 
 
 def _date(text: str) -> date:
@@ -185,7 +233,6 @@ def _run_step7(args: argparse.Namespace, settings: dict, paths, log) -> int:
     from nqbot.clients.skylit_credits import CreditRefused
     from nqbot.clients.skylit_pull import SkylitPullJob
     from nqbot.config import load_features
-    from nqbot.jobs.lock import JobLock
     from nqbot.months import LedgerMissing, NotDevelopmentMonth
     from nqbot.secrets import MissingSecret
 
@@ -194,14 +241,19 @@ def _run_step7(args: argparse.Namespace, settings: dict, paths, log) -> int:
 
     env = step7.Env(settings=settings, features=load_features(), paths=paths, log=log)
     approve = args.approve_credits
-    # One process spends credits at a time (shared rate limit; per-call charges read from the balance):
-    # every check holds the SSD job lock, except the hours-long Tempest poll (free polls, a 1-credit pull)
-    # and sample-days, whose job run takes the lock itself.
+    # One process spends Skylit credits at a time (shared rate limit; per-call charges read from the balance):
+    # every check holds the Skylit job lock (not the Databento one, so the step-8 pull runs alongside), except the
+    # hours-long Tempest poll (free polls, a 1-credit pull), the report (reads only) and sample-days, whose job run
+    # takes the lock itself.
     lock = None
     if args.check not in ("tempest-poll", "sample-days", "report"):
         paths.root.mkdir(parents=True, exist_ok=True)
-        lock = JobLock(paths.root / LOCK_NAME, f"step7 {args.check}")
+        lock = job_locks(paths.root, (SKYLIT,), f"step7 {args.check}")
+    from nqbot.power import keep_awake
+
+    awake = keep_awake()  # stream-record and tempest-poll run for a long time
     try:
+        awake.__enter__()
         if lock is not None:
             lock.__enter__()
         match args.check:
@@ -245,6 +297,7 @@ def _run_step7(args: argparse.Namespace, settings: dict, paths, log) -> int:
     finally:
         if lock is not None:
             lock.__exit__(None, None, None)
+        awake.__exit__(None, None, None)
     return 0
 
 
@@ -262,14 +315,13 @@ def _run_skylit(args: argparse.Namespace, settings: dict, paths, log) -> int:
     from nqbot.clients.skylit import SkylitError
     from nqbot.clients.skylit_credits import CreditRefused
     from nqbot.config import load_features
-    from nqbot.jobs.lock import JobLock
     from nqbot.months import LedgerMissing
     from nqbot.secrets import MissingSecret
 
     env = step7.Env(settings=settings, features=load_features(), paths=paths, log=log)
     paths.root.mkdir(parents=True, exist_ok=True)
     try:
-        with JobLock(paths.root / LOCK_NAME, "skylit plan"):
+        with job_locks(paths.root, (SKYLIT,), "skylit plan"):
             bf.make_plan(env, args.approve_credits)
     except LockHeld as e:
         print(f"refused: {e}", file=sys.stderr)
@@ -286,6 +338,8 @@ def _add_databento(sub: argparse._SubParsersAction) -> None:
     p = db.add_parser("plan", help="resolve front contracts, print metadata.get_cost, write the plan (no data pulled)")
     p.add_argument("--approve-usd", type=float, default=None,
                    help="owner-approved pay-as-you-go dollars (warm-up trades, days past the included window)")
+    p.add_argument("--retry-failed-payg", action="store_true",
+                   help="let broken pay-as-you-go downloads run once more (only after the owner checked billing)")
     p.add_argument("--today", type=_date, default=None, help=argparse.SUPPRESS)  # testing only
 
 
@@ -294,18 +348,18 @@ def _run_databento(args: argparse.Namespace, settings: dict, paths, log) -> int:
     from nqbot.clients.databento_pull import PlanRefused, make_plan
     from nqbot.clients.databento_store import DatabentoStore
     from nqbot.config import load_features
-    from nqbot.jobs.lock import JobLock
     from nqbot.months import LedgerMissing
     from nqbot.secrets import MissingSecret
 
     store = DatabentoStore(paths)
     paths.root.mkdir(parents=True, exist_ok=True)
     try:
-        with JobLock(paths.root / LOCK_NAME, "databento plan"):
+        with job_locks(paths.root, (DATABENTO,), "databento plan"):
             client = DatabentoClient.from_env(on_call=store.log_call, log=log)
             now = datetime.now(ET)
             make_plan(client, store, settings, load_features(), args.today or now.date(),
-                      approved_usd=args.approve_usd, now=None if args.today else now)
+                      approved_usd=args.approve_usd, now=None if args.today else now,
+                      retry_failed_payg=args.retry_failed_payg)
     except (LedgerMissing, MissingSecret, LockHeld, DatabentoError, PlanRefused, ConfigError, ValueError) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED

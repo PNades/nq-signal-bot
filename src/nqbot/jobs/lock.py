@@ -1,6 +1,8 @@
-"""The job lock file on the SSD: only one machine runs jobs on the SSD at a time (§11 One machine).
+"""The job lock files on the SSD: only one machine runs jobs on the SSD at a time (§11 One machine).
 
-Created exclusively and holding host, pid, the process start time and the job. A lock left by a dead
+Two locks (owner 2026-10-05): the Skylit lock (step-7 checks, `skylit plan`, Skylit pull jobs) and the Databento
+lock (`databento plan`, Databento pull jobs), so the step-10 and step-8 backfills run in parallel; every other job
+holds both. Each lock file is created exclusively and holding host, pid, the process start time and the job. A lock left by a dead
 process on this machine is stale and reclaimed (the start time guards against Windows reusing the pid).
 A lock held by another machine is never broken automatically: if the SSD was unplugged mid-job (the
 lock can't be removed then), `nqbot unlock` shows the holder and removes it once the owner confirms
@@ -12,12 +14,24 @@ from __future__ import annotations
 import json
 import os
 import socket
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterable, Iterator
 
 import psutil
 
-LOCK_NAME = ".nqbot_job.lock"
+SKYLIT, DATABENTO = "skylit", "databento"
+ALL_LOCKS = (SKYLIT, DATABENTO)  # also the acquisition order
+LOCK_FILES = {SKYLIT: ".nqbot_skylit.lock", DATABENTO: ".nqbot_databento.lock"}
+
+
+def lock_path(root: Path, kind: str) -> Path:
+    return root / LOCK_FILES[kind]
+
+
+def unlock_cmd(kind: str) -> str:
+    return f"uv run nqbot unlock --{kind}"
 
 
 class LockHeld(Exception):
@@ -48,6 +62,26 @@ def read_lock(path: Path) -> dict | None:
             return json.load(f)
     except (OSError, ValueError):
         return None
+
+
+def holder_alive(holder: dict | None) -> bool:
+    """True if the holder is a running process on this machine (its lock must not be removed by hand)."""
+    if not holder or holder.get("host") != socket.gethostname():
+        return False
+    created = _create_time(int(holder.get("pid", -1)))
+    recorded = holder.get("pid_created")
+    return created is not None and (recorded is None or abs(created - recorded) <= 1)
+
+
+@contextmanager
+def job_locks(root: Path, kinds: Iterable[str], job: str) -> Iterator[None]:
+    """Hold the given job locks (in ALL_LOCKS order) for `job`; if one is taken, none is kept."""
+    wanted = set(kinds)
+    with ExitStack() as stack:
+        for kind in ALL_LOCKS:
+            if kind in wanted:
+                stack.enter_context(JobLock(lock_path(root, kind), job, unlock_cmd(kind)))
+        yield
 
 
 def force_unlock(path: Path) -> dict | None:

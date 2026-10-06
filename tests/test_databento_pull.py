@@ -9,8 +9,9 @@ import pytest
 
 from nqbot.clients import databento_cost as cost_mod
 from nqbot.clients.databento_client import MBP1, OHLCV_1S, TRADES, DatabentoClient
-from nqbot.clients.databento_pull import (DOWNLOAD_RETRY_SEC, HOLIDAY, ROLL, WARMUP, WINDOW, DatabentoPullJob, PullItem, make_plan,
-                                          mbp1_span, plan_path, sessions_before, warmup_sessions, window_days)
+from nqbot.clients.databento_pull import (DOWNLOAD_RETRY_SEC, HOLIDAY, ROLL, WARMUP, WINDOW, DatabentoPullJob, PlanRefused,
+                                          PullItem, failed_payg, make_plan, mbp1_span, plan_path, sessions_before,
+                                          window_days)
 from nqbot.clients.databento_pull import ET
 from nqbot.clients.databento_store import CacheMismatch, DatabentoStore
 from nqbot.config import load_features
@@ -26,11 +27,12 @@ def dec_settings(settings):
     return settings
 
 
-def plan_with(fake, paths, settings, approved=None, today=TODAY, lines=None):
+def plan_with(fake, paths, settings, approved=None, today=TODAY, lines=None, retry_failed_payg=False):
     store = DatabentoStore(paths)
     client = DatabentoClient(fake, on_call=store.log_call)
     echo = (lines.append if lines is not None else lambda s: None)
-    return make_plan(client, store, settings, load_features(), today, approved_usd=approved, echo=echo)
+    return make_plan(client, store, settings, load_features(), today, approved_usd=approved, echo=echo,
+                     retry_failed_payg=retry_failed_payg)
 
 
 def job_for(fake, today=TODAY):
@@ -44,12 +46,6 @@ def run(job, settings, paths, clock, log):
 
 
 # --- pure planning ------------------------------------------------------------------------------------------
-
-def test_warmup_sessions_is_the_longest_lookback_or_20_plus_one_close():
-    features = load_features()
-    assert warmup_sessions(features) == 21  # 20 returns for rv_nq need 21 closes (owner 2026-10-05)
-    assert warmup_sessions({**features, "atr_period": 30}) == 31
-
 
 def test_sessions_before_skips_holidays_and_weekends():
     got = sessions_before(date(2025, 12, 1), 5)
@@ -241,8 +237,9 @@ def test_a_dropped_download_leaves_no_file(paths, dec_settings, log):
     fake = FakeHistorical(fail_on=lambda schema, symbol, start: schema == MBP1)
     plan_with(fake, paths, dec_settings)
     ctx = _ctx(paths, dec_settings, log)
-    with pytest.raises(ConnectionError):
+    with pytest.raises(StopChunk) as e:
         job_for(fake).run_chunk("2025-12-01:incl:x", ctx)
+    assert e.value.status == "api_error"  # a clean stop: the chunk re-runs next time (presd_fixes issue 4)
     assert ctx.slept == list(DOWNLOAD_RETRY_SEC)  # an included download is retried with backoff, then gives up
     folder = DatabentoStore(paths).root / MBP1
     assert [p for p in folder.rglob("*") if p.is_file()] == []  # neither the file nor its temp file
@@ -434,12 +431,102 @@ def test_a_transient_failure_is_retried_but_a_paid_download_is_not(paths, dec_se
     paid = FakeHistorical(fail_on=lambda schema, symbol, start: schema == TRADES)
     plan_with(paid, paths, dec_settings, approved=1000.0)
     ctx = _ctx(paths, dec_settings, log)
-    with pytest.raises(ConnectionError):
-        job_for(paid).run_chunk("2025-11-03:payg:x", ctx)
-    assert ctx.slept == [] and len(paid.downloads()) == 1
+    job_for(paid).run_chunk("2025-11-03:payg:x", ctx)  # recorded, not retried, not raised
+    assert ctx.slept == [] and len(paid.downloads()) == 2  # NQ and ES warm-up trades: each tried once
 
 
 def test_window_days_keep_days_skylit_already_stored(dec_settings):
     """Review finding 2: a re-plan days later keeps the days whose Skylit boards are stored."""
     days, _ = window_days(dec_settings, date(2026, 12, 20), skylit_has=lambda d: d == date(2025, 12, 12))
     assert date(2025, 12, 12) in days and date(2025, 12, 11) not in days
+
+
+# --- pre-SSD session B (presd_fixes issues 4 and 5) ----------------------------------------------------------
+
+def test_a_broken_stream_is_retried_but_a_4xx_is_not(paths, dec_settings, log):
+    """databento 0.87 wraps a mid-stream failure as a plain BentoError: retried for included items."""
+    from databento.common.error import BentoClientError, BentoError
+
+    broken = {"n": 0}
+
+    def once(schema, symbol, start):
+        if schema == MBP1 and broken["n"] == 0:
+            broken["n"] += 1
+            return BentoError("Error streaming response: peer closed connection")
+        return False
+
+    fake = FakeHistorical(fail_on=once)
+    plan_with(fake, paths, dec_settings)
+    ctx = _ctx(paths, dec_settings, log)
+    job_for(fake).run_chunk("2025-12-01:incl:x", ctx)
+    assert ctx.slept == [DOWNLOAD_RETRY_SEC[0]] and DatabentoStore(paths).raw_path(MBP1, "NQZ5", date(2025, 12, 1)).exists()
+
+    bad = FakeHistorical(fail_on=lambda schema, symbol, start: BentoClientError(http_status=422, message="bad request")
+                         if schema == MBP1 else False)
+    ctx = _ctx(paths, dec_settings, log)
+    with pytest.raises(BentoClientError):
+        job_for(bad).run_chunk("2025-12-02:incl:x", ctx)
+    assert ctx.slept == []
+
+
+def test_a_broken_paid_download_waits_for_the_owner(paths, dec_settings, clock, log):
+    from databento.common.error import BentoError
+
+    fake = FakeHistorical(fail_on=lambda schema, symbol, start: BentoError("Error streaming response: reset")
+                          if schema == TRADES and symbol == "NQZ5" and start.startswith("2025-11-02") else False)
+    plan_with(fake, paths, dec_settings, approved=1000.0)
+    r = run(job_for(fake), dec_settings, paths, clock, log)
+    assert r.status == "complete"
+    store = DatabentoStore(paths)
+    warm = date(2025, 11, 3)
+    assert not store.raw_path(TRADES, "NQZ5", warm).exists() and store.raw_path(TRADES, "ESZ5", warm).exists()
+    assert list(failed_payg(paths)) == [f"trades|NQZ5|{warm}"]
+    tried = len(fake.downloads())
+    run(job_for(fake), dec_settings, paths, clock, log)  # the next night: never retried automatically
+    assert len(fake.downloads()) == tried
+    lines: list[str] = []
+    plan_with(fake, paths, dec_settings, approved=1000.0, lines=lines)  # a re-plan alone doesn't clear it
+    assert any("--retry-failed-payg" in line for line in lines)
+    run(job_for(fake), dec_settings, paths, clock, log)
+    assert len(fake.downloads()) == tried
+    fake.fail_on = None
+    plan = plan_with(fake, paths, dec_settings, approved=1000.0, retry_failed_payg=True)
+    assert plan["retry_failed"] == [f"trades|NQZ5|{warm}"]
+    run(job_for(fake), dec_settings, paths, clock, log)
+    assert store.raw_path(TRADES, "NQZ5", warm).exists() and len(fake.downloads()) == tried + 1
+
+
+def test_a_retry_plan_reruns_a_paid_chunk_whose_items_all_broke(paths, dec_settings, clock, log):
+    """Review finding 1: the same missing requests after a --retry-failed-payg plan are a new chunk, not 'done'."""
+    from databento.common.error import BentoError
+
+    warm = date(2025, 11, 3)
+    fake = FakeHistorical(fail_on=lambda schema, symbol, start: BentoError("Error streaming response: reset")
+                          if schema == TRADES and start.startswith("2025-11-02") else False)
+    plan_with(fake, paths, dec_settings, approved=1000.0)
+    run(job_for(fake), dec_settings, paths, clock, log)
+    assert sorted(failed_payg(paths)) == [f"trades|ESZ5|{warm}", f"trades|NQZ5|{warm}"]
+    fake.fail_on = None
+    plan_with(fake, paths, dec_settings, approved=1000.0, retry_failed_payg=True)
+    run(job_for(fake), dec_settings, paths, clock, log)
+    store = DatabentoStore(paths)
+    assert store.raw_path(TRADES, "NQZ5", warm).exists() and store.raw_path(TRADES, "ESZ5", warm).exists()
+
+
+def test_plan_refused_when_get_cost_prices_the_probe(paths, dec_settings):
+    fake = FakeHistorical(price_all=True)  # subscription not active yet
+    with pytest.raises(PlanRefused, match="subscription is not active"):
+        plan_with(fake, paths, dec_settings, approved=10**6)
+    assert not plan_path(paths).exists()
+    probes = [c for c in fake.calls if c[0] == "cost" and c[3].endswith("T15:00:00+00:00")]
+    assert probes and probes[0][1] == OHLCV_1S
+
+
+def test_plan_refused_when_most_included_requests_are_priced(paths, dec_settings, monkeypatch):
+    from nqbot.clients import databento_pull as dbp
+
+    fake = FakeHistorical(included_from=date(2025, 12, 31))  # the probe day is $0, nearly everything else priced
+    monkeypatch.setattr(dbp, "probe_included", lambda *a, **k: None)
+    with pytest.raises(PlanRefused, match="get_cost priced"):
+        plan_with(fake, paths, dec_settings, approved=10**6)
+    assert not plan_path(paths).exists()

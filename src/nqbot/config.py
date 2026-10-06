@@ -37,6 +37,13 @@ def load_settings(config_dir: Path | None = None) -> dict[str, Any]:
                 f"{local_path}: only {sorted(LOCAL_KEYS)} may be overridden locally, found {unknown}"
             )
         settings.update(local)
+    if settings.get("months"):  # the ledger written at step 4b: all 12 months, strictly formatted (§7 rule 2b)
+        from nqbot.months import LedgerInvalid, validate
+
+        try:
+            validate(settings["months"], full=True)
+        except LedgerInvalid as e:
+            raise ConfigError(str(e)) from None
     return settings
 
 

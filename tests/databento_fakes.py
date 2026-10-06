@@ -97,6 +97,8 @@ class _Metadata:
         self.fake.calls.append(("cost", schema, tuple(symbols), start, end))
         # A Standard subscriber: get_cost applies the plan, so included data costs $0 (1-second bars always; L1 from
         # `included_from`, UTC date of the request start); only older L1 is priced.
+        if self.fake.price_all:  # no active subscription: get_cost quotes list prices for everything
+            return round(USD_PER_DAY[schema] * (ns(end) - ns(start)) / (86400 * NS), 4) or 0.01
         if schema == "ohlcv-1s" or datetime.fromisoformat(start).astimezone(timezone.utc).date() >= self.fake.included_from:
             return 0.0
         days = (ns(end) - ns(start)) / (86400 * NS)
@@ -112,10 +114,10 @@ class _Timeseries:
         if Path(path).exists():  # as databento 0.87 validate_file_write_path(exist_ok=False)
             raise FileExistsError(f"path {path} already exists")
         self.fake.calls.append(("get_range", schema, symbols[0], start, end))
-        if self.fake.fail_on and self.fake.fail_on(schema, symbols[0], start):
+        if self.fake.fail_on and (err := self.fake.fail_on(schema, symbols[0], start)):
             with open(path, "wb") as f:
                 f.write(b"partial")  # a half-written download: must never become a cached file
-            raise ConnectionError("connection dropped mid-download")
+            raise err if isinstance(err, BaseException) else ConnectionError("connection dropped mid-download")
         s, e = ns(start), ns(end)
         with open(path, "wb") as f:
             f.write(dbn_bytes(schema, symbols[0], s, e, self.fake.records(schema, symbols[0], s, e)))
@@ -125,8 +127,12 @@ class FakeHistorical:
     """Front contracts: NQ.v.0 rolls NQZ5 -> NQH6 on `nq_roll`, ES.v.0 ESZ5 -> ESH6 on `es_roll` (UTC dates)."""
 
     def __init__(self, nq_roll: date = date(2025, 12, 15), es_roll: date = date(2025, 12, 16), records=default_records,
-                 fail_on=None, included_from: date = date(2025, 11, 20), partial_ids: bool = False):
+                 fail_on=None, included_from: date = date(2025, 11, 20), partial_ids: bool = False,
+                 price_all: bool = False):
+        """`fail_on(schema, symbol, start)` -> truthy to break that download (an exception instance is raised as
+        is, anything else as a ConnectionError)."""
         self.included_from = included_from
+        self.price_all = price_all
         self.partial_ids = partial_ids
         self.rolls = {"NQ.v.0": ("NQZ5", "NQH6", nq_roll), "ES.v.0": ("ESZ5", "ESH6", es_roll)}
         self.records = records
