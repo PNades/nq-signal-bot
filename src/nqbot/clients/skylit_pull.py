@@ -41,7 +41,8 @@ MAPS = ("QQQ", "NDXP", "SPY", "SPX")  # §3.1 Symbols (decided); one call takes 
 NO_DATA_CODES = frozenset({"no_data", "NOT_FOUND", "not_found"})
 PROBE_EMPTY_CODES = frozenset({"symbol_not_found"})  # a probe on a closed day may find none of the symbols
 SKYLIT_HISTORY = timedelta(days=365)  # §3.1: /v1/historical/range reaches 365 days back
-# A 400 (or a 404 that isn't no-data) for a window this close to the 365-day line is read as "out of reach" (lost),
+# §3.1 Backfill: a 400 (or a 404 that isn't no-data) for a window this close to the 365-day line is read as
+# "out of reach" (lost),
 # in case the API's own cut-off differs from ours by a timezone or a day boundary (presd_fixes issue 7). Further
 # inside the reach the same answer is a real error and raises.
 REACH_ANSWER_TOLERANCE = timedelta(days=1)

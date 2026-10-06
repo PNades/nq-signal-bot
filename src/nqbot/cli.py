@@ -94,7 +94,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_databento(args, settings, paths, log)
     if args.command in ("gameplan", "gameplan-batch"):
         return _run_gameplan(args, settings, paths, log)
+    from nqbot.clients.skylit import SkylitError
     from nqbot.clients.skylit_backfill import BackfillRefused
+    from nqbot.clients.skylit_credits import CreditRefused
+    from nqbot.secrets import MissingSecret
 
     job = get_job(args.job)
     until = parse_until(args.until, datetime.now(ET))
@@ -103,8 +106,13 @@ def main(argv: list[str] | None = None) -> int:
     except LockHeld as e:
         log.error("%s", e)
         return EXIT_LOCKED
-    except BackfillRefused as e:
+    except (BackfillRefused, CreditRefused, MissingSecret) as e:
         print(f"refused: {e}", file=sys.stderr)
+        return EXIT_REFUSED
+    except SkylitError as e:  # e.g. an undecodable answer (kept in skylit/failed/) or a 4xx: the chunk re-runs
+        log.error("%s stopped on a Skylit error: %s", job.name, e)
+        print(f"stopped: Skylit error {e}; the chunk re-runs next time (ask Claude Code if it repeats)",
+              file=sys.stderr)
         return EXIT_REFUSED
     message = f" - {result.message}" if result.message else ""
     print(f"{job.name}: {result.status} ({result.done}/{result.total} chunks done){message}")
@@ -251,7 +259,7 @@ def _add_skylit(sub: argparse._SubParsersAction) -> None:
 def _run_skylit(args: argparse.Namespace, settings: dict, paths, log) -> int:
     from nqbot.checks import step7
     from nqbot.clients import skylit_backfill as bf
-    from nqbot.clients.skylit import AccessDenied, OutOfCredits
+    from nqbot.clients.skylit import SkylitError
     from nqbot.clients.skylit_credits import CreditRefused
     from nqbot.config import load_features
     from nqbot.jobs.lock import JobLock
@@ -266,7 +274,7 @@ def _run_skylit(args: argparse.Namespace, settings: dict, paths, log) -> int:
     except LockHeld as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_LOCKED
-    except (bf.BackfillRefused, CreditRefused, OutOfCredits, AccessDenied, LedgerMissing, MissingSecret) as e:
+    except (bf.BackfillRefused, CreditRefused, SkylitError, LedgerMissing, MissingSecret, ValueError) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
     return 0

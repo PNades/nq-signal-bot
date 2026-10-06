@@ -37,23 +37,24 @@ from nqbot import months as months_mod
 from nqbot.checks import step7
 from nqbot.clients import skylit_credits as credits
 from nqbot.clients.skylit import OutOfCredits, SkylitError, vol_history_cost
-from nqbot.clients.skylit_pull import (Window, full_day_windows, make_client, pull_session,
-                                       range_params_from_settings, session_windows, window_reachable)
+from nqbot.clients.skylit_pull import (ET, REACH_ANSWER_TOLERANCE, SKYLIT_HISTORY, Window, full_day_windows,
+                                       make_client, pull_session, range_params_from_settings, session_windows,
+                                       window_reachable)
 from nqbot.clients.skylit_store import CacheMismatch, SkylitStore, _norm, read_meta, vol_history_to_table, write_parquet
 from nqbot.jobs.runner import Ctx, StopChunk
-from nqbot.storage import Paths, atomic_write_bytes, atomic_write_json, atomic_write_text
+from nqbot.storage import Paths, append_jsonl, atomic_write_bytes, atomic_write_json, atomic_write_text
 
 JOB_NAME = "skylit_backfill"
 TEMPEST_CHUNK = "tempest"  # last: a Tempest problem never holds up the time-critical days
 TEMPEST_ALWAYS = ("QQQ", "SPY")  # §12 step 10
 TEMPEST_IF_SERVED = ("NDXP", "SPXW", step7.VIX)  # §12 step 10: if step 7 found them served
 RAISE = "strike_window_raise"
-# A chunk whose call gave up after the client's own retries (5xx, network) is tried again after these waits, in the
-# same run: an overnight blip must not end the night while the oldest windows keep leaving the reach. Operational,
-# not a SPEC number.
+# §3.1 Backfill: a chunk whose call gave up after the client's own retries (5xx, network) is tried again after these
+# waits (1, 5, 15 minutes), in the same run: an overnight blip must not end the night while the oldest windows keep
+# leaving the reach.
 CHUNK_RETRY_SEC = (60, 300, 900)
 TRANSIENT_CODES = frozenset({"gave_up"})
-# Pages reserved before a dark-pool date starts: twice the most pages any date has needed, so a stop mid-date
+# §3.1 Backfill: pages reserved before a dark-pool date starts: twice the most pages any date has needed, so a stop mid-date
 # (which would throw paid pages away) needs a date with more than twice the largest seen.
 DP_PAGE_RESERVE_FACTOR = 2
 NOMINAL = {"/v1/historical/range": credits.RANGE_CALL, "/v1/dark-pool/trades": credits.DP_TRADES_PAGE,
@@ -169,16 +170,35 @@ def param_state(env: step7.Env, day: date) -> dict[str, tuple[str, dict[str, Any
 def refuse_hard_mismatches(env: step7.Env, days: list[date], dp_dates: list[date] = ()) -> None:
     """Any cached window pulled with other parameters than maxStrikes, or a cached dark-pool date pulled with other
     parameters, stops the job before it starts (never a CacheMismatch mid-backfill)."""
+    samples = sample_days(env.paths)
     bad = [f"{d} {hhmm}: {have}" for d in days if env.store.stored_windows(d)
-           for hhmm, (state, have) in param_state(env, d).items() if state == "other"]
+           for hhmm, (state, have) in param_state(env, d).items()
+           if state == "other" or (state == "strikes_only" and d not in samples)]
     for d in dp_dates:
         try:
             step7.cached_or_mismatch(env.store.dp_trades_path(d), step7._dp_params(env, d))
         except CacheMismatch as e:
             bad.append(f"dark pools {d}: {e}")
     if bad:
-        raise BackfillRefused("cached windows were pulled with other parameters (not just maxStrikes): "
-                              + "; ".join(bad[:5]) + (" ..." if len(bad) > 5 else "") + ". Ask the owner (§3.1).")
+        raise BackfillRefused("cached data was pulled with other parameters (only a step-7 sample day may differ, "
+                              "and only in maxStrikes; a backfill day pulled with an older skylit_max_strikes would "
+                              "mix strike sets, §3.1): " + "; ".join(bad[:5]) + (" ..." if len(bad) > 5 else "")
+                              + ". Ask the owner.")
+
+
+def max_pages_stored(store: SkylitStore) -> int:
+    """The most pages any stored dark-pool date needed (at least 1)."""
+    folder = store.root / "darkpool" / "trades"
+    pages = [int(read_meta(p).get("pages") or 1) for p in folder.glob("*.parquet")] if folder.exists() else []
+    return max([1, *pages])
+
+
+def sample_days(paths: Paths) -> set[date]:
+    """The step-7 sample days (nqbot step7 sample-days wrote their plan)."""
+    path = paths.data_dir / "jobs" / "skylit_sample_days" / "dates.json"
+    if not path.exists():
+        return set()
+    return {date.fromisoformat(d) for d in json.loads(path.read_text(encoding="utf-8"))["dates"]}
 
 
 def _raise_copy_ok(env: step7.Env, day: date, hhmm: str, w: Window, base: Path) -> bool:
@@ -188,13 +208,31 @@ def _raise_copy_ok(env: step7.Env, day: date, hhmm: str, w: Window, base: Path) 
         return False
 
 
+def settled(paths: Paths) -> tuple[set[date], set[date]]:
+    """(Skylit days, dark-pool dates) the backfill already finished: their no-data windows, lost windows and
+    refused or empty dark-pool dates are never asked again, so they cost nothing more."""
+    folder = job_dir(paths) / "days"
+    sky, dp = set(), set()
+    for p in sorted(folder.glob("*.json")) if folder.exists() else []:
+        rec = json.loads(p.read_text(encoding="utf-8"))
+        d = date.fromisoformat(rec["date"])
+        if "skylit" in rec:
+            sky.add(d)
+        if "dp" in rec:
+            dp.add(d)
+    return sky, dp
+
+
 def windows_todo(env: step7.Env, plan: BackfillPlan, now: datetime) -> int:
     """Range calls still needed: reachable windows not cached with the current parameters (a raised sample day's
-    matching strike_window_raise copy counts as cached)."""
+    matching strike_window_raise copy counts as cached), on days the backfill hasn't finished."""
     margin = margin_min(env.settings)
     raise_base = env.store.base(RAISE, pulled=f"max{env.settings['skylit_max_strikes']}")
+    done, _ = settled(env.paths)
     n = 0
     for d in plan.days:
+        if d in done:
+            continue
         states = param_state(env, d) if env.store.stored_windows(d) else {}
         for w in session_windows(d, env.cal):
             if not window_reachable(w, now, margin):
@@ -206,19 +244,38 @@ def windows_todo(env: step7.Env, plan: BackfillPlan, now: datetime) -> int:
     return n
 
 
+def tempest_files(store: SkylitStore, start: date) -> list[Path]:
+    """The backfill's own Tempest pulls starting at `start` or continuing it (each covers the tail the last missed)."""
+    return [p for p in store.vol_files() if read_meta(p).get("backfill_from") == start.isoformat()]
+
+
+def tempest_todo(store: SkylitStore, plan: BackfillPlan) -> tuple[date, date] | None:
+    """The Tempest range still to pull: from the day after the last stored backfill row range to plan.last."""
+    ends = [date.fromisoformat(read_meta(p)["params"]["to"]) for p in tempest_files(store, plan.tempest_from)]
+    start = max(ends) + timedelta(days=1) if ends else plan.tempest_from
+    return (start, plan.last) if start <= plan.last else None
+
+
 def estimate(env: step7.Env, plan: BackfillPlan, now: datetime) -> credits.Estimate:
-    dp_todo = [d for d in plan.dp_dates if not env.store.dp_trades_path(d).exists()]
+    _, dp_done = settled(env.paths)
+    dp_todo = [d for d in plan.dp_dates if not env.store.dp_trades_path(d).exists() and d not in dp_done
+               and not (env.store.root / "darkpool" / "probe" / f"{d.isoformat()}.json").exists()]
     est = (credits.range_estimate(f"step-10 backfill {plan.first}..{plan.last}", windows_todo(env, plan, now))
            .add("/v1/dark-pool/trades pages", int(math.ceil(len(dp_todo) * step7._pages_per_date(env))),
                 credits.DP_TRADES_PAGE))
-    if not env.store.vol_files(plan.tempest_from, plan.last):
-        est.add_total(f"/v1/vol/history {plan.tempest_from}..{plan.last} ({', '.join(plan.tempest_symbols)})", 1,
-                      vol_history_cost(len(plan.tempest_symbols), plan.tempest_from, plan.last))
+    todo = tempest_todo(env.store, plan)
+    if todo:
+        est.add_total(f"/v1/vol/history {todo[0]}..{todo[1]} ({', '.join(plan.tempest_symbols)})", 1,
+                      vol_history_cost(len(plan.tempest_symbols), *todo))
     return est
 
 
+def job_dir(paths: Paths) -> Path:
+    return paths.data_dir / "jobs" / JOB_NAME
+
+
 def plan_path(paths: Paths) -> Path:
-    return paths.data_dir / "jobs" / JOB_NAME / "plan.json"
+    return job_dir(paths) / "plan.json"
 
 
 def lost_days_path(paths: Paths) -> Path:
@@ -258,6 +315,13 @@ def make_plan(env: step7.Env, approved: int | None) -> BackfillPlan:
     plan.created = now.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     plan.approved_credits = approved
     plan.estimate_total = est.total
+    earlier = spent_on_plan(env.store, None)
+    if earlier:
+        env.echo(f"  already spent by earlier backfill plans: {earlier:,} credits (this approval is for the "
+                 "estimate above only; every re-plan needs the owner's OK again)")
+    append_jsonl(job_dir(env.paths) / "approvals.jsonl",
+                 {"plan": plan.plan_id, "approved_credits": approved, "estimate": est.total,
+                  "spent_before": earlier, "at": now.isoformat()})
     atomic_write_json(plan_path(env.paths), plan.to_json())
     env.echo(f"plan written: {plan_path(env.paths)}; start it with: uv run nqbot run {JOB_NAME} --until 07:30")
     return plan
@@ -277,9 +341,11 @@ def nominal_cost(row: dict[str, Any]) -> int:
     return NOMINAL.get(ep, 0)
 
 
-def spent_on_plan(store: SkylitStore, plan_id: str) -> int:
+def spent_on_plan(store: SkylitStore, plan_id: str | None) -> int:
+    """Credits spent by one plan (None: by every backfill plan)."""
     return sum(max(r.get("charged") or 0, nominal_cost(r)) for r in store.ledger()
-               if r.get("job") == JOB_NAME and r.get("plan") == plan_id and (r.get("status") or 999) < 400)
+               if r.get("job") == JOB_NAME and (plan_id is None or r.get("plan") == plan_id)
+               and (r.get("status") or 999) < 400)
 
 
 @dataclass
@@ -363,9 +429,9 @@ class SkylitBackfillJob:
             env.log.warning("balance %s < remaining estimate %s: the job will stop cleanly when the balance runs "
                             "out; top up, then re-run", f"{balance:,}", f"{est.total:,}")
         self._budget = Budget(approved, spent, lambda: env.client.credits.remaining)
-        self._max_pages = max(1, int(math.ceil(step7._pages_per_date(env))))
+        self._max_pages = max_pages_stored(env.store)
         dates = sorted(set(plan.days) | set(plan.dp_dates))
-        return [d.isoformat() for d in dates] + [TEMPEST_CHUNK]
+        return [d.isoformat() for d in dates] + [f"{TEMPEST_CHUNK}_{plan.last.isoformat()}"]
 
     def run_chunk(self, chunk_id: str, ctx: Ctx) -> None:
         for attempt in range(len(CHUNK_RETRY_SEC) + 1):
@@ -389,7 +455,7 @@ class SkylitBackfillJob:
         assert self._budget is not None, "chunks() runs first"
         try:
             with env.client.tagged(job=JOB_NAME, plan=plan.plan_id):
-                if chunk_id == TEMPEST_CHUNK:
+                if chunk_id.startswith(TEMPEST_CHUNK):
                     atomic_write_json(ctx.out_dir / "tempest.json", self._tempest(env, plan))
                 else:
                     d = date.fromisoformat(chunk_id)
@@ -439,8 +505,9 @@ class SkylitBackfillJob:
         except OutOfCredits:
             raise
         except SkylitError as e:
-            if not step7.dp_out_of_reach(e):
-                raise
+            edge = (env.now().astimezone(timezone.utc) - SKYLIT_HISTORY + REACH_ANSWER_TOLERANCE).astimezone(ET).date()
+            if not step7.dp_out_of_reach(e) or d > edge:
+                raise  # a refusal for a date well inside the reach is a real error, not "out of reach"
             env.log.warning("dark pools %s: answered %s %s: out of reach (not cached)", d, e.status, e.code)
             return {"status": "out_of_reach", "prints": 0}
         if got is None:
@@ -452,27 +519,25 @@ class SkylitBackfillJob:
 
     # Tempest, once
     def _tempest(self, env: step7.Env, plan: BackfillPlan) -> dict[str, Any]:
-        files = env.store.vol_files(plan.tempest_from, plan.last)
-        if files:
-            path = files[0]
-        else:
+        todo = tempest_todo(env.store, plan)
+        if todo:  # only the range not stored yet (a re-plan later in the month adds just the new tail)
             symbols = plan.tempest_symbols
-            self._budget.take(vol_history_cost(len(symbols), plan.tempest_from, plan.last), "Tempest history")
+            self._budget.take(vol_history_cost(len(symbols), *todo), "Tempest history")
             with env.client.tagged(tempest="backfill"):
-                body, rec = env.client.vol_history(symbols, plan.tempest_from, plan.last)
+                body, rec = env.client.vol_history(symbols, *todo)
             pulled = env.now().astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-            path = env.store.vol_path(plan.tempest_from, plan.last, pulled)
-            write_parquet(path, vol_history_to_table(body),
-                          {"params": {"symbols": symbols, "from": plan.tempest_from.isoformat(),
-                                      "to": plan.last.isoformat()},
+            write_parquet(env.store.vol_path(*todo, pulled), vol_history_to_table(body),
+                          {"params": {"symbols": symbols, "from": todo[0].isoformat(), "to": todo[1].isoformat()},
+                           "backfill_from": plan.tempest_from.isoformat(),
                            "pulled_at": env.now().isoformat(), "missing": (body.get("data") or {}).get("missing")})
-        t = pq.read_table(path, columns=["symbol", "date"]).to_pylist()
-        first = {s: min((r["date"] for r in t if r["symbol"] == s), default=None) for s in plan.tempest_symbols}
-        return {"file": path.name, "needed_from": plan.tempest_from.isoformat(),
+        files = tempest_files(env.store, plan.tempest_from)
+        rows = [r for p in files for r in pq.read_table(p, columns=["symbol", "date"]).to_pylist()]
+        first = {s: min((r["date"] for r in rows if r["symbol"] == s), default=None) for s in plan.tempest_symbols}
+        return {"files": [p.name for p in files], "needed_from": plan.tempest_from.isoformat(),
                 "first_row": {s: d.isoformat() if d else None for s, d in first.items()},
                 "covered": {s: d is not None and step7._sessions_between(env, plan.tempest_from, d) <= 1
                             for s, d in first.items()},
-                "missing": read_meta(path).get("missing")}
+                "missing": [m for p in files for m in (read_meta(p).get("missing") or [])]}
 
 
 # --- sample days pulled before skylit_max_strikes was raised (presd_fixes issue 10) -----------------------------
@@ -537,9 +602,15 @@ def coverage(env: step7.Env, plan: BackfillPlan, out_dir: Path, budget: Budget |
     recs = _day_records(out_dir)
     sky = {r["date"]: r["skylit"] for r in recs if "skylit" in r}
     dps = {r["date"]: r["dp"] for r in recs if "dp" in r}
-    fully_lost = [d.isoformat() for d in plan.lost_days if not env.store.stored_windows(d)] + sorted(
-        d for d, s in sky.items() if s["lost"] and not s["pulled"] and not s["cached"])
-    partial = {d: s["lost"] for d, s in sky.items() if s["lost"] and (s["pulled"] or s["cached"])}
+    fully_lost = sorted({d.isoformat() for d in plan.lost_days if not env.store.stored_windows(d)} | {
+        d for d, s in sky.items() if s["lost"] and not s["pulled"] and not s["cached"]})
+    partial_all = {d: s["lost"] for d, s in sky.items() if s["lost"] and (s["pulled"] or s["cached"])}
+
+    def listable(d: str) -> bool:
+        """§7 rule 2b: dates are listed only for development months and the days before month 1; the
+        walk-forward and sealed months appear as counts."""
+        n = months_mod.month_index(date.fromisoformat(d), env.settings)
+        return n is None and date.fromisoformat(d) < plan.first or n in months_mod.DEVELOPMENT
 
     def month(d: str) -> str:
         n = months_mod.month_index(date.fromisoformat(d), env.settings)
@@ -572,20 +643,24 @@ def coverage(env: step7.Env, plan: BackfillPlan, out_dir: Path, budget: Budget |
     done = set(sky) | set(dps)
     todo = sorted({d.isoformat() for d in plan.days} | {d.isoformat() for d in plan.dp_dates})
     return {
+        "_lost_all": {"fully_lost": fully_lost, "partial": partial_all},
         "plan": plan.plan_id, "window": [plan.first.isoformat(), plan.last.isoformat()],
         "progress": {"dates_done": len(done), "dates_planned": len(todo), "tempest_done": tempest_file.exists()},
         "skylit": {
-            "beyond_365_days": {"fully_lost": fully_lost, "partial_days": partial},
+            "beyond_365_days": {"fully_lost": [d for d in fully_lost if listable(d)], "fully_lost_count": len(fully_lost),
+                                "partial_days": {d: w for d, w in partial_all.items() if listable(d)},
+                                "partial_count": len(partial_all)},
             "sessions_with_boards": len(with_boards),
             "sessions_1m": len(one_min), "share_sessions_1m": round(len(one_min) / len(with_boards), 4) if with_boards else None,
             "windows_with_boards": len(windows),
             "share_windows_1m": round(sum(v == "1m" for v in windows) / len(windows), 4) if windows else None,
-            "sessions_1m_dates": one_min, "per_month": dict(sorted(per_month.items())),
+            "sessions_1m_dates": [d for d in one_min if listable(d)], "per_month": dict(sorted(per_month.items())),
             "empty_windows": sum(len(s["empty"]) for s in sky.values()),
             "reused_raise_copies": {d: s["reuse"] for d, s in sky.items() if s.get("reuse")},
         },
         "dark_pools": {"status_counts": dp_status, "first_date_with_prints": with_prints[0] if with_prints else None,
-                       "not_pulled": [d.isoformat() for d in bad], "sessions_dp_partial": dp_partial},
+                       "not_pulled": [d.isoformat() for d in bad if listable(d.isoformat())],
+                       "not_pulled_count": len(bad), "sessions_dp_partial": dp_partial},
         "tempest": json.loads(tempest_file.read_text(encoding="utf-8")) if tempest_file.exists() else None,
         "credits": {"approved": budget.approved if budget else plan.approved_credits,
                     "spent_on_plan": budget.spent if budget else None, "balance": env.client.credits.remaining
@@ -595,8 +670,7 @@ def coverage(env: step7.Env, plan: BackfillPlan, out_dir: Path, budget: Budget |
 
 def write_coverage(env: step7.Env, plan: BackfillPlan, out_dir: Path, budget: Budget | None = None) -> dict[str, Any]:
     cov = coverage(env, plan, out_dir, budget)
-    lost = cov["skylit"]["beyond_365_days"]
-    atomic_write_json(lost_days_path(env.paths), {"fully_lost": lost["fully_lost"], "partial": lost["partial_days"]})
+    atomic_write_json(lost_days_path(env.paths), cov.pop("_lost_all"))  # the data tree keeps the full lists
     folder = coverage_dir(env.paths)
     atomic_write_json(folder / "coverage.json", {"written": env.now().isoformat(), **cov})
     atomic_write_text(folder / "coverage.md", coverage_markdown(cov, env.now()))
@@ -611,9 +685,9 @@ def coverage_markdown(cov: dict[str, Any], now: datetime) -> str:
         f"Written {now:%Y-%m-%d %H:%M} ET. Window {cov['window'][0]}..{cov['window'][1]}; "
         f"{p['dates_done']}/{p['dates_planned']} dates done, Tempest {'done' if p['tempest_done'] else 'not yet'}.", "",
         "## Days beyond the 365-day limit",
-        f"- Wholly lost (nothing pulled): {len(lost['fully_lost'])}" + (f" ({', '.join(lost['fully_lost'])})"
-                                                                      if lost["fully_lost"] else ""),
-        f"- Partly lost (windows lost): {len(lost['partial_days'])}" + "".join(
+        f"- Wholly lost (nothing pulled): {lost['fully_lost_count']}" + (f" ({', '.join(lost['fully_lost'])})"
+                                                                         if lost["fully_lost"] else ""),
+        f"- Partly lost (windows lost): {lost['partial_count']}" + "".join(
             f"\n  - {d}: {len(w)} windows ({w[0]}..{w[-1]})" for d, w in sorted(lost["partial_days"].items())), "",
         "## 1-minute resolution",
         f"- Sessions with boards: {s['sessions_with_boards']}; served at 1-minute resolution in any window: "
@@ -624,7 +698,7 @@ def coverage_markdown(cov: dict[str, Any], now: datetime) -> str:
     lines += ["", "## Dark pools",
               f"- Dates by status: {dp['status_counts']}",
               f"- First date with prints: {dp['first_date_with_prints']}",
-              f"- Dates not pulled (out of reach or no coverage): {len(dp['not_pulled'])}",
+              f"- Dates not pulled (out of reach or no coverage): {dp['not_pulled_count']}",
               f"- Sessions whose lookback touches one (dp_partial): {dp['sessions_dp_partial']}", "",
               "## Tempest", "```json", json.dumps(cov["tempest"], indent=1), "```", "",
               "## Credits", f"- {cov['credits']}"]
@@ -649,6 +723,10 @@ def report_estimate(env: step7.Env, balance: int | None, symbols: list[str]) -> 
 
 def cheapest_packs(shortfall: int, packs: list[dict[str, Any]]) -> dict[str, Any]:
     """The lowest-dollar set of packs covering `shortfall` credits (ties: fewer packs, then fewer credits)."""
+    if shortfall <= 0:
+        return {"buy": [], "usd": 0, "credits": 0, "packs": 0}
+    if not packs:
+        raise ValueError("settings.yaml skylit_credit_packs is empty: add the §3.1 price list")
     best: tuple[float, int, int, tuple[int, ...]] | None = None
     limits = [int(math.ceil(shortfall / p["credits"])) for p in packs]
 

@@ -143,7 +143,7 @@ def test_backfill_oldest_first_partial_day_dp_and_tempest_last(setup):
     result = s.run()
     assert result.status == "complete", result.message
     chunks = json.loads((s.paths.data_dir / "jobs" / bf.JOB_NAME / "state.json").read_text())["runs"][-1]["chunks"]
-    assert chunks == sorted(chunks[:-1]) + ["tempest"] and chunks[-1] == "tempest"
+    assert chunks == sorted(chunks[:-1]) + ["tempest_2025-10-31"]
     assert s.fake.calls[-1].url.path == "/v1/vol/history"  # Tempest last
     starts = [parse_z(r.url.params["from"]) for r in _range_calls(s.fake)]
     assert starts == sorted(starts)  # oldest window first
@@ -276,6 +276,8 @@ DAY = date(2025, 10, 7)
 
 
 def _pull_day(s, base=None, repull=None, **client_kw):
+    from nqbot.clients.skylit_pull import SkylitPullJob
+    SkylitPullJob.write_plan(s.paths, "skylit_sample_days", [DAY], None)  # DAY is a step-7 sample day
     c = _make_client(s.fake, on_call=s.store.log_call, **client_kw)
     return pull_session(c, s.store, DAY, log=s.env.log, cal=CAL, base=base, repull=repull)
 
@@ -408,7 +410,7 @@ def test_report_balance_fallback_without_a_key(setup):
     env2 = step7.Env(settings=env.settings, features=env.features, paths=env.paths, log=env.log, client_factory=no_key,
                      now=env.now, echo=lambda x: None, cal=CAL)
     out = step7.backfill_estimate(env2)
-    assert out["balance"] == 100_000 and out["balance_source"].startswith("from the symbols report")
+    assert out["balance"] == 100_000 and out["balance_source"].startswith("the symbols report")
     assert step7.check_report(env2)
 
 
@@ -495,3 +497,163 @@ def test_probe_record_is_reused_and_dp_mismatch_refuses(setup):
     s.env.features["dp_min_notional"] = 500_000  # cached dates now differ
     with pytest.raises(bf.BackfillRefused, match="dark pools"):
         _plan(s, approved=20_000)
+
+
+# --- regression tests for the second independent review (2026-10-05) ---------------------------------------------
+
+def _ctx(s):
+    from nqbot.jobs.runner import Ctx
+    return Ctx(paths=s.paths, settings=s.settings, out_dir=bf.job_dir(s.paths), low_memory=True, max_workers=1,
+               log=s.env.log, deadline=NOW + timedelta(days=1), should_stop=lambda: None, sleep=lambda x: None)
+
+
+def _dp_answer(s, day, status, code):
+    import httpx
+    original = s.fake.handler
+
+    def handler(request):
+        if request.url.path == "/v1/dark-pool/trades" and request.url.params.get("date") == day:
+            s.fake.calls.append(request)
+            return httpx.Response(status, json={"error": {"code": code, "message": "x"}},
+                                  headers={"X-Credits-Remaining": str(s.fake.credits)})
+        return original(request)
+
+    s.fake.handler = handler
+
+
+def test_dp_400_inside_the_reach_is_an_error(setup):
+    s = setup
+    _dp_answer(s, "2025-10-20", 400, "INVALID_PARAMETER")
+    _plan(s, approved=20_000)
+    with pytest.raises(SkylitError):
+        s.run()
+    assert not (bf.job_dir(s.paths) / "days" / "2025-10-20.json").exists()  # not marked done
+
+
+def test_gives_up_after_three_retries_with_status_api_error(setup):
+    s = setup
+    _plan(s, approved=20_000)
+    s.fake.queue["/v1/historical/range"] = [(503, {"error": {"code": "unavailable", "message": "x"}}, {})] * 20
+    r = s.run()
+    assert r.status == "api_error" and s.slept == [60, 300, 900]
+
+
+def test_dp_reserve_stops_before_a_date_it_cannot_finish(setup):
+    s = setup
+    _plan(s, approved=20_000)
+    job = s.job()
+    ctx = _ctx(s)
+    job.chunks(ctx)
+    first = bf.BackfillPlan.from_json(json.loads(bf.plan_path(s.paths).read_text())).dp_dates[0]
+    job._budget.approved = job._budget.spent + 9  # a date needs a reserve of 2 pages = 10 credits
+    with pytest.raises(StopChunk) as e:
+        job.run_chunk(first.isoformat(), ctx)
+    assert e.value.status == "credits" and not any(r.url.path == "/v1/dark-pool/trades" for r in s.fake.calls)
+
+
+def test_backfill_day_with_older_strikes_refuses(setup):
+    """Review 2: a non-sample day pulled with another skylit_max_strikes would mix strike sets."""
+    s = setup
+    c = _make_client(s.fake, on_call=s.store.log_call)
+    pull_session(c, s.store, date(2025, 10, 9), log=s.env.log, cal=CAL)
+    s.settings["skylit_max_strikes"] = 300
+    s.client_kw["max_strikes"] = 300
+    with pytest.raises(bf.BackfillRefused, match="mix strike sets"):
+        _plan(s, approved=20_000)
+
+
+def test_replan_estimate_skips_settled_work_and_tempest_adds_only_the_tail(setup):
+    s = setup
+    _plan(s, approved=20_000)
+    assert s.run().status == "complete"
+    s.clock.t = NOW + timedelta(days=2)
+    plan = _plan(s, approved=20_000)
+    assert plan.estimate_total == 0  # empty and lost windows, refused dates: settled, not counted again
+    approvals = (bf.job_dir(s.paths) / "approvals.jsonl").read_text().splitlines()
+    assert len(approvals) == 2 and json.loads(approvals[1])["spent_before"] > 0
+    s.settings["months"] = {1: "2025-10", 2: "2025-11"}  # a longer window: Tempest pulls only November
+    plan = _plan(s, approved=50_000)
+    assert bf.tempest_todo(s.store, plan) == (date(2025, 11, 1), date(2025, 11, 30))
+    assert s.run(until=NOW + timedelta(days=10)).status == "complete"
+    vol = [r for r in s.fake.calls if r.url.path == "/v1/vol/history"]
+    assert vol[-1].url.params["from"] == "2025-11-01" and bf.tempest_todo(s.store, plan) is None
+
+
+def test_coverage_lists_dates_only_for_development_months(setup):
+    s = setup
+    s.settings["months"] = {i + 1: f"{2025 + (9 + i) // 12}-{(9 + i) % 12 + 1:02d}" for i in range(12)}
+    plan = bf.plan_backfill(s.env, NOW, ["QQQ", "SPY"])
+    out = bf.job_dir(s.paths)
+    rec = {"date": "2026-08-03", "skylit": {"windows": 26, "pulled": ["0945"], "cached": [], "empty": [],
+                                           "lost": ["0930"], "reuse": {}, "resolutions": {"0945": "1m"}}}
+    (out / "days").mkdir(parents=True)
+    (out / "days" / "2026-08-03.json").write_text(json.dumps(rec))
+    cov = bf.coverage(s.env, plan, out)
+    assert cov["skylit"]["sessions_1m"] == 1 and cov["skylit"]["sessions_1m_dates"] == []  # sealed month 11
+    assert cov["skylit"]["beyond_365_days"]["partial_count"] == 1
+    assert not cov["skylit"]["beyond_365_days"]["partial_days"]
+    assert "2026-08-03" not in json.dumps({k: v for k, v in cov.items() if k != "_lost_all"})
+
+
+def test_wholly_lost_day_is_listed_once(setup):
+    s = setup
+    plan = bf.plan_backfill(s.env, NOW, ["QQQ", "SPY"])
+    plan.lost_days.append(date(2025, 10, 6))
+    out = bf.job_dir(s.paths)
+    (out / "days").mkdir(parents=True)
+    (out / "days" / "2025-10-06.json").write_text(json.dumps({"date": "2025-10-06", "skylit": {
+        "windows": 26, "pulled": [], "cached": [], "empty": [], "lost": ["0930"], "reuse": {}, "resolutions": {}}}))
+    cov = bf.coverage(s.env, plan, out)
+    assert cov["skylit"]["beyond_365_days"]["fully_lost"].count("2025-10-06") == 1
+
+
+def test_cheapest_packs_edges():
+    assert bf.cheapest_packs(0, [])["buy"] == []
+    with pytest.raises(ValueError):
+        bf.cheapest_packs(10, [])
+
+
+def test_report_balance_unknown(setup):
+    s = setup
+    from nqbot.secrets import MissingSecret
+
+    def no_key(store):
+        raise MissingSecret("SKYLIT_API_KEY")
+
+    env2 = step7.Env(settings=s.settings, features=s.env.features, paths=s.paths, log=s.env.log,
+                     client_factory=no_key, now=s.clock, echo=lambda x: None, cal=CAL)
+    out = step7.backfill_estimate(env2)
+    assert out["balance"] is None and out["shortfall"] is None and out["balance_source"].startswith("unknown")
+    assert "shortfall: unknown" in step7.check_report(env2)
+
+
+def test_depth_probe_error_is_reported_not_recorded(setup):
+    s = setup
+    env = s.env
+    env.settings["months"] = {i + 1: f"{2025 + (9 + i) // 12}-{(9 + i) % 12 + 1:02d}" for i in range(12)}
+    env.now = Clock(datetime(2026, 10, 6, 20, 0, tzinfo=ET))
+    s.fake.dp_prints = [_dp_print(date(2026, 1, 20) + timedelta(days=i), t) for i in range(70) for t in ("QQQ", "SPY")
+                        if (date(2026, 1, 20) + timedelta(days=i)).weekday() < 5]
+    _dp_answer(s, "2025-08-18", 401, "unauthorized")
+    rep = step7.check_darkpool(env, date(2026, 3, 16), [])
+    assert rep["depth_probe"]["status"] == "error"
+    assert not (s.store.root / "darkpool" / "probe" / "2025-08-18.json").exists()  # may be tried again
+
+
+def test_cli_skylit_plan_end_to_end(setup, monkeypatch, capsys):
+    s = setup
+    from nqbot.clients import skylit_pull
+
+    def fake_client(settings_, store, log_, **kw):
+        c = _make_client(s.fake, on_call=store.log_call)
+        c.account()
+        return c
+
+    monkeypatch.setattr(cli, "load_settings", lambda: s.settings)
+    monkeypatch.setattr(skylit_pull, "make_client", fake_client)
+    import functools
+    monkeypatch.setattr(step7, "Env", functools.partial(step7.Env, now=lambda: NOW, cal=CAL))
+    assert cli.main(["skylit", "plan"]) == cli.EXIT_REFUSED  # over 5,000 credits, no approval
+    assert "--approve-credits" in capsys.readouterr().err and not bf.plan_path(s.paths).exists()
+    assert cli.main(["skylit", "plan", "--approve-credits", "20000"]) == 0
+    assert bf.plan_path(s.paths).exists()

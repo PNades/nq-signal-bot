@@ -801,12 +801,17 @@ def _balance_and_symbols(env: Env) -> tuple[int | None, str, list[str]]:
     try:
         through, _ = _history_through(env.client.vol_symbols())
         return env.client.credits.remaining, "live (/v1/account)", bf.tempest_symbols(through)
-    except Exception as e:  # noqa: BLE001 - the report must still be written
+    except Exception as e:  # noqa: BLE001 - the report must still be written (no key, no network)
         sym = latest_report(env.paths, "symbols")
         if sym is None:
             return None, f"unknown ({type(e).__name__}: {e}; no symbols report yet)", bf.tempest_symbols(None)
         served = {r.get("symbol"): True for r in sym.get("tempest") or []}
-        return ((sym.get("account") or {}).get("credits"), f"from the symbols report of {sym.get('written')}",
+        bal = (sym.get("account") or {}).get("credits")
+        since = datetime.fromisoformat(sym["written"]).astimezone(timezone.utc)
+        spent = sum(max(r.get("charged") or 0, bf.nominal_cost(r)) for r in env.store.ledger()
+                    if (r.get("status") or 999) < 400 and r.get("at") and datetime.fromisoformat(r["at"]) > since)
+        return (None if bal is None else bal - spent,
+                f"the symbols report of {sym.get('written')} minus {spent:,} credits spent since",
                 bf.tempest_symbols(served))
 
 

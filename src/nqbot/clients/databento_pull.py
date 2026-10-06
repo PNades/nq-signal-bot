@@ -89,8 +89,8 @@ def sessions_before(day: date, n: int, cal: dict[str, Any] | None = None) -> lis
 
 
 def window_days(settings: dict[str, Any], today: date, now: datetime | None = None,
-                skylit_lost: Iterable[date] = (),
-                skylit_has: Callable[[date], bool] = lambda d: False) -> tuple[list[date], list[date]]:
+                skylit_lost: Iterable[date] = (), skylit_has: Callable[[date], bool] = lambda d: False,
+                cal: dict[str, Any] | None = None) -> tuple[list[date], list[date]]:
     """(weekdays of the ledger window to pull, weekdays dropped as beyond Skylit's reach). Complete days only.
 
     The same timestamp rule as the Skylit backfill (presd_fixes issue 7): a day is kept only if its last Skylit
@@ -101,7 +101,7 @@ def window_days(settings: dict[str, Any], today: date, now: datetime | None = No
     now = now or datetime.combine(today, time(0), tzinfo=ET)
     margin, lost = float(settings["skylit_reach_margin_min"]), set(skylit_lost)
     days = weekdays(first, min(last, today - timedelta(days=1)))
-    keep = [d for d in days if skylit_has(d) or (d not in lost and day_reachable(d, now, margin))]
+    keep = [d for d in days if skylit_has(d) or (d not in lost and day_reachable(d, now, margin, cal))]
     return keep, [d for d in days if d not in set(keep)]
 
 
@@ -238,7 +238,7 @@ def make_plan(client: DatabentoClient, store: DatabentoStore, settings: dict[str
 
     sky = SkylitStore(store.paths)
     window, cut = window_days(settings, today, now, fully_lost_days(store.paths),
-                              skylit_has=lambda d: bool(sky.stored_windows(d)))
+                              skylit_has=lambda d: bool(sky.stored_windows(d)), cal=cal)
     sessions = [d for d in window if cal_mod.is_trading_day(d, cal)]
     if not sessions:
         raise PlanRefused("no window session to pull (is the ledger window inside Skylit's 365-day reach?)")
