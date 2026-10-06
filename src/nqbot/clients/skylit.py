@@ -40,14 +40,21 @@ DP_PAGE_LIMIT = 5000  # /v1/dark-pool/trades server cap per page
 DP_RANGE_MAX_DAYS = 31  # Flowseeker: date_start..date_end spans at most 31 days per request (§3.1 Endpoints)
 DP_MAX_PAGES = 200  # §3.1 Dark pools: fail loudly, never truncate silently (one ET date of $1M+ QQQ/SPY prints is ~1 page)
 
+# presd_fixes D7: a connection dropped after the request was sent may already be charged (25 credits for a range
+# call), so a large call is retried only this many times after such a drop; a connect-phase failure (never sent)
+# keeps the normal retries.
+LARGE_CALL_DROP_RETRIES = 1
+NOT_SENT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+
 log_default = logging.getLogger("nqbot.skylit")
 
 
 class SkylitError(Exception):
-    def __init__(self, status: int | None, code: str, message: str, raw: bytes | None = None):
+    def __init__(self, status: int | None, code: str, message: str, raw: bytes | None = None, charged: bool = False):
         super().__init__(f"{status} {code}: {message}")
         self.status, self.code, self.message = status, code, message
-        self.raw = raw  # the body of a charged 200 that couldn't be decoded (saved by the caller)
+        self.raw = raw  # the answer's body (a charged 200 that couldn't be decoded, or a refusal's error body)
+        self.charged = charged  # True: the call was paid for (never re-pulled, rule 2); False: refunded
 
 
 class OutOfCredits(SkylitError):
@@ -217,18 +224,29 @@ class SkylitClient:
                 wait = max(wait, reset - self.wall() + self.rng() * RESET_JITTER_SEC)
         return max(wait, 0.0)
 
-    def get(self, path: str, params: dict[str, Any] | None = None) -> tuple[Any, CallRecord]:
-        """GET with pacing, retries and credit tracking. Returns (parsed JSON, call record)."""
+    def get(self, path: str, params: dict[str, Any] | None = None,
+            drop_retries: int | None = None) -> tuple[Any, CallRecord]:
+        """GET with pacing, retries and credit tracking. Returns (parsed JSON, call record).
+
+        drop_retries: how often a connection dropped after the request was sent (possibly charged) is retried
+        before giving up with code `dropped` (None: like any network error, up to MAX_ATTEMPTS)."""
         params = {k: v for k, v in (params or {}).items() if v is not None}
         response: httpx.Response | None = None
         error = ""
+        drops = 0
         for attempt in range(MAX_ATTEMPTS):
             self.limiter.acquire()
             try:
                 response = self._http.get(path, params=params)
-            except httpx.TransportError as e:  # network error or timeout: safe to retry (GET, refunded)
+            except httpx.TransportError as e:  # network error or timeout: retried (GET; a failed call is refunded)
                 response, error = None, f"network: {type(e).__name__}"
                 self.log.warning("Skylit %s: %s (attempt %d/%d)", path, error, attempt + 1, MAX_ATTEMPTS)
+                if drop_retries is not None and not isinstance(e, NOT_SENT_ERRORS):
+                    drops += 1
+                    if drops > drop_retries:
+                        raise SkylitError(None, "dropped", f"{path}: connection dropped after the request was sent "
+                                          f"({error}), {drops} times: not retried again (it may have been "
+                                          "charged)") from None
             if response is not None:
                 self.limiter.observe(response.headers)
                 charged = self.credits.update(_int(response.headers.get("X-Credits-Remaining")))
@@ -240,7 +258,8 @@ class SkylitClient:
                         error = "undecodable 200 body (charged)"
                         self.log.error("Skylit %s: %s", path, error)
                         self._record(path, params, response, attempt + 1, charged, error)
-                        raise SkylitError(200, "undecodable", f"{path}: {error}", raw=response.content) from None
+                        raise SkylitError(200, "undecodable", f"{path}: {error}", raw=response.content,
+                                          charged=True) from None
                     else:
                         return body, self._record(path, params, response, attempt + 1, charged, None)
                 else:
@@ -250,7 +269,7 @@ class SkylitClient:
                     if response.status_code not in RETRYABLE:
                         exc_type = (OutOfCredits if response.status_code == 402
                                     else AccessDenied if response.status_code in (401, 403) else SkylitError)
-                        raise exc_type(response.status_code, code, message)
+                        raise exc_type(response.status_code, code, message, raw=response.content)
                     self.log.warning("Skylit %s: %s (attempt %d/%d)", path, error, attempt + 1, MAX_ATTEMPTS)
             if attempt < MAX_ATTEMPTS - 1:
                 self.sleep(self._backoff(attempt, response))
@@ -329,10 +348,11 @@ class SkylitClient:
         }
 
     def historical_range(self, maps: list[str], start: datetime, end: datetime,
-                         max_strikes: int | str | None = None) -> tuple[dict[str, Any], CallRecord]:
+                         max_strikes: int | str | None = None,
+                         drop_retries: int = LARGE_CALL_DROP_RETRIES) -> tuple[dict[str, Any], CallRecord]:
         """Every snapshot in [start, end] (both inclusive, <= 15 min, <= 5 symbols). 25 credits."""
         params = {"symbols": self.roots(maps), "from": iso_utc(start), "to": iso_utc(end), **self.board_params(max_strikes)}
-        return self.get("/v1/historical/range", params)
+        return self.get("/v1/historical/range", params, drop_retries=drop_retries)
 
     def historical(self, maps: list[str], at: datetime,
                    max_strikes: int | str | None = None) -> tuple[dict[str, Any], CallRecord]:

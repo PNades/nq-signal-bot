@@ -278,7 +278,7 @@ def test_quarantine_waits_out_an_antivirus_lock(paths, monkeypatch):
         real(src, dst)
 
     monkeypatch.setattr(storage.os, "replace", busy)
-    monkeypatch.setattr(storage, "REPLACE_RETRY_SEC", 0)
+    monkeypatch.setattr(storage, "_sleep", lambda s: None)
     dest = store.quarantine_partial(day, "0930")
     assert dest is not None and dest.read_bytes() == b"orphan" and not strikes.exists() and len(calls) == 3
 

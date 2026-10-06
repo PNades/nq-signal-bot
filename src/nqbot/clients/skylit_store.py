@@ -12,6 +12,8 @@ Layout under <paths.raw_dir>/skylit/:
   fullchain/range/<YYYY-MM-DD>/...           step-7 strike-window pulls (maxStrikes=all), same layout as range/
   repull/<reason>/<pulled>/...               the CLAUDE.md rule-2 re-pull exceptions, never over the original
   ledger.jsonl                               one line per HTTP call (credits, bytes, status, re-pull reason)
+  ledger_<check>.jsonl                       the same, for each step-7 check that runs alongside the backfill without
+                                             the Skylit lock (own files only, decision 2); ledger() reads them all
 
 HHMM is the window's start in ET. The request parameters, response meta, pull time and credits sit in
 each parquet's key-value metadata; a cached window is reused only if its parameters are identical.
@@ -223,10 +225,14 @@ def read_meta(path: Path) -> dict[str, Any]:
     return json.loads(md[META_KEY]) if META_KEY in md else {}
 
 
+LEDGER = "ledger.jsonl"
+
+
 class SkylitStore:
-    def __init__(self, paths: Paths):
+    def __init__(self, paths: Paths, ledger_name: str = LEDGER):
         self.paths = paths
         self.root = paths.raw_dir / "skylit"
+        self.ledger_name = ledger_name  # a lock-free step-7 check writes its own ledger file (decision 2)
 
     def base(self, repull: str | None = None, pulled: str | None = None) -> Path:
         if repull is None:
@@ -240,10 +246,13 @@ class SkylitStore:
         """Append one finished call (wired as the client's on_call, so every paid or failed call is logged)."""
         row = asdict(rec)
         row.update(row.pop("context") or {})
-        append_jsonl(self.root / "ledger.jsonl", {**row, **extra})
+        append_jsonl(self.root / self.ledger_name, {**row, **extra})
 
     def ledger(self) -> list[dict[str, Any]]:
-        return read_jsonl(self.root / "ledger.jsonl")
+        """Every call of every ledger file (the main one and the alongside checks' own), oldest first."""
+        files = sorted(self.root.glob("ledger*.jsonl")) if self.root.exists() else []
+        rows = [r for f in files for r in read_jsonl(f)]
+        return sorted(rows, key=lambda r: r.get("at") or "") if len(files) > 1 else rows
 
     # range windows
     def range_paths(self, day: date, hhmm: str, base: Path | None = None) -> tuple[Path, Path]:

@@ -425,12 +425,24 @@ def parse_file(client, settings: dict[str, Any], store: GameplanStore, file: Pat
 
 # --- the archive ----------------------------------------------------------------------------------------------
 
+SKIP_SUBFOLDERS = frozenset({"replaced"})  # --replace moves old files there: never parsed again
+
+
 def gameplan_files(store: GameplanStore) -> list[Path]:
+    """The files in raw/gameplans/ and one folder down (a Drive zip extracts into e.g. `Jeron gameplans/`,
+    presd_fixes D9), never `replaced/` or a dot folder."""
     if not store.raw_dir.exists():
         return []
+    files = []
+    for p in store.raw_dir.iterdir():
+        if p.name.startswith("."):
+            continue
+        if p.is_file():
+            files.append(p)
+        elif p.is_dir() and p.name not in SKIP_SUBFOLDERS:
+            files += [q for q in p.iterdir() if q.is_file() and not q.name.startswith(".")]
     # Archived names first: when a canonical copy is byte-identical to its original, the original is the one sent.
-    files = [p for p in store.raw_dir.iterdir() if p.is_file() and not p.name.startswith(".")]
-    return sorted(files, key=lambda p: (CANONICAL.match(p.stem) is not None, p.name))
+    return sorted(files, key=lambda p: (CANONICAL.match(p.stem) is not None, p.parent != store.raw_dir, p.name))
 
 
 def batch(client, settings: dict[str, Any], store: GameplanStore, *, approved_usd: float | None,
@@ -444,7 +456,16 @@ def batch(client, settings: dict[str, Any], store: GameplanStore, *, approved_us
     results: list[Result] = []
     todo: list[tuple[Path, Converted, Estimate | None]] = []
     seen: set[str] = set()
-    for f in gameplan_files(store):
+    found = gameplan_files(store)
+    below = sum(f.parent != store.raw_dir for f in found)
+    out(f"reading {store.raw_dir.resolve()}: {len(found)} file(s)" + (f" ({below} in subfolders)" if below else ""))
+    names = [f.name for f in found]
+    for name in sorted({n for n in names if names.count(n) > 1}):
+        out(f"  WARNING: {name} is in more than one folder; the report lists files by name, so rename one of them")
+    if not found:
+        out(f"  no files found: download the Drive folder's files into {store.raw_dir.resolve()} (or one folder "
+            "below it), then run this again")
+    for f in found:
         if f.suffix.lower() not in SUPPORTED_SUFFIXES:
             results.append(Result(f.name, "unconvertible", message=f"{f.suffix or 'no extension'} is not supported"))
             continue

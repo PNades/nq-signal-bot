@@ -546,4 +546,5 @@ def build_day_outputs(store: DatabentoStore, plan: dict[str, Any], day: date, lo
             continue
         store.roll_error_path(r.root, r.roll_day).unlink(missing_ok=True)
         atomic_write_json(out, rec)
-        log.info("roll %s %s -> %s on %s: spread %+.2f", r.root, r.old, r.new, r.roll_day, rec["spread"])
+        # no spread value in the log or console: a sealed month's roll must not show a number (§7 rule 2b, D11)
+        log.info("roll %s %s -> %s on %s: spread measured (%s)", r.root, r.old, r.new, r.roll_day, out.name)

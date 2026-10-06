@@ -87,14 +87,14 @@ def test_replace_retries_while_file_is_open(tmp_path, monkeypatch):
         real(src, dst)
 
     monkeypatch.setattr(storage.os, "replace", flaky)
-    monkeypatch.setattr(storage, "REPLACE_RETRY_SEC", 0)
+    monkeypatch.setattr(storage, "_sleep", lambda s: None)
     atomic_write_text(tmp_path / "f.txt", "x")
     assert (tmp_path / "f.txt").read_text() == "x" and len(calls) == 3
 
 
 def test_replace_gives_up_after_retries(tmp_path, monkeypatch):
     monkeypatch.setattr(storage.os, "replace", lambda s, d: (_ for _ in ()).throw(PermissionError(13, "denied")))
-    monkeypatch.setattr(storage, "REPLACE_RETRY_SEC", 0)
+    monkeypatch.setattr(storage, "_sleep", lambda s: None)
     with pytest.raises(PermissionError):
         atomic_write_text(tmp_path / "f.txt", "x")
     assert list(tmp_path.iterdir()) == []
@@ -129,3 +129,15 @@ def test_atomic_path_removes_a_temp_file_a_failed_writer_left_open(tmp_path):
     stale.write_bytes(b"old")
     remove_stale_temps(target)
     assert not stale.exists()
+
+
+def test_replace_retries_for_about_30_seconds_with_backoff(tmp_path, monkeypatch):
+    """presd_fixes D5: an antivirus scan may hold a fresh file for many seconds; the rename waits ~30 s, backing off."""
+    waits = []
+    monkeypatch.setattr(storage.os, "replace", lambda s, d: (_ for _ in ()).throw(PermissionError(13, "denied")))
+    monkeypatch.setattr(storage, "_sleep", waits.append)
+    with pytest.raises(PermissionError):
+        storage.replace_retry(tmp_path / "a", tmp_path / "b")
+    assert waits[0] == storage.REPLACE_RETRY_FIRST_SEC and max(waits) == storage.REPLACE_RETRY_MAX_SEC
+    assert all(b >= a for a, b in zip(waits, waits[1:]))
+    assert 30 <= sum(waits) < 30 + storage.REPLACE_RETRY_MAX_SEC

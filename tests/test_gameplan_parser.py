@@ -220,7 +220,8 @@ def test_batch_needs_approval_then_parses_and_reports(settings, store):
     with pytest.raises(gp.GameplanRefused, match="--approve-usd"):
         gp.batch(client, settings, store, approved_usd=None, out=lines.append)
     worst = 2 * (3000 * 4 + settings["gameplan_max_tokens"] * 20) / 1e6
-    assert f"worst case ${worst:.2f}" in lines[0]
+    assert lines[0].startswith(f"reading {store.raw_dir.resolve()}: 3 file(s)")
+    assert f"worst case ${worst:.2f}" in lines[1]
     with pytest.raises(gp.GameplanRefused):
         gp.batch(client, settings, store, approved_usd=worst - 0.01, out=quiet)
     assert client.requests == []
@@ -449,3 +450,26 @@ def test_real_client_gets_a_verifying_tls_context(monkeypatch):
     client = gp.make_client({})
     ctx = client._client._transport._pool._ssl_context
     assert ctx.verify_mode == ssl.CERT_REQUIRED and ctx.check_hostname
+
+
+def test_batch_reads_one_folder_down_but_never_replaced(settings, store):
+    """presd_fixes D9: a Drive zip extracts into a subfolder; `replaced/` (old --replace files) is never parsed."""
+    sub = store.raw_dir / "Jeron gameplans"
+    sub.mkdir(parents=True)
+    shutil.copy(FIXTURES / NFP, sub / NFP)
+    (store.raw_dir / "replaced").mkdir()
+    shutil.copy(FIXTURES / CANON, store.raw_dir / "replaced" / CANON)
+    (sub / "deeper").mkdir()
+    shutil.copy(FIXTURES / CANON, sub / "deeper" / CANON)
+    assert gp.gameplan_files(store) == [sub / NFP]
+    lines = []
+    results, _ = gp.batch(FakeAnthropic(), settings, store, approved_usd=1.0, out=lines.append)
+    assert lines[0] == f"reading {store.raw_dir.resolve()}: 1 file(s) (1 in subfolders)"
+    assert [(r.file, r.status) for r in results] == [(NFP, "flagged")]
+
+
+def test_batch_says_where_it_looked_when_empty(settings, store):
+    store.raw_dir.mkdir(parents=True)
+    lines = []
+    gp.batch(FakeAnthropic(), settings, store, approved_usd=None, out=lines.append)
+    assert str(store.raw_dir.resolve()) in lines[0] and "no files found" in lines[1]

@@ -461,7 +461,7 @@ def test_report_with_backfill_estimate(env):
     step7.check_symbols(env)
     text = step7.check_report(env)
     assert "## symbols" in text and "pending (runs alongside)" in text and "Step-10 backfill estimate" in text
-    assert "Ready for the owner's step-10 OK: no** (missing: strike_window, sample_days)" in text
+    assert "Ready for the owner's step-10 OK: NOT READY** (missing: strike_window, sample_days, oldest_window; "            "strike-window check)" in text
     bf = step7.backfill_estimate(env)
     assert bf["window"] == ["2025-10-01", "2026-09-30"]
     # now = 2026-10-06 20:00 ET: 2025-10-01..06 have left the 365-day reach (by timestamp, not date)

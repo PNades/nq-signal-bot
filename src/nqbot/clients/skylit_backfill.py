@@ -18,7 +18,19 @@ raised are replaced by their `strike_window_raise` copies, or pulled again (pres
 
 Credits (CLAUDE.md rule 2): every call is checked against the approved amount and the known balance first; if
 either can't cover it, the chunk stops cleanly (status `credits`) and the job resumes from it after a top-up or a
-new plan. Spending is counted at max(charged, list price) per call, so the approval is never exceeded.
+new plan. Spending is counted at max(charged, list price) per call, so the approval is never exceeded. The balance
+check keeps skylit_alongside_reserve_credits for the step-7 checks that run alongside without the lock (decision 2).
+
+Failing windows (decision 4, presd_fixes D1): a window (or dark-pool date) that keeps failing is recorded in
+failed.json, its answer kept in skylit/failed/, and the job carries on; it is never pulled again in the main pass.
+skylit_max_failures_in_row failures in a row stop the job cleanly (status `failures`). Every run
+tries each one again at its start and at the end of the night, oldest first (owner 2026-10-06), so nothing leaves the
+365-day reach while it waits: a refunded failure gets one more call, a paid one (its answer couldn't be converted or
+stored) is only converted again from its kept answer, for free. A failure whose window (or dark-pool date) has left
+the reach is recorded as lost. A window whose connection dropped (maybe charged, D7) gets up to
+skylit_dropped_extra_tries more tries while in reach, in rounds at the end of the night (oldest first, waits between
+rounds, each try sent once), within skylit_dropped_retry_credits_per_night (owner 2026-10-06). What is still missing,
+and every such try with its credits, is listed in coverage.md.
 
 Coverage report (counts only, §7 rule 2b): <reports_dir>/step10/coverage.{md,json}, rewritten after every chunk.
 """
@@ -30,6 +42,7 @@ import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable
 
 import pyarrow.parquet as pq
@@ -38,9 +51,10 @@ from nqbot import months as months_mod
 from nqbot.checks import step7
 from nqbot.clients import skylit_credits as credits
 from nqbot.clients.skylit import DP_PAGE_LIMIT, DP_RANGE_MAX_DAYS, OutOfCredits, SkylitError, vol_history_cost
-from nqbot.clients.skylit_pull import (ET, REACH_ANSWER_TOLERANCE, SKYLIT_HISTORY, Window, full_day_windows,
-                                       make_client, pull_session, range_params_from_settings, sample_days,
-                                       session_windows, window_reachable)
+from nqbot.clients.skylit_pull import (ET, NEVER_SKIPPED, REACH_ANSWER_TOLERANCE, SKYLIT_HISTORY, SessionResult,
+                                       Window, full_day_windows, make_client, pull_session, pull_window,
+                                       range_params_from_settings, sample_days, session_windows, store_window,
+                                       window_reachable)
 from nqbot.clients.skylit_store import CacheMismatch, SkylitStore, _norm, read_meta, vol_history_to_table, write_parquet
 from nqbot.jobs.lock import SKYLIT
 from nqbot.jobs.runner import Ctx, StopChunk
@@ -56,6 +70,12 @@ RAISE = "strike_window_raise"
 # leaving the reach.
 CHUNK_RETRY_SEC = (60, 300, 900)
 TRANSIENT_CODES = frozenset({"gave_up"})
+WAIT_STEP_SEC = 5  # §11 Overnight jobs: a retry wait checks ctx.should_stop() this often (nqbot stop, --until)
+# Dark-pool errors raised after pages were paid for (the prints are lost with the error): never called again.
+DP_PAID_CODES = frozenset({"page_order", "no_cursor", "page_cap"})
+# §3.1 Backfill (owner 2026-10-06): waits before each round of extra tries for dropped windows (1, 5, 15 minutes)
+DROPPED_ROUND_WAIT_SEC = (60, 300, 900)
+DROPPED = "dropped"
 # §3.1 Backfill: pages reserved before a dark-pool date starts: twice the most pages any date has needed, so a stop mid-date
 # (which would throw paid pages away) needs a date with more than twice the largest seen.
 DP_PAGE_RESERVE_FACTOR = 2
@@ -181,10 +201,11 @@ def refuse_hard_mismatches(env: step7.Env, days: list[date], dp_dates: list[date
            for hhmm, (state, have) in param_state(env, d).items()
            if state == "other" or (state == "strikes_only" and d not in samples)]
     for d in dp_dates:
-        try:
-            step7.cached_or_mismatch(env.store.dp_trades_path(d), step7._dp_params(env, d))
-        except CacheMismatch as e:
-            bad.append(f"dark pools {d}: {e}")
+        for path in (env.store.dp_trades_path(d), env.store.dp_trades_path(d, step7._lookback_base(env))):
+            try:
+                step7.cached_or_mismatch(path, step7._dp_params(env, d))
+            except CacheMismatch as e:
+                bad.append(f"dark pools {d}: {e}")
     if bad:
         raise BackfillRefused("cached data was pulled with other parameters (only a step-7 sample day may differ, "
                               "and only in maxStrikes; a backfill day pulled with an older skylit_max_strikes would "
@@ -227,13 +248,17 @@ def windows_todo(env: step7.Env, plan: BackfillPlan, now: datetime) -> int:
     margin = margin_min(env.settings)
     raise_base = env.store.base(RAISE, pulled=f"max{env.settings['skylit_max_strikes']}")
     done, _ = settled(env.paths)
-    n = 0
+    failed = load_failed(env.paths)
+    n = sum((1 if retry_calls(r) else dropped_tries_left(r, env.settings)) for r in failed.values()
+            if r["kind"] == "window" and r["state"] == "failed"
+            and r["hhmm"] in _windows_by_hhmm(date.fromisoformat(r["date"]), env.cal)
+            and window_reachable(_windows_by_hhmm(date.fromisoformat(r["date"]), env.cal)[r["hhmm"]], now, margin))
     for d in plan.days:
         if d in done:
             continue
         states = param_state(env, d) if env.store.stored_windows(d) else {}
         for w in session_windows(d, env.cal):
-            if not window_reachable(w, now, margin):
+            if not window_reachable(w, now, margin) or window_key(d, w.hhmm) in failed:
                 continue
             state = states.get(w.hhmm, ("absent", {}))[0]
             if state == "match" or (state == "strikes_only" and _raise_copy_ok(env, d, w.hhmm, w, raise_base)):
@@ -282,8 +307,15 @@ def dp_todo(env: step7.Env, plan: BackfillPlan) -> list[date]:
     """Dark-pool dates still to ask for: not cached, not settled by a chunk, a range call or the step-7 probe."""
     _, dp_done = settled(env.paths)
     covered = dp_range_covered(env.paths)
+    failed = load_failed(env.paths)
     return [d for d in plan.dp_dates if not env.store.dp_trades_path(d).exists() and d not in dp_done
-            and d not in covered and not (env.store.root / "darkpool" / "probe" / f"{d.isoformat()}.json").exists()]
+            and d not in covered and dp_key(d) not in failed and not step7.has_lookback_copy(env, d)
+            and not (env.store.root / "darkpool" / "probe" / f"{d.isoformat()}.json").exists()]
+
+
+def dp_retries_todo(paths: Paths) -> int:
+    """Failed dark-pool dates the end-of-run retry will call once more (one date per call)."""
+    return sum(1 for r in load_failed(paths).values() if r["kind"] == "dp" and r["state"] == "failed" and retry_calls(r))
 
 
 def dp_range_groups(todo: list[date], edge: date) -> list[list[date]]:
@@ -323,7 +355,8 @@ def estimate(env: step7.Env, plan: BackfillPlan, now: datetime) -> credits.Estim
     todo_dp = dp_todo(env, plan)
     est = (credits.range_estimate(f"step-10 backfill {plan.first}..{plan.last}", windows_todo(env, plan, now))
            .add("/v1/dark-pool/trades pages" + (" (31-day calls)" if plan.dp_range else " (one date per call)"),
-                dp_pages_estimate(env, plan, todo_dp, now), credits.DP_TRADES_PAGE))
+                dp_pages_estimate(env, plan, todo_dp, now)
+                + int(math.ceil(dp_retries_todo(env.paths) * step7._pages_per_date(env))), credits.DP_TRADES_PAGE))
     todo = tempest_todo(env.store, plan)
     if todo:
         est.add_total(f"/v1/vol/history {todo[0]}..{todo[1]} ({', '.join(plan.tempest_symbols)})", 1,
@@ -337,6 +370,57 @@ def job_dir(paths: Paths) -> Path:
 
 def plan_path(paths: Paths) -> Path:
     return job_dir(paths) / "plan.json"
+
+
+def failed_path(paths: Paths) -> Path:
+    return job_dir(paths) / "failed.json"
+
+
+def window_key(day: date, hhmm: str) -> str:
+    return f"{day.isoformat()} {hhmm}"
+
+
+def dp_key(d: date) -> str:
+    return f"dp {d.isoformat()}"
+
+
+def load_failed(paths: Paths) -> dict[str, dict[str, Any]]:
+    """The failure record (presd_fixes D1): key -> {kind, date, hhmm, status, code, message, charged, raw, at,
+    retries, last_retry, state: failed | recovered | lost}."""
+    path = failed_path(paths)
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def still_failed(failed: dict[str, dict[str, Any]], key: str) -> bool:
+    return failed.get(key, {}).get("state") == "failed"
+
+
+def retry_calls(rec: dict[str, Any]) -> bool:
+    """Does a retry pass make a paid call for it? Not for an answer already paid for: that one is only converted (or
+    split) again from its kept copy, for free (rule 2). The estimate counts one pass. A dropped window: see
+    dropped_tries_left."""
+    return not rec["charged"]
+
+
+def dropped_tries_left(rec: dict[str, Any], settings: dict[str, Any]) -> int:
+    """Extra tries a dropped window still has (owner 2026-10-06); 0 for anything else."""
+    if rec.get("code") != DROPPED or rec["kind"] != "window" or rec["state"] != "failed":
+        return 0
+    return max(0, int(settings["skylit_dropped_extra_tries"]) - len(rec.get("dropped_tries", [])))
+
+
+def effective_state(env: step7.Env, rec: dict[str, Any], now: datetime) -> str:
+    """The record's state, with a failure that can no longer be called (its window or date has left the 365-day
+    reach) shown as lost even before the next retry pass marks it."""
+    if rec["state"] != "failed" or (rec["charged"] and rec.get("raw")):  # a kept answer converts at any age
+        return rec["state"]
+    d = date.fromisoformat(rec["date"])
+    if rec["kind"] == "window":
+        w = _windows_by_hhmm(d, env.cal).get(rec["hhmm"])
+        gone = w is None or not window_reachable(w, now, margin_min(env.settings))
+    else:
+        gone = d <= dp_reach_edge(now)
+    return "lost" if gone else "failed"
 
 
 def lost_days_path(paths: Paths) -> Path:
@@ -357,6 +441,10 @@ def make_plan(env: step7.Env, approved: int | None) -> BackfillPlan:
     now = env.now()
     from nqbot.setup_ssd import check_month1, ledger_fixed
 
+    ok, reasons = step7.strike_window_check(env)  # decision 3: no override flag
+    if not ok:
+        raise BackfillRefused("the strike-window check hasn't passed (every backfill day would lose its edge strikes "
+                              "for good): " + "; ".join(reasons))
     if not ledger_fixed(env.paths):  # step 10 starts: is the ledger's month-1 merge still right (§12 step 4b)?
         check_month1(env.settings, now, env.cal)
     through, _ = step7._history_through(env.client.vol_symbols())  # free
@@ -371,9 +459,10 @@ def make_plan(env: step7.Env, approved: int | None) -> BackfillPlan:
         env.echo(f"  already beyond the 365-day reach (not pulled): {len(plan.lost_days)} weekdays "
                  f"{plan.lost_days[0]}..{plan.lost_days[-1]}")
     if balance is not None:
-        env.echo(f"  balance: {balance:,} credits" + (f" - SHORT by {est.total - balance:,}: the job stops cleanly when "
-                                                      "it runs out (buy the pack the step-7 report names)"
-                                                      if est.total > balance else ""))
+        usable = balance - reserve_credits(env.settings)
+        env.echo(f"  balance: {balance:,} credits, {reserve_credits(env.settings):,} kept for the step-7 checks "
+                 "running alongside" + (f" - SHORT by {est.total - usable:,}: the job stops cleanly when it runs "
+                                        "out (buy the pack the step-7 report names)" if est.total > usable else ""))
     if est.total > credits.ASK_ABOVE_CREDITS and (approved is None or approved < est.total):
         raise credits.CreditRefused(f"estimate {est.total:,} is over {credits.ASK_ABOVE_CREDITS:,} credits: ask the "
                                     f"owner, then re-run with --approve-credits {est.total}")
@@ -413,22 +502,30 @@ def spent_on_plan(store: SkylitStore, plan_id: str | None) -> int:
                and (r.get("status") or 999) < 400)
 
 
+def reserve_credits(settings: dict[str, Any]) -> int:
+    """Credits the backfill leaves for the step-7 checks running alongside it without the lock (decision 2)."""
+    return int(settings["skylit_alongside_reserve_credits"])
+
+
 @dataclass
 class Budget:
     approved: int  # the owner's approval (or the 5,000-credit no-ask limit when none was needed)
     spent: int
     balance: Callable[[], int | None]
     taken: list[int] = field(default_factory=list)
+    reserve: int = 0  # skylit_alongside_reserve_credits: never spent by the backfill
 
     def require(self, cost: int, what: str) -> None:
         if self.spent + cost > self.approved:
-            raise StopChunk(f"the approved {self.approved:,} credits are used up ({self.spent:,} spent; {what} needs "
+            raise StopChunk(f"the approved {self.approved:,} credits are used up ({self.spent:,} counted, refused calls "
+                            f"included until the next run re-reads the ledger; {what} needs "
                             f"{cost}): ask the owner, then re-plan with nqbot skylit plan --approve-credits",
                             status="credits")
         bal = self.balance()
-        if bal is not None and bal < cost:
-            raise StopChunk(f"Skylit balance {bal:,} can't cover {what} ({cost} credits): top up (or wait for the "
-                            f"1st), then re-run nqbot run {JOB_NAME}", status="credits")
+        if bal is not None and bal - self.reserve < cost:
+            raise StopChunk(f"Skylit balance {bal:,} (less {self.reserve:,} kept for the step-7 checks running "
+                            f"alongside) can't cover {what} ({cost} credits): top up (or wait for the 1st), then "
+                            f"re-run nqbot run {JOB_NAME}", status="credits")
 
     def take(self, cost: int, what: str) -> None:
         """Before a call: refuse it if it can't be covered, else count it as spent (refunded failures stay
@@ -454,6 +551,10 @@ class SkylitBackfillJob:
         self._plan: BackfillPlan | None = None
         self._budget: Budget | None = None
         self._max_pages = 1
+        self._failed: dict[str, dict[str, Any]] = {}
+        self._in_row = 0  # windows/dates failed in a row in this run's main pass (reset by any successful call)
+        self._timeouts = 0  # retry pass: timeouts in a row
+        self._dropped_spent = 0  # credits of this night's extra tries for dropped windows (owner 2026-10-06)
 
     def env(self, ctx: Ctx) -> step7.Env:
         if self._env is None:
@@ -491,13 +592,78 @@ class SkylitBackfillJob:
             raise BackfillRefused(f"what's left ({est.total:,} credits) is more than what's left of the approval "
                                   f"({approved - spent:,}): ask the owner, then re-plan with --approve-credits")
         balance = env.client.credits.remaining
-        if balance is not None and est.total > balance:
-            env.log.warning("balance %s < remaining estimate %s: the job will stop cleanly when the balance runs "
-                            "out; top up, then re-run", f"{balance:,}", f"{est.total:,}")
-        self._budget = Budget(approved, spent, lambda: env.client.credits.remaining)
+        reserve = reserve_credits(ctx.settings)
+        env.echo(f"  Skylit balance before starting: {f'{balance:,}' if balance is not None else 'unknown'} credits "
+                 f"({reserve:,} kept for the step-7 checks running alongside); if it runs out the job stops cleanly "
+                 "(status credits): top up, then run the same command again")
+        if balance is not None and est.total > balance - reserve:
+            env.log.warning("balance %s (less the %s reserve) < remaining estimate %s: the job will stop cleanly "
+                            "when the balance runs out; top up, then re-run", f"{balance:,}", f"{reserve:,}",
+                            f"{est.total:,}")
+        self._budget = Budget(approved, spent, lambda: env.client.credits.remaining, reserve=reserve)
         self._max_pages = max_pages_stored(env.store)
+        self._failed = load_failed(ctx.paths)
+        self._in_row = 0
+        self._dropped_spent = 0
         dates = sorted(set(plan.days) | set(plan.dp_dates))
-        return [d.isoformat() for d in dates] + [f"{TEMPEST_CHUNK}_{plan.last.isoformat()}"]
+        last = plan.last.isoformat()
+        return [d.isoformat() for d in dates] + [f"{TEMPEST_CHUNK}_{last}"]
+
+    # retry passes (owner 2026-10-06): at the start of every run and the end of every night, oldest first
+    def at_start(self, ctx: Ctx) -> None:
+        self._retry_pass(ctx, "start")
+
+    def at_end(self, ctx: Ctx) -> None:
+        self._retry_pass(ctx, "end")
+
+    # --- failures (decision 4, presd_fixes D1) ---
+    def _wait(self, ctx: Ctx, sec: float) -> None:
+        """Sleep `sec`, checking ctx.should_stop() every WAIT_STEP_SEC (a stop request never waits 15 minutes)."""
+        left = sec
+        while left > 0:
+            step = min(WAIT_STEP_SEC, left)
+            ctx.sleep(step)
+            left -= step
+            reason = ctx.should_stop()
+            if reason:
+                raise StopChunk(reason)
+
+    def _succeeded(self) -> None:
+        self._in_row = 0
+
+    def _record(self, ctx: Ctx, key: str, rec: dict[str, Any]) -> None:
+        self._failed[key] = rec
+        atomic_write_json(failed_path(ctx.paths), self._failed)
+
+    def _on_error(self, ctx: Ctx, key: str, kind: str, d: date, hhmm: str | None, exc: Exception, attempt: int) -> bool:
+        """True: try again now (a transient error, after a wait); False: recorded as failed, carry on. Raises
+        StopChunk(status="failures") after skylit_max_failures_in_row in a row. Only Skylit's answers are skipped
+        (a refusal, an answer that couldn't be converted or stored: WindowFailed); anything else is a bug and raises."""
+        if not isinstance(exc, SkylitError):
+            raise exc
+        if isinstance(exc, SkylitError) and exc.code in TRANSIENT_CODES and attempt < len(CHUNK_RETRY_SEC):
+            ctx.log.warning("%s: %s; trying it again in %ss", key, exc, CHUNK_RETRY_SEC[attempt])
+            self._wait(ctx, CHUNK_RETRY_SEC[attempt])
+            return True
+        charged = bool(getattr(exc, "charged", False)) or exc.code in DP_PAID_CODES \
+            or exc.code == "dropped"  # D7: possibly charged, already sent twice: not called a third time
+        raw = getattr(exc, "raw_path", None)
+        if isinstance(exc, SkylitError) and exc.code == "range_date":  # the 31-day answer is kept: re-split for free
+            charged, raw = True, None
+        self._record(ctx, key, {
+            "kind": kind, "date": d.isoformat(), "hhmm": hhmm, "status": getattr(exc, "status", None),
+            "code": getattr(exc, "code", type(exc).__name__), "message": str(exc)[:500], "charged": charged,
+            "raw": str(raw) if raw else None, "at": datetime.now(timezone.utc).isoformat(), "retries": 0,
+            "state": "failed"})
+        self._in_row += 1
+        k = int(ctx.settings["skylit_max_failures_in_row"])
+        ctx.log.error("%s failed (%s); recorded in %s, never pulled again in this pass; carrying on (%d/%d in a row)",
+                      key, exc, failed_path(ctx.paths), self._in_row, k)
+        if self._in_row >= k:
+            raise StopChunk(f"{k} windows or dates failed in a row (last {key}: {exc}): stopped cleanly. Check the "
+                            f"Skylit status page and {failed_path(ctx.paths)}, then run nqbot run {JOB_NAME} again "
+                            "(recorded failures are skipped; ask Claude Code if it repeats)", status="failures")
+        return False
 
     def run_chunk(self, chunk_id: str, ctx: Ctx) -> None:
         for attempt in range(len(CHUNK_RETRY_SEC) + 1):
@@ -511,10 +677,7 @@ class SkylitBackfillJob:
                                     status="api_error") from None
                 ctx.log.warning("%s: %s; retrying the chunk in %ss (cached windows are reused)", chunk_id, e,
                                 CHUNK_RETRY_SEC[attempt])
-                ctx.sleep(CHUNK_RETRY_SEC[attempt])
-                reason = ctx.should_stop()
-                if reason:
-                    raise StopChunk(reason) from None
+                self._wait(ctx, CHUNK_RETRY_SEC[attempt])
 
     def _run_chunk(self, chunk_id: str, ctx: Ctx) -> None:
         plan, env = self.plan(ctx), self.env(ctx)
@@ -529,7 +692,7 @@ class SkylitBackfillJob:
                     if d in set(plan.days):
                         rec["skylit"] = self._skylit_day(env, plan, d, ctx)
                     if d in set(plan.dp_dates):
-                        rec["dp"] = self._dp_date(env, d, plan, ctx)
+                        rec["dp"] = self._dp_guarded(env, d, plan, ctx)
                     atomic_write_json(ctx.out_dir / "days" / f"{chunk_id}.json", rec)
         except OutOfCredits as e:
             raise StopChunk(f"Skylit answered 402 out of credits ({e.message}): top up, then re-run nqbot run "
@@ -548,14 +711,47 @@ class SkylitBackfillJob:
             budget.take(credits.RANGE_CALL, f"window {w.day} {w.hhmm}")
             return True
 
+        def on_error(w: Window, exc: Exception, attempt: int) -> bool:
+            return self._on_error(ctx, window_key(d, w.hhmm), "window", d, w.hhmm, exc, attempt)
+
         res = pull_session(env.client, env.store, d, should_stop=ctx.should_stop, log=ctx.log, cal=env.cal,
-                           repull=RAISE if reuse.get("pull_again") else None, gate=gate, now=env.now)
+                           repull=RAISE if reuse.get("pull_again") else None, gate=gate, now=env.now,
+                           skip=lambda w: window_key(d, w.hhmm) in self._failed, on_error=on_error,
+                           on_success=lambda w: self._succeeded())
         return {"windows": len(session_windows(d, env.cal)), "pulled": res.pulled, "cached": res.cached,
-                "empty": res.empty, "lost": res.lost, "reuse": reuse, "resolutions": stored_resolutions(env.store, d)}
+                "empty": res.empty, "lost": res.lost, "failed": res.failed, "reuse": reuse,
+                "resolutions": stored_resolutions(env.store, d)}
+
+    def _dp_guarded(self, env: step7.Env, d: date, plan: BackfillPlan, ctx: Ctx,
+                    single: bool = False) -> dict[str, Any]:
+        """_dp_date with the failure rule (D1): a date that keeps failing is recorded and the job carries on. A date
+        already recorded is never asked again in the main pass (review: a paid failure would be paid twice, and in
+        range mode its group would no longer start at it)."""
+        if not single and dp_key(d) in self._failed:
+            return {"status": "failed", "prints": 0, "recorded": True}
+        attempt = 0
+        while True:
+            calls = len(self._budget.taken)
+            try:
+                out = self._dp_date(env, d, plan, ctx, single=single)
+            except NEVER_SKIPPED:
+                raise
+            except Exception as e:  # noqa: BLE001 - _on_error decides; an unplugged SSD always stops
+                if not env.paths.mounted():
+                    raise
+                if self._on_error(ctx, dp_key(d), "dp", d, None, e, attempt):
+                    attempt += 1
+                    continue
+                return {"status": "failed", "prints": 0, "error": str(e)[:300]}
+            if len(self._budget.taken) > calls:  # a call was made and answered (a cache hit proves nothing)
+                self._succeeded()
+            return out
 
     # one dark-pool date (or, in range mode, the 31-day call that starts at it)
-    def _dp_date(self, env: step7.Env, d: date, plan: BackfillPlan, ctx: Ctx) -> dict[str, Any]:
+    def _dp_date(self, env: step7.Env, d: date, plan: BackfillPlan, ctx: Ctx, single: bool = False) -> dict[str, Any]:
         path = env.store.dp_trades_path(d)
+        if not path.exists() and step7.adopt_lookback_copy(env, d):  # a late-print check's copy: free (D3)
+            return {"status": "from_late_print_check", "prints": pq.ParquetFile(path).metadata.num_rows}
         if path.exists():
             step7.pull_dp_date(env, d)  # parameter check only (cached)
             return {"status": "cached", "prints": pq.ParquetFile(path).metadata.num_rows}
@@ -567,11 +763,11 @@ class SkylitBackfillJob:
             return {"status": covered[d], "prints": 0, "via_range": True}
         kept = kept_range_covering(env, d)
         if kept is not None:  # an answer already paid for (a crash before its record was written): split it again
-            return self._settle_range(env, d, kept[0], kept[1], [x for x in dp_todo(env, plan) if kept[0] <= x <= kept[1]]
-                                      or [d], ctx)
+            return self._settle_range(env, d, kept[0], kept[1],
+                                      sorted({d, *[x for x in dp_todo(env, plan) if kept[0] <= x <= kept[1]]}), ctx)
         budget = self._budget
         edge = dp_reach_edge(env.now())
-        if plan.dp_range and d > edge + DP_RANGE_REACH_MARGIN:
+        if plan.dp_range and not single and d > edge + DP_RANGE_REACH_MARGIN:
             return self._dp_range(env, d, plan, ctx, edge)
         budget.require(credits.DP_TRADES_PAGE * DP_PAGE_RESERVE_FACTOR * self._max_pages,
                        f"dark pools {d}")  # don't start a date it can't end
@@ -609,13 +805,187 @@ class SkylitBackfillJob:
         got = step7.pull_dp_range(env, start, end, dates)
         statuses = {x: ("no_coverage" if p is None else "pulled" if env.trading_day(x) else "not_a_session")
                     for x, p in got.items()}
-        atomic_write_json(ctx.out_dir / "dp_range" / f"{start.isoformat()}_{end.isoformat()}.json",
-                          {"start": start.isoformat(), "end": end.isoformat(),
-                           "dates": {x.isoformat(): st for x, st in statuses.items()}})
+        record = ctx.out_dir / "dp_range" / f"{start.isoformat()}_{end.isoformat()}.json"
+        before = json.loads(record.read_text(encoding="utf-8"))["dates"] if record.exists() else {}
+        atomic_write_json(record, {"start": start.isoformat(), "end": end.isoformat(),
+                                   "dates": {**before, **{x.isoformat(): st for x, st in statuses.items()}}})
         pages = int(read_meta(step7.dp_range_path(env, start, end)).get("pages") or 1)
         mine = env.store.dp_trades_path(d)
         return {"status": statuses.get(d, "cached"), "prints": pq.ParquetFile(mine).metadata.num_rows if mine.exists() else 0,
                 "via_range": [start.isoformat(), end.isoformat()], "pages": pages}
+
+    def _retry_pass(self, ctx: Ctx, when: str) -> None:
+        """Try every recorded failure once, oldest first. Out of reach: lost. skylit_max_failures_in_row timeouts in
+        a row (an outage) end the pass, not the run: the rest wait for the next pass. A plain refusal doesn't count,
+        so windows Skylit always refuses never block the backfill."""
+        todo = sorted((k for k, r in self._failed.items() if r["state"] == "failed"),
+                      key=lambda k: (self._failed[k]["date"], self._failed[k].get("hhmm") or "", k))
+        if not todo:
+            return
+        dropped = [k for k in todo if dropped_tries_left(self._failed[k], ctx.settings)]
+        todo = [k for k in todo if k not in set(dropped) or effective_state(self.env(ctx), self._failed[k],
+                                                                          self.env(ctx).now()) == "lost"]
+        plan, env = self.plan(ctx), self.env(ctx)
+        ctx.log.info("%s: retrying %d failed windows/dates (%s of the run), oldest first", JOB_NAME, len(todo), when)
+        outcome: dict[str, str] = {}
+        k = int(ctx.settings["skylit_max_failures_in_row"])
+        self._timeouts = 0
+        try:
+            with env.client.tagged(job=JOB_NAME, plan=plan.plan_id, retry=when):
+                for key in todo:
+                    reason = ctx.should_stop()
+                    if reason:
+                        raise StopChunk(reason)
+                    outcome[key] = self._retry_one(env, plan, ctx, key, when)
+                    if self._timeouts >= k:
+                        ctx.log.warning("%s: %d retries in a row timed out (Skylit down?): the rest wait for the "
+                                        "next pass", JOB_NAME, k)
+                        break
+                if when == "end":
+                    outcome.update(self._dropped_rounds(env, ctx, [x for x in dropped if x not in outcome]))
+        except OutOfCredits as e:
+            raise StopChunk(f"Skylit answered 402 out of credits ({e.message}): top up, then re-run nqbot run "
+                            f"{JOB_NAME}", status="credits") from None
+        finally:
+            if outcome:
+                append_jsonl(job_dir(ctx.paths) / "retries.jsonl",
+                             {"at": env.now().isoformat(), "when": when, "outcome": outcome})
+                write_coverage(env, plan, ctx.out_dir, self._budget)
+
+    def _retry_one(self, env: step7.Env, plan: BackfillPlan, ctx: Ctx, key: str, when: str) -> str:
+        rec = self._failed[key]
+        d = date.fromisoformat(rec["date"])
+        error = None
+        state = effective_state(env, rec, env.now())
+        if state == "lost":
+            pass  # left the reach while it waited: never callable again
+        elif rec["charged"] and not rec.get("raw") and rec["kind"] == "window":
+            state = "failed"  # paid, nothing kept: never called again (rule 2), but a dropped one has its extra tries
+            # (_dropped_rounds); lost once it leaves the reach
+        else:
+            try:
+                if rec["kind"] == "window":
+                    state = self._retry_window(env, rec, d, margin_min(env.settings))
+                else:
+                    state = self._retry_dp(env, rec, d, plan, ctx)
+            except NEVER_SKIPPED:
+                raise
+            except CacheMismatch as e:  # a stored file with other parameters: stays failed, the owner is told
+                state, error = "failed", f"CacheMismatch: {e} (ask Claude Code; nothing is deleted)"[:500]
+            except SkylitError as e:  # still failing: tried again at the next pass while it is in reach
+                state, error = "failed", f"{type(e).__name__}: {e}"[:500]
+                self._timeouts = self._timeouts + 1 if e.code in TRANSIENT_CODES else 0
+                if getattr(e, "charged", False):  # the retry paid for an answer it couldn't use: keep where it is
+                    raw = getattr(e, "raw_path", None)
+                    rec = {**rec, "charged": True, "raw": str(raw) if raw else rec.get("raw")}
+            if state == "recovered":
+                self._timeouts = 0
+        ctx.log.log(30 if state == "failed" else 20, "retry of %s: %s%s", key, state, f" ({error})" if error else "")
+        self._record(ctx, key, {**rec, "retries": rec.get("retries", 0) + 1, "last_retry": f"{when} {env.now().isoformat()}",
+                                "state": state, **({"retry_error": error} if error else {})})
+        return state
+
+    def _dropped_rounds(self, env: step7.Env, ctx: Ctx, keys: list[str]) -> dict[str, str]:
+        """Owner 2026-10-06: a window whose connection dropped gets up to skylit_dropped_extra_tries more tries while
+        it is in reach, in rounds (oldest first, DROPPED_ROUND_WAIT_SEC before each round), each try sent once (25
+        credits at most), all within skylit_dropped_retry_credits_per_night. Every try is recorded with its
+        credits (coverage.md lists them)."""
+        cap = int(ctx.settings["skylit_dropped_retry_credits_per_night"])
+        margin = margin_min(env.settings)
+        out: dict[str, str] = {}
+        for wait in DROPPED_ROUND_WAIT_SEC:
+            left = [k for k in keys if dropped_tries_left(self._failed[k], ctx.settings)]
+            if not left:
+                break
+            if self._dropped_spent + credits.RANGE_CALL > cap:
+                ctx.log.warning("%s: tonight's cap for dropped-window retries (%d credits) is used up: %d window(s) "
+                                "wait for the next night", JOB_NAME, cap, len(left))
+                break
+            ctx.log.info("%s: %d dropped window(s) get another try in %ss", JOB_NAME, len(left), wait)
+            self._wait(ctx, wait)
+            for key in left:
+                if self._dropped_spent + credits.RANGE_CALL > cap:
+                    break
+                out[key] = self._dropped_try(env, ctx, key, margin)
+        return out
+
+    def _dropped_try(self, env: step7.Env, ctx: Ctx, key: str, margin: float) -> str:
+        rec = self._failed[key]
+        d = date.fromisoformat(rec["date"])
+        w = _windows_by_hhmm(d, env.cal).get(rec["hhmm"])
+        if w is None or not window_reachable(w, env.now(), margin):
+            self._record(ctx, key, {**rec, "state": "lost"})
+            return "lost"
+        result, paid = SessionResult(d), []
+
+        def gate(win: Window) -> bool:
+            if not window_reachable(win, env.now(), margin):
+                return False
+            self._budget.take(credits.RANGE_CALL, f"dropped-window retry {win.day} {win.hhmm}")
+            self._dropped_spent += credits.RANGE_CALL
+            paid.append(credits.RANGE_CALL)
+            return True
+
+        error, update = None, {}
+        try:
+            pull_window(env.client, env.store, w, result=result, log=env.log, gate=gate, now=env.now, drop_retries=0)
+            state = "lost" if result.lost else "recovered" if (result.pulled or result.empty) else "failed"
+        except NEVER_SKIPPED:
+            raise
+        except SkylitError as e:
+            state, error = "failed", f"{type(e).__name__}: {e}"[:300]
+            if e.code != DROPPED:  # answered this time: now an ordinary failure (refused, or paid and kept)
+                raw = getattr(e, "raw_path", None)
+                update = {"code": e.code, "status": e.status, "charged": bool(e.charged),
+                          "raw": str(raw) if raw else rec.get("raw")}
+        tries = [*rec.get("dropped_tries", []), {"at": env.now().isoformat(), "credits": sum(paid),
+                                                 "outcome": state if error is None else error}]
+        self._record(ctx, key, {**rec, **update, "dropped_tries": tries, "state": state})
+        ctx.log.log(30 if state == "failed" else 20, "dropped-window retry %d of %s: %s", len(tries), key,
+                    error or state)
+        return state
+
+    def _retry_window(self, env: step7.Env, rec: dict[str, Any], d: date, margin: float) -> str:
+        w = _windows_by_hhmm(d, env.cal).get(rec["hhmm"])
+        if w is None:  # the calendar no longer has this window (e.g. an edited early close): nothing to pull
+            return "lost"
+        if env.store.range_cached(d, w.hhmm, range_params_from_settings(env.settings, w)):
+            return "recovered"
+        if rec["charged"]:  # paid already: only converted again from the kept answer (free, never called again)
+            raw = Path(rec["raw"]) if rec.get("raw") else None
+            if raw is None or not raw.exists():
+                return "failed"
+            try:
+                body = json.loads(raw.read_bytes())
+            except ValueError:
+                return "failed"  # an undecodable answer stays failed (kept in failed/)
+            record = SimpleNamespace(at=rec["at"], credits_remaining=None, charged=None, bytes=raw.stat().st_size)
+            root_to_map = {v: k for k, v in env.settings["skylit_symbols"].items()}
+            store_window(env.store, w, body, record, range_params_from_settings(env.settings, w), root_to_map,
+                         result=SessionResult(d), raw_path=raw)
+            return "recovered"
+        result = SessionResult(d)
+
+        def gate(win: Window) -> bool:
+            if not window_reachable(win, env.now(), margin):
+                return False
+            self._budget.take(credits.RANGE_CALL, f"retry of window {win.day} {win.hhmm}")
+            return True
+
+        pull_window(env.client, env.store, w, result=result, log=env.log, gate=gate, now=env.now)
+        if result.lost:
+            return "lost"
+        return "recovered" if (result.pulled or result.empty) else "failed"
+
+    def _retry_dp(self, env: step7.Env, rec: dict[str, Any], d: date, plan: BackfillPlan, ctx: Ctx) -> str:
+        if env.store.dp_trades_path(d).exists() or d in dp_range_covered(env.paths):
+            return "recovered"
+        if rec["charged"] and kept_range_covering(env, d) is None:
+            return "failed"  # its pages were paid and lost with the error: never called again (rule 2)
+        if d <= dp_reach_edge(env.now()) and not rec["charged"]:
+            return "lost"
+        out = self._dp_date(env, d, plan, ctx, single=True)  # a kept range answer is split again for free
+        return {"out_of_reach": "lost", "no_coverage": "no_coverage"}.get(out["status"], "recovered")
 
     # Tempest, once
     def _tempest(self, env: step7.Env, plan: BackfillPlan) -> dict[str, Any]:
@@ -700,11 +1070,25 @@ def _day_records(out_dir: Path) -> list[dict[str, Any]]:
 
 def coverage(env: step7.Env, plan: BackfillPlan, out_dir: Path, budget: Budget | None = None) -> dict[str, Any]:
     recs = _day_records(out_dir)
+    now = env.now()
+    failed = {k: {**r, "state": effective_state(env, r, now)} for k, r in load_failed(env.paths).items()}
+    failed_lost: dict[str, set[str]] = {}
+    for r in failed.values():
+        if r["kind"] == "window" and r["state"] == "lost":
+            failed_lost.setdefault(r["date"], set()).add(r["hhmm"])
     sky = {r["date"]: r["skylit"] for r in recs if "skylit" in r}
     dps = {r["date"]: r["dp"] for r in recs if "dp" in r}
+    def lost_of(d: str) -> list[str]:  # out of reach when planned or pulled, or failed until it left the reach
+        return sorted(set(sky.get(d, {}).get("lost", [])) | failed_lost.get(d, set()))
+
+    def nothing_stored(d: str) -> bool:
+        rec = sky.get(d, {})
+        return not rec.get("pulled") and not rec.get("cached") and not env.store.stored_windows(date.fromisoformat(d))
+
     fully_lost = sorted({d.isoformat() for d in plan.lost_days if not env.store.stored_windows(d)} | {
-        d for d, s in sky.items() if s["lost"] and not s["pulled"] and not s["cached"]})
-    partial_all = {d: s["lost"] for d, s in sky.items() if s["lost"] and (s["pulled"] or s["cached"])}
+        d for d in sky if lost_of(d) and nothing_stored(d)
+        and set(lost_of(d)) >= {w.hhmm for w in session_windows(date.fromisoformat(d), env.cal)}})
+    partial_all = {d: lost_of(d) for d in sky if lost_of(d) and not nothing_stored(d)}
 
     def listable(d: str) -> bool:
         """§7 rule 2b: dates are listed only for development months and the days before month 1; the
@@ -761,6 +1145,7 @@ def coverage(env: step7.Env, plan: BackfillPlan, out_dir: Path, budget: Budget |
         "dark_pools": {"status_counts": dp_status, "first_date_with_prints": with_prints[0] if with_prints else None,
                        "not_pulled": [d.isoformat() for d in bad if listable(d.isoformat())],
                        "not_pulled_count": len(bad), "sessions_dp_partial": dp_partial},
+        "failed": _failed_section(failed, listable),
         "tempest": json.loads(tempest_file.read_text(encoding="utf-8")) if tempest_file.exists() else None,
         "credits": {"approved": budget.approved if budget else plan.approved_credits,
                     "spent_on_plan": budget.spent if budget else None, "balance": env.client.credits.remaining
@@ -800,9 +1185,51 @@ def coverage_markdown(cov: dict[str, Any], now: datetime) -> str:
               f"- First date with prints: {dp['first_date_with_prints']}",
               f"- Dates not pulled (out of reach or no coverage): {dp['not_pulled_count']}",
               f"- Sessions whose lookback touches one (dp_partial): {dp['sessions_dp_partial']}", "",
+              *_failed_markdown(cov["failed"]),
               "## Tempest", "```json", json.dumps(cov["tempest"], indent=1), "```", "",
               "## Credits", f"- {cov['credits']}"]
     return "\n".join(lines) + "\n"
+
+
+def _failed_section(failed: dict[str, dict[str, Any]], listable: Callable[[str], bool]) -> dict[str, Any]:
+    """Windows and dark-pool dates that failed (decision 4): counts by kind and state; the ones still missing are
+    listed with their error only for the development months and the days before month 1 (§7 rule 2b)."""
+    counts: dict[str, int] = {}
+    for r in failed.values():
+        k = f"{r['kind']} {r['state']}"
+        counts[k] = counts.get(k, 0) + 1
+    missing = {k: r for k, r in sorted(failed.items()) if r["state"] != "recovered"}
+    return {"counts": counts, "still_missing_count": len(missing),
+            "still_missing": {k: {"error": f"{r.get('status')} {r.get('code')}", "state": r["state"],
+                                  "charged": r["charged"], "retries": r.get("retries", 0), "raw": r.get("raw")}
+                              for k, r in missing.items() if listable(r["date"])},
+            "not_retried_yet": sum(1 for r in failed.values() if r["state"] == "failed" and not r.get("retries")),
+            "dropped_in_reach": len([r for r in failed.values() if r.get("code") == "dropped" and r["state"] == "failed"]),
+            "dropped_retries": {
+                "windows": sum(1 for r in failed.values() if r.get("dropped_tries")),
+                "tries": sum(len(r.get("dropped_tries", [])) for r in failed.values()),
+                "credits": sum(t["credits"] for r in failed.values() for t in r.get("dropped_tries", [])),
+                "listed": {k: {"tries": len(r["dropped_tries"]), "credits": sum(t["credits"] for t in r["dropped_tries"]),
+                               "state": r["state"]}
+                           for k, r in sorted(failed.items()) if r.get("dropped_tries") and listable(r["date"])}}}
+
+
+def _failed_markdown(f: dict[str, Any]) -> list[str]:
+    lines = ["## Failed windows and dark-pool dates",
+             f"- By kind and state: {f['counts'] or 'none'}",
+             f"- Still missing: {f['still_missing_count']} ({f['not_retried_yet']} not retried yet; each failed one is "
+             "tried again at the start and the end of every run until it leaves the 365-day reach, then it is lost)",
+             f"- Dropped connections still in reach: {f['dropped_in_reach']} (each gets up to skylit_dropped_extra_tries "
+             "more tries at the end of the night, within the nightly credit cap; lost once it leaves the reach or uses up its tries)"]
+    d = f["dropped_retries"]
+    lines.append(f"- Dropped-window retries: {d['windows']} window(s), {d['tries']} tries, {d['credits']} credits "
+                 "(walk-forward and sealed months as counts only)")
+    lines += [f"  - {k}: {v['tries']} tries, {v['credits']} credits, {v['state']}" for k, v in d["listed"].items()]
+    for k, v in f["still_missing"].items():
+        paid = (f" (paid; answer kept in {v['raw']})" if v["raw"] else " (paid; never called again)") if v["charged"] \
+            else ""
+        lines.append(f"  - {k}: {v['state']}, {v['error']}{paid}")
+    return lines + [""]
 
 
 def report_estimate(env: step7.Env, balance: int | None, symbols: list[str]) -> dict[str, Any]:

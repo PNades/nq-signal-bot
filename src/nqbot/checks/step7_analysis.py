@@ -55,28 +55,42 @@ def board_window_need(strikes: np.ndarray, values: np.ndarray, spot: float, drop
     return WindowNeed(need, at, king)
 
 
+DRIVERS_LISTED = 10  # §12 step 7 (strike window): a display cap only; the report gives the full count
+
+
 @dataclass
 class StrikeWindowResult:
     per_symbol: dict[str, dict[str, Any]]
     proposed: int
+    # The boards that set the proposal (need == proposed) and the window every other board fits in: if one unusual
+    # board drives the proposal bigger, the owner sees which and decides (owner 2026-10-06; zero tolerance stays).
+    drivers: list[dict[str, Any]] = field(default_factory=list)  # at most DRIVERS_LISTED
+    next_smaller: int | None = None
+    n_drivers: int = 0  # all boards that set the proposal
 
 
 def strike_window(boards: pa.Table, strikes: pa.Table, drop_pct: float, margin: int) -> StrikeWindowResult:
     """Every board of full-chain pulls -> the window each symbol needs and the overall proposal (max)."""
     per: dict[str, dict[str, Any]] = {}
     groups = _strikes_by_board(strikes)
+    needs: list[tuple[int, str, int, float | None]] = []
     for key, spot in zip(board_keys(boards), boards["spot"].to_pylist()):
         if key not in groups:
             continue
         k, v = groups[key]
         need = board_window_need(k, v, spot, drop_pct, margin)
+        needs.append((need.n, key[0], key[1], need.strike))
         rec = per.setdefault(key[0], {"need": 0, "boards": 0, "worst_as_of": None, "worst_strike": None,
                                              "chain_strikes_max": 0})
         rec["boards"] += 1
         rec["chain_strikes_max"] = max(rec["chain_strikes_max"], len(k))
         if need.n > rec["need"]:
             rec.update(need=need.n, worst_as_of=str(np.datetime64(key[1], "ms")), worst_strike=need.strike)
-    return StrikeWindowResult(per, max((r["need"] for r in per.values()), default=0))
+    proposed = max((r["need"] for r in per.values()), default=0)
+    drivers = [{"symbol": sym, "as_of": str(np.datetime64(t, "ms")), "strike": strike, "need": n}
+               for n, sym, t, strike in needs if n == proposed and proposed > 0]
+    smaller = [n for n, *_ in needs if n < proposed]
+    return StrikeWindowResult(per, proposed, drivers[:DRIVERS_LISTED], max(smaller) if smaller else None, len(drivers))
 
 
 def _ms(col: pa.ChunkedArray | pa.Array) -> np.ndarray:

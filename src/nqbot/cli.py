@@ -45,6 +45,9 @@ def main(argv: list[str] | None = None) -> int:
     backup.add_argument("--until", default=DEFAULT_UNTIL, type=_until,
                         help="stop before this ET time (HH:MM, default 07:30); the next run resumes")
     sub.add_parser("status", help="SSD use and job progress")
+    stop = sub.add_parser("stop", help="ask a running job to stop after the call it is in (its answer saved), "
+                                       "unlike Ctrl-C (SPEC section 11)")
+    stop.add_argument("job", choices=sorted(JOBS))
     unlock = sub.add_parser("unlock", help="remove a job lock left on the SSD by a job that is no longer running")
     unlock.add_argument("--yes", action="store_true", help="confirm that job is no longer running anywhere")
     which = unlock.add_mutually_exclusive_group()
@@ -84,6 +87,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "unlock":
         return _unlock(args, paths)
+
+    if args.command == "stop":
+        return _stop(args, paths)
 
     log = setup_logging(paths.log_dir)
     if args.command == "step7":
@@ -127,9 +133,29 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{job.name}: {result.status} ({result.done}/{result.total} chunks done){message}")
     if result.status == "credits":
         print(f"stopped cleanly on credits: top up (or re-plan with the owner's OK), then run: uv run nqbot run {job.name}")
+    if result.status == "failures":
+        print(f"stopped cleanly: too many windows or dates failed in a row. Check Skylit's status, then run: uv run "
+              f"nqbot run {job.name} (failures already recorded are skipped; ask Claude Code if it repeats)")
+    if result.status == "stopped":
+        print(f"stopped on request (nqbot stop); resume with: uv run nqbot run {job.name}")
     if job.name == "skylit_backup":
         print(f"backup report: {paths.reports_dir / 'backup' / 'backup.md'}")
-    return 0 if result.status in ("complete", "until") else EXIT_REFUSED
+    return 0 if result.status in ("complete", "until", "stopped") else EXIT_REFUSED
+
+
+def _stop(args: argparse.Namespace, paths) -> int:
+    """Ask a running job to stop between calls (decision 2): it finishes and saves the call it is in."""
+    from nqbot.jobs.runner import stop_request_path
+    from nqbot.storage import atomic_write_json
+
+    holders = [read_lock(lock_path(paths.root, k)) for k in ALL_LOCKS if lock_path(paths.root, k).exists()]
+    if not any(h and h.get("job") == args.job for h in holders):
+        print(f"refused: {args.job} isn't running (no job lock names it; see uv run nqbot status)", file=sys.stderr)
+        return EXIT_REFUSED
+    atomic_write_json(stop_request_path(paths, args.job), {"requested": datetime.now(ET).isoformat()})
+    print(f"{args.job} stops after the call or window it is in (its answer is saved): check with uv run nqbot "
+          f"status; resume later with uv run nqbot run {args.job}")
+    return 0
 
 
 def _unlock(args: argparse.Namespace, paths) -> int:
@@ -221,8 +247,11 @@ def _add_step7(sub: argparse._SubParsersAction) -> None:
     p = add("sample-days", "pull the 5 sample days (job skylit_sample_days, about 3,250 credits)")
     p.add_argument("--dates", type=_dates, required=True)
     p.add_argument("--raised", action="store_true",
-                   help="re-pull them after skylit_max_strikes was raised (rule-2 exception, kept apart)")
+                   help="re-pull them after skylit_max_strikes was raised (job skylit_sample_days_raise, rule-2 "
+                        "exception, kept apart)")
     p.add_argument("--until", default=DEFAULT_UNTIL, type=_until)
+    add("oldest-window", "one window (25 credits) on the oldest day still in reach: does its answer convert? "
+                         "(after the strike-window check passes)")
     add("historical-instants", "40 /v1/historical instants over development months 1-6 (200 credits)")
     p = add("stream-record", "record 15 minutes of /v1/stream during a live session (about 70 credits)")
     p.add_argument("--force", action="store_true", help="record outside the session (testing only)")
@@ -230,7 +259,8 @@ def _add_step7(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--session", type=_date, required=True)
     p.add_argument("--tag", default=None, help="which recording of that session (default: the latest)")
     p = add("darkpool", "45 days of QQQ/SPY prints + top-prints cross-check")
-    p.add_argument("--date", type=_date, required=True)
+    p.add_argument("--date", type=_date, required=True,
+                   help="a development-month date in month 3 or later (its 45-day lookback must be in Skylit's reach)")
     p.add_argument("--check-dates", type=_dates, default=[])
     p.add_argument("--no-depth-probe", action="store_true")
     p = add("late-prints-morning", "pre-open pull of the previous session's prints + top-3 lists")
@@ -251,17 +281,23 @@ def _run_step7(args: argparse.Namespace, settings: dict, paths, log) -> int:
     from nqbot.months import LedgerMissing, NotDevelopmentMonth
     from nqbot.secrets import MissingSecret
 
+    from nqbot.clients.skylit import SkylitError
+    from nqbot.clients.skylit_store import CacheMismatch
+
     refusals = (step7.CheckRefused, CreditRefused, OutOfCredits, AccessDenied, LedgerMissing, MissingSecret,
                 NotDevelopmentMonth)
 
-    env = step7.Env(settings=settings, features=load_features(), paths=paths, log=log)
+    alongside = args.check in ALONGSIDE_CHECKS
+    env = step7.Env(settings=settings, features=load_features(), paths=paths, log=log,
+                    ledger_name=f"ledger_{args.check.replace('-', '_')}.jsonl" if alongside else "ledger.jsonl")
     approve = args.approve_credits
-    # One process spends Skylit credits at a time (shared rate limit; per-call charges read from the balance):
-    # every check holds the Skylit job lock (not the Databento one, so the step-8 pull runs alongside), except the
-    # hours-long Tempest poll (free polls, a 1-credit pull), the report (reads only) and sample-days, whose job run
-    # takes the lock itself.
+    # The checks that pull history or step-10 data hold the Skylit job lock (not the Databento one, so the step-8
+    # pull runs alongside); sample-days' job run takes it itself and the report only reads. The short checks that
+    # run alongside the step-10 backfill don't (decision 2, presd_fixes D3): each writes only its own files
+    # (stream/, repull/<reason>/, vol/ under a new name, its own ledger file), and the backfill leaves
+    # skylit_alongside_reserve_credits for them.
     lock = None
-    if args.check not in ("tempest-poll", "sample-days", "report"):
+    if args.check not in ("sample-days", "report") and not alongside:
         paths.root.mkdir(parents=True, exist_ok=True)
         lock = job_locks(paths.root, (SKYLIT,), f"step7 {args.check}")
     from nqbot.power import keep_awake
@@ -278,6 +314,33 @@ def _run_step7(args: argparse.Namespace, settings: dict, paths, log) -> int:
     except refusals as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
+    except CacheMismatch as e:
+        print(f"refused: {e}\nhint: a stored file was pulled with other parameters (e.g. skylit_max_strikes changed). "
+              "Don't delete or move anything; ask Claude Code.", file=sys.stderr)
+        return EXIT_REFUSED
+    except SkylitError as e:
+        print(f"stopped: Skylit answered {e}\nhint: {_step7_hint(args.check, e)}", file=sys.stderr)
+        return EXIT_REFUSED
+
+
+# The step-7 checks that run alongside the step-10 backfill without the Skylit lock (decision 2).
+ALONGSIDE_CHECKS = frozenset({"stream-record", "parity", "late-prints-morning", "late-prints-compare", "tempest-poll",
+                              "tempest-compare"})
+
+
+def _step7_hint(check: str, e) -> str:
+    """A plain next step for a Skylit error in a step-7 check (presd_fixes D8)."""
+    if check == "darkpool" and e.status in (400, 404):
+        return ("the date's 45-day lookback may reach past Skylit's 365-day history: pick a --date in development "
+                "month 3 or later and run it again (refused calls are refunded)")
+    if e.code == "dropped":
+        return ("the connection dropped after the request was sent, twice (each may have been charged): check the "
+                "balance, then run the same command again later (finished windows are cached, never paid twice)")
+    if e.code == "gave_up":
+        return ("Skylit kept timing out: wait a few minutes and run the same command again (failed calls are "
+                "refunded; finished windows are cached, never paid twice)")
+    return ("refused calls are refunded and finished pulls are cached: run the same command again later; ask "
+            "Claude Code if it repeats")
 
 
 def _step7_check(args: argparse.Namespace, settings, paths, log, env, approve) -> int:
@@ -291,14 +354,17 @@ def _step7_check(args: argparse.Namespace, settings, paths, log, env, approve) -
             step7.check_strike_window(env, args.busy_day, args.sample_days,
                                       args.start or step7.STRIKE_WINDOW_DEFAULT_START, approve)
         case "sample-days":
+            name = step7.sample_job_name(args.raised)
             step7.plan_sample_days(env, args.dates, approve, raised=args.raised)
-            result = run_job(SkylitPullJob("skylit_sample_days"), settings, paths,
+            result = run_job(SkylitPullJob(name), settings, paths,
                              until=parse_until(args.until, datetime.now(ET)), log=log)
-            print(f"skylit_sample_days: {result.status} ({result.done}/{result.total} sessions)")
+            print(f"{name}: {result.status} ({result.done}/{result.total} sessions)")
             if result.status != "complete":
-                print("resume with: uv run nqbot run skylit_sample_days, then re-run this command for the report")
+                print(f"resume with: uv run nqbot run {name}, then re-run this command for the report")
                 return EXIT_REFUSED
-            step7.sample_days_report(env, args.dates)
+            step7.sample_days_report(env, args.dates, raised=args.raised)
+        case "oldest-window":
+            step7.check_oldest_window(env, approve)
         case "historical-instants":
             step7.check_historical_instants(env, approve)
         case "stream-record":

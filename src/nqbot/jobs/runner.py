@@ -6,6 +6,9 @@ there, free space >= min_free_gb (the drive's, so a job running in parallel coun
 window (once enforced, step 22), and that the chunk's measured 90th-percentile duration fits before --until. Long chunks call `ctx.should_stop()` between
 their own work units (§11: work is checked against the clock between work units) and raise `StopChunk`
 to give up the chunk cleanly; it then re-runs from its start next time.
+
+`nqbot stop <job>` (decision 2, presd_fixes D3) writes <data_dir>/jobs/<job>/stop.request: should_stop() then says
+stop, so the job ends after the call it is in (its answer saved) with status `stopped`, never mid-call like Ctrl-C.
 """
 
 from __future__ import annotations
@@ -33,6 +36,8 @@ P90 = 0.90  # §11: a chunk starts only if its measured 90th-percentile duration
 SPARE_CORES = 2  # §11: max_workers default = all cores but 2
 RAM_RESERVE_GB = 4  # §11 Low memory: workers capped at floor((free RAM - 4 GB) / peak per session)
 WINDOW_SEARCH_DAYS = 14  # how far ahead to look for the next trading-day job-lock window
+STOP_REQUEST = "stop.request"
+STOP_REASON = "stop requested (nqbot stop)"
 
 
 class StopChunk(Exception):
@@ -47,7 +52,9 @@ class StopChunk(Exception):
 
 
 class Job(Protocol):
-    """A job may also set `locks` (a tuple of nqbot.jobs.lock kinds); without it the job holds every job lock."""
+    """A job may also set `locks` (a tuple of nqbot.jobs.lock kinds); without it the job holds every job lock.
+    Optional `at_start(ctx)` runs before the first chunk of every run and `at_end(ctx)` when a run ends normally
+    (complete, or --until reached); either may raise StopChunk like a chunk."""
 
     name: str
 
@@ -71,7 +78,7 @@ class Ctx:
 
 @dataclass
 class RunResult:
-    status: str  # complete | until | ssd_missing | low_space | lock_window | credits | api_error
+    status: str  # complete | until | stopped | ssd_missing | low_space | lock_window | credits | api_error | failures
     done: int
     total: int
     ran: list[str] = field(default_factory=list)
@@ -122,6 +129,10 @@ def next_window_start(now: datetime, window: str, is_trading_day: Callable[[date
     return None
 
 
+def stop_request_path(paths: Paths, job_name: str) -> Path:
+    return paths.data_dir / "jobs" / job_name / STOP_REQUEST
+
+
 def state_path(paths: Paths, job_name: str) -> Path:
     return paths.data_dir / "jobs" / job_name / "state.json"
 
@@ -167,10 +178,14 @@ def run_job(
         if window_start is not None and window_start < deadline:
             deadline = window_start
 
+    stop_file = stop_request_path(paths, job.name)
+
     def should_stop() -> str | None:
         stop = refusal()
         if stop:
             return stop[1]
+        if stop_file.exists():
+            return STOP_REASON
         if now() >= deadline:
             return f"reached {deadline:%H:%M}"
         return None
@@ -185,6 +200,9 @@ def run_job(
     paths.root.mkdir(parents=True, exist_ok=True)
     # Keep Windows awake while the job runs (owner 2026-10-05, §11 Overnight jobs; lid-close sleep still applies).
     with keep_awake(), job_locks(paths.root, getattr(job, "locks", None) or ALL_LOCKS, job.name):
+        if stop_file.exists():  # left by a run that ended before it saw it: this run was asked for after it
+            log.info("%s: removing an old stop request (%s)", job.name, stop_file)
+            stop_file.unlink(missing_ok=True)
         state = load_state(spath)
         done: dict[str, Any] = state["done"]
         peaks = [d["peak_gb"] for d in done.values() if d.get("peak_gb")]
@@ -207,8 +225,32 @@ def run_job(
         log.info("%s: %d/%d chunks done, %d to go, until %s", job.name, len(chunks) - len(pending),
                  len(chunks), len(pending), deadline.strftime("%Y-%m-%d %H:%M %Z"))
         result = RunResult("complete", len(chunks) - len(pending), len(chunks))
-        for chunk in pending:
-            stop = refusal()
+
+        def hook(name: str) -> bool:
+            """Run the job's optional `at_start` / `at_end(ctx)` (e.g. the Skylit backfill's retry of failed
+            windows, at the start of every run and the end of every night). False: the run stops here."""
+            fn = getattr(job, name, None)
+            if fn is None:
+                return True
+            try:
+                fn(ctx)
+            except StopChunk as e:
+                stop = refusal() or (("stopped", STOP_REASON) if stop_file.exists() else None)
+                result.status = e.status or (stop[0] if stop else "until")
+                result.message = f"{name} stopped early ({e})"
+                log.info("%s: %s", job.name, result.message)
+                return False
+            except Exception:
+                if not paths.mounted():
+                    result.status, result.message = "ssd_missing", f"SSD unplugged during {name}"
+                    log.error("%s: %s", job.name, result.message)
+                    return False
+                raise
+            return True
+
+        started = hook("at_start")
+        for chunk in pending if started else []:
+            stop = refusal() or (("stopped", STOP_REASON) if stop_file.exists() else None)
             if stop is None and now() + timedelta(seconds=p90([d["sec"] for d in done.values()])) > deadline:
                 stop = ("until", f"next chunk would not finish before {deadline:%H:%M}")
             if stop is not None:
@@ -224,7 +266,7 @@ def run_job(
                 run["end"] = now().isoformat()
                 atomic_write_json(spath, state)
             except StopChunk as e:
-                stop = refusal()
+                stop = refusal() or (("stopped", STOP_REASON) if stop_file.exists() else None)
                 result.status = e.status or (stop[0] if stop else "until")
                 result.message = f"chunk {chunk} stopped early ({e}): it re-runs next time"
                 log.info("%s: %s", job.name, result.message)
@@ -240,10 +282,14 @@ def run_job(
             result.done += 1
             result.ran.append(chunk)
             log.info("%s: chunk %s done in %.1fs (%d/%d)", job.name, chunk, sec, result.done, result.total)
+        # the night ended normally (not a stop or a fault), and a chunk ran since at_start (else it would just repeat it)
+        if started and result.ran and result.status in ("complete", "until"):
+            hook("at_end")
         run["end"] = now().isoformat()
         run["status"] = result.status
         if paths.mounted():
             atomic_write_json(spath, state)
+            stop_file.unlink(missing_ok=True)  # served (or not needed any more: the run ended)
     return result
 
 

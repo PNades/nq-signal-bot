@@ -173,3 +173,19 @@ def sse(*events: tuple[str, dict[str, Any] | None, str | None]) -> bytes:
         lines.append("data: " + json.dumps(data))
         out.append("\n".join(lines) + "\n\n")
     return "".join(out).encode()
+
+
+def pass_strike_window(paths, settings, proposed=None, edge_violations=None, pulled_with=None):
+    """Write the step-7 strike_window and sample_days reports so the D2 strike-window check passes (or, with the
+    arguments, fails the way a test wants)."""
+    from nqbot.checks import step7
+    from nqbot.storage import atomic_write_json
+
+    n = settings["skylit_max_strikes"]
+    folder = step7.reports_dir(paths)
+    atomic_write_json(folder / "strike_window_20000101T000000Z.json",
+                      {"check": "strike_window", "proposed_skylit_max_strikes": proposed if proposed is not None else n})
+    per_day = {"2026-03-02": {"edge_violations": edge_violations or {"QQQ": {"boards": 10, "violations": 0}}}}
+    atomic_write_json(folder / "sample_days_20000101T000000Z.json",
+                      {"check": "sample_days", "skylit_max_strikes": pulled_with if pulled_with is not None else n,
+                       "per_day": per_day})

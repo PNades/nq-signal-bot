@@ -29,14 +29,15 @@ from nqbot import months as months_mod
 from nqbot.checks import step7_analysis as an
 from nqbot.clients import skylit_credits as credits
 from nqbot.clients.skylit import DP_RANGE_MAX_DAYS, OutOfCredits, SkylitClient, SkylitError
-from nqbot.clients.skylit_pull import MAPS, SessionResult, SkylitPullJob, Window, pull_window
+from nqbot.clients.skylit_pull import (INCLUSIVE_END, MAPS, SessionResult, SkylitPullJob, Window, pull_window,
+                                       session_windows, window_reachable)
 from nqbot.clients.skylit_store import (
     SkylitStore, cached_or_mismatch, historical_to_table, prints_to_table, read_meta, stream_snapshots_to_tables,
     top_prints_to_table, vol_history_to_table, write_parquet,
 )
 from nqbot.clients.skylit_stream import SkylitStream, StreamStopped
 from nqbot.features import darkpool as dp
-from nqbot.storage import Paths, atomic_write_json, atomic_write_text
+from nqbot.storage import Paths, atomic_write_bytes, atomic_write_json, atomic_write_text
 from nqbot.warmup import warmup_sessions
 
 ET = ZoneInfo("America/New_York")
@@ -91,13 +92,14 @@ class Env:
     echo: Callable[[str], None] = print
     cal: dict[str, Any] | None = None
     clock_offset_ms: Callable[[], float | None] | None = None
+    ledger_name: str = "ledger.jsonl"  # a check running alongside the backfill logs to its own file (decision 2)
     _store: SkylitStore | None = field(default=None, repr=False)
     _client: SkylitClient | None = field(default=None, repr=False)
 
     @property
     def store(self) -> SkylitStore:
         if self._store is None:
-            self._store = SkylitStore(self.paths)
+            self._store = SkylitStore(self.paths, self.ledger_name)
         return self._store
 
     @property
@@ -200,6 +202,89 @@ def _one_window(day: date, start: time) -> Window:
     return Window(day, s, s + timedelta(minutes=15) - timedelta(milliseconds=1))
 
 
+# §12 step 7 (owner 2026-10-06): a full-chain call that times out is replaced by consecutive shorter calls that
+# together cover the same full 15 minutes (3 x 5 minutes; a 5-minute piece that still times out, 5 x 1 minute), so the
+# proposal rests on exactly the same boards. It is never measured on less than the full 15 minutes.
+STRIKE_WINDOW_SPLITS = (3, 5)
+STRIKE_WINDOW_SPLIT_CODES = frozenset({"gave_up", "dropped"})  # a 504 after the client's retries, or a timed-out read
+
+
+def _minutes(w: Window) -> int:
+    return round((w.end + INCLUSIVE_END - w.start).total_seconds() / 60)
+
+
+def _split(w: Window, n: int) -> list[Window]:
+    """n consecutive windows covering exactly w (each `to` 1 ms before the next `from`, the last ends with w)."""
+    step = (w.end + INCLUSIVE_END - w.start) / n
+    starts = [w.start + step * i for i in range(n)]
+    return [Window(w.day, s, (starts[i + 1] - INCLUSIVE_END) if i + 1 < n else w.end) for i, s in enumerate(starts)]
+
+
+def _piece_base(env: Env, minutes: int) -> Path:
+    return env.store.fullchain / "pieces" / f"{minutes}m"
+
+
+def _manifest_path(env: Env, w: Window) -> Path:
+    return env.store.fullchain / "pieces" / f"{w.day.isoformat()}_{w.hhmm}.json"
+
+
+def _covers(w: Window, pieces: list[Window]) -> bool:
+    ps = sorted(pieces, key=lambda p: p.start)
+    return bool(ps) and ps[0].start == w.start and ps[-1].end == w.end and all(
+        b.start == a.end + INCLUSIVE_END for a, b in zip(ps, ps[1:]))
+
+
+def _pull_full_chain(env: Env, w: Window, approved: int | None, depth: int = 0) -> list[Window]:
+    """Pull w with maxStrikes=all; on a timeout, the consecutive pieces that cover it (recursively)."""
+    base = env.store.fullchain if depth == 0 else _piece_base(env, _minutes(w))
+    try:
+        pull_window(env.client, env.store, w, max_strikes="all", result=SessionResult(w.day), log=env.log, base=base,
+                    tree="fullchain")
+        return [w]
+    except OutOfCredits:
+        raise
+    except SkylitError as e:
+        if e.code not in STRIKE_WINDOW_SPLIT_CODES or depth >= len(STRIKE_WINDOW_SPLITS):
+            raise
+        n = STRIKE_WINDOW_SPLITS[depth]
+        pieces = _split(w, n)
+        m = _minutes(pieces[0])
+        todo = [p for p in pieces if p.hhmm not in env.store.stored_windows(p.day, _piece_base(env, m))]
+        env.echo(f"  {w.day} {w.hhmm}: the full-chain call timed out ({e.code}): {n} consecutive {m}-minute calls "
+                 f"cover the same {_minutes(w)} minutes instead")
+        _gate(env, credits.range_estimate(f"strike window: {w.day} {w.hhmm} as {n} x {m}-minute full-chain calls",
+                                          len(todo)), approved)
+        return [x for p in pieces for x in _pull_full_chain(env, p, approved, depth + 1)]
+
+
+def _strike_window_day(env: Env, d: date, start: time, approved: int | None) -> None:
+    """The day's full 15 minutes, whole or in verified consecutive pieces (a manifest records the pieces)."""
+    w = _one_window(d, start)
+    if w.hhmm in env.store.stored_windows(d, env.store.fullchain) or _manifest_path(env, w).exists():
+        return
+    got = _pull_full_chain(env, w, approved)
+    if got == [w]:
+        return
+    if not _covers(w, got):  # never measured on less than the full 15 minutes
+        raise CheckRefused(f"{d} {w.hhmm}: the full-chain pieces don't cover the whole 15 minutes: ask Claude Code")
+    atomic_write_json(_manifest_path(env, w), {"window": [w.start.isoformat(), w.end.isoformat()],
+                                               "pieces": [{"minutes": _minutes(p), "hhmm": p.hhmm,
+                                                           "from": p.start.isoformat(), "to": p.end.isoformat()}
+                                                          for p in sorted(got, key=lambda p: p.start)]})
+
+
+def read_fullchain(env: Env, d: date) -> tuple[pa.Table, pa.Table]:
+    """The day's full-chain boards and strikes: the whole window, or the pieces its manifest lists."""
+    if env.store.stored_windows(d, env.store.fullchain):
+        return env.store.read_range(d, env.store.fullchain)
+    manifests = sorted((env.store.fullchain / "pieces").glob(f"{d.isoformat()}_*.json"))
+    if not manifests:
+        return env.store.read_range(d, env.store.fullchain)  # empty tables
+    pieces = json.loads(manifests[-1].read_text(encoding="utf-8"))["pieces"]
+    parts = [env.store.read_range(d, _piece_base(env, m)) for m in sorted({p["minutes"] for p in pieces})]
+    return (pa.concat_tables([b for b, _ in parts]), pa.concat_tables([s for _, s in parts]))
+
+
 def check_strike_window(env: Env, busy_day: date, sample_days: list[date], start: time = STRIKE_WINDOW_DEFAULT_START,
                         approved: int | None = None) -> dict[str, Any]:
     """Full-chain (maxStrikes=all) 15-minute calls -> the window skylit_max_strikes must hold (§12 step 7)."""
@@ -207,14 +292,13 @@ def check_strike_window(env: Env, busy_day: date, sample_days: list[date], start
     for d in sample_days:
         months_mod.require_development(d, env.settings, [SAMPLE_MONTH])
     days = [busy_day, *[d for d in sample_days if d != busy_day]]
-    base = env.store.fullchain
-    todo = [d for d in days if not env.store.stored_windows(d, base)]
+    todo = [d for d in days if not env.store.stored_windows(d, env.store.fullchain)
+            and not _manifest_path(env, _one_window(d, start)).exists()]
     _gate(env, credits.range_estimate("strike window: full-chain 15-minute calls", len(todo)), approved)
     boards, strikes = [], []
     for d in days:
-        pull_window(env.client, env.store, _one_window(d, start), max_strikes="all", result=SessionResult(d),
-                    log=env.log, base=base, tree="fullchain")
-        b, s = env.store.read_range(d, base)
+        _strike_window_day(env, d, start, approved)
+        b, s = read_fullchain(env, d)
         boards.append(b)
         strikes.append(s)
     res = an.strike_window(pa.concat_tables(boards), pa.concat_tables(strikes),
@@ -222,45 +306,59 @@ def check_strike_window(env: Env, busy_day: date, sample_days: list[date], start
     report = {"days": [d.isoformat() for d in days], "window_start_et": start.strftime("%H:%M"),
               "node_drop_pct": env.features["node_drop_pct"], "strike_edge_margin": env.settings["strike_edge_margin"],
               "per_symbol": res.per_symbol, "proposed_skylit_max_strikes": res.proposed,
+              "drivers": res.drivers, "boards_setting_proposal": res.n_drivers, "next_smaller": res.next_smaller,
               "current_skylit_max_strikes": env.settings["skylit_max_strikes"],
               "assumption": "the API's window = the N strikes nearest spot; checked on the sample-day pulls"}
     for sym, r in sorted(res.per_symbol.items()):
         env.echo(f"  {sym:5s} needs {r['need']} strikes (chain up to {r['chain_strikes_max']}, {r['boards']} boards)")
     env.echo(f"  proposed skylit_max_strikes = {res.proposed} (owner OKs it at the parameter check)")
+    for line in _driver_lines(report):
+        env.echo("  " + line.lstrip("- "))
     write_report(env, "strike_window", report)
     return report
 
 
 # --- sample days ------------------------------------------------------------------------------------------
 
+SAMPLE_JOB = "skylit_sample_days"
+SAMPLE_RAISE_JOB = "skylit_sample_days_raise"  # its own job: the first pull's state.json never marks it done (D4)
+RAISE = "strike_window_raise"
+
+
+def sample_job_name(raised: bool) -> str:
+    return SAMPLE_RAISE_JOB if raised else SAMPLE_JOB
+
+
 def plan_sample_days(env: Env, dates: list[date], approved: int | None, raised: bool = False) -> None:
     """Write the sample-day plan. raised=True re-pulls them with a raised skylit_max_strikes (rule-2 exception
-    `strike_window_raise`) into their own folder; the first pull is never overwritten."""
+    `strike_window_raise`) into their own folder and their own job; the first pull is never overwritten."""
     if len(dates) != SAMPLE_DAYS:
         raise CheckRefused(f"step 7 pulls {SAMPLE_DAYS} sample days, got {len(dates)}")
     for d in dates:
         months_mod.require_development(d, env.settings, [SAMPLE_MONTH])
         if not env.trading_day(d):
             raise CheckRefused(f"{d} is not a trading day")
-    SkylitPullJob.write_plan(env.paths, "skylit_sample_days", dates, approved,
+    SkylitPullJob.write_plan(env.paths, sample_job_name(raised), dates, approved,
                              max_strikes=env.settings["skylit_max_strikes"] if raised else None,
-                             repull="strike_window_raise" if raised else None)
+                             repull=RAISE if raised else None)
 
 
-def sample_days_report(env: Env, dates: list[date]) -> dict[str, Any]:
-    """After the pull: credits and payload per day, resolution, 0DTE, edge check, the strike-window prediction."""
-    ledger = [r for r in env.store.ledger() if r["endpoint"] == "/v1/historical/range"
-              and r.get("tree") != "fullchain" and not r.get("repull")]
+def sample_days_report(env: Env, dates: list[date], raised: bool = False) -> dict[str, Any]:
+    """After the pull: credits and payload per day, resolution, 0DTE, edge check, the strike-window prediction.
+    raised=True reads the `strike_window_raise` copies pulled with the current skylit_max_strikes (D4)."""
     n = env.settings["skylit_max_strikes"]
+    base = env.store.base(RAISE, pulled=f"max{n}") if raised else None
+    ledger = [r for r in env.store.ledger() if r["endpoint"] == "/v1/historical/range"
+              and r.get("tree") != "fullchain" and r.get("repull") == (RAISE if raised else None)]
     per_day = {}
     all_boards = []
     for d in dates:
-        b, s = env.store.read_range(d)
+        b, s = env.store.read_range(d, base)
         all_boards.append(b)
         calls = [r for r in ledger if str(r.get("window", "")).startswith(d.isoformat())]
-        fb, fs = env.store.read_range(d, env.store.fullchain)
+        fb, fs = read_fullchain(env, d)
         per_day[d.isoformat()] = {
-            "windows": len(env.store.stored_windows(d)),
+            "windows": len(env.store.stored_windows(d, base)),
             "credits": sum(r.get("charged") or 0 for r in calls),
             "mb": round(sum(r.get("bytes") or 0 for r in calls) / 1e6, 1),
             "resolution": sorted(set(b["resolution"].to_pylist())),
@@ -268,13 +366,70 @@ def sample_days_report(env: Env, dates: list[date]) -> dict[str, Any]:
             "window_prediction_mismatches": an.window_prediction_mismatches(fb, fs, s, n) if fb.num_rows else None,
         }
     boards = pa.concat_tables(all_boards) if all_boards else None
-    report = {"dates": [d.isoformat() for d in dates], "skylit_max_strikes": n, "per_day": per_day,
+    report = {"dates": [d.isoformat() for d in dates], "skylit_max_strikes": n, "raised": raised, "per_day": per_day,
               "zero_dte_misses": an.zero_dte_misses(boards) if boards is not None else []}
     for d, r in per_day.items():
         env.echo(f"  {d}: {r['windows']} windows, {r['credits']} credits, {r['mb']} MB, {r['resolution']}")
     if report["zero_dte_misses"]:
         env.echo(f"  WARNING: boards whose expiration isn't the session date: {report['zero_dte_misses'][:5]}")
     write_report(env, "sample_days", report)
+    return report
+
+
+# --- the oldest window still in reach (presd_fixes D1) ---------------------------------------------------------
+
+OLDEST_WINDOW_SAFETY = timedelta(hours=1)  # §12 step 7: the test window starts skylit_reach_margin_min + 1 h inside the reach
+
+
+def oldest_window(env: Env, now: datetime) -> Window | None:
+    """The first non-probe window of the oldest trading day of the ledger window that the backfill will pull, still
+    safely inside Skylit's 365-day reach (the backfill pulls it first, possibly at 1-minute resolution)."""
+    first, end = months_mod.span(env.settings)
+    margin = float(env.settings["skylit_reach_margin_min"])
+    for d in _weekdays(first, min(end, now.date() - timedelta(days=1))):
+        if not env.trading_day(d):
+            continue
+        for w in session_windows(d, env.cal):
+            if not w.probe and window_reachable(w, now + OLDEST_WINDOW_SAFETY, margin):
+                return w
+    return None
+
+
+def check_oldest_window(env: Env, approved: int | None = None) -> dict[str, Any]:
+    """One 25-credit window on the oldest day still in reach: does its answer convert? (Step 7's other pulls are
+    month-6 days; the backfill starts with the oldest.) Stored in the normal tree, so the backfill reuses it; run
+    only once the strike-window check passes, so its maxStrikes is final."""
+    ok, bad = strike_window_check(env)
+    if not ok:
+        raise CheckRefused("run oldest-window once the strike-window check passes (its window is kept for the "
+                           "backfill, so its maxStrikes must be final): " + "; ".join(bad))
+    now = env.now()
+    w = oldest_window(env, now)
+    if w is None:
+        raise CheckRefused("no trading day of the ledger window is still inside Skylit's 365-day reach")
+    cached = w.hhmm in env.store.stored_windows(w.day)
+    _gate(env, credits.range_estimate(f"oldest-window test: {w.day} {w.hhmm} (the oldest day still in reach)",
+                                      0 if cached else 1), approved)
+    report: dict[str, Any] = {"day": w.day.isoformat(), "window": w.hhmm, "converted": False, "resolution": None,
+                              "boards": None, "error": None, "kept_in": None}
+    try:
+        pull_window(env.client, env.store, w, result=SessionResult(w.day), log=env.log, now=env.now)
+    except OutOfCredits:
+        raise
+    except SkylitError as e:  # reported, not raised: the owner asks Claude Code before step 10
+        report["error"] = str(e)
+        kept = getattr(e, "raw_path", None)
+        report["kept_in"] = str(kept) if kept else None
+    else:
+        if w.hhmm in env.store.stored_windows(w.day):
+            meta = read_meta(env.store.range_paths(w.day, w.hhmm)[0])
+            report.update(converted=True, resolution=(meta.get("meta") or {}).get("resolution"),
+                          boards=env.store.range_n_boards(w.day, w.hhmm))
+        else:
+            report["error"] = "no boards stored (no data or out of reach): pick nothing, ask Claude Code"
+    env.echo(f"  oldest window {w.day} {w.hhmm}: " + (f"converted, {report['boards']} boards at {report['resolution']}"
+                                                      if report["converted"] else f"FAILED ({report['error']})"))
+    write_report(env, "oldest_window", report)
     return report
 
 
@@ -454,6 +609,7 @@ def check_parity(env: Env, session: date, tag: str | None = None, approved: int 
 
 # --- dark pools -----------------------------------------------------------------------------------------
 
+DARKPOOL_MIN_MONTH = 3  # §3.1 Dark pools / §12 step 7 (presd_fixes D8): an earlier --date's lookback may be out of reach
 DP_NO_DATA_CODES = frozenset({"NOT_FOUND", "not_found", "no_data"})  # Flowseeker: no prints for the window (free)
 
 
@@ -680,7 +836,10 @@ def _f4_lower(env: Env, x: date) -> date:
 
 def check_darkpool(env: Env, day: date, check_dates: list[date], approved: int | None = None,
                    depth_probe: bool = True) -> dict[str, Any]:
-    months_mod.require_development(day, env.settings)
+    if months_mod.require_development(day, env.settings) < DARKPOOL_MIN_MONTH:
+        env.echo(f"  WARNING: {day} is in development month {months_mod.month_index(day, env.settings)}: its 45-day "
+                 f"lookback may reach past Skylit's 365-day history; a --date in month {DARKPOOL_MIN_MONTH} or later "
+                 "is safer (presd_fixes D8)")
     for d in check_dates:
         months_mod.require_development(d, env.settings)
     lookback, top_n = env.features["dp_lookback_days"], env.features["dp_top_n"]
@@ -765,6 +924,40 @@ def _late_dir(env: Env, kind: str, session: date) -> Path:
     return env.store.base("late_print", pulled=f"{kind}-{session.isoformat()}")
 
 
+def _lookback_base(env: Env) -> Path:
+    """The late-print check's own copies of lookback dates the main cache doesn't hold yet: it runs alongside the
+    step-10 backfill without its lock, so it never writes darkpool/trades/ (decision 2, presd_fixes D3)."""
+    return env.store.base("late_print", pulled="lookback")
+
+
+def _lookback_path(env: Env, d: date) -> Path:
+    main = env.store.dp_trades_path(d)
+    return main if main.exists() else env.store.dp_trades_path(d, _lookback_base(env))
+
+
+def _lookback_file(env: Env, d: date) -> Path:
+    """The main cache's file if it has the date, else the check's own copy (pulled into it once)."""
+    if env.store.dp_trades_path(d).exists():
+        return pull_dp_date(env, d)  # parameter check only (cached)
+    return pull_dp_date(env, d, _lookback_base(env), "late_print")
+
+
+def has_lookback_copy(env: Env, d: date) -> bool:
+    """The late-print check holds this date (step 10 copies it for free; never part of a paid range call)."""
+    return env.store.dp_trades_path(d, _lookback_base(env)).exists()
+
+
+def adopt_lookback_copy(env: Env, d: date) -> bool:
+    """Step 10: a date the late-print check already pulled into its own folder is copied into the main cache for
+    free instead of being paid for again (rule 2). Parameters are checked; returns False if there is no copy."""
+    src = env.store.dp_trades_path(d, _lookback_base(env))
+    if not src.exists() or env.store.dp_trades_path(d).exists():
+        return False
+    cached_or_mismatch(src, _dp_params(env, d))  # CacheMismatch if pulled with other parameters
+    atomic_write_bytes(env.store.dp_trades_path(d), src.read_bytes())
+    return True
+
+
 def check_late_prints_morning(env: Env, approved: int | None = None, force: bool = False) -> dict[str, Any]:
     """Before 09:30: pull the previous session's prints (kept apart) and save today's computed top-3 lists.
     The lists stay in the data tree; the report holds counts only (§7 rule 2b)."""
@@ -774,10 +967,10 @@ def check_late_prints_morning(env: Env, approved: int | None = None, force: bool
         raise CheckRefused("run the late-print morning pull before 09:30 ET on a trading day")
     prev = dp.previous_session(today, 1, env.trading_day)
     hist = _history_dates(env, prev)
-    todo = [d for d in hist if not env.store.dp_trades_path(d).exists()]
+    todo = [d for d in hist if not _lookback_path(env, d).exists()]
     _gate(env, credits.dark_pool_estimate("late prints: this morning's pull + missing lookback dates", len(todo) + 1,
                                           _pages_per_date(env)), approved)
-    files = [pull_dp_date(env, d) for d in hist]
+    files = [_lookback_file(env, d) for d in hist]
     folder = _late_dir(env, "morning", today)
     morning = pull_dp_date(env, prev, folder, "late_print")
     lists = _f4_lists(env, read_prints(files + [morning]), today)
@@ -806,7 +999,7 @@ def check_late_prints_compare(env: Env, approved: int | None = None) -> dict[str
         recheck = pull_dp_date(env, prev, _late_dir(env, "recheck", session), "late_print")
         first = read_prints([env.store.dp_trades_path(prev, _late_dir(env, "morning", session))])
         second = read_prints([recheck])
-        hist = read_prints([env.store.dp_trades_path(d) for d in _history_dates(env, prev)])
+        hist = read_prints([_lookback_path(env, d) for d in _history_dates(env, prev)])
         a, b = _f4_lists(env, hist + first, session), _f4_lists(env, hist + second, session)
         diff = an.compare_print_sets(first, second)
         results.append({"session": session.isoformat(), "added": len(diff["added"]), "removed": len(diff["removed"]),
@@ -990,13 +1183,62 @@ def backfill_estimate(env: Env) -> dict[str, Any]:
     return out
 
 
-REPORT_NAMES = ["symbols", "strike_window", "sample_days", "historical_instants", "stream_record", "parity", "darkpool",
+REPORT_NAMES = ["symbols", "strike_window", "sample_days", "oldest_window", "historical_instants", "stream_record", "parity", "darkpool",
                 "late_prints_compare", "tempest_depth", "tempest_compare"]
 # SSD-day order (decision 1 in docs/presd_fixes.md, SPEC §12 step 7): what the owner's step-10 OK needs, what runs
 # before the report, and what runs alongside step 10 (never holds it up; needed before step 11).
-NEEDED_FOR_STEP10 = ("symbols", "strike_window", "sample_days")
+NEEDED_FOR_STEP10 = ("symbols", "strike_window", "sample_days", "oldest_window")
 BEFORE_REPORT = ("historical_instants", "darkpool", "tempest_depth")
 ALONGSIDE = ("stream_record", "parity", "late_prints_compare", "tempest_compare")
+
+
+def _strikes_value(v: Any) -> float:
+    return float("inf") if v == "all" else float(v)
+
+
+def strike_window_check(env: Env) -> tuple[bool, list[str]]:
+    """Decision 3 (presd_fixes D2): the backfill may start only when skylit_max_strikes is at least the window the
+    strike-window check proposed, and the latest sample-days pull, made with that value, shows no edge violation.
+    Returns (passed, what is wrong). There is no override: the fix is to raise skylit_max_strikes and re-check."""
+    sw, sd = latest_report(env.paths, "strike_window"), latest_report(env.paths, "sample_days")
+    current = env.settings["skylit_max_strikes"]
+    bad = []
+    if sw is None:
+        bad.append("run nqbot step7 strike-window first")
+    elif _strikes_value(current) < _strikes_value(sw["proposed_skylit_max_strikes"]):
+        bad.append(f"skylit_max_strikes is {current}, below the {sw['proposed_skylit_max_strikes']} the strike-window "
+                   "check proposed: set it in config/settings.yaml (owner's OK), then run nqbot step7 sample-days "
+                   "--raised")
+    if sd is None:
+        bad.append("run nqbot step7 sample-days first")
+    elif sd.get("skylit_max_strikes") != current:
+        bad.append(f"the sample days were pulled with {sd.get('skylit_max_strikes')}, not {current}: run nqbot step7 "
+                   "sample-days --dates ... --raised")
+    elif current != "all":  # with the whole chain the edge is the ladder's real end, not a cut
+        edges = {d: {s: f"{v['violations']} board(s), first {v.get('first')}"
+                     for s, v in (r.get("edge_violations") or {}).items() if v.get("violations")}
+                 for d, r in (sd.get("per_day") or {}).items()}
+        edges = {d: v for d, v in edges.items() if v}
+        if edges:
+            bad.append(f"strong strikes sit at the window's edge on the sample days ({edges}): raise skylit_max_strikes "
+                       "(owner's OK), then run nqbot step7 sample-days --raised")
+    return not bad, bad
+
+
+def _driver_lines(sw: dict[str, Any]) -> list[str]:
+    """Which boards set the proposal and what the next smaller window would be (owner 2026-10-06: zero tolerance
+    stays; the owner decides if one unusual board drives the window bigger). Range calls cost the same whatever
+    maxStrikes is (Skylit API: /v1/historical/range is a fixed 25 credits), so the difference is data size."""
+    drivers, nxt, n = sw.get("drivers") or [], sw.get("next_smaller"), sw.get("proposed_skylit_max_strikes")
+    if not drivers:
+        return []
+    shown = "; ".join(f"{d['symbol']} {d['as_of']} (strike {d['strike']})" for d in drivers[:3])
+    lines = [f"- the proposal {n} is set by {sw.get('boards_setting_proposal', len(drivers))} board(s): {shown}"]
+    if nxt:
+        lines.append(f"- without them every other board fits in {nxt} strikes. Credits: {credits.RANGE_CALL} per "
+                     f"15-minute window either way (the price doesn't depend on maxStrikes); the data stored per window "
+                     f"is about {n / nxt:.2f}x larger with {n}. The owner decides; the gate itself has zero tolerance")
+    return lines
 
 
 def _strike_check(env: Env, latest: dict[str, Any]) -> list[str]:
@@ -1004,13 +1246,13 @@ def _strike_check(env: Env, latest: dict[str, Any]) -> list[str]:
     current = env.settings["skylit_max_strikes"]
     lines = [f"- skylit_max_strikes now: {current}"
              + (f"; proposed by strike-window: {sw.get('proposed_skylit_max_strikes')}" if sw else "")]
+    lines += _driver_lines(sw) if sw else []
     if sd is not None:
-        pulled = sd.get("skylit_max_strikes")
-        if pulled == current:
-            lines.append(f"- sample days pulled with {pulled}: matches")
-        else:
-            lines.append(f"- sample days pulled with {pulled}, not {current}: run `nqbot step7 sample-days --raised`, "
-                         "or the backfill pulls those days again (rule-2 exception)")
+        lines.append(f"- sample days pulled with {sd.get('skylit_max_strikes')}"
+                     + (" (the raised copies)" if sd.get("raised") else ""))
+    ok, bad = strike_window_check(env)
+    lines.append("- strike-window check: passed" if ok else "- **strike-window check: NOT READY** (nqbot skylit plan "
+                 "refuses until it passes):" + "".join(f"\n  - {b}" for b in bad))
     return lines
 
 
@@ -1019,9 +1261,14 @@ def check_report(env: Env) -> str:
 
     latest = {n: latest_report(env.paths, n) for n in REPORT_NAMES}
     missing = [n for n in NEEDED_FOR_STEP10 if latest[n] is None]
+    strikes_ok, _ = strike_window_check(env)
+    ow = latest["oldest_window"]
+    oldest_ok = ow is not None and ow.get("converted")
+    why = ([f"missing: {', '.join(missing)}"] if missing else []) + ([] if strikes_ok else ["strike-window check"]) \
+        + ([] if oldest_ok or ow is None else ["the oldest-window test failed"])
     lines = ["# Step 7 parameter check", "", f"Written {env.now():%Y-%m-%d %H:%M} ET.", "",
-             f"**Ready for the owner's step-10 OK: {'yes' if not missing else 'no'}**"
-             + (f" (missing: {', '.join(missing)})" if missing else ""), ""]
+             f"**Ready for the owner's step-10 OK: {'yes' if not why else 'NOT READY'}**"
+             + (f" ({'; '.join(why)})" if why else ""), ""]
     lines += ["## Strike window", *_strike_check(env, latest), ""]
     sections = [("Needed for the step-10 OK", NEEDED_FOR_STEP10, "MISSING: run it before the OK"),
                 ("Before the report (SSD-day order)", BEFORE_REPORT, "not run yet"),
@@ -1073,8 +1320,10 @@ def check_report(env: Env) -> str:
 def _brief(name: str, r: dict[str, Any]) -> dict[str, Any]:
     keep = {
         "symbols": ["account", "missing_roots", "tempest_vix_served"],
-        "strike_window": ["per_symbol", "proposed_skylit_max_strikes", "current_skylit_max_strikes"],
-        "sample_days": ["per_day", "zero_dte_misses"],
+        "strike_window": ["per_symbol", "proposed_skylit_max_strikes", "current_skylit_max_strikes",
+                          "boards_setting_proposal", "drivers", "next_smaller"],
+        "sample_days": ["skylit_max_strikes", "raised", "per_day", "zero_dte_misses"],
+        "oldest_window": ["day", "window", "converted", "resolution", "boards", "error", "kept_in"],
         "historical_instants": ["node_types"],
         "stream_record": ["complete", "ended", "boards", "clock_offset_ms", "latency", "events_summary", "stream_shape",
                           "ping_gap_within_stale"],

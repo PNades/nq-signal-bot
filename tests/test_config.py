@@ -99,3 +99,7 @@ def test_step7_skylit_keys():
     assert s["skylit_symbols"]["SPX"] == "SPXW"  # the 0DTE S&P root (§3.1)
     assert s["skylit_metric"] == "gamma" and s["skylit_max_expirations"] == 1
     assert f["dp_tickers"] == ["QQQ", "SPY"] and f["dp_min_notional"] == 1_000_000
+    # Session D (owner decisions 2 and 4, 2026-10-06): failures in a row before the backfill stops, and the credits
+    # it leaves for the step-7 checks running alongside.
+    assert s["skylit_max_failures_in_row"] == 5 and s["skylit_alongside_reserve_credits"] == 1000
+    assert s["skylit_dropped_extra_tries"] == 3 and s["skylit_dropped_retry_credits_per_night"] == 500

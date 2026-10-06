@@ -119,8 +119,11 @@ def test_unconvertible_answer_is_kept(paths, log):
     fake.routes["/v1/historical/range"] = lambda r: {"data": {"symbols": [{"symbol": "AAPL", "axes": [], "frames": []}]},
                                                      "meta": {"resolution": "1s"}}
     w = session_windows(date(2026, 3, 5), CAL)[0]
-    with pytest.raises(ValueError, match="kept in"):
+    from nqbot.clients.skylit_pull import WindowFailed
+
+    with pytest.raises(WindowFailed, match="kept in") as e:
         pull_window(client, store, w, result=SessionResult(w.day), log=log)
+    assert e.value.charged and e.value.raw_path.exists()
     assert len(list((store.root / "failed").iterdir())) == 1
 
 
@@ -268,15 +271,21 @@ def test_raised_window_repull_goes_to_its_own_folder(env, settings, clock, monke
     first = env.store.range_paths(days[0], "0930")[0].read_bytes()
     env.settings["skylit_max_strikes"] = 300
     step7.plan_sample_days(env, days, approved=None, raised=True)
-    job2 = SkylitPullJob("skylit_sample_days", client_factory=lambda s, store, lg: client_for(env.fake, store))
-    from nqbot.jobs.runner import state_path
-
-    state_path(env.paths, "skylit_sample_days").unlink()  # a new pull plan, so the job starts over
+    # D4: the raised re-pull is its own job, so the first pull's state.json never marks it done
+    job2 = SkylitPullJob(step7.SAMPLE_RAISE_JOB, client_factory=lambda s, store, lg: client_for(env.fake, store))
     assert run_job(job2, settings, env.paths, **kw).status == "complete"
     assert env.store.range_paths(days[0], "0930")[0].read_bytes() == first
     raised = env.store.root / "repull" / "strike_window_raise" / "max300" / "range" / days[0].isoformat()
     assert len(list(raised.glob("*_boards.parquet"))) == 26
     assert env.fake.calls[-1].url.params["maxStrikes"] == "300"
+    rep = step7.sample_days_report(env, days, raised=True)  # reads the raised copies, not the first pull
+    assert rep["raised"] and rep["skylit_max_strikes"] == 300 and rep["per_day"][days[0].isoformat()]["windows"] == 26
+    # a second raise pulls again too (its chunk ids carry the new value)
+    env.settings["skylit_max_strikes"] = 350
+    step7.plan_sample_days(env, days, approved=None, raised=True)
+    job3 = SkylitPullJob(step7.SAMPLE_RAISE_JOB, client_factory=lambda s, store, lg: client_for(env.fake, store))
+    assert run_job(job3, settings, env.paths, **kw).status == "complete"
+    assert env.fake.calls[-1].url.params["maxStrikes"] == "350"
 
 
 # --- 3. Tempest timing -------------------------------------------------------------------------------------

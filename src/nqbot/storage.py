@@ -20,10 +20,13 @@ from typing import Any, Iterator
 
 MARKER = ".nqbot_drive"
 GB = 1024**3
-# Windows refuses to replace a file another process has open (an antivirus scan, `nqbot status`
-# reading it): retry the rename a few times before failing (§11 Overnight jobs: atomic outputs).
-REPLACE_RETRIES = 20
-REPLACE_RETRY_SEC = 0.1
+# Windows refuses to replace a file another process has open (an antivirus scan of a freshly written parquet of
+# tens of MB, `nqbot status` reading it): retry the rename with backoff for about 30 s before failing (§11 Overnight
+# jobs: atomic outputs; presd_fixes D5).
+REPLACE_RETRY_TOTAL_SEC = 30.0
+REPLACE_RETRY_FIRST_SEC = 0.1
+REPLACE_RETRY_MAX_SEC = 5.0
+_sleep = time.sleep  # tests replace it
 
 
 class SSDNotFound(Exception):
@@ -112,15 +115,19 @@ def free_gb(path: Path) -> float:
 
 
 def replace_retry(src: str | Path, dst: str | Path) -> None:
-    """os.replace that waits out a short-lived lock (an antivirus scan, a reader) on Windows (presd_fixes 17)."""
-    for attempt in range(REPLACE_RETRIES):
+    """os.replace that waits out a lock (an antivirus scan, a reader) on Windows: backoff from 0.1 s, doubling up to
+    5 s a wait, until about 30 s have been waited (presd_fixes 17, D5)."""
+    waited, wait = 0.0, REPLACE_RETRY_FIRST_SEC
+    while True:
         try:
             os.replace(src, dst)
             return
         except PermissionError:
-            if attempt == REPLACE_RETRIES - 1:
+            if waited >= REPLACE_RETRY_TOTAL_SEC:
                 raise
-            time.sleep(REPLACE_RETRY_SEC)
+            _sleep(wait)
+            waited += wait
+            wait = min(wait * 2, REPLACE_RETRY_MAX_SEC)
 
 
 @contextmanager

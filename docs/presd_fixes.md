@@ -10,6 +10,7 @@ All 17 issues are fixed **before the SSD arrives**, in three sessions the owner 
 | **B** ✅ done 2026-10-05 | 3, 4, 5, 6, 8, 11 | separate locks, Databento retries and cost guard, `nqbot setup-ssd`, warm-up, keep-awake and checks (independently reviewed twice; 363 tests pass) |
 | **C** ✅ done 2026-10-06 | 12, 13, 15, 16, 17 | step-8b gate code, rclone backup command, the small ones (independently reviewed twice) |
 | – | 14 | resolved by owner decision 4 |
+| **D** ✅ done 2026-10-06 | D1–D12 (dry run 2) | failing backfill windows recorded and retried each night, strike-window gate, lock-free alongside checks, `nqbot stop`, dropped-connection tries, strike-window split, SSD-day checklist (independently reviewed three times; 462 tests pass) |
 
 Each session: read this file, CLAUDE.md, and the SPEC sections listed for its steps; fix, test, get an independent review, update SPEC/CLAUDE.md, tick the issues off here, commit and push.
 
@@ -112,7 +113,7 @@ Each session: read this file, CLAUDE.md, and the SPEC sections listed for its st
 
 ## Dry run 2 findings and decisions
 
-Second SSD-day dry run, 2026-10-06. A fresh agent read CLAUDE.md, this file, the SPEC sections for steps 4b, 7, 8, 8b, 9 and 10, and the code, and walked through SSD day read-only: nothing changed, no network, no credits. 411 tests pass. Without the SSD, `nqbot status` and `nqbot setup-ssd` refuse cleanly (exit 2). The main session re-checked findings D1, D2, D4 and D5 in the code. Nothing is fixed yet: this section records the findings and the owner's decisions for a later session.
+Second SSD-day dry run, 2026-10-06. A fresh agent read CLAUDE.md, this file, the SPEC sections for steps 4b, 7, 8, 8b, 9 and 10, and the code, and walked through SSD day read-only: nothing changed, no network, no credits. 411 tests pass. Without the SSD, `nqbot status` and `nqbot setup-ssd` refuse cleanly (exit 2). The main session re-checked findings D1, D2, D4 and D5 in the code. Session D (2026-10-06) fixed all twelve with the owner's decisions below.
 
 ### SSD day as it runs today
 
@@ -135,7 +136,7 @@ Before starting: `SKYLIT_API_KEY`, `DATABENTO_API_KEY` and `ANTHROPIC_API_KEY` i
 
 ### Findings (most harmful first)
 
-**D1. HIGH: one bad Skylit window stops the whole step-10 backfill, and each re-run pays for it again.** Status: open.
+**D1. HIGH: one bad Skylit window stops the whole step-10 backfill, and each re-run pays for it again.** Status: ✅ fixed 2026-10-06 (session D): failed windows and dark-pool dates are recorded in `data/jobs/skylit_backfill/failed.json` (answer kept in `skylit/failed/`, any conversion or write failure included), the job carries on, `skylit_max_failures_in_row` (5) in a row stop it (status `failures`), each is retried at the start of every run and the end of every night, oldest first, until it leaves the reach (then lost; owner decision after session D) (refunded: one more call; paid: converted again for free), coverage.md lists the rest; only Skylit answers are skipped. `step7 oldest-window` added. The backfill prints the balance first.
 - Cause:
   - `run_chunk` (`src/nqbot/clients/skylit_backfill.py:503-517`) retries only a `SkylitError` with a transient code and re-raises anything else:
     - a 400/404 away from the 365-day edge;
@@ -147,21 +148,21 @@ Before starting: `SKYLIT_API_KEY`, `DATABENTO_API_KEY` and `ANTHROPIC_API_KEY` i
   - Step 7 only tests conversion on March 1-second days. The oldest days, pulled first, may be 1-minute data.
 - Fix: decision 4 below. Also catch `Exception` around the conversion so the raw body is always saved, and add one 25-credit test window from the oldest day still in reach to step 7.
 
-**D2. HIGH: nothing stops a backfill with a strike window narrower than step 7 proposed.** Status: open.
+**D2. HIGH: nothing stops a backfill with a strike window narrower than step 7 proposed.** Status: ✅ fixed 2026-10-06 (session D): `step7.strike_window_check` (`skylit_max_strikes` ≥ the proposal, sample days pulled with it, no edge violations); `skylit plan` refuses without it (no override), the report says NOT READY.
 - Cause:
   - `_strike_check` (`src/nqbot/checks/step7.py:1002-1014`) only prints "now: N; proposed by strike-window: M". It says the sample days "match" whenever they were pulled with the current value, even if that value is below the proposal.
   - `skylit plan` (`skylit_backfill.py:354-392`) doesn't check the proposal or the sample days' `edge_violations`.
   - If the settings.yaml edit is forgotten, every backfill day loses its edge strikes for good.
 - Fix: decision 3 below.
 
-**D3. MEDIUM-HIGH: the "alongside" checks can't run while the backfill does.** Status: open.
+**D3. MEDIUM-HIGH: the "alongside" checks can't run while the backfill does.** Status: ✅ fixed 2026-10-06 (session D): the short checks skip the Skylit lock and write only their own files (own `ledger_<check>.jsonl`, late-print lookback dates in `repull/late_print/lookback/`, copied by the backfill for free); `skylit_alongside_reserve_credits` (1,000); `nqbot stop <job>` (status `stopped`).
 - Cause:
   - `stream-record`, `parity`, `late-prints-*` and `tempest-compare` take the Skylit lock (`src/nqbot/cli.py:264-266`). So do `skylit_backfill` (`skylit_backfill.py:445`) and `nqbot backup`.
   - CLAUDE.md and decision 1 say these checks never hold up step 10.
   - There is no clean stop command, and Ctrl-C during a call can throw away a paid 25-credit answer.
 - Fix: decision 2 below.
 
-**D4. MEDIUM: `step7 sample-days --raised` silently pulls nothing, and the report then says the sample days match.** Status: open.
+**D4. MEDIUM: `step7 sample-days --raised` silently pulls nothing, and the report then says the sample days match.** Status: ✅ fixed 2026-10-06 (session D): job `skylit_sample_days_raise`, chunk ids carry the value (a second raise pulls again), the report reads the raised copies.
 - Cause:
   - `plan_sample_days(raised=True)` (`src/nqbot/checks/step7.py:236-247`) writes a plan for the same job name, `skylit_sample_days`, with the same chunk ids (the dates).
   - That job's `state.json` already marks them done (`runner.py:203`), so the run reports "complete 5/5" without pulling.
@@ -170,29 +171,29 @@ Before starting: `SKYLIT_API_KEY`, `DATABENTO_API_KEY` and `ANTHROPIC_API_KEY` i
   - No money is lost (the backfill re-pulls those days), but the raised edge check never happens.
 - Fix: give the raised run its own job name (e.g. `skylit_sample_days_raise`), or reset its state when the plan is written. The report reads the `strike_window_raise` tree.
 
-**D5. MEDIUM: an antivirus lock or another unexpected error ends the night.** Status: open.
+**D5. MEDIUM: an antivirus lock or another unexpected error ends the night.** Status: ✅ fixed 2026-10-06 (session D): `replace_retry` backs off from 0.1 s to 5 s for about 30 s; the Defender exclusion is on the SSD-day checklist.
 - Cause:
   - `replace_retry` waits only 20 × 0.1 s (`src/nqbot/storage.py:25-26`). Windows Defender scanning a freshly written parquet of tens of MB may hold it longer (unverified).
   - Any non-Skylit exception in a chunk is re-raised by `runner.py:232-239`, so the overnight job dies. A failed window write is a lost paid window.
 - Fix: retry for about 30 s with backoff. Checklist: decision 5 below.
 
-**D6. MEDIUM: nothing guards against Windows Update restarting the laptop on backfill nights.** Status: open.
+**D6. MEDIUM: nothing guards against Windows Update restarting the laptop on backfill nights.** Status: ✅ fixed 2026-10-06 (session D): Windows Update paused for 1 week on the CLAUDE.md SSD-day checklist.
 - Cause: active hours and paused updates are only in the live-trading checklist (SPEC §9).
 - Fix: decision 5 below.
 
-**D7. LOW-MEDIUM (billing unverified): a connection dropped after a 200 is retried as if refunded.** Status: open.
+**D7. LOW-MEDIUM (billing unverified): a connection dropped after a 200 is retried as if refunded.** Status: ✅ fixed 2026-10-06 (session D): a `/v1/historical/range` connection dropped after the request was sent is retried once (`LARGE_CALL_DROP_RETRIES`), then `dropped` (recorded by the backfill); connect failures keep the normal retries.
 - Cause: `src/nqbot/clients/skylit.py:229` treats a dropped connection as refunded. A read error after the server answered 200 is probably charged (25 credits), and the retry pays again.
 - Fix: ask Skylit, or retry a large range call only once per error.
 
-**D8. LOW: step-7 refusals don't catch a plain `SkylitError` or `CacheMismatch`.** Status: open.
+**D8. LOW: step-7 refusals don't catch a plain `SkylitError` or `CacheMismatch`.** Status: ✅ fixed 2026-10-06 (session D): step-7 `SkylitError`/`CacheMismatch` print a plain message and a hint; `darkpool --date` before month 3 warns, the help and checklist say month 3 or later.
 - Cause: the refusal tuple at `src/nqbot/cli.py:254-255`. A traceback appears for a 504 "gave up" on the big full-chain `strike-window` call. It may also appear for `darkpool --date` in month 1–2, whose 45-day lookback may fall outside the 365-day reach (unverified).
 - Fix: catch `SkylitError`/`CacheMismatch` and print a hint. Advise a `--date` in month 3 or later. Consider a shorter `--minutes` option for `strike-window` in case the full-chain call times out.
 
-**D9. LOW: `gameplan-batch` reads only the top level of `raw/gameplans/`.** Status: open.
+**D9. LOW: `gameplan-batch` reads only the top level of `raw/gameplans/`.** Status: ✅ fixed 2026-10-06 (session D): `gameplan-batch` reads one folder down (never `replaced/`) and prints the absolute folder and file count.
 - Cause: `src/nqbot/gameplan/parser.py:432`. A Drive folder zip probably extracts into a `Jeron gameplans\` subfolder (unverified), and the batch then says "0 files" with no hint.
 - Fix: warn about subfolders that hold files (or read one level down), and print the absolute folder path.
 
-**D10. LOW: the docs never list what the owner must pick or edit by hand.** Status: open.
+**D10. LOW: the docs never list what the owner must pick or edit by hand.** Status: ✅ fixed 2026-10-06 (session D): CLAUDE.md SSD-day checklist (hand picks and edits, Modern Standby check before the backfills, the gameplans folder on the SSD); `.env.example` (unignored).
 - Cause: nowhere says:
   - to choose the busy day and the 5 month-6 sample days before `strike-window`, and reuse them for `sample-days` and the Atlas check;
   - which `darkpool --date/--check-dates` and `parity --session` values to use;
@@ -203,11 +204,11 @@ Before starting: `SKYLIT_API_KEY`, `DATABENTO_API_KEY` and `ANTHROPIC_API_KEY` i
   There is also no `.env.example`.
 - Fix: an SSD-day checklist in CLAUDE.md, and a `.env.example` listing the three API keys.
 
-**D11. LOW (sealed months): `build_day_outputs` prints every roll spread value to the console and log, including the Sep-2026 sealed-month roll.** Status: open.
+**D11. LOW (sealed months): `build_day_outputs` prints every roll spread value to the console and log, including the Sep-2026 sealed-month roll.** Status: ✅ fixed 2026-10-06 (session D): the roll log says only that the spread was measured, never its value.
 - Cause: `src/nqbot/clients/databento_pull.py:549`.
 - Fix: log the roll without the number, or show the number only for development months.
 
-**D12. LOW: the "back up after warm-up + months 1–6" step needs the backfill stopped (Skylit lock).** Status: open.
+**D12. LOW: the "back up after warm-up + months 1–6" step needs the backfill stopped (Skylit lock).** Status: ✅ fixed 2026-10-06 (session D): one backup when step 10 finishes (CLAUDE.md, SPEC §3.1 and §11, `backup.py`); `repull/` is now backed up last, with the other folders lock-free checks write.
 - Cause: `nqbot backup` takes the Skylit lock, and so does the backfill. The whole backfill probably finishes in about 1–2 nights anyway (unverified).
 - Fix: one backup when step 10 finishes, or let the backup run without the lock once decision 2's own-files rule makes that safe.
 
@@ -218,3 +219,15 @@ Before starting: `SKYLIT_API_KEY`, `DATABENTO_API_KEY` and `ANTHROPIC_API_KEY` i
 3. **Strike window (D2).** `skylit plan` refuses outright until the strike-window check passes, with no override flag. If it fails, the fix is to raise `skylit_max_strikes` and re-check.
 4. **Failing windows (D1).** Skip a window that keeps failing, save its raw answer, record it so it is never re-pulled, and carry on. Stop only after K failures in a row (K in config). Retry all skipped windows once at the end of the run, and list any still missing in `coverage.md`.
 5. **Laptop (D5, D6).** Add a Windows Defender exclusion for the SSD folder and pausing Windows Update for 1 week to the SSD-day checklist.
+
+### Owner decisions after session D (2026-10-06)
+
+1. **Retries.** Failed windows are retried at the start of every run and at the end of every night, oldest first, so nothing leaves the 365-day reach while it waits; a window still failing when it leaves the reach is recorded as lost in coverage.md. (Implemented: `at_start` / `at_end` hooks in the runner, `SkylitBackfillJob._retry_pass`; timeouts in a row end a pass, never the run, and refusals don't count.)
+2. **Strike window.** Zero tolerance stays (every board on every sample day, as the SPEC says), no allowed-share setting. The report shows the board(s) that set the proposal and the next smaller window with their cost (credits are the same per window; the data size differs); the owner decides.
+3. **Oldest-window test.** A rerun may pay the 25 credits again.
+4. **Commits.** Commit straight to `main` (solo project); added to the CLAUDE.md working rules.
+
+### Owner decisions on the second review (2026-10-06)
+
+1. **Dropped connections.** Losing history is worse than a few credits: a window whose connection dropped gets up to 3 more tries (`skylit_dropped_extra_tries`) while still inside the 365-day reach, in the end-of-night retry pass, oldest first, spaced out (1, 5, 15 minutes between rounds), each try sent once (25 credits at most), within a nightly cap (`skylit_dropped_retry_credits_per_night`, 500). coverage.md lists every retried window and its credits. Given up only once it leaves the reach or uses up its tries. The owner asks Skylit whether a dropped call after a successful answer is charged; if not, the cap can go.
+2. **Strike-window timeouts.** Never a shorter sample: a timed-out full-chain call is split into consecutive shorter calls (3 × 5 minutes, then 5 × 1 minute) that together cover the same full 15 minutes; a manifest records the pieces and the check refuses unless they cover all of it.

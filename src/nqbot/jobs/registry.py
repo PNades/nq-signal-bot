@@ -14,6 +14,8 @@ from nqbot.jobs.runner import Job
 JOBS: dict[str, Callable[[], Job]] = {
     "dummy": DummyJob,
     "skylit_sample_days": lambda: SkylitPullJob("skylit_sample_days"),  # step 7 (started by nqbot step7 sample-days)
+    # step 7 after skylit_max_strikes was raised (nqbot step7 sample-days --raised; its own state, presd_fixes D4)
+    "skylit_sample_days_raise": lambda: SkylitPullJob("skylit_sample_days_raise"),
     "skylit_backfill": SkylitBackfillJob,  # step 10 (plan first: nqbot skylit plan)
     "databento_backfill": DatabentoPullJob,  # step 8 (plan first: nqbot databento plan)
     "skylit_backup": SkylitBackupJob,  # §11 Storage: Skylit history to Google Drive (also: nqbot backup)

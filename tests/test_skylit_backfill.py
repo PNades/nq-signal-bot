@@ -18,7 +18,7 @@ from nqbot.clients.skylit_store import SkylitStore
 from nqbot.config import load_features
 from nqbot.jobs.registry import JOBS
 from nqbot.jobs.runner import StopChunk, run_job
-from tests.skylit_fakes import FakeSkylit, parse_z, range_body, z
+from tests.skylit_fakes import FakeSkylit, parse_z, pass_strike_window, range_body, z
 from tests.skylit_fakes import make_client as _make_client
 
 ET = ZoneInfo("America/New_York")
@@ -51,6 +51,7 @@ def _dp_print(day, ticker="QQQ", notional=2e6):
 @pytest.fixture
 def setup(paths, settings, log):
     settings["months"] = {1: "2025-10"}  # a one-month ledger keeps the mocked backfill small
+    pass_strike_window(paths, settings)
     fake = FakeSkylit()
     fake.routes["/v1/vol/history"] = _vol_route
     fake.dp_prints = [_dp_print(date(2025, 8, 1) + timedelta(days=i), t) for i in range(100) for t in ("QQQ", "SPY")
@@ -207,9 +208,10 @@ def test_one_minute_share_and_dp_partial(setup):
 def test_balance_runs_out_stops_cleanly_and_resumes(setup):
     s = setup
     _plan(s, approved=20_000)
-    s.fake.credits = 600  # enough for a few windows only
+    s.fake.credits = 1_600  # the 1,000-credit reserve for the alongside checks + a few windows
     r = s.run()
-    assert r.status == "credits" and "balance" in r.message
+    assert r.status == "credits" and "balance" in r.message and "kept for the step-7 checks" in r.message
+    assert s.fake.credits >= 1_000  # the reserve is never spent
     n_windows = len(_range_calls(s.fake))
     assert 0 < n_windows < 30
     s.fake.credits = 100_000  # top-up
@@ -266,6 +268,7 @@ def test_job_refuses_when_approval_is_short_or_strikes_changed(setup):
     data["approved_credits"] = 20_000
     bf.plan_path(s.paths).write_text(json.dumps(data))
     s.settings["skylit_max_strikes"] = 300
+    pass_strike_window(s.paths, s.settings)  # the owner raised it and re-checked (D2)
     with pytest.raises(bf.BackfillRefused, match="re-run nqbot skylit plan"):
         s.run()
 
@@ -298,6 +301,7 @@ def test_raised_strikes_use_the_raise_copies(setup):
     raise_base = s.store.base("strike_window_raise", pulled="max300")
     _pull_day(s, base=raise_base, repull="strike_window_raise", max_strikes=300)  # nqbot step7 sample-days --raised
     s.settings["skylit_max_strikes"] = 300
+    pass_strike_window(s.paths, s.settings)  # the owner raised it and re-checked (D2)
     s.client_kw["max_strikes"] = 300
     n = len(_range_calls(s.fake))
     _plan(s, approved=20_000)
@@ -315,6 +319,7 @@ def test_raised_strikes_without_copies_pull_again(setup):
     s = setup
     _pull_day(s)
     s.settings["skylit_max_strikes"] = 300
+    pass_strike_window(s.paths, s.settings)  # the owner raised it and re-checked (D2)
     s.client_kw["max_strikes"] = 300
     _plan(s, approved=20_000)
     assert s.run().status == "complete"
@@ -460,7 +465,8 @@ def test_transient_failure_retries_the_chunk(setup):
     s.fake.queue["/v1/historical/range"] = [(503, {"error": {"code": "unavailable", "message": "x"}}, {})] * 5
     assert s.run().status == "complete"
     froms = [r.url.params["from"] for r in _range_calls(s.fake)]
-    assert len(froms) == len(set(froms)) + 5 and s.slept == [60]  # only the failed window was asked again
+    assert len(froms) == len(set(froms)) + 5 and sum(s.slept) == 60  # only the failed window was asked again
+    assert not bf.load_failed(s.paths)  # it worked on the second try: never recorded
 
 
 def test_crash_between_move_and_copy_uses_the_copy(setup):
@@ -476,6 +482,7 @@ def test_crash_between_move_and_copy_uses_the_copy(setup):
             dst.parent.mkdir(parents=True, exist_ok=True)
             os.replace(src, dst)
     s.settings["skylit_max_strikes"] = 300
+    pass_strike_window(s.paths, s.settings)  # the owner raised it and re-checked (D2)
     s.client_kw["max_strikes"] = 300
     n = len(_range_calls(s.fake))
     _plan(s, approved=20_000)
@@ -521,21 +528,35 @@ def _dp_answer(s, day, status, code):
     s.fake.handler = handler
 
 
-def test_dp_400_inside_the_reach_is_an_error(setup):
+def test_dp_400_inside_the_reach_is_recorded_and_retried_once(setup):
+    """D1: a refusal well inside the reach is an error, not "out of reach": recorded, the job carries on, and the
+    date is asked once more at the end of the night."""
     s = setup
     _dp_answer(s, "2025-10-20", 400, "INVALID_PARAMETER")
     _plan(s, approved=20_000)
-    with pytest.raises(SkylitError):
-        s.run()
-    assert not (bf.job_dir(s.paths) / "days" / "2025-10-20.json").exists()  # not marked done
+    assert s.run().status == "complete"
+    assert _day_record(s, "2025-10-20")["dp"]["status"] == "failed"
+    rec = bf.load_failed(s.paths)["dp 2025-10-20"]
+    assert rec["state"] == "failed" and rec["retries"] == 1 and rec["status"] == 400 and not rec["charged"]
+    calls = [c for c in _dp_calls(s.fake) if c.get("date") == "2025-10-20"]
+    assert len(calls) == 2  # the main pass and the end-of-night retry
+    plan = bf.BackfillPlan.from_json(json.loads(bf.plan_path(s.paths).read_text(encoding="utf-8")))
+    assert date(2025, 10, 20) not in bf.dp_todo(s.env, plan)  # never asked again
 
 
-def test_gives_up_after_three_retries_with_status_api_error(setup):
+def test_a_window_that_keeps_failing_is_recorded_then_retried_once_at_the_end(setup):
+    """D1 (decision 4): after the 1/5/15-minute waits the window is recorded and the job carries on; the retry
+    pass at the end of the night asks it once more."""
     s = setup
     _plan(s, approved=20_000)
     s.fake.queue["/v1/historical/range"] = [(503, {"error": {"code": "unavailable", "message": "x"}}, {})] * 20
     r = s.run()
-    assert r.status == "api_error" and s.slept == [60, 300, 900]
+    assert r.status == "complete" and sum(s.slept) == 60 + 300 + 900
+    rec = bf.load_failed(s.paths)["2025-10-06 1030"]
+    assert rec["code"] == "gave_up" and rec["retries"] == 1 and rec["state"] == "recovered"
+    assert s.store.range_cached(date(2025, 10, 6), "1030",
+                                range_params_from_settings(s.settings, bf._windows_by_hhmm(date(2025, 10, 6), CAL)["1030"]))
+    assert "1030" in _day_record(s, "2025-10-06")["skylit"]["failed"]
 
 
 def test_dp_reserve_stops_before_a_date_it_cannot_finish(setup):
@@ -557,6 +578,7 @@ def test_backfill_day_with_older_strikes_refuses(setup):
     c = _make_client(s.fake, on_call=s.store.log_call)
     pull_session(c, s.store, date(2025, 10, 9), log=s.env.log, cal=CAL)
     s.settings["skylit_max_strikes"] = 300
+    pass_strike_window(s.paths, s.settings)  # the owner raised it and re-checked (D2)
     s.client_kw["max_strikes"] = 300
     with pytest.raises(bf.BackfillRefused, match="mix strike sets"):
         _plan(s, approved=20_000)
@@ -755,12 +777,12 @@ def test_a_range_answer_is_kept_before_it_is_split(setup):
     stray = _dp_print(date(2025, 12, 1))
     real = s.fake._dp_page
     s.fake._dp_page = lambda q: {**real(q), "data": real(q)["data"] + ([stray] if "date_start" in q else [])}
-    with pytest.raises(SkylitError, match="range_date"):
-        s.run()
+    r = s.run()  # each date of the kept answer fails the same way: K in a row stop the job cleanly (D1)
+    assert r.status == "failures" and "range_date" in r.message
     n = len(_dp_calls(s.fake))
-    with pytest.raises(SkylitError, match="range_date"):
-        s.run()
+    assert s.run().status == "failures"
     assert len(_dp_calls(s.fake)) == n
+    assert all(v["charged"] and v["code"] == "range_date" for v in bf.load_failed(s.paths).values())
     assert list((s.store.root / "darkpool" / "range").glob("*.parquet"))
 
 

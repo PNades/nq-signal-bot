@@ -1,6 +1,7 @@
 # Secrets
 .env
 .env.*
+!.env.example
 # Machine-specific resources (config/local.example.yaml shows the format)
 config/local.yaml
 # Project data lives on the external SSD under paths.root; these are a safety net only.

@@ -545,3 +545,15 @@ def test_step7_sample_days_are_pulled_first(paths, dec_settings, clock, log):
     days = [date.fromisoformat(c.split(":")[0]) for c in result.ran]
     assert days[:2] == sorted(samples) and days[2:] == sorted(days[2:])  # then oldest first, as before
     assert all(c[3][:10] in ("2025-12-09", "2025-12-10") for c in fake.downloads()[:2])  # CME day 12-10 first
+
+
+def test_the_roll_log_never_shows_the_spread_value(paths, dec_settings, clock, log, caplog):
+    """presd_fixes D11: a sealed month's roll spread must not reach the console or the log (§7 rule 2b)."""
+    import logging
+
+    fake = FakeHistorical()
+    plan_with(fake, paths, dec_settings)
+    with caplog.at_level(logging.INFO):
+        run(job_for(fake), dec_settings, paths, clock, log)
+    rolls = [r.getMessage() for r in caplog.records if r.getMessage().startswith("roll ")]
+    assert rolls and not any("250" in m or "50.0" in m or "spread +" in m for m in rolls)

@@ -3,8 +3,8 @@
 Skylit history older than 365 days can never be pulled again, and a copy on the same SSD is not a backup. So
 `data/raw/skylit/` (the range windows, the dark-pool prints, Tempest, the call ledger) is copied straight from
 the SSD to `<backup.rclone_remote>:<backup.drive_folder>/raw/skylit/` with `rclone copy --checksum`, then
-verified with `rclone check --one-way` (MD5 on both sides). Run it twice: once the warm-up and months 1-6 are
-pulled, and again when step 10 finishes (§11); any later run copies only what changed.
+verified with `rclone check --one-way` (MD5 on both sides). Run it once, when step 10
+finishes (owner 2026-10-06, presd_fixes D12) (§11); any later run copies only what changed.
 
 It is a resumable job (`nqbot backup --until 07:30` = `nqbot run skylit_backup`): one chunk per folder (one per
 month under `range/`), each chunk id carrying a fingerprint of that folder's files, so an unchanged folder is
@@ -33,7 +33,8 @@ from nqbot.storage import atomic_write_json, atomic_write_text
 JOB_NAME = "skylit_backup"
 ROOT_FILES = "_files"  # the chunk for the files directly in raw/skylit/ (the call ledger)
 RANGE = "range"  # raw/skylit/range/<YYYY-MM-DD>/: one chunk per month
-LAST_PARTS = (ROOT_FILES, "vol", "stream")  # written by checks that don't take the Skylit lock (tempest-poll, report)
+# written by the step-7 checks that don't take the Skylit lock (decision 2: stream-record, parity, late prints, Tempest)
+LAST_PARTS = (ROOT_FILES, "vol", "stream", "repull")
 TEMP_FILTER = "- .*.tmp"  # atomic-write temp files (storage.atomic_path) are never copied
 PREFLIGHT_TIMEOUT_SEC = 60
 POLL_SEC = 1.0  # how often a running rclone is checked against ctx.should_stop()

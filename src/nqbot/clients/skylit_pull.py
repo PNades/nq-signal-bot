@@ -26,7 +26,7 @@ from zoneinfo import ZoneInfo
 
 from nqbot import calendar as cal_mod
 from nqbot.clients import skylit_credits as credits
-from nqbot.clients.skylit import OutOfCredits, SkylitClient, SkylitError, iso_utc
+from nqbot.clients.skylit import AccessDenied, OutOfCredits, SkylitClient, SkylitError, iso_utc
 from nqbot.clients.skylit_store import SkylitStore, range_to_tables
 from nqbot.jobs.lock import SKYLIT
 from nqbot.jobs.runner import Ctx, StopChunk
@@ -48,6 +48,19 @@ SKYLIT_HISTORY = timedelta(days=365)  # §3.1: /v1/historical/range reaches 365 
 # inside the reach the same answer is a real error and raises.
 REACH_ANSWER_TOLERANCE = timedelta(days=1)
 OUT_OF_REACH_STATUSES = frozenset({400, 404})
+
+
+class WindowFailed(SkylitError):
+    """A window whose paid answer couldn't be converted or stored. The body is kept in skylit/failed/ (SPEC §11:
+    never paid for twice); `raw_path` says where, so it can be converted again later for free (presd_fixes D1)."""
+
+    def __init__(self, code: str, message: str, raw_path: Path | None):
+        super().__init__(200, code, message, charged=True)
+        self.raw_path = raw_path
+
+
+# Errors a window's caller never skips (they concern every window, not this one): stop instead.
+NEVER_SKIPPED = (StopChunk, OutOfCredits, AccessDenied)
 
 
 @dataclass(frozen=True)
@@ -119,6 +132,7 @@ class SessionResult:
     cached: list[str] = field(default_factory=list)
     empty: list[str] = field(default_factory=list)
     lost: list[str] = field(default_factory=list)  # out of Skylit's 365-day reach: nothing called or cached
+    failed: list[str] = field(default_factory=list)  # skipped by on_error (step-10 backfill: recorded, presd_fixes D1)
     charged: int = 0
     bytes: int = 0
     resolutions: dict[str, str] = field(default_factory=dict)  # hhmm -> meta.resolution
@@ -126,6 +140,7 @@ class SessionResult:
     def summary(self) -> str:
         res = sorted(set(self.resolutions.values()))
         lost = f", {len(self.lost)} LOST (beyond 365 days)" if self.lost else ""
+        lost += f", {len(self.failed)} FAILED" if self.failed else ""
         return (f"{self.day}: {len(self.pulled)} pulled, {len(self.cached)} cached, {len(self.empty)} empty{lost}, "
                 f"{self.charged} credits, {self.bytes / 1e6:.1f} MB, resolution {res or '-'}")
 
@@ -145,7 +160,8 @@ def range_params_from_settings(settings: dict[str, Any], w: Window) -> dict[str,
 def pull_window(client: SkylitClient, store: SkylitStore, w: Window, *, max_strikes: int | str | None = None,
                 result: SessionResult, log: logging.Logger, base: Path | None = None,
                 repull: str | None = None, tree: str | None = None,
-                gate: Callable[[Window], bool] | None = None, now: Callable[[], datetime] | None = None) -> bool:
+                gate: Callable[[Window], bool] | None = None, now: Callable[[], datetime] | None = None,
+                drop_retries: int | None = None) -> bool:
     """Pull one window unless cached under `base` (default: the normal tree). Returns True if it holds boards
     (a cached window answers from its stored row count, so a stored empty probe stays empty).
 
@@ -169,7 +185,9 @@ def pull_window(client: SkylitClient, store: SkylitStore, w: Window, *, max_stri
     label = f"{w.day} {w.hhmm}"
     try:
         with client.tagged(window=label, repull=reason, tree=tree):
-            body, rec = client.historical_range(list(MAPS), w.start, w.end, max_strikes)
+            body, rec = (client.historical_range(list(MAPS), w.start, w.end, max_strikes) if drop_retries is None
+                         else client.historical_range(list(MAPS), w.start, w.end, max_strikes,
+                                                      drop_retries=drop_retries))
     except SkylitError as e:
         if e.status == 404 and (e.code in NO_DATA_CODES or (w.probe and e.code in PROBE_EMPTY_CODES)):
             result.empty.append(w.hhmm)  # refunded: nothing stored, nothing charged
@@ -178,23 +196,54 @@ def pull_window(client: SkylitClient, store: SkylitStore, w: Window, *, max_stri
             result.lost.append(w.hhmm)  # refunded; never cached as empty
             log.warning("%s: answered %s %s at the 365-day line: lost (not cached)", label, e.status, e.code)
             return False
-        if e.raw is not None:
-            log.error("%s: undecodable answer saved to %s", label, store.save_failed(e.raw, f"range_{w.day}_{w.hhmm}"))
+        if e.raw is not None:  # a charged undecodable 200, or a refusal's error body (kept for the diagnosis)
+            path = store.save_failed(e.raw, f"range_{w.day}_{w.hhmm}" + ("" if e.charged else "_refused"))
+            e.raw_path = path
+            log.error("%s: %s answer saved to %s", label, "undecodable" if e.charged else "refused", path)
         raise
+    return store_window(store, w, body, rec, params, client.root_to_map, result=result, base=base, reason=reason)
+
+
+def store_window(store: SkylitStore, w: Window, body: dict[str, Any], rec: Any, params: dict[str, Any],
+                 root_to_map: dict[str, str], *, result: SessionResult, base: Path | None = None,
+                 reason: str | None = None, raw_path: Path | None = None) -> bool:
+    """Convert and store one paid answer. Any failure keeps the body in failed/ first and raises WindowFailed
+    (presd_fixes D1). `raw_path`: the body is already kept there (a free re-conversion of a failed window)."""
+    label = f"{w.day} {w.hhmm}"
+
+    def keep() -> Path | None:
+        if raw_path is not None:
+            return raw_path
+        try:
+            return store.save_failed(json.dumps(body).encode(), f"range_{w.day}_{w.hhmm}")
+        except Exception:  # noqa: BLE001 - e.g. the SSD is gone: the original error is the one to report
+            return None
+
     try:
-        boards, strikes = range_to_tables(body, client.root_to_map, w.start, w.end)
-    except (ValueError, KeyError) as e:
-        path = store.save_failed(json.dumps(body).encode(), f"range_{w.day}_{w.hhmm}")
-        raise ValueError(f"{label}: answer couldn't be converted ({e}); kept in {path}") from e
+        boards, strikes = range_to_tables(body, root_to_map, w.start, w.end)
+        resolution = body["meta"]["resolution"]
+    except Exception as e:  # noqa: BLE001 - any conversion failure: the paid body is kept, never pulled again
+        path = keep()
+        raise WindowFailed("convert_failed", f"{label}: answer couldn't be converted ({type(e).__name__}: {e}); "
+                           f"kept in {path}", path) from e
     if boards.num_rows == 0:
         result.empty.append(w.hhmm)
     meta = {"params": params, "meta": body.get("meta"), "pulled_at": rec.at, "credits_remaining": rec.credits_remaining,
             "charged": rec.charged, "bytes": rec.bytes, "probe": w.probe, "repull": reason, "n_boards": boards.num_rows}
-    store.write_range(w.day, w.hhmm, boards, strikes, meta, base)
+    if raw_path is not None:
+        meta["converted_from"] = raw_path.name
+    try:
+        store.write_range(w.day, w.hhmm, boards, strikes, meta, base)
+    except Exception as e:  # noqa: BLE001 - a failed write must not lose the paid answer (presd_fixes D1, D5)
+        if not store.paths.mounted():
+            raise  # the SSD is gone: the runner stops cleanly (ssd_missing) and the window is pulled next time
+        path = keep()
+        raise WindowFailed("write_failed", f"{label}: couldn't be stored ({type(e).__name__}: {e}); answer kept "
+                           f"in {path}", path) from e
     result.pulled.append(w.hhmm)
     result.charged += rec.charged or 0
-    result.bytes += rec.bytes
-    result.resolutions[w.hhmm] = body["meta"]["resolution"]
+    result.bytes += rec.bytes or 0
+    result.resolutions[w.hhmm] = resolution
     return boards.num_rows > 0
 
 
@@ -202,25 +251,52 @@ def pull_session(client: SkylitClient, store: SkylitStore, day: date, *, max_str
                  should_stop: Callable[[], str | None] = lambda: None, log: logging.Logger,
                  cal: dict[str, Any] | None = None, base: Path | None = None, repull: str | None = None,
                  gate: Callable[[Window], bool] | None = None,
-                 now: Callable[[], datetime] | None = None) -> SessionResult:
+                 now: Callable[[], datetime] | None = None,
+                 skip: Callable[[Window], bool] | None = None,
+                 on_error: Callable[[Window, Exception, int], bool] | None = None,
+                 on_success: Callable[[Window], None] | None = None) -> SessionResult:
     """Pull one session into `base` (default: the normal tree; a re-pull reason sends it to repull/<reason>/).
-    `gate` and `now`: see pull_window (the step-10 backfill's reach and credit checks)."""
+    `gate` and `now`: see pull_window (the step-10 backfill's reach and credit checks).
+
+    `skip(w)`: True = leave the window alone (the backfill's recorded failures: never pulled again in the main pass).
+    `on_error(w, exc, attempt)`: called for a window's error other than NEVER_SKIPPED; True = try the window again
+    now, False = it was recorded, go on with the next window (result.failed); it may raise to stop. Without it,
+    errors raise (step 7). `on_success(w)`: a call for w was answered (boards or no data), not a cache hit."""
     result = SessionResult(day)
     kw = {"max_strikes": max_strikes, "result": result, "log": log, "base": base, "repull": repull, "gate": gate,
           "now": now}
-    windows = session_windows(day, cal)
-    for w in windows:
+
+    def one(w: Window) -> bool:
         reason = should_stop()
         if reason:
             raise StopChunk(reason)
-        has_boards = pull_window(client, store, w, **kw)
+        if skip is not None and skip(w):
+            result.failed.append(w.hhmm)
+            return False
+        attempt = 0
+        while True:
+            answered = len(result.pulled) + len(result.empty)
+            try:
+                has_boards = pull_window(client, store, w, **kw)
+                if on_success is not None and len(result.pulled) + len(result.empty) > answered:
+                    on_success(w)
+                return has_boards
+            except NEVER_SKIPPED:
+                raise
+            except Exception as e:  # noqa: BLE001 - on_error decides (it re-raises what it can't handle)
+                if on_error is None or not store.paths.mounted():
+                    raise
+                if not on_error(w, e, attempt):
+                    result.failed.append(w.hhmm)
+                    return False
+                attempt += 1
+
+    for w in session_windows(day, cal):
+        has_boards = one(w)
         if w.probe and not cal_mod.is_trading_day(day, cal) and has_boards:
             log.warning("%s is a calendar holiday but the probe returned boards: pulling the whole day", day)
             for extra in full_day_windows(day)[1:]:
-                reason = should_stop()
-                if reason:
-                    raise StopChunk(reason)
-                pull_window(client, store, extra, **kw)
+                one(extra)
     log.info("Skylit %s", result.summary())
     return result
 
@@ -296,13 +372,15 @@ class SkylitPullJob:
                                      uncached_windows(store, client, days, plan.get("max_strikes"),
                                                       base=self._base(store, plan)))
         credits.check(est, balance=client.credits.remaining, approved=plan.get("approved_credits"), echo=ctx.log.info)
-        return list(plan["dates"])
+        # A re-pull's chunk ids carry its maxStrikes: a second raise is never marked done by the first (D4).
+        suffix = f"_max{plan.get('max_strikes')}" if plan.get("repull") else ""
+        return [f"{d}{suffix}" for d in plan["dates"]]
 
     def run_chunk(self, chunk_id: str, ctx: Ctx) -> None:
         plan = self._plan(ctx)
         store = SkylitStore(ctx.paths)
         try:
-            pull_session(self._client_for(ctx, store), store, date.fromisoformat(chunk_id),
+            pull_session(self._client_for(ctx, store), store, date.fromisoformat(chunk_id.split("_")[0]),
                          max_strikes=plan.get("max_strikes"), should_stop=ctx.should_stop, log=ctx.log,
                          base=self._base(store, plan), repull=plan.get("repull"))
         except OutOfCredits as e:  # a clean stop, like the step-10 backfill (presd_fixes 17)
