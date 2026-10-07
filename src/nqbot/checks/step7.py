@@ -29,7 +29,7 @@ from nqbot import calendar as cal_mod
 from nqbot import months as months_mod
 from nqbot.checks import step7_analysis as an
 from nqbot.clients import skylit_credits as credits
-from nqbot.clients.skylit import (DP_RANGE_MAX_DAYS, DarkPoolFailed, DarkPoolPull, OutOfCredits, SkylitClient,
+from nqbot.clients.skylit import (DP_PAGE_LIMIT, DP_RANGE_MAX_DAYS, DarkPoolFailed, DarkPoolPull, OutOfCredits, SkylitClient,
                                   SkylitError)
 from nqbot.clients.skylit_pull import (INCLUSIVE_END, MAPS, SessionResult, SkylitPullJob, Window, pull_window,
                                        session_windows, window_reachable)
@@ -1016,6 +1016,51 @@ def check_darkpool(env: Env, day: date, check_dates: list[date], approved: int |
         report.pop("f4_top")
         report["walk_forward"] = True
     write_report(env, "darkpool", report)
+    return report
+
+
+DP_START_PROBE_MAX = 10  # trading days stepped forward to find a moved dark-pool start (5 credits each, §3.1)
+
+
+def check_dp_start_probe(env: Env, approved: int | None = None) -> dict[str, Any]:
+    """Owner 2026-10-07: is dp_history_start still Skylit's first dark-pool date, or is the history a rolling window
+    that moves forward? One /v1/dark-pool/trades page (5 credits) for QQQ,SPY on that date, counted per ticker; if a
+    ticker has gone empty, step forward one trading day at a time (each priced first) to the new start. A CLAUDE.md
+    rule-2 re-pull exception: nothing is cached, the report keeps counts only, never a price."""
+    start = dp_history_start(env)
+    tickers = list(env.features["dp_tickers"])
+
+    def probe(d: date) -> dict[str, Any]:
+        _gate(env, credits.dark_pool_estimate(f"dark-pool start probe {d} ({','.join(tickers)})", 1), approved)
+        with env.client.tagged(dp_start_probe=d.isoformat()):
+            body, _ = env.client.get("/v1/dark-pool/trades", {"tickers": ",".join(tickers), "date": d.isoformat(),
+                                                              "limit": DP_PAGE_LIMIT,
+                                                              "min_notional": env.features["dp_min_notional"]})
+        rows = body.get("data") or []
+        return {"date": d.isoformat(), **{t: sum(r.get("ticker") == t for r in rows) for t in tickers}}
+
+    probes = [probe(start)]
+    new_start = None
+    if not all(probes[0][t] for t in tickers):
+        d = start
+        for _ in range(DP_START_PROBE_MAX):
+            d = _next_session(env, d)
+            probes.append(probe(d))
+            if all(probes[-1][t] for t in tickers):
+                new_start = d
+                break
+    still = all(probes[0][t] for t in tickers)
+    report = {"dp_history_start": start.isoformat(), "still_there": still, "probes": probes,
+              "new_start": new_start.isoformat() if new_start else None}
+    if still:
+        env.echo(f"  {start} still has prints for {', '.join(tickers)}: Skylit's dark-pool start has not moved")
+    elif new_start:
+        env.echo(f"  {start} is gone: the history moves forward. First date with prints now {new_start}: set "
+                 f"dp_history_start to \"{new_start.isoformat()}\" in config/features.yaml and record it (SPEC §3.1, §13); "
+                 "the backfill's dark-pool dates are then time-critical (oldest first)")
+    else:
+        env.echo(f"  {start} is gone and no prints in the next {DP_START_PROBE_MAX} trading days: ask Claude Code")
+    write_report(env, "dp_start_probe", report)
     return report
 
 

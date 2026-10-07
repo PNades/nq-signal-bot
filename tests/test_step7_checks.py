@@ -586,3 +586,18 @@ def test_darkpool_walk_forward_reports_matches_only(env):
     assert "f4_top" not in rep and rep["depth_probe"] is None
     assert "price" not in json.dumps(rep) and "notional" not in json.dumps(rep)
     assert step7.dp_range_ok(env.paths)
+
+
+def test_dp_start_probe(env):
+    """Owner 2026-10-07: the 5-credit re-probe of dp_history_start; a moved start is found day by day."""
+    env.features["dp_history_start"] = "2026-03-02"
+    env.fake.dp_prints = [_dp_print(date(2026, 3, d), 11, 2e6, t) for d in (2, 3, 4) for t in ("QQQ", "SPY")]
+    rep = step7.check_dp_start_probe(env)
+    assert rep["still_there"] and rep["new_start"] is None and len(rep["probes"]) == 1
+    assert rep["probes"][0] == {"date": "2026-03-02", "QQQ": 1, "SPY": 1}
+    env.fake.dp_prints = [p for p in env.fake.dp_prints if not p["timestamp"].startswith("2026-03-02")]
+    env.fake.dp_prints = [p for p in env.fake.dp_prints if not (p["timestamp"].startswith("2026-03-03")
+                                                                 and p["ticker"] == "SPY")]
+    rep = step7.check_dp_start_probe(env)
+    assert not rep["still_there"] and rep["new_start"] == "2026-03-04" and len(rep["probes"]) == 3
+    assert "price" not in json.dumps(rep)

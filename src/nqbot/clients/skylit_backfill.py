@@ -65,6 +65,9 @@ from nqbot.storage import Paths, append_jsonl, atomic_write_bytes, atomic_write_
 
 JOB_NAME = "skylit_backfill"
 TEMPEST_CHUNK = "tempest"  # last: a Tempest problem never holds up the time-critical days
+# First (owner 2026-10-07): every dark-pool date, oldest first, before the range days, in case Skylit's dark-pool
+# history (from dp_history_start) is a rolling window that loses a day each day; ~26 pages, a few minutes.
+DP_CHUNK = "dp_"
 TEMPEST_ALWAYS = ("QQQ", "SPY")  # §12 step 10
 TEMPEST_IF_SERVED = ("NDXP", "SPXW", step7.VIX)  # §12 step 10: if step 7 found them served
 RAISE = "strike_window_raise"
@@ -723,9 +726,9 @@ class SkylitBackfillJob:
         self._failed = load_failed(ctx.paths)
         self._in_row = 0
         self._night_retry_spent = 0
-        dates = sorted(set(plan.days) | set(plan.dp_dates))
         last = plan.last.isoformat()
-        return [d.isoformat() for d in dates] + [f"{TEMPEST_CHUNK}_{last}"]
+        return ([f"{DP_CHUNK}{d.isoformat()}" for d in sorted(plan.dp_dates)]
+                + [d.isoformat() for d in sorted(plan.days)] + [f"{TEMPEST_CHUNK}_{last}"])
 
     # retry passes (owner 2026-10-06): at the start of every run and the end of every night, oldest first
     def at_start(self, ctx: Ctx) -> None:
@@ -814,13 +817,16 @@ class SkylitBackfillJob:
                 if chunk_id.startswith(TEMPEST_CHUNK):
                     atomic_write_json(ctx.out_dir / "tempest.json", self._tempest(env, plan, ctx))
                 else:
-                    d = date.fromisoformat(chunk_id)
-                    rec: dict[str, Any] = {"date": chunk_id}
-                    if d in set(plan.days):
+                    dp_only = chunk_id.startswith(DP_CHUNK)
+                    day = chunk_id.removeprefix(DP_CHUNK)
+                    d = date.fromisoformat(day)
+                    path = ctx.out_dir / "days" / f"{day}.json"  # one record per date: the dp chunk's part is kept
+                    rec: dict[str, Any] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"date": day}
+                    if not dp_only and d in set(plan.days):
                         rec["skylit"] = self._skylit_day(env, plan, d, ctx)
-                    if d in set(plan.dp_dates):
+                    if d in set(plan.dp_dates) and (dp_only or "dp" not in rec):
                         rec["dp"] = self._dp_guarded(env, d, plan, ctx)
-                    atomic_write_json(ctx.out_dir / "days" / f"{chunk_id}.json", rec)
+                    atomic_write_json(path, rec)
         except OutOfCredits as e:
             raise StopChunk(f"Skylit answered 402 out of credits ({e.message}): top up, then re-run nqbot run "
                             f"{JOB_NAME}", status="credits") from None

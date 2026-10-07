@@ -148,7 +148,9 @@ def test_backfill_oldest_first_partial_day_dp_and_tempest_last(setup):
     result = s.run()
     assert result.status == "complete", result.message
     chunks = json.loads((s.paths.data_dir / "jobs" / bf.JOB_NAME / "state.json").read_text())["runs"][-1]["chunks"]
-    assert chunks == sorted(chunks[:-1]) + ["tempest_2025-10-31"]
+    dp = [c for c in chunks if c.startswith(bf.DP_CHUNK)]  # dark pools first (owner 2026-10-07), then days, Tempest
+    assert chunks == dp + sorted(c for c in chunks[len(dp):-1]) + ["tempest_2025-10-31"]
+    assert dp and dp == sorted(dp) and not any(c.startswith(bf.DP_CHUNK) for c in chunks[len(dp):])
     assert s.fake.calls[-1].url.path == "/v1/vol/history"  # Tempest last
     starts = [parse_z(r.url.params["from"]) for r in _range_calls(s.fake)]
     assert starts == sorted(starts)  # oldest window first
@@ -832,3 +834,19 @@ def test_dark_pools_start_at_skylits_history(setup):
     cov = bf.coverage(s.env, plan, out)
     assert cov["dark_pools"]["history_start"] == "2025-10-20" and cov["dark_pools"]["before_history_count"] > 0
     assert "never pulled" in bf.coverage_markdown(cov, NOW)
+
+
+def test_dark_pools_are_pulled_first_oldest_first(setup):
+    """Owner 2026-10-07: every dark-pool date comes before the range days (Skylit's dark-pool history may be a
+    rolling window), oldest first, and a date's record keeps its dark-pool part when its range day runs later."""
+    s = setup
+    _plan(s, approved=20_000)
+    assert s.run().status == "complete"
+    paths = [r.url.path for r in s.fake.calls if r.url.path in ("/v1/dark-pool/trades", "/v1/historical/range")]
+    first_range = paths.index("/v1/historical/range")
+    assert "/v1/dark-pool/trades" not in paths[first_range:]
+    dp_dates = [p.get("date") or p.get("date_start") for p in _dp_calls(s.fake)]
+    assert dp_dates == sorted(dp_dates)
+    plan = bf.BackfillPlan.from_json(json.loads(bf.plan_path(s.paths).read_text(encoding="utf-8")))
+    both = sorted(set(plan.days) & set(plan.dp_dates))
+    assert both and all({"skylit", "dp"} <= set(_day_record(s, d.isoformat())) for d in both)

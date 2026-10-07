@@ -273,6 +273,7 @@ def _add_step7(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--until", type=_hhmm, default=None, help="stop polling at this ET time (default 09:30)")
     add("tempest-compare", "re-pull the oldest stored Tempest row not yet re-checked and diff it")
     add("tempest-depth", "does Tempest history reach back far enough before month 1 (1-2 credits)")
+    add("dp-start-probe", "is dp_history_start still Skylit's first dark-pool date? (5 credits; owner 2026-10-07)")
     add("report", "write the parameter check for the owner (and the step-10 backfill estimate)")
 
 
@@ -328,7 +329,7 @@ def _run_step7(args: argparse.Namespace, settings: dict, paths, log) -> int:
 
 # The step-7 checks that run alongside the step-10 backfill without the Skylit lock (decision 2).
 ALONGSIDE_CHECKS = frozenset({"stream-record", "parity", "late-prints-morning", "late-prints-compare", "tempest-poll",
-                              "tempest-compare"})
+                              "tempest-compare", "dp-start-probe"})
 
 
 def _step7_hint(check: str, e) -> str:
@@ -387,6 +388,8 @@ def _step7_check(args: argparse.Namespace, settings, paths, log, env, approve) -
             step7.check_tempest_compare(env, approve)
         case "tempest-depth":
             step7.check_tempest_depth(env, approve)
+        case "dp-start-probe":
+            step7.check_dp_start_probe(env, approve)
         case "report":
             step7.check_report(env)
     return 0
