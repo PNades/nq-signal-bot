@@ -12,7 +12,7 @@ import pytest
 
 from nqbot import cli, storage
 from nqbot.gameplan import parser as gp
-from nqbot.gameplan.schema import GAMEPLAN_SCHEMA
+from nqbot.gameplan.schema import GAMEPLAN_SCHEMA, from_wire
 from nqbot.storage import read_jsonl
 from tests.anthropic_fakes import FIXTURES, FakeAnthropic, canned, message
 
@@ -61,7 +61,7 @@ def test_parse_canonical_file(settings, store):
     assert len(client.counts) == 1  # the estimate is a free token count
 
     doc = store.load(D_CANON)
-    want = canned(CANON)
+    want = from_wire(canned(CANON))[0]
     keys = ("date", "hvl", "hvl0", "regime_line", "zones", "scenario_sets")
     assert {k: doc[k] for k in keys} == {k: want[k] for k in keys}
     assert doc["status"] == "ok" and doc["flags"] == []
@@ -392,6 +392,38 @@ def test_already_parsed_is_never_paid_again_after_a_version_bump(settings, store
     with pytest.raises(gp.GameplanRefused, match="--reparse"):  # re-dating would need a new paid call
         gp.parse_file(client, settings, store, f, given_date=date(2026, 4, 2), out=quiet)
     assert len(client.requests) == 1
+
+
+def test_stale_version_is_rebuilt_from_a_saved_new_answer_for_free(settings, store, monkeypatch):
+    """2026-10-07: a v2 --reparse left an undated answer saved while the v1 gameplan stayed under the date; the
+    owner's --date (same date) must rebuild from the saved v2 answer, and a later batch too, never a new call."""
+    (f,) = put(store, NFP)
+    client = FakeAnthropic()
+    gp.parse_file(client, settings, store, f, out=quiet)
+    monkeypatch.setattr(gp, "PARSER_VERSION", gp.PARSER_VERSION + 1)
+    saved = json.loads((store.processed_dir / "responses" / f"{gp.sha256(f)}.v{gp.PARSER_VERSION - 1}.json")
+                       .read_text(encoding="utf-8"))
+    (store.processed_dir / "responses" / f"{gp.sha256(f)}.v{gp.PARSER_VERSION}.json").write_text(
+        json.dumps(saved), encoding="utf-8")
+    r = gp.parse_file(client, settings, store, f, given_date=D_NFP, out=quiet)
+    assert (r.status, r.cost_usd, len(client.requests)) == ("flagged", 0.0, 1)
+    assert store.load(D_NFP)["source"]["parser_version"] == gp.PARSER_VERSION
+    monkeypatch.setattr(gp, "PARSER_VERSION", gp.PARSER_VERSION + 1)  # an older doc again, no saved answer: skipped
+    results, _ = gp.batch(client, settings, store, approved_usd=None, out=quiet)
+    assert results == [] and len(client.requests) == 1
+
+
+def test_owner_confirms_a_content_date_with_date_for_free(settings, store):
+    """--date with the date already read from the content records the owner's confirmation (date flag cleared)."""
+    (f,) = put(store, NFP)
+    client = FakeAnthropic()
+    r = gp.parse_file(client, settings, store, f, out=quiet)
+    assert r.date_source == "content" and any(x["field"] == "date" for x in r.flags)
+    r = gp.parse_file(client, settings, store, f, given_date=D_NFP, out=quiet)
+    assert (r.status, r.date_source, r.cost_usd, len(client.requests)) == ("flagged", "given", 0.0, 1)
+    assert not any(x["field"] == "date" for x in r.flags)
+    r = gp.parse_file(client, settings, store, f, given_date=D_NFP, out=quiet)
+    assert r.status == "cached" and len(client.requests) == 1
 
 
 def test_replace_moves_the_old_original_aside_and_batch_stays_clean(settings, store, tmp_path):

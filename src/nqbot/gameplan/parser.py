@@ -31,7 +31,7 @@ import anthropic
 from nqbot import months
 from nqbot.gameplan import validate
 from nqbot.gameplan.convert import SUPPORTED_SUFFIXES, CannotConvert, Converted, convert
-from nqbot.gameplan.schema import GAMEPLAN_SCHEMA, SPEC_FIELDS
+from nqbot.gameplan.schema import GAMEPLAN_SCHEMA, SPEC_FIELDS, from_wire
 from nqbot.storage import append_jsonl, atomic_write_json, atomic_write_text, replace_retry
 
 PARSER_VERSION = 2  # bump when SYSTEM_PROMPT or GAMEPLAN_SCHEMA changes (then re-parse with --reparse)
@@ -43,34 +43,36 @@ HELD_BACK_MONTHS = range(1, 10)  # §5.6: a gameplan dated in ledger months 1-9 
 SYSTEM_PROMPT = """\
 You extract a futures trader's morning gameplan for NQ (Nasdaq-100 E-mini futures) into JSON.
 The gameplan was written before the 09:30 ET open. Record what the gameplan says, nothing else: never choose
-between readings, infer, guess or compute. When something isn't stated, leave it null and say so in `uncertain`.
+between readings, infer, guess or compute. When something isn't stated, leave it empty and say so in `uncertain`.
+Empty means [] for a number or price field and "" for a text field (only `date` is null when not stated).
 
 Rules:
 - Copy prices exactly as written. Every level is [low, high]; a single price p is [p, p] (keep it that way).
+  A single value (stop, invalidation price, probability, minutes) is a one-item list: [30734], [0.5].
 - Zones, stops, targets, HVL, HVL0 and the regime line are NQ prices. If a level is only given for another
-  instrument (ES, SPX, QQQ, VIX), leave the NQ field null and say so in `uncertain`.
+  instrument (ES, SPX, QQQ, VIX), leave the NQ field empty and say so in `uncertain`.
 - hvl: the NQ level the gameplan labels HVL. hvl0: the NQ level it labels HVL0 or HVL 0DTE. Store both whenever
-  given. regime_line: only a level the gameplan itself labels the regime line; otherwise null (don't infer it).
-- zone = [low, high]; a zone with no NQ price is null. side = "sell" for a short/ceiling/resistance zone, "buy" for
+  given. regime_line: only a level the gameplan itself labels the regime line; otherwise empty (don't infer it).
+- zone = [low, high]; a zone with no NQ price is []. side = "sell" for a short/ceiling/resistance zone, "buy" for
   a long/floor/support zone.
 - trigger.es_gates: every ES price an entry is gated on, one item each, with its words in as_written. direction:
   "above" for above, over, >, holding or reclaiming X; "below" for below, under, <, losing, rejecting or failing X;
   any other wording (stalling under, testing, ...) is "unclear".
-- invalidation: one item per condition written for the zone: instrument, direction, price (null if none), the
+- invalidation: one item per condition written for the zone: instrument, direction, price ([] if none), the
   timeframe as written and its words in as_written. timeframe: "1m_close" only when a 1-minute close or settle is
   stated; "settled_bar" when it says settled bar without a timeframe (never assume 1 minute); "acceptance" for
   time held beyond the price (acceptance_minutes = the minutes written, 15+ -> 15); "not_stated" for a bare price
   such as "INVALID >29,520"; "other" for anything else. An invalidation written for the whole map, not this zone,
   is not this zone's.
-- targets: in the order written (T1 first), one item per target. A single price: low = high. A range
-  ("29,500-545"): one target with its two ends, never split into two targets. A name ("home", "the platform",
-  "the pivot"): low/high = the price this same gameplan gives that name, else null; keep the words in as_written.
+- targets: in the order written (T1 first), one item per target. A single price p: price [p, p]. A range
+  ("29,500-545"): one target with price [low, high], never split into two targets. A name ("home", "the platform",
+  "the pivot"): price = the price this same gameplan gives that name, else []; keep the words in as_written.
 - scenario_sets: keep every probability set the gameplan gives, each its own set: frame "ny_am" for the NY morning
   (e.g. 09:30-12:00 / AM), "session" for the whole session, "unspecified" when the gameplan doesn't say.
   Probabilities as fractions (50% -> 0.5). bias: "up"/"down" only for a stated direction, "neutral" for a range or
   rotation, "mixed" when the scenario goes both ways.
 - Contradictions inside the gameplan (the same value written two ways): use the one marked final (e.g. "final at the
-  8:51 read"). If neither is marked final, leave the value null and say why in `uncertain`.
+  8:51 read"). If neither is marked final, leave the value empty and say why in `uncertain`.
 - Several versions (e.g. "RTH v1", "RTH v2"): use only the latest version stamped before 09:30 ET; put its label in
   version_used and list the older ones in `dropped`.
 - Anything describing price action after 09:30 ET (an "Observed" recap of the RTH session, after-the-fact notes,
@@ -331,6 +333,12 @@ def _retire_own(store: GameplanStore, old_day: str, sha: str, file: Path, conv: 
         del index[h]
 
 
+def _rebuildable(store: GameplanStore, doc: dict[str, Any], sha: str) -> bool:
+    """The stored gameplan was built by an older parser version and this version's answer is already saved (e.g.
+    a --reparse whose file then needed --date): rebuild it from that answer, for free."""
+    return doc.get("source", {}).get("parser_version") != PARSER_VERSION and store.load_response(sha) is not None
+
+
 # --- one file -------------------------------------------------------------------------------------------------
 
 def parse_file(client, settings: dict[str, Any], store: GameplanStore, file: Path, *, given_date: date | None = None,
@@ -356,7 +364,10 @@ def parse_file(client, settings: dict[str, Any], store: GameplanStore, file: Pat
         known_day = date.fromisoformat(entry["date"])
         done = store.load(known_day)
         if done is not None and done.get("source", {}).get("sha256") == sha:
-            if asked_date is None or asked_date == known_day:
+            # A --date not yet recorded (e.g. the owner confirming a date read from the content) is rebuilt, for free.
+            confirmed = asked_date is None or entry.get("given_date") == asked_date.isoformat()
+            if (confirmed or (asked_date == known_day and store.load_response(sha) is None)) \
+                    and not _rebuildable(store, done, sha):
                 return Result(file.name, "cached", known_day, entry.get("date_source"), done.get("flags", []),
                               message="already parsed (use --reparse to send it again)")
             if store.load_response(sha) is None:
@@ -388,7 +399,7 @@ def parse_file(client, settings: dict[str, Any], store: GameplanStore, file: Pat
                           cost_usd=cost)
         saved = {"text": text, "file": file.name, "at": datetime.now(timezone.utc).isoformat(), **record}
         atomic_write_json(store.response_path(sha), saved)  # kept before any check: never paid for twice
-    parsed = json.loads(saved["text"])
+    parsed, wire_flags = from_wire(json.loads(saved["text"]))
 
     day, source, date_flags = validate.resolve_date(parsed.get("date"), filename_date(file), given_date)
     if day is None:
@@ -405,7 +416,7 @@ def parse_file(client, settings: dict[str, Any], store: GameplanStore, file: Pat
     if old_day and old_day != day.isoformat():
         _retire_own(store, old_day, sha, file, conv, index)
 
-    flags = date_flags + validate.check(parsed)
+    flags = date_flags + wire_flags + validate.check(parsed)
     copy = _copy_dest(store, conv, day)
     if not copy.exists():
         if conv.kind == "pdf":
@@ -495,7 +506,8 @@ def batch(client, settings: dict[str, Any], store: GameplanStore, *, approved_us
         known = index.get(h, {})
         if known.get("copy_of"):
             continue
-        if known and not reparse and store.json_path(date.fromisoformat(known["date"])).exists():
+        done = store.load(date.fromisoformat(known["date"])) if known else None
+        if done is not None and not reparse and not _rebuildable(store, done, h):
             continue
         try:
             conv = convert(f)

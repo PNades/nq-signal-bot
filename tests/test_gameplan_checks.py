@@ -11,7 +11,7 @@ import pytest
 
 from nqbot.gameplan import validate
 from nqbot.gameplan.convert import CannotConvert, convert
-from nqbot.gameplan.schema import GAMEPLAN_SCHEMA
+from nqbot.gameplan.schema import GAMEPLAN_SCHEMA, from_wire
 from tests.anthropic_fakes import FIXTURES, canned
 
 UNSUPPORTED = {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "minLength", "maxLength",
@@ -92,13 +92,57 @@ def test_schema_uses_only_structured_output_keywords():
             assert node["required"] == list(node["properties"])
 
 
+def to_wire(doc: dict) -> dict:
+    """The stored §5.6 shape -> the model's wire format (empty list/string for a missing value, [v] for one value)."""
+    one = lambda v: [] if v is None else [v]  # noqa: E731
+    rng = lambda v: [] if v is None else v  # noqa: E731
+    return {
+        "date": doc["date"], "date_evidence": doc["date_evidence"],
+        "hvl": rng(doc["hvl"]), "hvl0": rng(doc["hvl0"]), "regime_line": rng(doc["regime_line"]),
+        "zones": [{"id": z["id"], "side": z["side"], "zone": rng(z["zone"]),
+                   "trigger": {"type": z["trigger"]["type"] or "", "note": z["trigger"]["note"] or "",
+                               "es_gates": [{**g, "price": rng(g["price"])} for g in z["trigger"]["es_gates"]]},
+                   "stop": one(z["stop"]),
+                   "invalidation": [{**c, "price": one(c["price"]), "acceptance_minutes": one(c["acceptance_minutes"])}
+                                    for c in z["invalidation"]],
+                   "targets": [{"price": [] if t["low"] is None else [t["low"], t["high"]],
+                                "as_written": t["as_written"]} for t in z["targets"]],
+                   "source_quote": z["source_quote"]} for z in doc["zones"]],
+        "scenario_sets": [{"frame": x["frame"], "label_as_written": x["label_as_written"] or "",
+                           "scenarios": [{**c, "prob": one(c["prob"])} for c in x["scenarios"]]}
+                          for x in doc["scenario_sets"]],
+        "version_used": doc["version_used"] or "", "dropped": doc["dropped"], "uncertain": doc["uncertain"],
+    }
+
+
 def test_spec_example_and_fixtures_fit_the_schema():
-    assert conforms(spec_example(), GAMEPLAN_SCHEMA)
+    assert conforms(to_wire(spec_example()), GAMEPLAN_SCHEMA)
     for name in ("2026-03-11.md", "NFP Gameplan.md"):
         assert conforms(canned(name), GAMEPLAN_SCHEMA), name
-    bad = spec_example()
+    bad = to_wire(spec_example())
     bad["zones"][0]["side"] = "short"
     assert not conforms(bad, GAMEPLAN_SCHEMA)
+
+
+def test_schema_has_one_union_only():
+    """Structured outputs refused the v2 schema with ~15 nullable fields ('compiled grammar is too large', 2026-10-07;
+    the API allows at most 16 union-type parameters): missing values are [] or '' on the wire, `date` is the only
+    union."""
+    unions = [n for n in _walk(GAMEPLAN_SCHEMA) if "anyOf" in n or isinstance(n.get("type"), list)]
+    assert len(unions) == 1 and unions[0]["anyOf"][0]["format"] == "date"
+
+
+def test_from_wire_round_trips_and_never_trims():
+    doc = spec_example()
+    back, flags = from_wire(to_wire(doc))
+    assert flags == [] and back == doc
+    w = to_wire(doc)
+    w["zones"][0]["zone"] = [30640]                      # one price -> [p, p]
+    w["zones"][0]["stop"] = [30734, 30740]               # two stops: left empty, flagged
+    w["hvl"] = [1, 2, 3]
+    back, flags = from_wire(w)
+    assert back["zones"][0]["zone"] == [30640, 30640] and back["zones"][0]["stop"] is None and back["hvl"] is None
+    assert [f["field"] for f in flags] == ["zones[E1].stop", "hvl"]
 
 
 # --- validator ------------------------------------------------------------------------------------------------
@@ -109,7 +153,7 @@ def _fields(flags):
 
 def test_clean_gameplans_have_no_flags():
     assert validate.check(spec_example()) == []
-    assert validate.check(canned("2026-03-11.md")) == []
+    assert validate.check(from_wire(canned("2026-03-11.md"))[0]) == []
 
 
 def _zone(**changes):
@@ -294,5 +338,5 @@ def test_zone_without_nq_price_is_flagged():
     assert [(f["field"], f["reason"]) for f in flags] == [("zones[E1].zone", "no NQ price range for this zone")]
     g = spec_example()
     g["zones"][0]["zone"] = None
-    assert conforms(g, GAMEPLAN_SCHEMA)
+    assert conforms(to_wire(g), GAMEPLAN_SCHEMA) and to_wire(g)["zones"][0]["zone"] == []
 
