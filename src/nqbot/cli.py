@@ -537,8 +537,9 @@ def _run_gameplan(args: argparse.Namespace, settings: dict, paths, log) -> int:
                 r = gp.parse_file(client, settings, store, file, given_date=args.date, reparse=args.reparse,
                                   replace=args.replace, cap_usd=cap)
                 print(f"{r.file}: {r.status} {r.date or ''} {r.message}".rstrip())
-                for f in r.flags:
-                    print(f"  flag {f['field']} ({f['origin']}): {f['reason']}")
+                for f in r.flags:  # info flags never need the owner's confirmation (SPEC §3.4)
+                    kind = "review" if f.get("review", True) else "info"
+                    print(f"  {kind} {f['field']} ({f['origin']}): {f['reason']}")
                 if r.status in ("ok", "flagged", "cached"):
                     print(f"{store.json_path(r.date)} (cost ${r.cost_usd:.3f})")
                 log.info("gameplan %s: %s %s %s", r.file, r.status, r.date, r.message)

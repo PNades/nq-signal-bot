@@ -17,6 +17,7 @@ Files in processed/gameplans/:
 
 from __future__ import annotations
 
+import collections
 import hashlib
 import json
 import re
@@ -34,6 +35,7 @@ from nqbot.gameplan.convert import SUPPORTED_SUFFIXES, CannotConvert, Converted,
 from nqbot.gameplan.schema import GAMEPLAN_SCHEMA, SPEC_FIELDS, from_wire
 from nqbot.storage import append_jsonl, atomic_write_json, atomic_write_text, replace_retry
 
+CHECKS_VERSION = 2  # bump when validate.py's flags change: stored gameplans are rebuilt from their saved answers, free
 PARSER_VERSION = 2  # bump when SYSTEM_PROMPT or GAMEPLAN_SCHEMA changes (then re-parse with --reparse)
 MTOK = 1_000_000
 CANONICAL = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -334,9 +336,11 @@ def _retire_own(store: GameplanStore, old_day: str, sha: str, file: Path, conv: 
 
 
 def _rebuildable(store: GameplanStore, doc: dict[str, Any], sha: str) -> bool:
-    """The stored gameplan was built by an older parser version and this version's answer is already saved (e.g.
-    a --reparse whose file then needed --date): rebuild it from that answer, for free."""
-    return doc.get("source", {}).get("parser_version") != PARSER_VERSION and store.load_response(sha) is not None
+    """The stored gameplan was built by an older parser or checks version and this version's answer is already saved
+    (e.g. a --reparse whose file then needed --date, or new flag rules): rebuild it from that answer, for free."""
+    src = doc.get("source", {})
+    stale = src.get("parser_version") != PARSER_VERSION or src.get("checks_version") != CHECKS_VERSION
+    return stale and store.load_response(sha) is not None
 
 
 # --- one file -------------------------------------------------------------------------------------------------
@@ -427,14 +431,14 @@ def parse_file(client, settings: dict[str, Any], store: GameplanStore, file: Pat
 
     doc = {k: parsed.get(k) for k in SPEC_FIELDS}
     doc["date"] = day.isoformat()
-    doc["status"] = "flagged" if flags else "ok"
+    doc["status"] = "flagged" if validate.needs_review(flags) else "ok"
     doc["flags"] = flags
     doc["parse"] = {"date_source": source, "date_in_content": parsed.get("date"),
                     "date_evidence": parsed.get("date_evidence"), "version_used": parsed.get("version_used"),
                     "dropped": parsed.get("dropped") or []}
     doc["source"] = {"file": file.name, "sha256": sha, "kind": conv.kind, "canonical_copy": copy.name,
                      "given_date": given_date.isoformat() if given_date else None,
-                     "parser_version": PARSER_VERSION, "built_at": datetime.now(timezone.utc).isoformat(),
+                     "parser_version": PARSER_VERSION, "checks_version": CHECKS_VERSION, "built_at": datetime.now(timezone.utc).isoformat(),
                      **{k: saved.get(k) for k in ("request_id", "model_requested", "model_served", "input_tokens",
                                                   "output_tokens", "cost_usd")}}
     atomic_write_json(store.json_path(day), doc)
@@ -555,6 +559,11 @@ def _ledger_note(day: date, settings: dict[str, Any]) -> str:
     return f"ledger month {n}"
 
 
+def _info_kind(reason: str) -> str:
+    """An info flag's kind for the report's counts (its numbers and quoted words dropped)."""
+    return re.sub(r"\s+", " ", re.sub(r"'[^']*'|\([^)]*\)|-?\d[\d.,]*", "", reason)).strip()
+
+
 def write_report(store: GameplanStore, settings: dict[str, Any], results: list[Result]) -> Path:
     """reports/gameplans/step9_report.md: file -> date list, gameplan days per month, problems, flags."""
     days = store.parsed_days()
@@ -579,11 +588,16 @@ def write_report(store: GameplanStore, settings: dict[str, Any], results: list[R
     lines += ["", "## Not parsed", ""]
     lines += [f"- {r.file}: {r.status}: {r.message}" for r in problems] or ["- none"]
 
-    lines += ["", "## Flags", ""]
+    lines += ["", "## Flags that need the owner's review", "",
+              "Info flags (missing in the gameplan, or kept by an owner rule) never need confirmation (SPEC §3.4); "
+              "they are counted per gameplan below.", ""]
     flagged = [(d, doc) for d, doc in docs.items() if doc.get("flags")]
     for d, doc in flagged:
-        lines.append(f"- **{d}** ({doc['source']['file']}):")
-        lines += [f"  - `{f['field']}` ({f['origin']}): {f['reason']}" for f in doc["flags"]]
+        review = [f for f in doc["flags"] if f.get("review", True)]
+        info = collections.Counter(_info_kind(f["reason"]) for f in doc["flags"] if not f.get("review", True))
+        counts = ", ".join(f"{n} {k}" for k, n in info.most_common())
+        lines.append(f"- **{d}** ({doc['source']['file']}): {doc['status']}" + (f"; info: {counts}" if counts else ""))
+        lines += [f"  - `{f['field']}` ({f['origin']}): {f['reason']}" for f in review]
     if not flagged:
         lines.append("- none")
     lines.append("")

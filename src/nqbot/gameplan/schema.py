@@ -142,8 +142,8 @@ SPEC_FIELDS = ("date", "hvl", "hvl0", "regime_line", "zones", "scenario_sets")
 
 # --- wire -> stored §5.6 shape ----------------------------------------------------------------------------------
 
-def _flag(field: str, reason: str) -> dict[str, str]:
-    return {"field": field, "reason": reason, "origin": "validate"}
+def _flag(field: str, reason: str) -> dict[str, Any]:
+    return {"field": field, "reason": reason, "origin": "validate", "review": True}
 
 
 def _range(value: list | None, field: str, flags: list) -> list | None:

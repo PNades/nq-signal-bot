@@ -253,7 +253,42 @@ def test_each_scenario_set_adds_up_to_one_on_its_own():
 def test_model_uncertainty_becomes_flags():
     g = spec_example()
     g["uncertain"] = [{"field": "hvl", "reason": "two HVLs given"}]
-    assert validate.check(g) == [{"field": "hvl", "reason": "two HVLs given", "origin": "model"}]
+    assert validate.check(g) == [{"field": "hvl", "reason": "two HVLs given", "origin": "model", "review": True}]
+
+
+@pytest.mark.parametrize("changes, words", [
+    ({"stop": None}, "no stop"),
+    ({"targets": []}, "no targets"),
+    ({"targets": [tgt(None, words="home")]}, "has no price"),
+    ({"zone": None}, "no NQ price range"),
+    ({"stop": 30700}, "not above the zone high"),                       # stop inside the zone, kept as written
+    ({"invalidation": [inv("above", 30700)]}, "inside the zone"),       # invalidation inside, kept as written
+    ({"invalidation": [inv("above", 30740, "acceptance")]}, "acceptance with no minutes"),
+])
+def test_missing_or_owner_rule_flags_never_need_review(changes, words):
+    """Owner 2026-10-07: a flag that only says something is missing, or follows a rule he set, never needs his
+    confirmation, so a morning gameplan with no stop is still `ok` before 09:30."""
+    flags = validate.check(_zone(**changes))
+    hit = [f for f in flags if words in f["reason"]]
+    assert hit and all(f["review"] is False for f in flags) and not validate.needs_review(flags), flags
+
+
+def test_missing_probabilities_are_info_other_scenario_flags_need_review():
+    empty = validate.check({**spec_example(), "scenario_sets": [_set("ny_am", 0.36, None, None)]})
+    assert [f["reason"] for f in empty] == ["some scenarios have no probability"] and not validate.needs_review(empty)
+    bad = validate.check({**spec_example(), "scenario_sets": [_set("ny_am", 0.6, 0.5)]})
+    assert validate.needs_review(bad)
+
+
+@pytest.mark.parametrize("changes", [
+    {"targets": [tgt(30590), tgt(30615)]},                              # out of order
+    {"targets": [tgt(30650)]},                                          # on the wrong side of the zone
+    {"invalidation": [inv("below", 30600)]},                            # wrong side
+    {"zone": [30722, 30640]},                                           # edges out of order
+    {"trigger": {"type": None, "es_gates": [gate("below", 7766), gate("above", 7770)], "note": None}},
+])
+def test_other_flags_need_review(changes):
+    assert validate.needs_review(validate.check(_zone(**changes)))
 
 
 def test_resolve_date():

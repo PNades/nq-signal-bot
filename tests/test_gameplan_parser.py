@@ -238,7 +238,9 @@ def test_batch_needs_approval_then_parses_and_reports(settings, store):
     assert "| 2026-04 | 1 | ledger not written yet (step 4b) |" in text
     assert "| total | 2 | |" in text
     assert f"| {NFP} | 2026-04-03.md | 2026-04-03 | content |" in text
-    assert "old.doc: unconvertible" in text and "`zones[E4].stop`" in text
+    assert "old.doc: unconvertible" in text and "`zones[E4].zone` (model)" in text
+    assert "info: 1 no stop in the gameplan, 1 no targets in the gameplan" in text  # info flags only counted
+    assert "`zones[E4].stop`" not in text
 
     # Resumable: the canonical copy written by the first run and both originals are skipped.
     results, _ = gp.batch(client, settings, store, approved_usd=None, out=quiet)
@@ -321,7 +323,7 @@ def test_cli_gameplan(cli_env, capsys):
     client, paths = cli_env
     assert cli.main(["gameplan", str(FIXTURES / NFP)]) == 0
     out = capsys.readouterr().out
-    assert "worst case" in out and "flagged 2026-04-03" in out and "flag date" in out
+    assert "worst case" in out and "flagged 2026-04-03" in out and "review date" in out and "info zones[E4].stop" in out
     doc = json.loads((paths.data_dir / "processed" / "gameplans" / "2026-04-03.json").read_text(encoding="utf-8"))
     assert doc["status"] == "flagged"
     assert (paths.raw_dir / "gameplans" / "2026-04-03.md").exists()
@@ -510,3 +512,14 @@ def test_batch_says_where_it_looked_when_empty(settings, store):
     lines = []
     gp.batch(FakeAnthropic(), settings, store, approved_usd=None, out=lines.append)
     assert str(store.raw_dir.resolve()) in lines[0] and "no files found" in lines[1]
+
+
+def test_a_gameplan_with_info_flags_only_is_ok(settings, store, tmp_path):
+    """Owner 2026-10-07: a morning gameplan with no stop or no targets is `ok` (info flags only), never held up."""
+    answer = canned(CANON)
+    answer["zones"][2]["stop"] = []
+    answer["zones"][2]["targets"] = []
+    (f,) = put(store, CANON)
+    r = gp.parse_file(FakeAnthropic(replies={f.name: message(answer)}), settings, store, f, out=quiet)
+    assert r.status == "ok" and {x["reason"] for x in r.flags} == {"no stop in the gameplan", "no targets in the gameplan"}
+    assert store.load(D_CANON)["status"] == "ok"

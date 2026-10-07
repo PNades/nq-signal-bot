@@ -1,8 +1,14 @@
 """Checks on a parsed gameplan (SPEC §3.4: zones ordered, stops beyond zones, targets in the trade direction, each
 scenario set adding up to 1).
 
-Every check returns flags for the owner; no value is ever changed here. A flagged gameplan is still written
-(its `status` is "flagged"); the owner fixes it on the Gameplan page (§9b, from step 14) or in the JSON.
+Every check returns flags for the owner; no value is ever changed here. Two kinds (owner 2026-10-07, SPEC §3.4):
+- info (`review: false`): something the gameplan doesn't give (no stop, no targets, acceptance minutes, a zone or a
+  named target with no NQ price, a scenario without a probability), or a value kept by a rule the owner set (a stop
+  or invalidation inside its zone is kept as written; a contradiction with no version marked final is left empty).
+  Never needs the owner's confirmation, so a morning gameplan is never held up by one.
+- review (`review: true`): everything else, the model's own notes included.
+A gameplan is `ok` with info flags only, `flagged` with any review flag; a flagged one is still written and the owner
+fixes or confirms it on the Gameplan page (§9b, from step 14) or in the JSON.
 """
 
 from __future__ import annotations
@@ -15,8 +21,17 @@ from typing import Any
 PROB_SUM_TOL = 0.015
 
 
-def _flag(field: str, reason: str, origin: str = "validate") -> dict[str, str]:
-    return {"field": field, "reason": reason, "origin": origin}
+def _flag(field: str, reason: str, origin: str = "validate", review: bool = True) -> dict[str, Any]:
+    return {"field": field, "reason": reason, "origin": origin, "review": review}
+
+
+def _info(field: str, reason: str) -> dict[str, Any]:
+    """A flag that never needs the owner's confirmation (missing in the gameplan, or kept by an owner rule)."""
+    return _flag(field, reason, review=False)
+
+
+def needs_review(flags: list[dict[str, Any]]) -> bool:
+    return any(f.get("review", True) for f in flags)
 
 
 def resolve_date(content: str | None, filename: date | None, given: date | None) -> tuple[date | None, str, list]:
@@ -64,12 +79,12 @@ def _target_edges(t: dict[str, Any]) -> tuple[float, float] | None:
 
 def _targets(f: str, targets: list[dict[str, Any]], lo: float, hi: float, sell: bool, flags: list) -> None:
     if not targets:
-        flags.append(_flag(f, "no targets in the gameplan"))
+        flags.append(_info(f, "no targets in the gameplan"))
     priced = []
     for i, t in enumerate(targets, start=1):
         edges = _target_edges(t)
         if edges is None:
-            flags.append(_flag(f, f"T{i} {t.get('as_written')!r} has no price in the gameplan"))
+            flags.append(_info(f, f"T{i} {t.get('as_written')!r} has no price in the gameplan"))
             continue
         if t.get("low") is not None and t.get("high") is not None and t["low"] > t["high"]:
             flags.append(_flag(f, f"T{i} edges out of order: {t['low']} > {t['high']}"))
@@ -87,7 +102,7 @@ def _targets(f: str, targets: list[dict[str, Any]], lo: float, hi: float, sell: 
 def _invalidation(f: str, conditions: list[dict[str, Any]], lo: float, hi: float, sell: bool, flags: list) -> None:
     for c in conditions:
         if c.get("timeframe") == "acceptance" and c.get("acceptance_minutes") is None:
-            flags.append(_flag(f, f"acceptance with no minutes: {c.get('as_written')!r}"))
+            flags.append(_info(f, f"acceptance with no minutes: {c.get('as_written')!r}"))
         price, direction = c.get("price"), c.get("direction")
         if c.get("instrument") != "NQ" or price is None or direction not in ("above", "below"):
             continue
@@ -96,15 +111,15 @@ def _invalidation(f: str, conditions: list[dict[str, Any]], lo: float, hi: float
         elif not sell and direction == "above":
             flags.append(_flag(f, "a buy zone invalidated above: wrong side"))
         elif sell and price < hi:
-            flags.append(_flag(f, f"above-level {price} is inside the zone (high {hi})"))
+            flags.append(_info(f, f"above-level {price} is inside the zone (high {hi})"))
         elif not sell and price > lo:
-            flags.append(_flag(f, f"below-level {price} is inside the zone (low {lo})"))
+            flags.append(_info(f, f"below-level {price} is inside the zone (low {lo})"))
 
 
 def _zone(z: dict[str, Any], flags: list) -> None:
     f = f"zones[{z.get('id')}]"
     if z.get("zone") is None:
-        flags.append(_flag(f + ".zone", "no NQ price range for this zone"))
+        flags.append(_info(f + ".zone", "no NQ price range for this zone"))
         return
     edges = _pair(z.get("zone"), f + ".zone", flags)
     if edges is None:
@@ -114,11 +129,11 @@ def _zone(z: dict[str, Any], flags: list) -> None:
 
     stop = z.get("stop")
     if stop is None:
-        flags.append(_flag(f + ".stop", "no stop in the gameplan"))
+        flags.append(_info(f + ".stop", "no stop in the gameplan"))
     elif sell and stop <= hi:
-        flags.append(_flag(f + ".stop", f"sell zone stop {stop} is not above the zone high {hi}"))
+        flags.append(_info(f + ".stop", f"sell zone stop {stop} is not above the zone high {hi}"))
     elif not sell and stop >= lo:
-        flags.append(_flag(f + ".stop", f"buy zone stop {stop} is not below the zone low {lo}"))
+        flags.append(_info(f + ".stop", f"buy zone stop {stop} is not below the zone low {lo}"))
 
     _targets(f + ".targets", z.get("targets") or [], lo, hi, sell, flags)
     _invalidation(f + ".invalidation", z.get("invalidation") or [], lo, hi, sell, flags)
@@ -144,9 +159,9 @@ def _scenario_set(s: dict[str, Any], flags: list) -> None:
         if p is not None and not 0 <= p <= 1:
             flags.append(_flag(f"{f}[{x.get('id')}].prob", f"{p} is not a fraction between 0 and 1"))
     if scenarios and all(p is None for p in probs):
-        flags.append(_flag(f, "no probabilities in this set"))
+        flags.append(_info(f, "no probabilities in this set"))
     elif any(p is None for p in probs):
-        flags.append(_flag(f, "some scenarios have no probability"))
+        flags.append(_info(f, "some scenarios have no probability"))
     elif scenarios and abs(sum(probs) - 1) > PROB_SUM_TOL:
         flags.append(_flag(f, f"probabilities add up to {sum(probs):g}, not 1"))
 
