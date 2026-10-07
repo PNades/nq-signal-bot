@@ -50,16 +50,34 @@ def conforms(value, schema) -> bool:
     return False
 
 
+def tgt(low, high=None, words=None):
+    high = low if high is None else high
+    return {"low": low, "high": high, "as_written": words or (f"{low}" if low == high else f"{low}-{high}")}
+
+
+def inv(direction, price, timeframe="1m_close", minutes=None, instrument="NQ"):
+    return {"instrument": instrument, "direction": direction, "price": price, "timeframe": timeframe,
+            "acceptance_minutes": minutes, "as_written": f"{direction} {price}"}
+
+
+def gate(direction, low, high=None):
+    return {"direction": direction, "price": [low, low if high is None else high],
+            "as_written": f"ES {direction} {low}"}
+
+
 def spec_example() -> dict:
     """The §5.6 example, with the audit fields and nulls the schema requires."""
     return {
-        "date": "2026-09-29", "date_evidence": "2026-09-29", "hvl": 30590, "regime_line": [30575, 30615],
+        "date": "2026-09-29", "date_evidence": "2026-09-29", "hvl": [30590, 30590], "hvl0": [30600, 30600],
+        "regime_line": [30575, 30615],
         "zones": [{"id": "E1", "side": "sell", "zone": [30640, 30722],
-                   "trigger": {"type": "failed_audit", "es_below": 7766, "es_above": None, "note": None},
+                   "trigger": {"type": "failed_audit", "es_gates": [gate("below", 7766)], "note": None},
                    "stop": 30734,
-                   "invalidation": {"settled_1m_above": 30722, "settled_1m_below": None, "note": None},
-                   "targets": [30615, 30590], "source_quote": "E1"}],
-        "scenarios": [{"id": "S-A", "prob": 0.5, "bias": "down", "desc": "lid refuses, rotation to regime line"}],
+                   "invalidation": [inv("above", 30722)],
+                   "targets": [tgt(30615), tgt(30590)], "source_quote": "E1"}],
+        "scenario_sets": [{"frame": "ny_am", "label_as_written": None, "scenarios": [
+            {"id": "S-A", "prob": 0.5, "bias": "down", "desc": "lid refuses, rotation to regime line"},
+            {"id": "S-B", "prob": 0.5, "bias": "up", "desc": "lid breaks"}]}],
         "version_used": None, "dropped": [], "uncertain": [],
     }
 
@@ -104,14 +122,19 @@ def _zone(**changes):
     ({"zone": [30722, 30640]}, "zones[E1].zone", "out of order"),
     ({"stop": 30700}, "zones[E1].stop", "not above the zone high"),
     ({"stop": None}, "zones[E1].stop", "no stop"),
-    ({"targets": [30650]}, "zones[E1].targets", "not below the zone low"),
-    ({"targets": [30590, 30615]}, "zones[E1].targets", "not in order"),
+    ({"targets": [tgt(30650)]}, "zones[E1].targets", "not below the zone low"),
+    ({"targets": [tgt(30600, 30650)]}, "zones[E1].targets", "not below the zone low"),
+    ({"targets": [tgt(30590), tgt(30615)]}, "zones[E1].targets", "not in order"),
+    ({"targets": [tgt(30615), tgt(30600, 30580)]}, "zones[E1].targets", "edges out of order"),
+    ({"targets": [tgt(None, words="home")]}, "zones[E1].targets", "'home' has no price"),
     ({"targets": []}, "zones[E1].targets", "no targets"),
-    ({"invalidation": {"settled_1m_above": None, "settled_1m_below": 30600, "note": None}},
-     "zones[E1].invalidation", "wrong side"),
-    ({"invalidation": {"settled_1m_above": 30700, "settled_1m_below": None, "note": None}},
-     "zones[E1].invalidation", "inside the zone"),
-    ({"trigger": {"type": None, "es_below": 7766, "es_above": 7770, "note": None}}, "zones[E1].trigger", "can't hold"),
+    ({"invalidation": [inv("below", 30600)]}, "zones[E1].invalidation", "wrong side"),
+    ({"invalidation": [inv("above", 30700, "settled_bar")]}, "zones[E1].invalidation", "inside the zone"),
+    ({"invalidation": [inv("above", 30740, "acceptance")]}, "zones[E1].invalidation", "acceptance with no minutes"),
+    ({"trigger": {"type": None, "es_gates": [gate("below", 7766), gate("above", 7770)], "note": None}},
+     "zones[E1].trigger", "can't hold"),
+    ({"trigger": {"type": None, "es_gates": [gate("below", 7770, 7760)], "note": None}},
+     "zones[E1].trigger.es_gates", "out of order"),
 ])
 def test_sell_zone_flags(changes, field, words):
     flags = validate.check(_zone(**changes))
@@ -120,15 +143,24 @@ def test_sell_zone_flags(changes, field, words):
 
 
 def test_buy_zone_flags():
-    g = _zone(side="buy", stop=30700, targets=[30700, 30800],
-              invalidation={"settled_1m_above": 30800, "settled_1m_below": None, "note": None})
+    g = _zone(side="buy", stop=30700, targets=[tgt(30700), tgt(30800)], invalidation=[inv("above", 30800)])
     reasons = " | ".join(f["reason"] for f in validate.check(g))
     assert "not below the zone low" in reasons
-    assert "T1 30700 is not above the zone high" in reasons
+    assert "T1 '30700' is not above the zone high" in reasons
     assert "wrong side" in reasons
-    ok = _zone(side="buy", stop=30630, targets=[30750, 30800],
-               invalidation={"settled_1m_above": None, "settled_1m_below": 30640, "note": None})
+    ok = _zone(side="buy", stop=30630, targets=[tgt(30750), tgt(30800, 30830)],
+               invalidation=[inv("below", 30640), inv("below", 30500, "acceptance", 15),
+                             inv("above", 7800, "not_stated", instrument="ES")],
+               trigger={"type": None, "es_gates": [gate("unclear", 7776), gate("above", 7760)], "note": None})
     assert validate.check(ok) == []
+
+
+def test_range_targets_are_ordered_by_their_middle():
+    """Group 4 (owner 2026-10-07): a range is one target; 08-25's floor 28,998-29,016 after 29,050 is in order."""
+    g = _zone(zone=[29100, 29110], stop=29130, targets=[tgt(29050), tgt(28998, 29016)])
+    assert validate.check(g) == []
+    g = _zone(zone=[29300, 29330], stop=29350, targets=[tgt(29273, 29305), tgt(29128)])
+    assert [f["field"] for f in validate.check(g)] == ["zones[E1].targets"]  # 29,305 is above the zone low
 
 
 def test_flags_never_change_values():
@@ -138,25 +170,40 @@ def test_flags_never_change_values():
     assert g == before
 
 
+def _set(frame, *probs, ids=None):
+    ids = ids or [chr(65 + i) for i in range(len(probs))]
+    return {"frame": frame, "label_as_written": None,
+            "scenarios": [{"id": i, "prob": p, "bias": "up", "desc": ""} for i, p in zip(ids, probs)]}
+
+
 def test_scenario_regime_and_id_flags():
     g = spec_example()
     g["regime_line"] = [30615, 30575]
+    g["hvl0"] = [30610, 30600]
     g["zones"].append(copy.deepcopy(g["zones"][0]))
-    g["scenarios"] = [{"id": "A", "prob": 0.7, "bias": "up", "desc": ""},
-                      {"id": "A", "prob": 0.5, "bias": "down", "desc": ""},
-                      {"id": "B", "prob": 55, "bias": "down", "desc": ""}]
+    g["scenario_sets"] = [_set("ny_am", 0.7, 0.5, 55, ids=["A", "A", "B"])]
     flags = validate.check(g)
     reasons = {f["field"]: [x["reason"] for x in flags if x["field"] == f["field"]] for f in flags}
-    assert "out of order" in reasons["regime_line"][0]
+    assert "out of order" in reasons["regime_line"][0] and "out of order" in reasons["hvl0"][0]
     assert any("'E1' appears more than once" in r for r in reasons["zones"])
-    assert any("'A' appears more than once" in r for r in reasons["scenarios"])
-    assert any("add up to 56.2" in r for r in reasons["scenarios"])
-    assert "not a fraction" in reasons["scenarios[B].prob"][0]
-    fl = validate.check({**spec_example(), "scenarios": [{"id": "A", "prob": 0.6, "bias": "up", "desc": ""},
-                                                          {"id": "B", "prob": 0.5, "bias": "down", "desc": ""}]})
-    assert any("add up to 1.1" in f["reason"] for f in fl)
-    rounded = [{"id": i, "prob": 1 / 3, "bias": "up", "desc": ""} for i in "ABC"]
-    assert validate.check({**spec_example(), "scenarios": rounded}) == []
+    assert any("'A' appears more than once" in r for r in reasons["scenario_sets[ny_am]"])
+    assert any("add up to 56.2, not 1" in r for r in reasons["scenario_sets[ny_am]"])
+    assert "not a fraction" in reasons["scenario_sets[ny_am][B].prob"][0]
+
+
+def test_each_scenario_set_adds_up_to_one_on_its_own():
+    """Owner 2026-10-07: the NY AM and session sets are kept apart; each must sum to 1 (four v1 days summed to 2)."""
+    both = {**spec_example(), "scenario_sets": [_set("ny_am", 0.5, 0.3, 0.2), _set("session", 0.4, 0.3, 0.3)]}
+    assert validate.check(both) == []
+    rounded = {**spec_example(), "scenario_sets": [_set("unspecified", 0.33, 0.33, 0.33)]}
+    assert validate.check(rounded) == []
+    fl = validate.check({**spec_example(), "scenario_sets": [_set("ny_am", 0.6, 0.5), _set("session", 0.4, 0.3)]})
+    assert [(f["field"], f["reason"]) for f in fl] == [
+        ("scenario_sets[ny_am]", "probabilities add up to 1.1, not 1"),
+        ("scenario_sets[session]", "probabilities add up to 0.7, not 1")]
+    fl = validate.check({**spec_example(), "scenario_sets": [_set("session", None, None), _set("session", 0.5, None)]})
+    assert [f["reason"] for f in fl] == ["more than one session set", "no probabilities in this set",
+                                         "some scenarios have no probability"]
 
 
 def test_model_uncertainty_becomes_flags():

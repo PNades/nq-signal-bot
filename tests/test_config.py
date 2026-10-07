@@ -16,6 +16,7 @@ def test_settings_start_values():
     assert s["gameplan_max_tokens"] == 16000
     assert s["gameplan_usd_per_mtok"] == {"input": 4.0, "output": 20.0}
     assert s["gameplan_max_usd_per_file"] == 1.00
+    assert s["gameplan_ny_am_end"] == "12:00"  # F8 scenario set by time (owner 2026-10-07)
     # Skylit backup (§11 Storage, owner 2026-10-05): rclone remote and Drive folder.
     assert s["backup"] == {"rclone_remote": "gdrive", "drive_folder": "NQ bot backup", "rclone_exe": "rclone"}
 

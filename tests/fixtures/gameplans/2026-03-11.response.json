@@ -1,29 +1,33 @@
 {
   "date": "2026-03-11",
   "date_evidence": "NQ Gameplan: Wednesday 11 March 2026",
-  "hvl": 24380,
+  "hvl": [24380, 24380],
+  "hvl0": null,
   "regime_line": [24360, 24400],
   "zones": [
     {"id": "E1", "side": "sell", "zone": [24520, 24560],
-     "trigger": {"type": "failed_audit", "es_below": 6812, "es_above": null, "note": null},
-     "stop": 24575, "invalidation": {"settled_1m_above": 24560, "settled_1m_below": null, "note": null},
-     "targets": [24470, 24400],
+     "trigger": {"type": "failed_audit", "es_gates": [{"direction": "below", "price": [6812, 6812], "as_written": "only while ES < 6,812"}], "note": null},
+     "stop": 24575,
+     "invalidation": [{"instrument": "NQ", "direction": "above", "price": 24560, "timeframe": "1m_close", "acceptance_minutes": null, "as_written": "1m close above 24,560"}],
+     "targets": [{"low": 24470, "high": 24470, "as_written": "24,470"}, {"low": 24400, "high": 24400, "as_written": "24,400"}],
      "source_quote": "| E1 | Short | 24,520 – 24,560 | failed audit of the call wall, only while ES < 6,812 | 24,575 | 1m close above 24,560 | 24,470 | 24,400 |"},
     {"id": "E2", "side": "buy", "zone": [24250, 24280],
-     "trigger": {"type": "reclaim", "es_below": null, "es_above": 6760, "note": "reclaim of the ON low"},
-     "stop": 24232, "invalidation": {"settled_1m_above": null, "settled_1m_below": 24250, "note": null},
-     "targets": [24340, 24380],
+     "trigger": {"type": "reclaim", "es_gates": [{"direction": "above", "price": [6760, 6760], "as_written": "ES > 6,760"}], "note": "reclaim of the ON low"},
+     "stop": 24232,
+     "invalidation": [{"instrument": "NQ", "direction": "below", "price": 24250, "timeframe": "1m_close", "acceptance_minutes": null, "as_written": "1m close below 24,250"}],
+     "targets": [{"low": 24340, "high": 24340, "as_written": "24,340"}, {"low": 24380, "high": 24380, "as_written": "24,380"}],
      "source_quote": "| E2 | Long | 24,250 – 24,280 | reclaim of the ON low, ES > 6,760 | 24,232 | 1m close below 24,250 | 24,340 | 24,380 |"},
     {"id": "E3", "side": "buy", "zone": [24150, 24175],
-     "trigger": {"type": "absorption", "es_below": null, "es_above": null, "note": "absorption at the put wall"},
-     "stop": 24130, "invalidation": {"settled_1m_above": null, "settled_1m_below": null, "note": null},
-     "targets": [24230],
+     "trigger": {"type": "absorption", "es_gates": [], "note": "absorption at the put wall"},
+     "stop": 24130, "invalidation": [],
+     "targets": [{"low": 24230, "high": 24230, "as_written": "24,230"}],
      "source_quote": "| E3 | Long | 24,150 – 24,175 | absorption at the put wall | 24,130 | | 24,230 | |"}
   ],
-  "scenarios": [
-    {"id": "S-A", "prob": 0.55, "bias": "down", "desc": "lid at E1 holds, rotation back to the regime line"},
-    {"id": "S-B", "prob": 0.30, "bias": "up", "desc": "E2 floor holds after the open flush, grind back to HVL"},
-    {"id": "S-C", "prob": 0.15, "bias": "up", "desc": "trend day through E1"}
+  "scenario_sets": [
+    {"frame": "unspecified", "label_as_written": "Scenarios", "scenarios": [
+      {"id": "S-A", "prob": 0.55, "bias": "down", "desc": "lid at E1 holds, rotation back to the regime line"},
+      {"id": "S-B", "prob": 0.30, "bias": "up", "desc": "E2 floor holds after the open flush, grind back to HVL"},
+      {"id": "S-C", "prob": 0.15, "bias": "up", "desc": "trend day through E1"}]}
   ],
   "version_used": null,
   "dropped": ["CPI blackout note 08:00 – 09:30"],

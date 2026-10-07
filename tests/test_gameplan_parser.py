@@ -62,7 +62,7 @@ def test_parse_canonical_file(settings, store):
 
     doc = store.load(D_CANON)
     want = canned(CANON)
-    keys = ("date", "hvl", "regime_line", "zones", "scenarios")
+    keys = ("date", "hvl", "hvl0", "regime_line", "zones", "scenario_sets")
     assert {k: doc[k] for k in keys} == {k: want[k] for k in keys}
     assert doc["status"] == "ok" and doc["flags"] == []
     assert doc["parse"]["dropped"] == ["CPI blackout note 08:00 – 09:30"]
@@ -91,6 +91,11 @@ def test_archived_name_dated_from_content_and_flagged(settings, store):
     doc = store.load(D_NFP)
     assert doc["parse"]["version_used"] == "RTH v2 (09:10)" and "RTH v1 (07:45)" in doc["parse"]["dropped"]
     assert doc["source"]["canonical_copy"] == "2026-04-03.md"
+    # Parser v2 (owner 2026-10-07): both probability sets kept and labelled, a range target stays one target.
+    assert [s["frame"] for s in doc["scenario_sets"]] == ["ny_am", "session"]
+    e2 = next(z for z in doc["zones"] if z["id"] == "E2")
+    assert e2["targets"][1] == {"low": 25140, "high": 25160, "as_written": "T2 25,140 – 25,160"}
+    assert not [x for x in r.flags if x["field"].startswith(("zones[E2]", "scenario_sets"))]
 
 
 def test_date_prefix_in_the_file_name(settings, store, tmp_path):

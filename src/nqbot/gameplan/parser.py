@@ -34,7 +34,7 @@ from nqbot.gameplan.convert import SUPPORTED_SUFFIXES, CannotConvert, Converted,
 from nqbot.gameplan.schema import GAMEPLAN_SCHEMA, SPEC_FIELDS
 from nqbot.storage import append_jsonl, atomic_write_json, atomic_write_text, replace_retry
 
-PARSER_VERSION = 1  # bump when SYSTEM_PROMPT or GAMEPLAN_SCHEMA changes (then re-parse with --reparse)
+PARSER_VERSION = 2  # bump when SYSTEM_PROMPT or GAMEPLAN_SCHEMA changes (then re-parse with --reparse)
 MTOK = 1_000_000
 CANONICAL = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATE_PREFIX = re.compile(r"^(\d{4}-\d{2}-\d{2})(?!\d)")  # "2026-10-06 gameplan.md" (owner's Drive names, §3.4)
@@ -42,16 +42,35 @@ HELD_BACK_MONTHS = range(1, 10)  # §5.6: a gameplan dated in ledger months 1-9 
 
 SYSTEM_PROMPT = """\
 You extract a futures trader's morning gameplan for NQ (Nasdaq-100 E-mini futures) into JSON.
-The gameplan was written before the 09:30 ET open. Fill in the schema from what the gameplan says, nothing else.
+The gameplan was written before the 09:30 ET open. Record what the gameplan says, nothing else: never choose
+between readings, infer, guess or compute. When something isn't stated, leave it null and say so in `uncertain`.
 
 Rules:
-- Never invent or compute a number. Copy prices exactly as written. A value the gameplan doesn't give is null.
-- Zones, stops, targets, HVL and the regime line are NQ prices. ES gates (e.g. "only while ES < 7766") go in
-  trigger.es_below / trigger.es_above. If a price is only given for another instrument (ES, SPX, QQQ), leave the
-  NQ field null and say so in `uncertain`.
-- zone = [low, high]; a zone given as one price is [price, price]; a zone with no NQ price is null.
-  side = "sell" for a short/ceiling/resistance zone, "buy" for a long/floor/support zone.
-  targets: in the order written (T1 first). Probabilities as fractions (50% -> 0.5).
+- Copy prices exactly as written. Every level is [low, high]; a single price p is [p, p] (keep it that way).
+- Zones, stops, targets, HVL, HVL0 and the regime line are NQ prices. If a level is only given for another
+  instrument (ES, SPX, QQQ, VIX), leave the NQ field null and say so in `uncertain`.
+- hvl: the NQ level the gameplan labels HVL. hvl0: the NQ level it labels HVL0 or HVL 0DTE. Store both whenever
+  given. regime_line: only a level the gameplan itself labels the regime line; otherwise null (don't infer it).
+- zone = [low, high]; a zone with no NQ price is null. side = "sell" for a short/ceiling/resistance zone, "buy" for
+  a long/floor/support zone.
+- trigger.es_gates: every ES price an entry is gated on, one item each, with its words in as_written. direction:
+  "above" for above, over, >, holding or reclaiming X; "below" for below, under, <, losing, rejecting or failing X;
+  any other wording (stalling under, testing, ...) is "unclear".
+- invalidation: one item per condition written for the zone: instrument, direction, price (null if none), the
+  timeframe as written and its words in as_written. timeframe: "1m_close" only when a 1-minute close or settle is
+  stated; "settled_bar" when it says settled bar without a timeframe (never assume 1 minute); "acceptance" for
+  time held beyond the price (acceptance_minutes = the minutes written, 15+ -> 15); "not_stated" for a bare price
+  such as "INVALID >29,520"; "other" for anything else. An invalidation written for the whole map, not this zone,
+  is not this zone's.
+- targets: in the order written (T1 first), one item per target. A single price: low = high. A range
+  ("29,500-545"): one target with its two ends, never split into two targets. A name ("home", "the platform",
+  "the pivot"): low/high = the price this same gameplan gives that name, else null; keep the words in as_written.
+- scenario_sets: keep every probability set the gameplan gives, each its own set: frame "ny_am" for the NY morning
+  (e.g. 09:30-12:00 / AM), "session" for the whole session, "unspecified" when the gameplan doesn't say.
+  Probabilities as fractions (50% -> 0.5). bias: "up"/"down" only for a stated direction, "neutral" for a range or
+  rotation, "mixed" when the scenario goes both ways.
+- Contradictions inside the gameplan (the same value written two ways): use the one marked final (e.g. "final at the
+  8:51 read"). If neither is marked final, leave the value null and say why in `uncertain`.
 - Several versions (e.g. "RTH v1", "RTH v2"): use only the latest version stamped before 09:30 ET; put its label in
   version_used and list the older ones in `dropped`.
 - Anything describing price action after 09:30 ET (an "Observed" recap of the RTH session, after-the-fact notes,
@@ -59,8 +78,8 @@ Rules:
   read for context but creates no zones.
 - The gameplan's own news blackout notes are not used: list them in `dropped`.
 - date: the trading day the gameplan is for, from the text; quote the words in date_evidence. null if not stated.
-- Anything ambiguous (a range that could be read two ways, a stop or target you are not sure belongs to a zone, a
-  scenario without a clear direction) goes in `uncertain` with the field path (e.g. zones[E3].stop) and why.
+- Anything ambiguous (a stop or target you are not sure belongs to a zone, an ES gate whose direction is unclear)
+  goes in `uncertain` with the field path (e.g. zones[E3].stop) and why.
 - source_quote: the gameplan line(s) each zone was read from, verbatim.
 """
 

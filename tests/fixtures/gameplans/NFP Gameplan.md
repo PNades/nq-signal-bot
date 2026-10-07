@@ -15,12 +15,13 @@ Friday April 3rd 2026 · Non-Farm Payrolls 08:30
 HVL 25,090. Regime line 25,070 – 25,110.
 
 - **E1 sell 25,240 – 25,285**: wait for the failed audit; ES gate: ES below 6,905. Stop 25,300. Invalid on a 1m settle above 25,285. T1 25,180, T2 25,120.
-- **E2 buy 25,000 – 25,035**: absorption at the overnight low. Stop 24,985. T1 25,090, T2 25,140.
+- **E2 buy 25,000 – 25,035**: absorption at the overnight low. Stop 24,985. T1 25,090 (home), T2 25,140 – 25,160.
 - **E4 buy around 24,900ish** (only if the flush extends; stop and target TBD).
 
 ![GEX levels chart](media/gex_levels.png)
 
-Scenarios: 60% chop between E1 and E2 (neutral), 40% NFP trend continues higher (up).
+Scenarios, NY AM (09:30 – 12:00): 60% chop between E1 and E2 (neutral), 40% NFP trend continues higher (up).
+Scenarios, entire session: 50% chop between E1 and E2 (neutral), 50% NFP trend continues higher (up).
 
 ## Observed RTH (added 11:40)
 - E1 held perfectly, T2 hit at 10:55.

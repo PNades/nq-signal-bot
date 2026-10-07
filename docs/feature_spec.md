@@ -551,7 +551,7 @@ All are computed on RTH from 09:30 and known at t:
 - *Test:* a firing in the VAH zone with the nearest zone 30 pts away → area event; a firing 2 s later is suppressed by `trig_min_gap_sec`.
 
 ### F5.9 Containers
-The golden zone (F10) and gameplan zones (F8) never merge. Levels whose bands overlap a container are its **confluence members**: counted as features, not merged. A container has its own touch, re-arm, events and invalidation: the golden zone per F10; a gameplan zone per its `invalidation`, else trading past the far edge (§7.1).
+The golden zone (F10) and gameplan zones (F8) never merge. Levels whose bands overlap a container are its **confluence members**: counted as features, not merged. A container has its own touch, re-arm, events and invalidation: the golden zone per F10; a gameplan zone when price trades past its far edge (§7.1); its `invalidation` is a feature only (F8, owner 2026-10-07).
 
 ### F5.10 Touch groups
 - *Definition:* events whose touches happen on the same trade (same `ts_event` and sequence, e.g. a container and a level zone inside it) share a `touch_group_id`.
@@ -682,7 +682,7 @@ These values are measured after the touch: `swept`, `sweep_depth`, `sweep_second
 
 **Time-to-live and removal.** These are the only removal reasons:
 - `entry_ttl_sec` expiry;
-- zone crossed (golden zone: settled past 0.786; gameplan zone: its invalidation);
+- zone crossed (golden zone: settled past 0.786; gameplan zone: traded past its far edge, F5.9);
 - zone vanished, or moved more than `entry_reprice_tol` from the entry price;
 - start of a news blackout;
 - data outage;
@@ -702,15 +702,18 @@ Each removal takes effect `order_latency_sec` after it occurs; a fill before the
 
 - *Inputs → known at:* `data/processed/gameplans/<date>.json`, known at the session start (written before 09:30, §3.4). With no gameplan, every gameplan feature is null.
 - *Definitions:*
-  - **Gameplan zone:** a container [`zone`[0], `zone`[1]] with its `side`, `stop`, `targets` and `invalidation`.
+  - **Gameplan zone:** a container [`zone`[0], `zone`[1]] with its `side`, `stop`, `targets`, `invalidation` and `es_gates` (parser version 2, §5.6). A single-price zone [p, p] is a zero-width band (its touch uses `zone_proximity` like any level). It is crossed when price trades past its far edge (F5.9); its `invalidation` is a feature only, never a trading rule (owner 2026-10-07, CLAUDE.md rule 6).
   - `in_zone`: the event's touch price, or the price at `decision_ts`, lies inside a gameplan zone.
   - `zone_side_agrees`: that zone's `side` matches the trade direction.
-  - `scenario_agrees`: some scenario's `bias` matches the trade direction. Also `scenario_prob_agree` = Σ prob of the agreeing scenarios.
-  - `es_gate_ok`: the zone's ES trigger condition holds at `decision_ts` (e.g. `es_below` x → ES price < x); null if the zone has no gate.
-  - `hvl`: signed distance from price (pts, ATR); also `above_hvl`. `regime_line` (a range): signed distance from price to its nearer edge, 0 inside.
+  - **Scenario set used (owner 2026-10-07):** the `ny_am` set while `decision_ts` is inside the NY AM window (09:30 to `gameplan_ny_am_end`, start 12:00, the window the gameplans write), the `session` set otherwise; when the gameplan has only one set (`ny_am`, `session` or `unspecified`), that one at any time. If the matching set is missing but the other exists, the features are null.
+  - `scenario_agrees`: some scenario in the set used has a `bias` that matches the trade direction (`neutral` and `mixed` never match). Also `scenario_prob_agree` = Σ prob of the agreeing scenarios; null if any scenario in the set has no probability.
+  - `es_gate_ok`: every ES gate of the zone holds at `decision_ts`; null if the zone has no gate or any gate is unclear. Direction (owner 2026-10-07): `above`, or wording "holding" / "reclaiming" X → ES above X; `below`, or "losing" / "rejecting" / "failing" X → ES below X; any other wording stays unclear (null, never a guess). A gate given as a range (or two prices) holds when ES is beyond the whole range in its direction, fails when beyond the whole range the other way, and is null inside the range.
+  - `hvl` and `hvl0`: two separate features, never one picked for the other (owner 2026-10-07): each the signed distance from price to the level's nearer edge (pts, ATR), 0 inside; also `above_hvl` / `above_hvl0`. Null when the gameplan doesn't give it. `regime_line` (a range): signed distance from price to its nearer edge, 0 inside; null unless the gameplan labels one.
+  - `gameplan_invalidated` (owner 2026-10-07): the zone's invalidation as written has been met between the session start and `decision_ts`, per its timeframe: `1m_close` = a 1-minute bar closing beyond the price; `settled_bar` = a 1-minute bar settling beyond it (§5.5, F0.5), or a bar of the length the gameplan names; `acceptance` = a bar of the stated minutes (`acceptance_minutes`, 15 if not given; bars labelled by their start, F0) closing beyond it; `not_stated` = a 1-minute bar settling beyond it (the §5.2 chart-level default); `other`, an ES-only invalidation or no price = null. A zone with several invalidations: met if any is met; null if none can be computed. No invalidation = null.
+  - **Targets (owner 2026-10-07):** a target given as a range is a band like any other level: reaching its near edge counts as reaching it, and candidates and order follow the band rule (near edge and centre, F11.2; order by the middle). A target with no price is not a candidate.
   - `gameplan_member`: the event's zone overlaps or contains a gameplan zone.
 - *Gating (§5.6):* these inputs enter a model only when its training months hold ≥ `gameplan_min_days` gameplan days and the gameplan check has passed. Otherwise they are omitted, and gameplan stop/target candidates are encoded as `other_price`.
-- *Test:* a gameplan with zone E1 sell [30640, 30722] and `es_below` 7766. A short event at 30650 with ES at 7760 → in zone, side agrees, gate OK.
+- *Test:* a gameplan with zone E1 sell [30640, 30722] and an ES gate below [7766, 7766]. A short event at 30650 with ES at 7760 → in zone, side agrees, gate OK. A gate "ES holding 7,776" with ES at 7,780 → OK; "ES stalling under 7,740" → null. A gameplan with `ny_am` S-A down 0.5 / S-B up 0.5 and `session` S-A down 0.4 / S-B neutral 0.6: a short at 10:15 → agrees, prob 0.5; at 13:00 → agrees, prob 0.4. HVL [30590, 30590] and HVL0 [30600, 30600] with price 30620 → hvl +30, hvl0 +20. Invalidation `acceptance` 15 min above 30722: a 15-minute bar closing at 30725 → invalidated; only a 1-minute close there → not.
 
 ---
 
@@ -840,7 +843,7 @@ Every candidate sits beyond something that could support the trade. Candidates 1
 Candidates within `stop_merge_ticks` of each other are merged. Area events use only candidates 1, 3 and 5.
 
 ### F11.2 Target candidates (§6.3)
-- Candidates: every registry zone and confluence zone in the trade direction, each at its **near edge** and at its **centre** (bands as of `decision_ts`); the golden-zone extensions; the gameplan's T1/T2.
+- Candidates: every registry zone and confluence zone in the trade direction, each at its **near edge** and at its **centre** (bands as of `decision_ts`); the golden-zone extensions; the gameplan's T1/T2 (a range target is a band: near edge and centre; a target with no price is none, F8).
 - At most `max_target_candidates` of the nearest distinct zones with net RR ≥ `pair_build_min_rr` at default costs are kept, plus the 1:2.5 baseline.
 - Pair features: distance (ATR, EM), target type, confluence at the target, target-node velocity, and obstacles in between (NQ zones plus S&P path nodes, F2.20).
 
@@ -933,6 +936,7 @@ Start values are in F15 (part 2); grids are in F16 (part 3). "SPEC" = the SPEC a
 | `daytype_snapshot_min`, `daytype_max_features`, `trend_*` | features | label / SPEC | F11.6 |
 | `daytype_inputs` | features | **NEW** (part 2), owner-approved 2026-10-05 | F3.10, F11.6 |
 | `gameplan_min_days` | settings | SPEC | F8 |
+| `gameplan_ny_am_end` | settings | **NEW** (owner 2026-10-07: scenario set by time) | F8 |
 | `blackout_before_min`, `blackout_after_min`, `news_flatten_lead_sec`, `preopen_start` | settings | owner / SPEC | F0.1, F2.22, F7 |
 
 **Removed:** `floor_search` (the Skylit rug has no floor-search clause), `roll_min_shrink_pct` and `roll_min_shift_strikes` (owner's roll rule, F2.11), `pika_cloud_max_gap_strikes` (owner: adjacent strikes), `abs_push_window_sec` (owner: no time limit), `roll_window_min` (owner 2026-10-05: no timer on rolls), `rug_max_gap_strikes` and `king_change_min_sec` (renamed `rug_gap_strikes` and `node_switch_min_sec`).
