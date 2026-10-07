@@ -6,7 +6,8 @@ Every check returns flags for the owner; no value is ever changed here. Two kind
   named target with no NQ price, a scenario without a probability), or a value kept by a rule the owner set (a stop
   or invalidation inside its zone is kept as written; a contradiction with no version marked final is left empty).
   Never needs the owner's confirmation, so a morning gameplan is never held up by one.
-- review (`review: true`): everything else, the model's own notes included.
+- review (`review: true`): everything else. The model labels each of its own notes info or review by the same
+  rule (parser v3).
 A gameplan is `ok` with info flags only, `flagged` with any review flag; a flagged one is still written and the owner
 fixes or confirms it on the Gameplan page (§9b, from step 14) or in the JSON.
 """
@@ -117,11 +118,14 @@ def _invalidation(f: str, conditions: list[dict[str, Any]], lo: float, hi: float
 
 
 def _zone(z: dict[str, Any], flags: list) -> None:
+    """A conditional entry (empty zone, parser v3) is checked against its NQ trigger level instead."""
     f = f"zones[{z.get('id')}]"
-    if z.get("zone") is None:
+    level = (z.get("trigger") or {}).get("nq_price")
+    if z.get("zone") is None and level is None:
         flags.append(_info(f + ".zone", "no NQ price range for this zone"))
         return
-    edges = _pair(z.get("zone"), f + ".zone", flags)
+    edges = _pair(z.get("zone") if z.get("zone") is not None else level,
+                  f + (".zone" if z.get("zone") is not None else ".trigger.nq_price"), flags)
     if edges is None:
         return
     lo, hi = edges
@@ -186,5 +190,5 @@ def check(parsed: dict[str, Any]) -> list[dict[str, str]]:
         _scenario_set(s, flags)
 
     for u in parsed.get("uncertain") or []:
-        flags.append(_flag(u.get("field", "?"), u.get("reason", ""), origin="model"))
+        flags.append(_flag(u.get("field", "?"), u.get("reason", ""), origin="model", review=u.get("kind") != "info"))
     return flags

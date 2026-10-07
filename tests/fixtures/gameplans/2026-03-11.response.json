@@ -18,26 +18,24 @@
     24520,
     24560
    ],
-   "trigger": {
-    "type": "failed_audit",
-    "es_gates": [
-     {
-      "direction": "below",
-      "price": [
-       6812,
-       6812
-      ],
-      "as_written": "only while ES < 6,812"
-     }
-    ],
-    "note": ""
-   },
+   "trigger_type": "failed_audit",
+   "trigger_level": [],
+   "es_gates": [
+    {
+     "direction": "below",
+     "price": [
+      6812,
+      6812
+     ],
+     "as_written": "only while ES < 6,812"
+    }
+   ],
+   "trigger_note": "",
    "stop": [
     24575
    ],
    "invalidation": [
     {
-     "instrument": "NQ",
      "direction": "above",
      "price": [
       24560
@@ -72,26 +70,24 @@
     24250,
     24280
    ],
-   "trigger": {
-    "type": "reclaim",
-    "es_gates": [
-     {
-      "direction": "above",
-      "price": [
-       6760,
-       6760
-      ],
-      "as_written": "ES > 6,760"
-     }
-    ],
-    "note": "reclaim of the ON low"
-   },
+   "trigger_type": "reclaim",
+   "trigger_level": [],
+   "es_gates": [
+    {
+     "direction": "above",
+     "price": [
+      6760,
+      6760
+     ],
+     "as_written": "ES > 6,760"
+    }
+   ],
+   "trigger_note": "reclaim of the ON low",
    "stop": [
     24232
    ],
    "invalidation": [
     {
-     "instrument": "NQ",
      "direction": "below",
      "price": [
       24250
@@ -126,11 +122,10 @@
     24150,
     24175
    ],
-   "trigger": {
-    "type": "absorption",
-    "es_gates": [],
-    "note": "absorption at the put wall"
-   },
+   "trigger_type": "absorption",
+   "trigger_level": [],
+   "es_gates": [],
+   "trigger_note": "absorption at the put wall",
    "stop": [
     24130
    ],
@@ -183,5 +178,6 @@
  "dropped": [
   "CPI blackout note 08:00 – 09:30"
  ],
+ "other_conditions": [],
  "uncertain": []
 }

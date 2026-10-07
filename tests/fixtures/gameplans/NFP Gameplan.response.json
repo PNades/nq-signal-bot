@@ -18,26 +18,24 @@
     25240,
     25285
    ],
-   "trigger": {
-    "type": "failed_audit",
-    "es_gates": [
-     {
-      "direction": "below",
-      "price": [
-       6905,
-       6905
-      ],
-      "as_written": "ES gate: ES below 6,905"
-     }
-    ],
-    "note": ""
-   },
+   "trigger_type": "failed_audit",
+   "trigger_level": [],
+   "es_gates": [
+    {
+     "direction": "below",
+     "price": [
+      6905,
+      6905
+     ],
+     "as_written": "ES gate: ES below 6,905"
+    }
+   ],
+   "trigger_note": "",
    "stop": [
     25300
    ],
    "invalidation": [
     {
-     "instrument": "NQ",
      "direction": "above",
      "price": [
       25285
@@ -72,11 +70,10 @@
     25000,
     25035
    ],
-   "trigger": {
-    "type": "absorption",
-    "es_gates": [],
-    "note": "absorption at the overnight low"
-   },
+   "trigger_type": "absorption",
+   "trigger_level": [],
+   "es_gates": [],
+   "trigger_note": "absorption at the overnight low",
    "stop": [
     24985
    ],
@@ -106,15 +103,40 @@
     24900,
     24900
    ],
-   "trigger": {
-    "type": "",
-    "es_gates": [],
-    "note": "only if the flush extends"
-   },
+   "trigger_type": "",
+   "trigger_level": [],
+   "es_gates": [],
+   "trigger_note": "only if the flush extends",
    "stop": [],
    "invalidation": [],
    "targets": [],
    "source_quote": "E4 buy around 24,900ish (only if the flush extends; stop and target TBD)."
+  },
+  {
+   "id": "E1 accepted",
+   "side": "buy",
+   "zone": [],
+   "trigger_type": "acceptance",
+   "trigger_level": [
+    25285,
+    25285
+   ],
+   "es_gates": [],
+   "trigger_note": "acceptance over 25,285 for 15 minutes flips E1 to a buy",
+   "stop": [
+    25250
+   ],
+   "invalidation": [],
+   "targets": [
+    {
+     "price": [
+      25350,
+      25350
+     ],
+     "as_written": "T1 25,350"
+    }
+   ],
+   "source_quote": "Breakout: acceptance over 25,285 for 15 minutes flips E1 to a buy: stop 25,250, T1 25,350. Only with the VIX under 16."
   }
  ],
  "scenario_sets": [
@@ -168,10 +190,20 @@
   "RTH v1 (07:45)",
   "Observed RTH (added 11:40)"
  ],
+ "other_conditions": [
+  "Size: half until 10:00.",
+  "E1 accepted: Only with the VIX under 16."
+ ],
  "uncertain": [
   {
+   "kind": "review",
    "field": "zones[E4].zone",
    "reason": "'around 24,900ish': no range given"
+  },
+  {
+   "kind": "info",
+   "field": "zones[E1 accepted].invalidation",
+   "reason": "no invalidation written for the breakout buy"
   }
  ]
 }

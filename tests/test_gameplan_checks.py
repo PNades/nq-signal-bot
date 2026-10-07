@@ -71,14 +71,15 @@ def spec_example() -> dict:
         "date": "2026-09-29", "date_evidence": "2026-09-29", "hvl": [30590, 30590], "hvl0": [30600, 30600],
         "regime_line": [30575, 30615],
         "zones": [{"id": "E1", "side": "sell", "zone": [30640, 30722],
-                   "trigger": {"type": "failed_audit", "es_gates": [gate("below", 7766)], "note": None},
+                   "trigger": {"type": "failed_audit", "nq_price": None, "es_gates": [gate("below", 7766)],
+                               "note": None},
                    "stop": 30734,
                    "invalidation": [inv("above", 30722)],
-                   "targets": [tgt(30615), tgt(30590)], "source_quote": "E1"}],
+                   "targets": [tgt(30615), tgt(30590)], "other_conditions": [], "source_quote": "E1"}],
         "scenario_sets": [{"frame": "ny_am", "label_as_written": None, "scenarios": [
             {"id": "S-A", "prob": 0.5, "bias": "down", "desc": "lid refuses, rotation to regime line"},
             {"id": "S-B", "prob": 0.5, "bias": "up", "desc": "lid breaks"}]}],
-        "version_used": None, "dropped": [], "uncertain": [],
+        "version_used": None, "dropped": [], "other_conditions": [], "uncertain": [],
     }
 
 
@@ -97,13 +98,16 @@ def to_wire(doc: dict) -> dict:
     one = lambda v: [] if v is None else [v]  # noqa: E731
     rng = lambda v: [] if v is None else v  # noqa: E731
     return {
-        "date": doc["date"], "date_evidence": doc["date_evidence"],
+        "date": doc["date"] or "", "date_evidence": doc["date_evidence"],
         "hvl": rng(doc["hvl"]), "hvl0": rng(doc["hvl0"]), "regime_line": rng(doc["regime_line"]),
         "zones": [{"id": z["id"], "side": z["side"], "zone": rng(z["zone"]),
-                   "trigger": {"type": z["trigger"]["type"] or "", "note": z["trigger"]["note"] or "",
-                               "es_gates": [{**g, "price": rng(g["price"])} for g in z["trigger"]["es_gates"]]},
+                   "trigger_type": z["trigger"]["type"] or "", "trigger_level": rng(z["trigger"]["nq_price"]),
+                   "es_gates": [{**g, "price": rng(g["price"])} for g in z["trigger"]["es_gates"]],
+                   "trigger_note": z["trigger"]["note"] or "",
                    "stop": one(z["stop"]),
-                   "invalidation": [{**c, "price": one(c["price"]), "acceptance_minutes": one(c["acceptance_minutes"])}
+                   "invalidation": [{"direction": c["direction"] if c["instrument"] == "NQ" else "es_" + c["direction"],
+                                     "price": one(c["price"]), "timeframe": c["timeframe"],
+                                     "acceptance_minutes": one(c["acceptance_minutes"]), "as_written": c["as_written"]}
                                     for c in z["invalidation"]],
                    "targets": [{"price": [] if t["low"] is None else [t["low"], t["high"]],
                                 "as_written": t["as_written"]} for t in z["targets"]],
@@ -111,7 +115,10 @@ def to_wire(doc: dict) -> dict:
         "scenario_sets": [{"frame": x["frame"], "label_as_written": x["label_as_written"] or "",
                            "scenarios": [{**c, "prob": one(c["prob"])} for c in x["scenarios"]]}
                           for x in doc["scenario_sets"]],
-        "version_used": doc["version_used"] or "", "dropped": doc["dropped"], "uncertain": doc["uncertain"],
+        "version_used": doc["version_used"] or "", "dropped": doc["dropped"],
+        "other_conditions": doc["other_conditions"] + [f"{z['id']}: {c}" for z in doc["zones"]
+                                                       for c in z["other_conditions"]],
+        "uncertain": doc["uncertain"],
     }
 
 
@@ -124,12 +131,12 @@ def test_spec_example_and_fixtures_fit_the_schema():
     assert not conforms(bad, GAMEPLAN_SCHEMA)
 
 
-def test_schema_has_one_union_only():
+def test_schema_has_no_union():
     """Structured outputs refused the v2 schema with ~15 nullable fields ('compiled grammar is too large', 2026-10-07;
     the API allows at most 16 union-type parameters): missing values are [] or '' on the wire, `date` is the only
     union."""
     unions = [n for n in _walk(GAMEPLAN_SCHEMA) if "anyOf" in n or isinstance(n.get("type"), list)]
-    assert len(unions) == 1 and unions[0]["anyOf"][0]["format"] == "date"
+    assert unions == []
 
 
 def test_from_wire_round_trips_and_never_trims():
@@ -175,9 +182,9 @@ def _zone(**changes):
     ({"invalidation": [inv("below", 30600)]}, "zones[E1].invalidation", "wrong side"),
     ({"invalidation": [inv("above", 30700, "settled_bar")]}, "zones[E1].invalidation", "inside the zone"),
     ({"invalidation": [inv("above", 30740, "acceptance")]}, "zones[E1].invalidation", "acceptance with no minutes"),
-    ({"trigger": {"type": None, "es_gates": [gate("below", 7766), gate("above", 7770)], "note": None}},
+    ({"trigger": {"type": None, "nq_price": None, "es_gates": [gate("below", 7766), gate("above", 7770)], "note": None}},
      "zones[E1].trigger", "can't hold"),
-    ({"trigger": {"type": None, "es_gates": [gate("below", 7770, 7760)], "note": None}},
+    ({"trigger": {"type": None, "nq_price": None, "es_gates": [gate("below", 7770, 7760)], "note": None}},
      "zones[E1].trigger.es_gates", "out of order"),
 ])
 def test_sell_zone_flags(changes, field, words):
@@ -195,7 +202,7 @@ def test_buy_zone_flags():
     ok = _zone(side="buy", stop=30630, targets=[tgt(30750), tgt(30800, 30830)],
                invalidation=[inv("below", 30640), inv("below", 30500, "acceptance", 15),
                              inv("above", 7800, "not_stated", instrument="ES")],
-               trigger={"type": None, "es_gates": [gate("unclear", 7776), gate("above", 7760)], "note": None})
+               trigger={"type": None, "nq_price": None, "es_gates": [gate("unclear", 7776), gate("above", 7760)], "note": None})
     assert validate.check(ok) == []
 
 
@@ -252,8 +259,35 @@ def test_each_scenario_set_adds_up_to_one_on_its_own():
 
 def test_model_uncertainty_becomes_flags():
     g = spec_example()
-    g["uncertain"] = [{"field": "hvl", "reason": "two HVLs given"}]
-    assert validate.check(g) == [{"field": "hvl", "reason": "two HVLs given", "origin": "model", "review": True}]
+    g["uncertain"] = [{"kind": "review", "field": "hvl", "reason": "two HVLs given"},
+                      {"kind": "info", "field": "zones[E1].stop", "reason": "no stop written"}]
+    assert validate.check(g) == [{"field": "hvl", "reason": "two HVLs given", "origin": "model", "review": True},
+                                 {"field": "zones[E1].stop", "reason": "no stop written", "origin": "model",
+                                  "review": False}]
+
+
+def test_wire_conditions_and_es_invalidations_are_split_back_out():
+    """The wire keeps one other_conditions list ('<entry id>: ' prefix) and folds the instrument into the direction,
+    to stay under the API's grammar limit; the stored shape has them per entry and as instrument + direction."""
+    g = spec_example()
+    g["zones"][0]["other_conditions"] = ["VIX under 16.50"]
+    g["zones"][0]["invalidation"].append(inv("below", 7700, "not_stated", instrument="ES"))
+    g["other_conditions"] = ["Size: half", "E1x: not an entry id"]
+    w = to_wire(g)
+    assert "E1: VIX under 16.50" in w["other_conditions"]
+    assert w["zones"][0]["invalidation"][1]["direction"] == "es_below"
+    back, flags = from_wire(w)
+    assert flags == [] and back == g
+
+
+def test_conditional_entry_is_checked_against_its_trigger_level():
+    """Parser v3 (owner 2026-10-07): an acceptance/breakout entry has an empty zone and its NQ level in
+    trigger.nq_price; its stop and targets are checked against that level and no 'no NQ price' flag is raised."""
+    trig = {"type": "acceptance", "nq_price": [30011, 30011], "es_gates": [], "note": "15+ min above 30,011"}
+    ok = _zone(zone=None, side="buy", trigger=trig, stop=29990, targets=[tgt(30100), tgt(30193)], invalidation=[])
+    assert validate.check(ok) == []
+    bad = _zone(zone=None, side="buy", trigger=trig, stop=29990, targets=[tgt(30193), tgt(30100)], invalidation=[])
+    assert [f["reason"] for f in validate.check(bad)] == ["targets '30193', '30100' are not in order away from the zone"]
 
 
 @pytest.mark.parametrize("changes, words", [
@@ -285,7 +319,7 @@ def test_missing_probabilities_are_info_other_scenario_flags_need_review():
     {"targets": [tgt(30650)]},                                          # on the wrong side of the zone
     {"invalidation": [inv("below", 30600)]},                            # wrong side
     {"zone": [30722, 30640]},                                           # edges out of order
-    {"trigger": {"type": None, "es_gates": [gate("below", 7766), gate("above", 7770)], "note": None}},
+    {"trigger": {"type": None, "nq_price": None, "es_gates": [gate("below", 7766), gate("above", 7770)], "note": None}},
 ])
 def test_other_flags_need_review(changes):
     assert validate.needs_review(validate.check(_zone(**changes)))

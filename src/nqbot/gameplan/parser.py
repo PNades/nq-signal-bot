@@ -20,6 +20,7 @@ from __future__ import annotations
 import collections
 import hashlib
 import json
+import math
 import re
 import shutil
 from dataclasses import dataclass, field
@@ -35,8 +36,8 @@ from nqbot.gameplan.convert import SUPPORTED_SUFFIXES, CannotConvert, Converted,
 from nqbot.gameplan.schema import GAMEPLAN_SCHEMA, SPEC_FIELDS, from_wire
 from nqbot.storage import append_jsonl, atomic_write_json, atomic_write_text, replace_retry
 
-CHECKS_VERSION = 2  # bump when validate.py's flags change: stored gameplans are rebuilt from their saved answers, free
-PARSER_VERSION = 2  # bump when SYSTEM_PROMPT or GAMEPLAN_SCHEMA changes (then re-parse with --reparse)
+CHECKS_VERSION = 3  # bump when validate.py's flags change: stored gameplans are rebuilt from their saved answers, free
+PARSER_VERSION = 3  # bump when SYSTEM_PROMPT or GAMEPLAN_SCHEMA changes (then re-parse with --reparse)
 MTOK = 1_000_000
 CANONICAL = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATE_PREFIX = re.compile(r"^(\d{4}-\d{2}-\d{2})(?!\d)")  # "2026-10-06 gameplan.md" (owner's Drive names, §3.4)
@@ -46,7 +47,7 @@ SYSTEM_PROMPT = """\
 You extract a futures trader's morning gameplan for NQ (Nasdaq-100 E-mini futures) into JSON.
 The gameplan was written before the 09:30 ET open. Record what the gameplan says, nothing else: never choose
 between readings, infer, guess or compute. When something isn't stated, leave it empty and say so in `uncertain`.
-Empty means [] for a number or price field and "" for a text field (only `date` is null when not stated).
+Empty means [] for a number or price field and "" for a text field (the date too).
 
 Rules:
 - Copy prices exactly as written. Every level is [low, high]; a single price p is [p, p] (keep it that way).
@@ -57,10 +58,21 @@ Rules:
   given. regime_line: only a level the gameplan itself labels the regime line; otherwise empty (don't infer it).
 - zone = [low, high]; a zone with no NQ price is []. side = "sell" for a short/ceiling/resistance zone, "buy" for
   a long/floor/support zone.
-- trigger.es_gates: every ES price an entry is gated on, one item each, with its words in as_written. direction:
+- es_gates: every ES price an entry is gated on, one item each, with its words in as_written. direction:
   "above" for above, over, >, holding or reclaiming X; "below" for below, under, <, losing, rejecting or failing X;
   any other wording (stalling under, testing, ...) is "unclear".
-- invalidation: one item per condition written for the zone: instrument, direction, price ([] if none), the
+- Conditional entries: an "acceptance through", breakout or breakdown trade (e.g. "acceptance over 30,011 ->
+  30,100 -> 30,193", "settled bar under 31,395 -> sell to 31,367") is its own zone item, on every gameplan, even
+  when it only appears as a branch of a level or a scenario: zone [] unless the gameplan gives it its own NQ range,
+  side = the trade's direction, trigger_type "acceptance" / "breakout" / "breakdown" as written, trigger_level =
+  the NQ level it must get through, trigger_note = the acceptance condition word for word, and its stop and
+  targets as written.
+- other_conditions: anything that conditions a trade or the plan but has no field here (VIX or 10Y gates, "take
+  the second test, not the first", no-trade gaps, size), word for word, one item each. An item that belongs to one
+  entry starts with that entry's id and ": " (e.g. "E5: VIX over 17.72"); a plan-wide one has no prefix. Don't
+  paraphrase and don't drop it.
+- invalidation: one item per condition written for the zone: direction (above/below/unclear for NQ,
+  es_above/es_below/es_unclear for an ES price), price ([] if none), the
   timeframe as written and its words in as_written. timeframe: "1m_close" only when a 1-minute close or settle is
   stated; "settled_bar" when it says settled bar without a timeframe (never assume 1 minute); "acceptance" for
   time held beyond the price (acceptance_minutes = the minutes written, 15+ -> 15); "not_stated" for a bare price
@@ -81,9 +93,13 @@ Rules:
   results) is not part of the plan: leave it out and list it in `dropped`. The overnight and 08:30 recap may be
   read for context but creates no zones.
 - The gameplan's own news blackout notes are not used: list them in `dropped`.
-- date: the trading day the gameplan is for, from the text; quote the words in date_evidence. null if not stated.
+- date: the trading day the gameplan is for, from the text; quote the words in date_evidence. "" if not stated.
 - Anything ambiguous (a stop or target you are not sure belongs to a zone, an ES gate whose direction is unclear)
-  goes in `uncertain` with the field path (e.g. zones[E3].stop) and why.
+  goes in `uncertain` with the field path (e.g. zones[E3].stop) and why. Label each note's kind: "info" when it only
+  says something is missing (no stop, no target, no price, no minutes, no HVL, no regime line, no zone labels) or is
+  covered by an owner rule (the date or year: the owner confirms every date; a stop or invalidation inside its zone,
+  kept as written; a value taken from the version marked final; a contradiction left empty); "review" for anything
+  else (a reading you had to choose, a value that may belong elsewhere, a direction you are unsure of).
 - source_quote: the gameplan line(s) each zone was read from, verbatim.
 """
 
@@ -213,6 +229,12 @@ def estimate(client, settings: dict[str, Any], conv: Converted, name: str) -> Es
     usd_in, usd_out = _prices(settings)
     usd_input = count.input_tokens * usd_in / MTOK
     return Estimate(count.input_tokens, usd_input, usd_input + settings["gameplan_max_tokens"] * usd_out / MTOK)
+
+
+def cents_up(usd: float) -> float:
+    """A worst case as printed and approved: rounded UP to the cent, so approving the printed figure always covers
+    it (2026-10-07: $10.8235 printed as $10.82, and --approve-usd 10.82 was refused)."""
+    return math.ceil(round(usd * 100, 6)) / 100
 
 
 def _cost(usage: Any, settings: dict[str, Any]) -> float:
@@ -390,10 +412,10 @@ def parse_file(client, settings: dict[str, Any], store: GameplanStore, file: Pat
         except anthropic.APIError as e:
             return Result(file.name, "failed", message=f"token count: {_api_error(e)}")
         out(f"{file.name}: {est.input_tokens:,} input tokens ~ ${est.usd_input:.3f}; "
-            f"worst case with {settings['gameplan_max_tokens']:,} output tokens ${est.usd_worst:.2f}")
-        if cap_usd is not None and est.usd_worst > cap_usd:
-            raise GameplanRefused(f"{file.name} may cost up to ${est.usd_worst:.2f}, over ${cap_usd:.2f}: "
-                                  f"re-run with --approve-usd {est.usd_worst:.2f} after the owner's OK")
+            f"worst case with {settings['gameplan_max_tokens']:,} output tokens ${cents_up(est.usd_worst):.2f}")
+        if cap_usd is not None and cents_up(est.usd_worst) > cents_up(cap_usd):
+            raise GameplanRefused(f"{file.name} may cost up to ${cents_up(est.usd_worst):.2f}, over ${cap_usd:.2f}: "
+                                  f"re-run with --approve-usd {cents_up(est.usd_worst):.2f} after the owner's OK")
         text, record = call_api(client, settings, conv, file.name)
         append_jsonl(store.calls_path, {"at": datetime.now(timezone.utc).isoformat(), "file": file.name,
                                         "sha256": sha, "parser_version": PARSER_VERSION, **record})
@@ -528,10 +550,10 @@ def batch(client, settings: dict[str, Any], store: GameplanStore, *, approved_us
         todo.append((f, conv, est))
 
     paid = [e for _, _, e in todo if e is not None]
-    worst = sum(e.usd_worst for e in paid)
+    worst = cents_up(sum(e.usd_worst for e in paid))
     out(f"{len(todo)} file(s) to build, {len(paid)} needing an API call: ~${sum(e.usd_input for e in paid):.2f} "
         f"input, worst case ${worst:.2f}")
-    if paid and (approved_usd is None or approved_usd < worst):
+    if paid and (approved_usd is None or cents_up(approved_usd) < worst):
         raise GameplanRefused(f"the batch may cost up to ${worst:.2f}: re-run with --approve-usd {worst:.2f} "
                               "after the owner's OK (CLAUDE.md rule 2)")
 

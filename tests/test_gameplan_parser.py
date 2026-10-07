@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from datetime import date
 
@@ -96,6 +97,14 @@ def test_archived_name_dated_from_content_and_flagged(settings, store):
     e2 = next(z for z in doc["zones"] if z["id"] == "E2")
     assert e2["targets"][1] == {"low": 25140, "high": 25160, "as_written": "T2 25,140 – 25,160"}
     assert not [x for x in r.flags if x["field"].startswith(("zones[E2]", "scenario_sets"))]
+    # Parser v3: the breakout is its own entry (zone empty, trigger level kept), VIX and size kept word for word,
+    # the model's 'no invalidation' note is info.
+    acc = next(z for z in doc["zones"] if z["id"] == "E1 accepted")
+    assert acc["zone"] is None and acc["trigger"]["nq_price"] == [25285, 25285] and acc["stop"] == 25250
+    assert acc["other_conditions"] == ["Only with the VIX under 16."]
+    assert doc["other_conditions"] == ["Size: half until 10:00."]
+    note = next(x for x in r.flags if x["field"] == "zones[E1 accepted].invalidation")
+    assert note["origin"] == "model" and note["review"] is False
 
 
 def test_date_prefix_in_the_file_name(settings, store, tmp_path):
@@ -224,7 +233,7 @@ def test_batch_needs_approval_then_parses_and_reports(settings, store):
     lines = []
     with pytest.raises(gp.GameplanRefused, match="--approve-usd"):
         gp.batch(client, settings, store, approved_usd=None, out=lines.append)
-    worst = 2 * (3000 * 4 + settings["gameplan_max_tokens"] * 20) / 1e6
+    worst = gp.cents_up(2 * (3000 * 4 + settings["gameplan_max_tokens"] * 20) / 1e6)  # printed rounded up
     assert lines[0].startswith(f"reading {store.raw_dir.resolve()}: 3 file(s)")
     assert f"worst case ${worst:.2f}" in lines[1]
     with pytest.raises(gp.GameplanRefused):
@@ -512,6 +521,19 @@ def test_batch_says_where_it_looked_when_empty(settings, store):
     lines = []
     gp.batch(FakeAnthropic(), settings, store, approved_usd=None, out=lines.append)
     assert str(store.raw_dir.resolve()) in lines[0] and "no files found" in lines[1]
+
+
+def test_the_printed_worst_case_is_rounded_up_so_approving_it_works(settings, store, monkeypatch):
+    """2026-10-07: a $10.8235 worst case printed as $10.82 refused --approve-usd 10.82. Now it prints the cent above
+    and that figure is accepted."""
+    assert gp.cents_up(10.8235) == 10.83 and gp.cents_up(10.82) == 10.82 and gp.cents_up(0.33) == 0.33
+    put(store, CANON)
+    lines = []
+    with pytest.raises(gp.GameplanRefused, match=r"--approve-usd (\d+\.\d\d)") as e:
+        gp.batch(FakeAnthropic(), settings, store, approved_usd=None, out=lines.append)
+    printed = float(re.search(r"--approve-usd (\d+\.\d\d)", str(e.value)).group(1))
+    results, _ = gp.batch(FakeAnthropic(), settings, store, approved_usd=printed, out=lines.append)
+    assert [r.status for r in results] == ["ok"]
 
 
 def test_a_gameplan_with_info_flags_only_is_ok(settings, store, tmp_path):

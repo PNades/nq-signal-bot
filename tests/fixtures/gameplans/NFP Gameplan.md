@@ -17,6 +17,9 @@ HVL 25,090. Regime line 25,070 – 25,110.
 - **E1 sell 25,240 – 25,285**: wait for the failed audit; ES gate: ES below 6,905. Stop 25,300. Invalid on a 1m settle above 25,285. T1 25,180, T2 25,120.
 - **E2 buy 25,000 – 25,035**: absorption at the overnight low. Stop 24,985. T1 25,090 (home), T2 25,140 – 25,160.
 - **E4 buy around 24,900ish** (only if the flush extends; stop and target TBD).
+- **Breakout:** acceptance over 25,285 for 15 minutes flips E1 to a buy: stop 25,250, T1 25,350. Only with the VIX under 16.
+
+Size: half until 10:00.
 
 ![GEX levels chart](media/gex_levels.png)
 
