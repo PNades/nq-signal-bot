@@ -31,13 +31,13 @@ from typing import Any, Callable
 import anthropic
 
 from nqbot import months
-from nqbot.gameplan import validate
+from nqbot.gameplan import overrides, validate
 from nqbot.gameplan.convert import SUPPORTED_SUFFIXES, CannotConvert, Converted, convert
 from nqbot.gameplan.schema import GAMEPLAN_SCHEMA, SPEC_FIELDS, from_wire
 from nqbot.storage import append_jsonl, atomic_write_json, atomic_write_text, replace_retry
 
-CHECKS_VERSION = 3  # bump when validate.py's flags change: stored gameplans are rebuilt from their saved answers, free
-PARSER_VERSION = 3  # bump when SYSTEM_PROMPT or GAMEPLAN_SCHEMA changes (then re-parse with --reparse)
+CHECKS_VERSION = 4  # bump when validate.py's flags change: stored gameplans are rebuilt from their saved answers, free
+PARSER_VERSION = 4  # bump when SYSTEM_PROMPT or GAMEPLAN_SCHEMA changes (then re-parse with --reparse)
 MTOK = 1_000_000
 CANONICAL = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATE_PREFIX = re.compile(r"^(\d{4}-\d{2}-\d{2})(?!\d)")  # "2026-10-06 gameplan.md" (owner's Drive names, §3.4)
@@ -98,10 +98,22 @@ Rules:
   goes in `uncertain` with the field path (e.g. zones[E3].stop) and why. Label each note's kind: "info" when it only
   says something is missing (no stop, no target, no price, no minutes, no HVL, no regime line, no zone labels) or is
   covered by an owner rule (the date or year: the owner confirms every date; a stop or invalidation inside its zone,
-  kept as written; a value taken from the version marked final; a contradiction left empty); "review" for anything
-  else (a reading you had to choose, a value that may belong elsewhere, a direction you are unsure of).
+  kept as written; a value taken from the version marked final; a contradiction left empty); "two_versions" when the
+  gameplan writes the field's value two ways and neither is marked FINAL (the value must then be left empty);
+  "review" for anything else (a reading you had to choose, a value that may belong elsewhere, a direction you are
+  unsure of).
 - source_quote: the gameplan line(s) each zone was read from, verbatim.
+- The glossary below says what the gameplan's words mean and where each goes. Where it and the rules above
+  differ, the glossary wins.
+
 """
+# The owner's parser glossary (docs/gameplan_glossary.md, owner 2026-10-07) is part of the prompt, word for word;
+# archived and live gameplans are parsed the same way. Editing it changes the prompt: bump PARSER_VERSION and
+# GLOSSARY_SHA256 together (tests/test_gameplan_parser.py checks the pair).
+GLOSSARY_PATH = Path(__file__).resolve().parents[3] / "docs" / "gameplan_glossary.md"
+GLOSSARY_SHA256 = "5033301d046b44869d66afb5d70fd6f20e766e25d2f5de8429323e603b8e359c"
+GLOSSARY = GLOSSARY_PATH.read_text(encoding="utf-8")
+SYSTEM_PROMPT += "\n" + GLOSSARY
 
 
 class GameplanRefused(Exception):
@@ -165,8 +177,15 @@ class GameplanStore:
         atomic_write_json(self.index_path, index)
 
     def load(self, day: date) -> dict[str, Any] | None:
+        """The parsed gameplan as the parser wrote it (no owner overrides): for the parser's own bookkeeping."""
         p = self.json_path(day)
         return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+
+    def load_effective(self, day: date) -> dict[str, Any] | None:
+        """The gameplan everything downstream reads (report, step 11): the parsed file with the owner's overrides
+        (overrides/<date>.json) on top, so a re-parse never loses them."""
+        doc = self.load(day)
+        return None if doc is None else overrides.apply(doc, overrides.load(self.processed_dir, day))
 
     def load_response(self, sha: str) -> dict[str, Any] | None:
         p = self.response_path(sha)
@@ -442,7 +461,7 @@ def parse_file(client, settings: dict[str, Any], store: GameplanStore, file: Pat
     if old_day and old_day != day.isoformat():
         _retire_own(store, old_day, sha, file, conv, index)
 
-    flags = date_flags + wire_flags + validate.check(parsed)
+    flags = date_flags + wire_flags + validate.check(parsed, source_text=conv.markdown)
     copy = _copy_dest(store, conv, day)
     if not copy.exists():
         if conv.kind == "pdf":
@@ -589,7 +608,7 @@ def _info_kind(reason: str) -> str:
 def write_report(store: GameplanStore, settings: dict[str, Any], results: list[Result]) -> Path:
     """reports/gameplans/step9_report.md: file -> date list, gameplan days per month, problems, flags."""
     days = store.parsed_days()
-    docs = {d: store.load(d) for d in days}
+    docs = {d: store.load_effective(d) for d in days}
     lines = ["# Step 9: gameplans", "", f"Written {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC.", "",
              "## File -> date (owner: please confirm)", "",
              "| File | Saved as | Date | Date from |", "|---|---|---|---|"]
@@ -618,7 +637,10 @@ def write_report(store: GameplanStore, settings: dict[str, Any], results: list[R
         review = [f for f in doc["flags"] if f.get("review", True)]
         info = collections.Counter(_info_kind(f["reason"]) for f in doc["flags"] if not f.get("review", True))
         counts = ", ".join(f"{n} {k}" for k, n in info.most_common())
-        lines.append(f"- **{d}** ({doc['source']['file']}): {doc['status']}" + (f"; info: {counts}" if counts else ""))
+        confirmed = "; owner-confirmed" if doc.get("owner_confirmed") else ""
+        changed = f"; {len(doc['owner_overrides'])} owner override(s)" if doc.get("owner_overrides") else ""
+        lines.append(f"- **{d}** ({doc['source']['file']}): {doc['status']}{confirmed}{changed}"
+                     + (f"; info: {counts}" if counts else ""))
         lines += [f"  - `{f['field']}` ({f['origin']}): {f['reason']}" for f in review]
     if not flagged:
         lines.append("- none")

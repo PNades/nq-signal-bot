@@ -409,3 +409,43 @@ def test_zone_without_nq_price_is_flagged():
     g["zones"][0]["zone"] = None
     assert conforms(to_wire(g), GAMEPLAN_SCHEMA) and to_wire(g)["zones"][0]["zone"] == []
 
+
+
+# --- glossary checks (owner 2026-10-07, docs/gameplan_glossary.md) ---------------------------------------------
+
+def _review(flags):
+    return [(f["field"], f["reason"]) for f in flags if f["review"]]
+
+
+def test_conditional_entry_with_a_zone_needs_review():
+    trig = {"type": "acceptance", "nq_price": [30011, 30011], "es_gates": [], "note": "15+ min above 30,011"}
+    flags = validate.check(_zone(side="buy", trigger=trig, stop=29990, targets=[tgt(30100)], invalidation=[]))
+    assert any("conditional entry has a zone" in r for _, r in _review(flags))
+    by_type = {"type": "breakout", "nq_price": None, "es_gates": [], "note": None}
+    assert any("conditional entry has a zone" in r for _, r in _review(validate.check(_zone(trigger=by_type))))
+
+
+@pytest.mark.parametrize("note, flagged", [
+    ({"kind": "two_versions", "field": "zones[E1].stop", "reason": "30,734 in the map, 30,740 in the table"}, True),
+    ({"kind": "review", "field": "zones[E1].zone", "reason": "Trade line gives 30,640-722; narrative gives "
+                                                              "30,640-700. Used trade line."}, True),
+    ({"kind": "two_versions", "field": "zones[E1].trigger_level", "reason": "two levels"}, False),  # empty: fine
+    ({"kind": "review", "field": "hvl", "reason": "HVL taken from the map"}, False),               # one version
+])
+def test_filled_value_with_two_versions_needs_review(note, flagged):
+    g = spec_example()
+    g["uncertain"] = [note]
+    hits = [f for f in validate.check(g) if "written two ways" in f["reason"]]
+    assert bool(hits) is flagged and all(h["review"] for h in hits)
+
+
+def test_vix_line_in_regime_line_and_copied_levels():
+    g = {**spec_example(), "regime_line": [19.5, 19.5]}
+    assert any("not an NQ price" in r for _, r in _review(validate.check(g)))
+    same = {**spec_example(), "hvl": [29790, 29790], "hvl0": [29790, 29790]}
+    assert any("hold the same value" in r for _, r in _review(validate.check(same)))
+    assert not any("hold the same value" in r for _, r in
+                   _review(validate.check(same, source_text="with the HVL pair at 29,790 and the shelf")))
+    copied = {**spec_example(), "hvl": [30590, 30590], "regime_line": [30590, 30590]}
+    assert any("hold the same value" in r for _, r in
+               _review(validate.check(copied, source_text="the HVL pair at 30,590")))  # pair covers hvl/hvl0 only

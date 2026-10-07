@@ -123,9 +123,10 @@ SCENARIO_SET = _object({
 })
 
 UNCERTAIN = _object({
-    "kind": _enum(("info", "review"), "info: only says something is missing, or is covered by an owner rule "
-                                      "(dates, stops/invalidations kept as written, the version marked final); "
-                                      "review: anything else"),
+    "kind": _enum(("info", "review", "two_versions"),
+                  "info: only says something is missing, or is covered by an owner rule (dates, stops/invalidations "
+                  "kept as written, the version marked final); two_versions: the value is written two ways and "
+                  "neither is marked FINAL (leave it empty); review: anything else"),
     "field": _text("path of the uncertain value, e.g. zones[E3].stop or hvl"),
     "reason": {"type": "string"},
 })

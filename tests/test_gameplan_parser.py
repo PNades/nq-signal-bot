@@ -545,3 +545,16 @@ def test_a_gameplan_with_info_flags_only_is_ok(settings, store, tmp_path):
     r = gp.parse_file(FakeAnthropic(replies={f.name: message(answer)}), settings, store, f, out=quiet)
     assert r.status == "ok" and {x["reason"] for x in r.flags} == {"no stop in the gameplan", "no targets in the gameplan"}
     assert store.load(D_CANON)["status"] == "ok"
+
+
+def test_the_prompt_contains_the_glossary_and_its_version_is_pinned():
+    """Owner 2026-10-07: every gameplan (archived and live) is parsed with docs/gameplan_glossary.md in the prompt.
+    Editing the glossary changes the prompt, so its checksum is pinned next to PARSER_VERSION: bump both together."""
+    import hashlib
+
+    text = gp.GLOSSARY_PATH.read_text(encoding="utf-8")
+    assert text.startswith("# Gameplan glossary (for the parser)") and text in gp.SYSTEM_PROMPT
+    assert "two separate targets, never a range" in gp.SYSTEM_PROMPT
+    assert hashlib.sha256(gp.GLOSSARY_PATH.read_bytes()).hexdigest() == gp.GLOSSARY_SHA256, \
+        "docs/gameplan_glossary.md changed: bump PARSER_VERSION and update GLOSSARY_SHA256"
+    assert "gameplan_terminology" not in gp.SYSTEM_PROMPT.split("Source:")[0]  # the cheat sheet is not sent

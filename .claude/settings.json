@@ -4,5 +4,20 @@
       "Read(./.env)",
       "Read(./.env.*)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --quiet python -m nqbot.repo_guard --worktree",
+            "timeout": 60,
+            "statusMessage": "Checking CLAUDE.md size and tracked file sizes"
+          }
+        ]
+      }
+    ]
   }
 }

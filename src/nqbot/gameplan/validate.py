@@ -14,8 +14,17 @@ fixes or confirms it on the Gameplan page (§9b, from step 14) or in the JSON.
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any
+
+# An NQ level is in the tens of thousands; a VIX line (~19.5) or a 10Y yield is not. Anything this small stored as
+# hvl / hvl0 / regime_line is another instrument's number (glossary §3: the VIX regime line is a gate, not a level).
+MIN_NQ_LEVEL = 1000
+CONDITIONAL_TRIGGERS = ("acceptance", "breakout", "breakdown", "break-plan", "break_plan")
+_PICK_WORDS = re.compile(r"\b(used|took|taken|chose|picked|kept the)\b", re.I)
+_TWO_WORDS = re.compile(r"\b(two|both|vs\.?|while|differs?|also (gives|mentions|lists|says)|whereas)\b"
+                        r"|\bgives\b.*\bgives\b|\bin the map and\b", re.I)
 
 # Each scenario set's probabilities must add up to 1 (owner 2026-10-07); whole-number percentages may round
 # (33/33/33 = 0.99), so a set within this of 1 passes (SPEC §3.4).
@@ -170,10 +179,67 @@ def _scenario_set(s: dict[str, Any], flags: list) -> None:
         flags.append(_flag(f, f"probabilities add up to {sum(probs):g}, not 1"))
 
 
-def check(parsed: dict[str, Any]) -> list[dict[str, str]]:
+def _resolve(parsed: dict[str, Any], field: str) -> tuple[bool, Any]:
+    """(found, value) for a note's field path like `hvl`, `zones[E3].stop`, `zones[E2].trigger.nq_price`."""
+    m = re.fullmatch(r"zones\[([^\]]+)\]((?:\.\w+)*)", field)
+    if m:
+        zone = next((z for z in parsed.get("zones") or [] if z.get("id") == m.group(1)), None)
+        if zone is None:
+            return False, None
+        node: Any = zone
+        aliases = {"trigger_level": ("trigger", "nq_price"), "trigger_type": ("trigger", "type"),
+                   "trigger_note": ("trigger", "note"), "es_gates": ("trigger", "es_gates")}
+        for part in [p for p in m.group(2).split(".") if p]:
+            for key in aliases.get(part, (part,)):
+                if not isinstance(node, dict) or key not in node:
+                    return False, None
+                node = node[key]
+        return True, node
+    if field in parsed:
+        return True, parsed[field]
+    return False, None
+
+
+def _filled(value: Any) -> bool:
+    return value not in (None, [], "", {})
+
+
+def _glossary_checks(parsed: dict[str, Any], source_text: str | None, flags: list) -> None:
+    """Owner 2026-10-07: the glossary rules the code can test (docs/gameplan_glossary.md §3, §7)."""
+    for z in parsed.get("zones") or []:
+        trig = z.get("trigger") or {}
+        conditional = trig.get("nq_price") is not None or (trig.get("type") or "").lower() in CONDITIONAL_TRIGGERS
+        if conditional and z.get("zone") is not None:
+            flags.append(_flag(f"zones[{z.get('id')}].zone", "a conditional entry has a zone: the zone stays empty "
+                                                             "and the level goes in trigger.nq_price (glossary §7)"))
+    for u in parsed.get("uncertain") or []:
+        two = u.get("kind") == "two_versions" or (
+            _PICK_WORDS.search(u.get("reason", "")) and _TWO_WORDS.search(u.get("reason", "")))
+        found, value = _resolve(parsed, u.get("field", ""))
+        if two and found and _filled(value):
+            flags.append(_flag(u.get("field", "?"), "a value is filled in although the note says it is written two "
+                                                    "ways with none marked FINAL: it must stay empty (glossary §7)"))
+    levels = {k: parsed.get(k) for k in ("hvl", "hvl0", "regime_line")}
+    for k, v in levels.items():
+        if v and min(v) < MIN_NQ_LEVEL:
+            flags.append(_flag(k, f"{v} is not an NQ price (a VIX or yield line?): a VIX regime line is a gate in "
+                                  "other_conditions, never a level (glossary §3)"))
+    hvl_pair = bool(source_text and re.search(r"HVL pair", source_text, re.I))
+    names = list(levels)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            if levels[a] and levels[a] == levels[b] and not ({a, b} == {"hvl", "hvl0"} and hvl_pair):
+                flags.append(_flag(f"{a},{b}", f"{a} and {b} hold the same value {levels[a]}: each is filled only "
+                                               "from its own words, unless the gameplan says 'the HVL pair' "
+                                               "(glossary §3, §8)"))
+
+
+def check(parsed: dict[str, Any], source_text: str | None = None) -> list[dict[str, str]]:
+    """`source_text`: the gameplan's text (Markdown), for the checks that need its words ('the HVL pair')."""
     flags: list[dict[str, str]] = []
     for name in ("hvl", "hvl0", "regime_line"):
         _pair(parsed.get(name), name, flags)
+    _glossary_checks(parsed, source_text, flags)
 
     zones = parsed.get("zones") or []
     ids = [z.get("id") for z in zones]

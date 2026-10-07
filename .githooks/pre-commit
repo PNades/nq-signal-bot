@@ -1,0 +1,4 @@
+#!/bin/sh
+# Refuse a commit with a file over 1 MB or a CLAUDE.md that more than doubles or halves (nqbot/repo_guard.py).
+# Enabled once per clone with: git config core.hooksPath .githooks
+exec uv run --quiet python -m nqbot.repo_guard --staged
