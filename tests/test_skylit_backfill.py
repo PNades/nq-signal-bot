@@ -27,6 +27,10 @@ CAL = {"holidays": [{"date": date(2025, 10, 13)}], "early_closes": [{"date": dat
 NOW = datetime(2026, 10, 6, 10, 0, tzinfo=ET)  # reach = 2025-10-06 10:30 ET (margin 30 min)
 OCT6_LOST = ["0930", "0945", "1000", "1015"]
 
+# the fakes date their prints in 2025: before the real dp_history_start (step 7, 2026-10-06)
+def _features():
+    return {**load_features(), "dp_history_start": "2025-01-01"}
+
 
 class Clock:
     def __init__(self, t):
@@ -66,7 +70,7 @@ def setup(paths, settings, log):
         return c
 
     lines: list[str] = []
-    env = step7.Env(settings=settings, features=load_features(), paths=paths, log=log,
+    env = step7.Env(settings=settings, features=_features(), paths=paths, log=log,
                     client_factory=lambda store: client(settings, store, log), now=clock, echo=lines.append, cal=CAL)
 
     def job():
@@ -814,3 +818,17 @@ def test_a_crash_before_the_range_record_never_pays_again(setup, monkeypatch):
     later = _dp_calls(s.fake)[n:]
     assert all(q["date_start"] > "2025-09-17" for q in later)  # 8/18..9/17 (gap included) never asked again
     assert _day_record(s, gap.isoformat())["dp"]["status"] == "no_coverage"
+
+
+def test_dark_pools_start_at_skylits_history(setup):
+    """Step 7 (2026-10-06): Flowseeker answers dates before dp_history_start with an empty, charged 200, so the plan
+    never pulls them and coverage counts them (their sessions are dp_partial)."""
+    s = setup
+    s.env.features["dp_history_start"] = "2025-10-20"
+    plan = bf.plan_backfill(s.env, NOW, ["QQQ", "SPY"])
+    assert plan.dp_dates and min(plan.dp_dates) == date(2025, 10, 20)
+    out = bf.job_dir(s.paths)
+    (out / "days").mkdir(parents=True)
+    cov = bf.coverage(s.env, plan, out)
+    assert cov["dark_pools"]["history_start"] == "2025-10-20" and cov["dark_pools"]["before_history_count"] > 0
+    assert "never pulled" in bf.coverage_markdown(cov, NOW)

@@ -263,6 +263,9 @@ def _add_step7(sub: argparse._SubParsersAction) -> None:
                    help="a development-month date in month 3 or later (its 45-day lookback must be in Skylit's reach)")
     p.add_argument("--check-dates", type=_dates, default=[])
     p.add_argument("--no-depth-probe", action="store_true")
+    p.add_argument("--walk-forward", action="store_true",
+                   help="dates in walk-forward months 7-9 (Skylit's dark-pool history starts in month 7): the report "
+                        "keeps match / no-match only, no prices (owner 2026-10-06)")
     p = add("late-prints-morning", "pre-open pull of the previous session's prints + top-3 lists")
     p.add_argument("--force", action="store_true")
     add("late-prints-compare", "re-pull each morning >= 5 trading days later and compare")
@@ -372,7 +375,8 @@ def _step7_check(args: argparse.Namespace, settings, paths, log, env, approve) -
         case "parity":
             step7.check_parity(env, args.session, args.tag, approve)
         case "darkpool":
-            step7.check_darkpool(env, args.date, args.check_dates, approve, depth_probe=not args.no_depth_probe)
+            step7.check_darkpool(env, args.date, args.check_dates, approve, depth_probe=not args.no_depth_probe,
+                                 walk_forward=args.walk_forward)
         case "late-prints-morning":
             step7.check_late_prints_morning(env, approve, force=args.force)
         case "late-prints-compare":

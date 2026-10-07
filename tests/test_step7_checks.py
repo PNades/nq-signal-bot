@@ -21,6 +21,10 @@ ET = ZoneInfo("America/New_York")
 UTC = timezone.utc
 MONTHS = {i + 1: f"{2025 + (9 + i) // 12}-{(9 + i) % 12 + 1:02d}" for i in range(12)}  # 1 = 2025-10 ... 12 = 2026-09
 
+# the fakes date their prints in 2025: before the real dp_history_start (step 7, 2026-10-06)
+def _features():
+    return {**load_features(), "dp_history_start": "2025-01-01"}
+
 
 def ts(s: str) -> datetime:
     return datetime.fromisoformat(s).astimezone(UTC)
@@ -169,6 +173,14 @@ def test_print_set_diff_and_top_compare():
     assert an.same_top([p1], [p1]) and not an.same_top([p1], [late])
     assert an.top_matches_api([p1], [{"timestamp": a, "price": 600.0, "notional": 6e6, "size": 10000}])
     assert not an.top_matches_api([p1], [])
+    # step 7 (2026-10-07): top-prints timestamps are whole seconds (cut); an exact notional tie may come in either order
+    ms = {**p1, "timestamp": a + timedelta(milliseconds=700)}
+    assert an.top_matches_api([ms], [{**p1, "timestamp": a}])
+    assert not an.top_matches_api([ms], [{**p1, "timestamp": a + timedelta(seconds=1)}])
+    tie = {**p1, "timestamp": a + timedelta(hours=3)}
+    assert an.top_matches_api([tie, p1, late], [p1, tie, late])  # same prints, tie order differs
+    assert not an.top_matches_api([late, p1, tie], [p1, tie, late])  # the ranking itself differs
+    assert not an.top_matches_api([p1, p1], [p1, tie])  # each print matched once
 
 
 def test_vol_table_diff():
@@ -206,7 +218,7 @@ def env(paths, settings, log):
         return c
 
     lines: list[str] = []
-    e = step7.Env(settings=settings, features=load_features(), paths=paths, log=log, client_factory=factory,
+    e = step7.Env(settings=settings, features=_features(), paths=paths, log=log, client_factory=factory,
                   now=Now(datetime(2026, 10, 6, 20, 0, tzinfo=ET)), echo=lines.append)
     e.fake, e.lines = fake, lines
     return e
@@ -545,3 +557,32 @@ def test_darkpool_range_call_refused_is_recorded_not_fatal(env):
     rep = step7.check_darkpool(env, date(2026, 3, 16), [date(2026, 3, 18)], depth_probe=False)
     assert rep["range_check"]["matches"] is False and "400" in rep["range_check"]["error"]
     assert rep["all_match"] and not step7.dp_range_ok(env.paths)  # the report is written; step 10 one date per call
+
+
+def test_dp_history_start_reads_a_date_or_a_string():
+    class E:
+        features = {"dp_history_start": "2026-04-01"}
+    assert step7.dp_history_start(E) == date(2026, 4, 1)
+    E.features = {"dp_history_start": date(2026, 4, 1)}
+    assert step7.dp_history_start(E) == date(2026, 4, 1)
+
+
+def test_darkpool_walk_forward_reports_matches_only(env):
+    """Owner 2026-10-06: Skylit's dark-pool history starts in walk-forward month 7, so the re-check runs there and
+    its report keeps match / no-match and counts only, never a price (§7 rule 2b)."""
+    from nqbot.months import NotDevelopmentMonth
+
+    env.settings["months"] = {i + 1: f"{2025 + (8 + i) // 12}-{(8 + i) % 12 + 1:02d}" for i in range(12)}  # 2026-03 = 7
+    days = [date(2026, 2, 1) + timedelta(days=i) for i in range(50)]
+    env.fake.dp_prints = [_dp_print(d, 11, 1e6 * (1 + i % 7), t) for i, d in enumerate(days) if d.weekday() < 5
+                          for t in ("QQQ", "SPY")]
+    env.fake.routes["/v1/dark-pool/top-prints/QQQ"] = _top_route(env.fake)
+    env.fake.routes["/v1/dark-pool/top-prints/SPY"] = _top_route(env.fake)
+    with pytest.raises(NotDevelopmentMonth):
+        step7.check_darkpool(env, date(2026, 3, 16), [], depth_probe=False)
+    rep = step7.check_darkpool(env, date(2026, 3, 16), [date(2026, 3, 18)], walk_forward=True)
+    assert rep["walk_forward"] and rep["all_match"] and rep["range_check"]["matches"]
+    assert all(set(c) == {"as_of", "ticker", "match"} for c in rep["top_prints_checks"])
+    assert "f4_top" not in rep and rep["depth_probe"] is None
+    assert "price" not in json.dumps(rep) and "notional" not in json.dumps(rep)
+    assert step7.dp_range_ok(env.paths)

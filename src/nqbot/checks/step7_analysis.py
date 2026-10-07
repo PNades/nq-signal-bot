@@ -375,11 +375,29 @@ def same_top(a: list[dict[str, Any]], b: list[dict[str, Any]]) -> bool:
 
 
 def top_matches_api(bot: list[dict[str, Any]], api: list[dict[str, Any]], price_tol: float = 1e-6) -> bool:
-    """Skylit's top-prints rows carry no ticker: compare timestamp, price and notional in rank order."""
+    """Skylit's top-prints rows carry no ticker: the same prints (timestamp, price, notional) with the same notional
+    ranking. Step 7 (2026-10-07): top-prints timestamps are whole seconds (cut, not rounded) while /trades keeps
+    milliseconds, and Skylit orders an exact notional tie earlier-first where F4 puts the later print first; neither
+    changes the list, so timestamps are compared to the second and order only between different notionals."""
     if len(bot) != len(api):
         return False
-    return all(x["timestamp"] == y["timestamp"] and abs(float(x["price"]) - float(y["price"])) <= price_tol
-               and math.isclose(float(x["notional"]), float(y["notional"]), rel_tol=1e-9) for x, y in zip(bot, api))
+
+    def sec(t: Any) -> Any:
+        return t.replace(microsecond=0)
+
+    def same(x: dict[str, Any], y: dict[str, Any]) -> bool:
+        return (sec(x["timestamp"]) == sec(y["timestamp"]) and abs(float(x["price"]) - float(y["price"])) <= price_tol
+                and math.isclose(float(x["notional"]), float(y["notional"]), rel_tol=1e-9))
+
+    if not all(math.isclose(float(x["notional"]), float(y["notional"]), rel_tol=1e-9) for x, y in zip(bot, api)):
+        return False  # the ranking itself differs
+    left = list(api)
+    for x in bot:  # within a tie any order: match each print once
+        hit = next((i for i, y in enumerate(left) if same(x, y)), None)
+        if hit is None:
+            return False
+        left.pop(hit)
+    return True
 
 
 # --- Tempest -----------------------------------------------------------------------------------------

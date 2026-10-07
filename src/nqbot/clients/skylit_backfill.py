@@ -165,7 +165,8 @@ def plan_backfill(env: step7.Env, now: datetime, symbols: list[str]) -> Backfill
     # a day already (partly) stored stays in the plan whatever its reach now: a re-plan never calls it lost
     reachable = [d for d in weekdays if _day_reachable(d, now, margin, env.cal) or env.store.stored_windows(d)]
     lost = [d for d in weekdays if d not in set(reachable)]
-    dp_dates = step7._weekdays(step7._f4_lower(env, first), last)
+    # dark pools only from Skylit's history start: earlier dates answer an empty, charged 200 (step 7, 2026-10-06)
+    dp_dates = step7._weekdays(max(step7._f4_lower(env, first), step7.dp_history_start(env)), last)
     return BackfillPlan(first=first, last=last, days=reachable, lost_days=lost, dp_dates=dp_dates,
                         tempest_from=step7._tempest_start(env), tempest_symbols=symbols,
                         max_strikes=env.settings["skylit_max_strikes"], dp_range=step7.dp_range_ok(env.paths))
@@ -1442,6 +1443,8 @@ def coverage(env: step7.Env, plan: BackfillPlan, out_dir: Path, budget: Budget |
     for r in dps.values():
         dp_status[r["status"]] = dp_status.get(r["status"], 0) + 1
     bad = sorted(date.fromisoformat(d) for d, r in dps.items() if r["status"] in ("out_of_reach", "no_coverage"))
+    hist = step7.dp_history_start(env)  # dates before Skylit's dark-pool history: never pulled, so dp_partial
+    before = [d for d in step7._weekdays(step7._f4_lower(env, plan.first), hist - timedelta(days=1)) if env.trading_day(d)]
     with_prints = sorted(d for d, r in dps.items() if r.get("prints"))
     dp_partial = 0
     for d in plan.days:
@@ -1449,7 +1452,7 @@ def coverage(env: step7.Env, plan: BackfillPlan, out_dir: Path, budget: Budget |
             continue
         prev = step7.dp.previous_session(d, env.features["dp_lag_sessions"], env.trading_day)
         lower = step7._f4_lower(env, d)
-        dp_partial += any(lower <= b <= prev for b in bad)
+        dp_partial += any(lower <= b <= prev for b in bad) or lower < hist
 
     tempest_file = out_dir / "tempest.json"
     done = set(sky) | set(dps)
@@ -1472,7 +1475,8 @@ def coverage(env: step7.Env, plan: BackfillPlan, out_dir: Path, budget: Budget |
         },
         "dark_pools": {"status_counts": dp_status, "first_date_with_prints": with_prints[0] if with_prints else None,
                        "not_pulled": [d.isoformat() for d in bad if listable(d.isoformat())],
-                       "not_pulled_count": len(bad), "sessions_dp_partial": dp_partial},
+                       "not_pulled_count": len(bad), "sessions_dp_partial": dp_partial,
+                       "history_start": hist.isoformat(), "before_history_count": len(before)},
         "failed": _failed_section(failed, listable),
         "tempest": json.loads(tempest_file.read_text(encoding="utf-8")) if tempest_file.exists() else None,
         "credits": {"approved": budget.approved if budget else plan.approved_credits,
@@ -1512,6 +1516,8 @@ def coverage_markdown(cov: dict[str, Any], now: datetime) -> str:
               f"- Dates by status: {dp['status_counts']}",
               f"- First date with prints: {dp['first_date_with_prints']}",
               f"- Dates not pulled (out of reach or no coverage): {dp['not_pulled_count']}",
+              f"- Skylit's dark-pool history starts {dp['history_start']} (dp_history_start): "
+              f"{dp['before_history_count']} trading dates before it are never pulled",
               f"- Sessions whose lookback touches one (dp_partial): {dp['sessions_dp_partial']}", "",
               *_failed_markdown(cov["failed"]),
               "## Tempest", "```json", json.dumps(cov["tempest"], indent=1), "```", "",

@@ -445,7 +445,8 @@ All are computed on RTH from 09:30 and known at t:
   - Band = price ± `dp_band` (QQQ $), mapped with the current R like a strike (F1.1).
   - A level exists for every session in which it is on the list and ends when it leaves the list.
   - **QQQ** levels are NQ registry levels; **SPY** levels are ES cross-market levels.
-  - `dp_partial` = the lookback reaches before the first day of pulled history.
+  - `dp_partial` = the lookback reaches before the first day of pulled history, or before `dp_history_start` (2026-04-01, Skylit's first dark-pool date; step 7, 2026-10-06).
+  - **Owner 2026-10-06: not in the first model.** `dp_in_model: false`: no dark-pool levels in the registry or events and no dark-pool features (QQQ levels, SPY cross-market levels) in the first model, because development months 1–6 have no dark-pool data; the prints are still pulled and stored, and F4 is added and tested at a later retrain once enough training months have it.
   - Chart-level state machine (F5.2): crossed only on a settled 1-minute candle.
 - *Known at:* the session start (pre-open).
 - *Outputs:* level, `dp_notional_rank`, `dp_age_days`, `dp_pct_avg_vol` (the print's `pctAvgVol`).

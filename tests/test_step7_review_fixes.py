@@ -33,6 +33,10 @@ UTC = timezone.utc
 MONTHS = {i + 1: f"{2025 + (9 + i) // 12}-{(9 + i) % 12 + 1:02d}" for i in range(12)}
 CAL = {"holidays": [{"date": date(2026, 4, 3)}], "early_closes": []}
 
+# the fakes date their prints in 2025: before the real dp_history_start (step 7, 2026-10-06)
+def _features():
+    return {**load_features(), "dp_history_start": "2025-01-01"}
+
 
 def client_for(fake, store, clock=None):
     c = _make_client(fake, clock, on_call=store.log_call)
@@ -52,7 +56,7 @@ class Now:
 def env(paths, settings, log):
     settings["months"] = dict(MONTHS)
     fake = FakeSkylit()
-    e = step7.Env(settings=settings, features=load_features(), paths=paths, log=log,
+    e = step7.Env(settings=settings, features=_features(), paths=paths, log=log,
                   client_factory=lambda store: client_for(fake, store),
                   now=Now(datetime(2026, 10, 6, 20, 0, tzinfo=ET)), echo=lambda s: None,
                   clock_offset_ms=lambda: 1.5)

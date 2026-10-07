@@ -915,6 +915,13 @@ def _pages_per_date(env: Env) -> float:
     return len(calls) / len(dates) if dates else 1.0
 
 
+def dp_history_start(env: Env) -> date:
+    """First trade date Skylit serves dark-pool prints for (features.yaml dp_history_start, step 7 2026-10-06):
+    earlier dates answer an empty but charged 200, so they are never pulled and never cached as empty days."""
+    v = env.features["dp_history_start"]
+    return v if isinstance(v, date) else date.fromisoformat(str(v))
+
+
 def _f4_lower(env: Env, x: date) -> date:
     """First trade date the F4 list at session x can reach (cutoff of the previous session - lookback)."""
     prev = dp.previous_session(x, env.features["dp_lag_sessions"], env.trading_day)
@@ -922,21 +929,34 @@ def _f4_lower(env: Env, x: date) -> date:
 
 
 def check_darkpool(env: Env, day: date, check_dates: list[date], approved: int | None = None,
-                   depth_probe: bool = True) -> dict[str, Any]:
-    if months_mod.require_development(day, env.settings) < DARKPOOL_MIN_MONTH:
+                   depth_probe: bool = True, walk_forward: bool = False) -> dict[str, Any]:
+    """walk_forward=True (owner 2026-10-06: Skylit's dark-pool history starts in month 7): dates in the walk-forward
+    test months are allowed, and the report keeps only match / no-match and counts, never a price (§7 rule 2b)."""
+    allowed = months_mod.WALK_FORWARD if walk_forward else months_mod.DEVELOPMENT
+    if walk_forward:
+        for d in (day, *check_dates):
+            months_mod.require_development(d, env.settings, allowed)
+        depth_probe = False
+    elif months_mod.require_development(day, env.settings) < DARKPOOL_MIN_MONTH:
         env.echo(f"  WARNING: {day} is in development month {months_mod.month_index(day, env.settings)}: its 45-day "
                  f"lookback may reach past Skylit's 365-day history; a --date in month {DARKPOOL_MIN_MONTH} or later "
                  "is safer (presd_fixes D8)")
     for d in check_dates:
-        months_mod.require_development(d, env.settings)
+        months_mod.require_development(d, env.settings, allowed)
     lookback, top_n = env.features["dp_lookback_days"], env.features["dp_top_n"]
     as_ofs = sorted({day, *check_dates})
     first = min(min(_f4_lower(env, x), x - timedelta(days=lookback)) for x in as_ofs)
+    start = dp_history_start(env)
+    if as_ofs[0] < start:
+        raise CheckRefused(f"{as_ofs[0]} is before Skylit's dark-pool history ({start}, dp_history_start): pick dates "
+                           "from then on")
+    first = max(first, start)  # never pull (or cache as empty) a date before the history starts
     dates = _weekdays(first, as_ofs[-1])
     probe = None
     if depth_probe:  # the earliest trading day month 1's lookback needs (§3.1: ideally >= 45 days before month 1)
         m1 = months_mod.days_of(1, env.settings)[0]
         probe = next(d for d in _weekdays(_f4_lower(env, m1), m1) if env.trading_day(d))
+        probe = probe if probe >= start else None  # before the history: known empty, never paid for again
     todo = [d for d in dates if not env.store.dp_trades_path(d).exists()]
     # the range comparison: the last <= 31 days of the span, one call (priced like one page per date: an upper bound)
     r_end = as_ofs[-1]
@@ -989,6 +1009,12 @@ def check_darkpool(env: Env, day: date, check_dates: list[date], approved: int |
     env.echo(f"  {len(prints)} prints over {len(dates)} dates; top-prints matches: "
              f"{sum(c['match'] for c in checks)}/{len(checks)}; 31-day call matches one-date calls: "
              f"{range_check['matches']}; depth probe {report['depth_probe']}")
+    if walk_forward:  # match / no-match and counts only: no price from a walk-forward month in any report
+        report["top_prints_checks"] = [{k: c[k] for k in ("as_of", "ticker", "match")} for c in checks]
+        report["range_check"] = {k: v for k, v in range_check.items() if k != "mismatches"} | {
+            "mismatch_dates": len(range_check.get("mismatches") or [])}
+        report.pop("f4_top")
+        report["walk_forward"] = True
     write_report(env, "darkpool", report)
     return report
 
