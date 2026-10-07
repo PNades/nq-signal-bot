@@ -450,8 +450,13 @@ def check_historical_instants(env: Env, approved: int | None = None) -> dict[str
         if not cached_or_mismatch(path, params):
             with env.client.tagged(instant=t.isoformat()):
                 body, rec = env.client.historical(list(MAPS), t)
-            write_parquet(path, historical_to_table(body, env.client.root_to_map, t),
-                          {"params": params, "meta": body.get("meta"), "pulled_at": rec.at})
+            try:
+                table = historical_to_table(body, env.client.root_to_map, t)
+            except Exception as e:  # a paid answer that won't convert is kept first, never paid for twice (§11)
+                kept = env.store.save_failed(json.dumps(body).encode(), f"historical_{t:%Y%m%dT%H%M%S}")
+                raise CheckRefused(f"instant {t.isoformat()}: answer couldn't be converted ({type(e).__name__}: {e}); "
+                                   f"kept in {kept}") from e
+            write_parquet(path, table, {"params": params, "meta": body.get("meta"), "pulled_at": rec.at})
         for nt in pq.read_table(path, columns=["node_type"])["node_type"].to_pylist():
             types[nt] = types.get(nt, 0) + 1
     report = {"instants": [t.isoformat() for t in instants], "node_types": types}

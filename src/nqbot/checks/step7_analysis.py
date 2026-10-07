@@ -146,14 +146,16 @@ def edge_violations(boards: pa.Table, strikes: pa.Table, drop_pct: float, margin
     return out
 
 
-def nearest_window(strikes: np.ndarray, spot: float, n: int) -> set[float]:
+def nearest_window(strikes: np.ndarray, spot: float, n: int | str) -> set[float]:
     k = np.asarray(strikes, dtype=np.float64)
+    if n == "all":  # skylit_max_strikes "all" (step 7, owner 2026-10-06): the whole chain is expected back
+        return set(np.round(k, 6).tolist())
     idx = np.lexsort((k, np.abs(k - spot)))[:n]
     return set(np.round(k[idx], 6).tolist())
 
 
 def window_prediction_mismatches(full_boards: pa.Table, full_strikes: pa.Table, sample_strikes: pa.Table,
-                                 n: int) -> dict[str, int]:
+                                 n: int | str) -> dict[str, int]:
     """Per symbol: boards (same as_of in both pulls) whose stored strike list differs from the N nearest spot
     in the full chain, ignoring strikes the full chain shows with |value| < EMPTY_ABS (the API may omit them)."""
     full, sample = _strikes_by_board(full_strikes), _strikes_by_board(sample_strikes)

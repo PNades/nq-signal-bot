@@ -31,6 +31,8 @@ def settings(tmp_path_factory):
     s = copy.deepcopy(load_settings(cfg))
     s["paths"]["root"] = "nqbot"
     s["min_free_gb"] = 0
+    s["skylit_max_strikes"] = 200  # the fakes are built for 200; the owner's step-7 value ("all") must not change tests
+    s["months"] = None  # as before step 4b: a test that needs a ledger sets one (the real one must not change tests)
     return s
 
 

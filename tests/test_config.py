@@ -7,8 +7,8 @@ def test_settings_start_values():
     s = load_settings()
     assert s["session"]["flat_by"] == "15:59"
     assert s["min_minutes_before_flat"] == 14
-    assert s["paths"]["root"] is None  # set at step 4b
-    assert s["months"] is None  # set at step 4b
+    assert s["paths"]["root"] == "nqbot/"  # set at step 4b (2026-10-06)
+    assert s["months"][1] == "2025-10" and len(s["months"]) == 12  # set at step 4b (2026-10-06)
     assert s["blackout_before_min"] == 30 and s["blackout_after_min"] == 60
     assert s["ops"]["job_lock_window"] == "08:30-16:15"
     # Step-9 gameplan parser (§3.4): model name and cost-estimate prices live in config, not code (rule 5).

@@ -100,7 +100,7 @@ skylit_symbols:              # map name -> API option root (§3.1). SPX's 0DTE b
   SPX: SPXW
 skylit_metric: gamma         # decided (§3.1 Metric)
 skylit_max_expirations: 1    # decided (§3.1 Expirations), history and stream alike
-skylit_max_strikes: 200      # set at step 7 from full-chain calls
+skylit_max_strikes: "all"    # step 7 (owner 2026-10-06): whole 0DTE chain; API maxStrikes is not "N nearest spot" (200 cut NDXP nodes, §3.1)
 strike_edge_margin: 5
 skylit_stale_sec: 45
 skylit_credit_warn: 10000

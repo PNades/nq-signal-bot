@@ -10,7 +10,7 @@ from nqbot.clients.skylit_pull import (
     SessionResult, SkylitPullJob, pull_session, pull_window, session_windows, uncached_windows,
 )
 from nqbot.clients.skylit_store import (
-    CacheMismatch, SkylitStore, ms, range_to_tables, read_meta, vol_history_to_table,
+    CacheMismatch, SkylitStore, historical_to_table, ms, range_to_tables, read_meta, vol_history_to_table,
 )
 from nqbot.features.mapping import board_tau_ns, last_price_at_or_before, ratio_for_boards
 from nqbot.jobs.runner import StopChunk, run_job
@@ -296,3 +296,15 @@ def test_job_stops_cleanly_on_402(paths, settings, log, clock, monkeypatch):
     result = run_job(job, settings, paths, until=clock.now() + timedelta(hours=8), log=log, now=clock.now,
                      sleep=clock.sleep, is_trading_day=lambda d: d.weekday() < 5)
     assert result.status == "credits" and result.done == 0 and "top up" in result.message
+
+
+def test_historical_to_table_takes_large_whole_numbers():
+    """Step 7 (2026-10-06): a real /v1/historical answer carried value 29565152 as a JSON integer; float32 holds it
+    (rounded) once it is a float, as the range path does, instead of pyarrow refusing it."""
+    body = {"meta": {"resolution": "1s"}, "data": {"symbols": [{
+        "symbol": "QQQ", "asOf": "2025-10-01T16:26:52Z", "spot": 600, "previousClose": 598.5, "expirations": ["2025-10-01"],
+        "strikes": [{"strike": 600, "value": 29565152, "nodeType": "king"}, {"strike": 601, "value": -12.5}]}]}}
+    t = historical_to_table(body, {"QQQ": "QQQ"}, datetime(2025, 10, 1, 16, 26, 52, tzinfo=timezone.utc))
+    assert t.num_rows == 2
+    assert t["value"].to_pylist() == [29565152.0, -12.5]
+    assert t["node_type"].to_pylist() == ["king", None]

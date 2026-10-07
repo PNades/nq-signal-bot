@@ -78,6 +78,10 @@ def test_window_prediction_and_zero_dte():
     bad = _strikes([("QQQ", t, float(a), 1.0) for a in (3, 4, 5, 6)])
     assert an.window_prediction_mismatches(full_b, full_s, good, 5) == {"QQQ": 0}
     assert an.window_prediction_mismatches(full_b, full_s, bad, 5) == {"QQQ": 1}
+    assert an.nearest_window(np.arange(1.0, 12.0), 6.0, "all") == set(np.arange(1.0, 12.0).tolist())
+    whole = _strikes([("QQQ", t, float(a), 1.0) for a in range(1, 12) if a != 7])
+    assert an.window_prediction_mismatches(full_b, full_s, whole, "all") == {"QQQ": 0}
+    assert an.window_prediction_mismatches(full_b, full_s, good, "all") == {"QQQ": 1}
     b = _boards([{"symbol": "SPX", "as_of": t, "expirations": "2026-03-05"},
                  {"symbol": "SPX", "as_of": ts("2026-03-06T14:30:00+00:00"), "expirations": "2026-03-20"}])
     assert an.zero_dte_misses(b) == [{"symbol": "SPX", "session": "2026-03-06", "expirations": "2026-03-20", "boards": 1}]

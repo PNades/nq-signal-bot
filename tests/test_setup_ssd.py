@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -23,7 +24,12 @@ OCT_21 = datetime(2026, 10, 21, 12, 0, tzinfo=ET)  # only 8 left: month 1 = Octo
 def cfg(tmp_path):
     d = tmp_path / "config"
     d.mkdir()
-    shutil.copy(CONFIG_DIR / "settings.yaml", d / "settings.yaml")
+    # The committed file as it was before step 4b (paths.root and months unset): the real SSD-day values must not
+    # change these tests (step 4b was run on 2026-10-06).
+    text = (CONFIG_DIR / "settings.yaml").read_bytes().decode("utf-8")
+    text = re.sub(r'(?m)^  root: "[^"]*"', "  root: null", text, count=1)
+    text = re.sub(r"(?m)^months: \{[^}]*\} ?", "months: null            ", text, count=1)
+    (d / "settings.yaml").write_bytes(text.encode("utf-8"))
     return d / "settings.yaml"
 
 

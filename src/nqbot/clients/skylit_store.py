@@ -136,15 +136,22 @@ def _strike_table(asof: list[np.ndarray], syms: list[str], counts: list[int], st
     ], schema=STRIKE_SCHEMA)
 
 
+def _float(v: Any) -> float | None:
+    return None if v is None else float(v)
+
+
 def historical_to_table(body: dict[str, Any], root_to_map: dict[str, str], requested_at: datetime) -> pa.Table:
     rows: dict[str, list[Any]] = {name: [] for name in HISTORICAL_SCHEMA.names}
     req = utc_ms(requested_at)
     for sym in body["data"]["symbols"]:
         for node in sym["strikes"]:
             for key, val in (("as_of", ms(sym["asOf"])), ("requested_at", req), ("symbol", _map_name(sym["symbol"], root_to_map)),
-                             ("api_symbol", sym["symbol"]), ("spot", sym["spot"]), ("previous_close", sym["previousClose"]),
+                             ("api_symbol", sym["symbol"]), ("spot", _float(sym["spot"])),
+                             ("previous_close", _float(sym["previousClose"])),
                              ("expirations", ",".join(sym["expirations"])), ("resolution", body["meta"]["resolution"]),
-                             ("strike", node["strike"]), ("value", node["value"]), ("node_type", node.get("nodeType"))):
+                             # floats first: pyarrow refuses a whole number above 2**24 into float32 (step 7, 2026-10-06)
+                             ("strike", _float(node["strike"])), ("value", _float(node["value"])),
+                             ("node_type", node.get("nodeType"))):
                 rows[key].append(val)
     return pa.Table.from_pydict(rows, schema=HISTORICAL_SCHEMA)
 
