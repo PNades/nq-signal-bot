@@ -374,7 +374,10 @@ def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
                     if md.tau[j] > window_end:
                         break
                     a, b = md.spot[j - 1] - k, md.spot[j] - k
-                    if a * b > 0 or (a == 0 and b == 0):
+                    # a spot landing exactly on the strike is one touch, counted on its arrival (b == 0); the pair
+                    # that leaves it (a == 0) is not a second crossing, and its R would come from the board whose
+                    # own spot is the strike (k * F / k = F: a 0.00 diff that proves nothing)
+                    if a * b > 0 or a == 0:
                         continue
                     # the moment spot traded at the strike, interpolated between the two boards
                     t_k = int(md.tau[j - 1] + (a / (a - b)) * (md.tau[j] - md.tau[j - 1])) if a != b else int(md.tau[j])
@@ -389,7 +392,7 @@ def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
                     gated = md.resolution[j] == "1s" and md.resolution[j - 1] == "1s"  # 1-minute: information only
                     crossings.append({"at": _et(t_k), "futures": round(f_then, 2), "mapped": round(mapped, 2),
                                       "diff": round(abs(f_then - mapped), 2), "gate": gated,
-                                      "within_tol": abs(f_then - mapped) <= tol[root]})
+                                      "within_tol": bool(abs(f_then - mapped) <= tol[root])})
                 nodes.append({"strike": float(k), "pct_of_king": round(float(pct), 3), "level": round(level, 2),
                               "band": [round((k - bands[m]) * r_i, 2), round((k + bands[m]) * r_i, 2)],
                               "crossings": crossings})
@@ -431,8 +434,22 @@ def _et(ns: int) -> str:
 
 # --- gate report ----------------------------------------------------------------------------------------
 
+def latest_atlas_by_date(paths: Paths) -> dict[str, dict[str, Any]]:
+    """The latest atlas report of each date (a later run of the same date replaces the earlier one)."""
+    out: dict[str, dict[str, Any]] = {}
+    for f in sorted(reports_dir(paths).glob("atlas_*.json")):
+        rep = json.loads(f.read_text(encoding="utf-8"))
+        out[rep["date"]] = rep
+    return out
+
+
 def check_report(env: Env) -> Path:
-    prec, lag, atlas = (latest_report(env.paths, n) for n in ("precision", "spot_lag", "atlas"))
+    prec, lag = (latest_report(env.paths, n) for n in ("precision", "spot_lag"))
+    try:  # §12 step 8b: every sample day has its own Atlas table
+        atlas_days = [d.isoformat() for d in days_to_check(env, None)]
+    except CheckRefused:
+        atlas_days = []
+    atlas_by_date = latest_atlas_by_date(env.paths)
     lines = ["# Step-8b gate: level-mapping precision (§5.1, §12 step 8b)", ""]
     if prec is None:
         lines += ["- Precision: **pending** (`nqbot step8b precision`)"]
@@ -456,13 +473,20 @@ def check_report(env: Env) -> Path:
             lines.append(f"  - {day}: " + ", ".join(f"{m} {o['peak_lag_s']} s" + ("" if o["gate"] else f" (1-minute: "
                                                                                      f"{o.get('recommendation')})")
                                                     for m, o in per.items()))
-    if atlas is None:
-        lines += ["- Atlas match: **pending** (`nqbot step8b atlas --date D --minutes HH:MM,...`, then the owner's check)"]
-    else:
-        lines += [f"- Atlas match ({atlas['date']} {', '.join(atlas['minutes'])}): {atlas['crossings']} crossings, "
-                  f"all within atlas_match_tol: {atlas['all_within_tol']}; **owner's check in Atlas replay: pending** "
-                  f"(table: atlas_{atlas['date']}.md)"]
-    gate = bool(prec and prec["pass"] and lag and lag["pass"] and atlas and atlas["all_within_tol"])
+    atlas_ok = bool(atlas_days) and all(d in atlas_by_date and atlas_by_date[d]["all_within_tol"] for d in atlas_days)
+    lines += [f"- Atlas match (every sample day; crossings between 1-second boards within atlas_match_tol): "
+              f"**{'PASS' if atlas_ok else 'FAIL' if all(d in atlas_by_date for d in atlas_days) else 'pending'}**; "
+              "**owner's check in Atlas replay: pending**"]
+    for d in atlas_days:
+        a = atlas_by_date.get(d)
+        if a is None:
+            lines.append(f"  - {d}: **pending** (`nqbot step8b atlas --date {d} --minutes HH:MM,...`)")
+            continue
+        within = sum(c["within_tol"] for rows in a["maps"].values() for row in rows for n in row.get("nodes", [])
+                     for c in n["crossings"] if c["gate"])
+        lines.append(f"  - {d} ({', '.join(a['minutes'])}): {within} of {a['gated_crossings']} gated crossings within "
+                     f"tolerance ({a['crossings']} in all); all within: {a['all_within_tol']} (table: atlas_{d}.md)")
+    gate = bool(prec and prec["pass"] and lag and lag["pass"] and atlas_ok)
     lines += ["", f"**Gate 8b: {'ready for the owner (Atlas check)' if gate else 'not passed yet'}.** It must pass "
                   "before step 11. If a chain fails, find the cause (stale spot, wrong second, slow map cadence) "
                   "before anything else; never raise the threshold."]

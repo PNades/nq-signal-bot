@@ -154,6 +154,29 @@ def test_atlas_side_by_side(env):
     assert "| Strike | % of King | Mapped NQ |" in md and "## SPY -> ES" in md
 
 
+def test_atlas_counts_an_exact_touch_once(env):
+    """QQQ spot 599.5 -> exactly 600.0 for 5 s -> 600.5: strike 600 is crossed once, not twice (the board that
+    leaves the strike would map it with its own R, k * F / k = F, a 0.00 diff that proves nothing)."""
+    ts = np.arange(_ns(time(9, 0)), _ns(time(10, 30)), NS, dtype=np.int64)
+    nq = np.where(ts < _ns(time(9, 50)), 23_980.0, np.where(ts < _ns(time(9, 50, 5)), 24_000.0, 24_020.0))
+    px = {"NQ": nq, "ES": np.full(len(ts), 6_001.0)}
+    _write_futures(env, ts, px)
+    _write_boards(env, ts, px, noise=0.0)
+    rep = step8b.check_atlas(env, DAY, [time(9, 45)])
+    king = next(n for n in rep["maps"]["QQQ"][0]["nodes"] if n["strike"] == 600.0)
+    assert [c["at"] for c in king["crossings"]] == ["09:50:00"]
+
+
+def test_gate_report_covers_every_sample_day(env):
+    other = date(2026, 3, 6)
+    SkylitPullJob.write_plan(env.paths, "skylit_sample_days", [DAY, other], approved=None)
+    _setup(env, noise=1e-6, vol=(0.2, 0.1))
+    step8b.check_atlas(env, DAY, [time(9, 45)])
+    text = step8b.check_report(env).read_text(encoding="utf-8")
+    assert f"  - {DAY.isoformat()} (09:45): " in text and f"(table: atlas_{DAY.isoformat()}.md)" in text
+    assert f"  - {other.isoformat()}: **pending**" in text and "not passed yet" in text
+
+
 def test_gate_report_and_cli(env, settings, drive, monkeypatch, capsys):
     monkeypatch.setattr(cli, "load_settings", lambda: settings)
     assert cli.main(["step8b", "report"]) == 0
