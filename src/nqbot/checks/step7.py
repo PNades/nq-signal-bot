@@ -604,6 +604,8 @@ def check_parity(env: Env, session: date, tag: str | None = None, approved: int 
         "matched": res.matched, "only_stream": res.only_stream[:50], "n_only_stream": len(res.only_stream),
         "only_history": res.only_history[:50], "n_only_history": len(res.only_history),
         "revised": res.revised[:50], "n_revised": len(res.revised), "STOP_ask_owner": res.stop,
+        "matched_by": "symbol + clock second (the stream's asOf is whole seconds, history keeps ms)",
+        "same_second_boards": res.same_second,
         "extra_history": an.extra_history_boards(sbt, hb, start, end),
         "latency": an.latency_report(sbt), "events_summary": an.event_report(events),
         "stream_max_strikes": rec_meta["params"]["maxStrikes"], "clock_offset_ms": rec_meta.get("clock_offset_ms"),

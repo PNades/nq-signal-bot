@@ -114,6 +114,25 @@ def test_compare_boards_revised_means_stop():
     assert an.compare_boards(*_pair({510.0: 1e6}, {510.0: 1e6, 515.0: 400.0})).stop  # a real strike only in history
 
 
+def test_compare_boards_pairs_stream_seconds_with_history_milliseconds():
+    """Step 7 (2026-10-08): the stream's asOf is whole seconds, history keeps the ms of the same board."""
+    t = ts("2026-03-05T14:30:01+00:00")
+    t_ms = t + timedelta(milliseconds=191)
+    sb = _boards([{"symbol": "QQQ", "as_of": t, "spot": 512.4}])
+    hb = _boards([{"symbol": "QQQ", "as_of": t_ms, "spot": 512.4}])
+    res = an.compare_boards(sb, _strikes([("QQQ", t, 510.0, 1e6)]), hb, _strikes([("QQQ", t_ms, 510.0, 1e6)]))
+    assert res.matched == 1 and not res.only_stream and not res.only_history and not res.stop
+    bad = an.compare_boards(sb, _strikes([("QQQ", t, 510.0, 1e6)]), hb, _strikes([("QQQ", t_ms, 510.0, 2e6)]))
+    assert bad.stop and bad.revised[0]["as_of"].endswith(".191")  # a revised board still stops, labelled by history
+    nxt = _boards([{"symbol": "QQQ", "as_of": t + timedelta(seconds=1), "spot": 512.4}])  # the next second: no pair
+    other = an.compare_boards(nxt, _strikes([("QQQ", t + timedelta(seconds=1), 510.0, 1e6)]), hb,
+                              _strikes([("QQQ", t_ms, 510.0, 1e6)]))
+    assert other.matched == 0 and len(other.only_stream) == 1 and len(other.only_history) == 1
+    two = _boards([{"symbol": "QQQ", "as_of": t_ms, "spot": 512.4},
+                   {"symbol": "QQQ", "as_of": t + timedelta(milliseconds=900), "spot": 512.4}])
+    assert an.compare_boards(sb, _strikes([("QQQ", t, 510.0, 1e6)]), two, _strikes([])).same_second == 1
+
+
 def test_compare_boards_only_one_side_and_extra_history():
     t1, t2 = ts("2026-03-05T14:30:01+00:00"), ts("2026-03-05T14:30:02+00:00")
     sb = _boards([{"symbol": "QQQ", "as_of": t1, "spot": 1.0}])

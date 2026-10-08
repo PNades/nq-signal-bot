@@ -193,6 +193,7 @@ class ParityResult:
     only_stream: list[tuple[str, str]] = field(default_factory=list)
     only_history: list[tuple[str, str]] = field(default_factory=list)
     revised: list[dict[str, Any]] = field(default_factory=list)  # boards present in both that differ
+    same_second: int = 0  # boards dropped because their side already had a board in that clock second
 
     @property
     def stop(self) -> bool:
@@ -202,31 +203,43 @@ class ParityResult:
 
 def compare_boards(stream_boards: pa.Table, stream_strikes: pa.Table, hist_boards: pa.Table, hist_strikes: pa.Table,
                    start: datetime | None = None, end: datetime | None = None) -> ParityResult:
-    """Board-by-board comparison by (symbol, asOf), optionally inside [start, end]."""
+    """Board-by-board comparison by (symbol, clock second of asOf), optionally inside [start, end].
+
+    Step 7 (2026-10-08): the stream stamps a board's asOf in whole seconds while /v1/historical/range keeps the
+    milliseconds of the same board (18:59:25 vs 18:59:25.191), so boards pair up by their second, not the exact ms;
+    labels keep each side's own timestamp, and a second holding two boards on one side is counted (`same_second`)."""
     lo = None if start is None else _ms_of(start)
     hi = None if end is None else _ms_of(end)
+    res = ParityResult()
 
-    def boards_of(tbl: pa.Table) -> dict[tuple[str, int], float]:
-        return {key: spot for key, spot in zip(board_keys(tbl), tbl["spot"].to_pylist())
-                if (lo is None or key[1] >= lo) and (hi is None or key[1] <= hi)}
+    def boards_of(tbl: pa.Table) -> dict[tuple[str, int], tuple[int, float]]:
+        out: dict[tuple[str, int], tuple[int, float]] = {}
+        for (sym, ms), spot in zip(board_keys(tbl), tbl["spot"].to_pylist()):
+            if (lo is None or ms >= lo) and (hi is None or ms <= hi):
+                sec = (sym, ms // 1000)
+                if sec in out:
+                    res.same_second += 1
+                out[sec] = (ms, spot)
+        return out
 
     sb, hb = boards_of(stream_boards), boards_of(hist_boards)
     ss, hs = _strikes_by_board(stream_strikes), _strikes_by_board(hist_strikes)
     none = (np.array([]), np.array([]))
-    res = ParityResult()
     for key in sorted(set(sb) | set(hb)):
-        label = (key[0], str(np.datetime64(key[1], "ms")))
+        side = sb.get(key) or hb.get(key)
+        label = (key[0], str(np.datetime64(side[0], "ms")))
         if key not in hb:
             res.only_stream.append(label)
             continue
         if key not in sb:
             res.only_history.append(label)
             continue
+        label = (key[0], str(np.datetime64(hb[key][0], "ms")))
         diffs = []
-        if abs(sb[key] - hb[key]) > SPOT_ATOL:
+        if abs(sb[key][1] - hb[key][1]) > SPOT_ATOL:
             diffs.append("spot differs")
-        a = dict(zip(*(x.tolist() for x in ss.get(key, none))))
-        b = dict(zip(*(x.tolist() for x in hs.get(key, none))))
+        a = dict(zip(*(x.tolist() for x in ss.get((key[0], sb[key][0]), none))))
+        b = dict(zip(*(x.tolist() for x in hs.get((key[0], hb[key][0]), none))))
         for strike in sorted(set(a) | set(b)):
             va, vb = a.get(strike), b.get(strike)
             if va is None or vb is None:
@@ -309,7 +322,8 @@ def event_report(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 def extra_history_boards(stream_boards: pa.Table, hist_boards: pa.Table, start: datetime, end: datetime) -> dict[str, Any]:
     """Input for the §3.1 thinning rule when history holds boards the stream never sent: per symbol, how many,
-    how far each sits from the nearest streamed board, and how many share a clock second with one."""
+    how far each sits from the nearest streamed board, and how many share a clock second with one. A history board
+    is extra only if the stream sent no board in its clock second (the stream's asOf is whole seconds)."""
     lo, hi = _ms_of(start), _ms_of(end)
 
     def times(tbl: pa.Table) -> dict[str, np.ndarray]:
@@ -323,7 +337,7 @@ def extra_history_boards(stream_boards: pa.Table, hist_boards: pa.Table, start: 
     out = {}
     for sym, hist in ht.items():
         streamed = st.get(sym, np.array([], dtype=np.int64))
-        extra = hist[~np.isin(hist, streamed)]
+        extra = hist[~np.isin(hist // 1000, streamed // 1000)]  # by clock second, like compare_boards (2026-10-08)
         rec: dict[str, Any] = {"history": int(len(hist)), "stream": int(len(streamed)), "extra_in_history": int(len(extra))}
         if len(extra) and len(streamed):
             right = np.minimum(np.searchsorted(streamed, extra), len(streamed) - 1)
