@@ -41,6 +41,7 @@ REPULL_REASONS = frozenset({
     "parity",              # step-7 stream vs history parity (§3.1 Ingest)
     "late_print",          # step-7 dark-pool late-print check
     "tempest_recheck",     # step 7/22: do Tempest rows change on later pulls
+    "tempest_intraday",    # step-7 tempest-poll --today: the row seen before the close (Tempest re-pull check, owner 2026-10-07)
     "strike_window_raise", # a step-7 sample day if skylit_max_strikes is raised
     "partial_write",       # a window whose two files weren't both written (crash between renames)
 })
@@ -348,8 +349,11 @@ class SkylitStore:
         return (base or self.root) / "vol" / f"history_{start.isoformat()}_{end.isoformat()}_{pulled}.parquet"
 
     def vol_files(self, start: date | None = None, end: date | None = None) -> list[Path]:
+        """The stored Tempest rows: the one loader that history, features and the step-7/10 code read. Only files
+        directly in `vol/`, never a copy under `repull/` (e.g. the pre-close `tempest_intraday` row, owner 2026-10-07)."""
         folder = self.root / "vol"
         files = sorted(folder.glob("history_*.parquet")) if folder.exists() else []
+        files = [p for p in files if "repull" not in p.relative_to(self.root).parts]  # guard, whatever the glob
         if start and end:
             files = [p for p in files if p.name.startswith(f"history_{start.isoformat()}_{end.isoformat()}_")]
         return files

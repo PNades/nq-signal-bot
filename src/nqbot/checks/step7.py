@@ -56,6 +56,8 @@ LATE_PRINT_MORNINGS = 5  # §12 step 7: >= 5 mornings
 LATE_PRINT_WAIT_SESSIONS = 5  # re-pulled >= 5 trading days later; also how long a date's prints count as provisional
 TEMPEST_MIN_MORNINGS = 2  # §12 step 7: record the first appearance on two or more mornings
 TEMPEST_POLL_MIN = 5  # minutes between free /v1/vol/symbols polls
+TEMPEST_TODAY_POLL_MIN = 1  # --today (owner 2026-10-07): poll each minute from during the session to time the publish
+TEMPEST_AFTER_CLOSE_MIN = 10  # --today: a row seen before the close is pulled again this long after it and diffed
 TEMPEST_DEADLINE_ET = time(9, 0)  # §5.2: the previous session's row must reliably be there by 09:00 ET
 TEMPEST_DEPTH_DAYS = 14  # calendar days pulled to confirm Tempest reaches back before month 1 (1 credit)
 TEMPEST_SYMBOLS = ("QQQ", "SPY", "NDXP", "SPXW")  # Tempest keys the S&P complex on SPXW (Skylit docs)
@@ -1186,15 +1188,26 @@ def _history_through(vol_symbols: dict[str, Any]) -> tuple[dict[str, str | None]
 
 
 def check_tempest_poll(env: Env, until: time = RTH_OPEN, approved: int | None = None,
-                       sleep: Callable[[float], None] | None = None) -> dict[str, Any]:
+                       sleep: Callable[[float], None] | None = None, today: bool = False) -> dict[str, Any]:
     """Poll the free /v1/vol/symbols until each symbol's last stored session reaches the one just closed;
-    record when it first appears (on time = by 09:00 ET of the session that uses it, §5.2)."""
+    record when it first appears (on time = by 09:00 ET of the session that uses it, §5.2).
+
+    today=True (owner 2026-10-07): started during today's session, wait for today's row, polling every
+    TEMPEST_TODAY_POLL_MIN, to time the real publish and see whether the row exists before the close. A row seen
+    before the close is pulled then (kept apart, `repull/tempest_intraday/`) and again TEMPEST_AFTER_CLOSE_MIN after
+    the close (the stored row); the report counts the changed cells (no values, §7 rule 2b)."""
     import time as _time
 
     sleep = sleep or _time.sleep
     now = env.now()
+    close_dt = None
+    if today:
+        if not (env.trading_day(now.date()) and now.time() < env.close_of(now.date())):
+            raise CheckRefused("tempest-poll --today runs during a trading session, before its close")
+        prev = now.date()
+        close_dt = datetime.combine(prev, env.close_of(prev), tzinfo=ET)
     # The row awaited: today's session if started after today's close, else the previous session's.
-    if env.trading_day(now.date()) and now.time() >= env.close_of(now.date()):
+    elif env.trading_day(now.date()) and now.time() >= env.close_of(now.date()):
         prev = now.date()
     else:
         prev = dp.previous_session(now.date(), 1, env.trading_day)
@@ -1211,9 +1224,23 @@ def check_tempest_poll(env: Env, until: time = RTH_OPEN, approved: int | None = 
                 first_seen[s] = stamp.isoformat()
         if all(first_seen.values()) or stamp >= deadline:
             break
-        sleep(TEMPEST_POLL_MIN * 60)
+        sleep((TEMPEST_TODAY_POLL_MIN if today else TEMPEST_POLL_MIN) * 60)
         through, field_used = _history_through(env.client.vol_symbols())
     seen = [s for s in targets if first_seen[s]]
+    intraday = None
+    if today and seen and any(datetime.fromisoformat(first_seen[s]) < close_dt for s in seen):
+        _gate(env, credits.vol_history_estimate("Tempest row seen before the close", len(seen), prev, prev), approved)
+        with env.client.tagged(tempest="intraday_row"):
+            body, _ = env.client.vol_history(seen, prev, prev)
+        pulled = env.now().astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        intraday = env.store.vol_path(prev, prev, pulled, base=env.store.base("tempest_intraday"))
+        write_parquet(intraday, vol_history_to_table(body), {"params": {"symbols": seen, "from": prev.isoformat(),
+                                                                       "to": prev.isoformat()},
+                                                            "pulled_at": env.now().isoformat(), "repull": "tempest_intraday"})
+        after = close_dt + timedelta(minutes=TEMPEST_AFTER_CLOSE_MIN)
+        env.echo(f"  {prev}'s row is out before the close: pulled now, again at {after:%H:%M} ET to see if it changes")
+        while env.now() < after:
+            sleep(min(60.0, max(1.0, (after - env.now()).total_seconds())))
     stored = None
     already = env.store.vol_files(prev, prev)
     if seen and not already:  # pull only the new row, once (later rows are re-pulled only by tempest-compare)
@@ -1230,6 +1257,18 @@ def check_tempest_poll(env: Env, until: time = RTH_OPEN, approved: int | None = 
     report = {"session_using_row": uses.isoformat(), "prev_session": prev.isoformat(), "first_seen": first_seen,
               "present_at_start": present_at_start, "by_09_00": on_time, "field_used": field_used,
               "vix_served": VIX in targets, "stored": str(stored) if stored else None}
+    if today:
+        report["today_mode"] = {"started": now.isoformat(), "close": close_dt.isoformat(),
+                                "seen_before_close": {s: bool(t and datetime.fromisoformat(t) < close_dt)
+                                                      for s, t in first_seen.items()},
+                                "intraday_copy": str(intraday) if intraday else None}
+        if intraday is not None and stored is not None:
+            diffs = an.compare_vol_tables(pq.read_table(intraday).replace_schema_metadata(None),
+                                          pq.read_table(stored).replace_schema_metadata(None))
+            report["today_mode"]["changed_cells_after_close"] = len(diffs)
+            report["today_mode"]["changed_fields"] = sorted({d.get("field") for d in diffs if d.get("field")})
+            env.echo(f"  cells that changed between the pre-close row and the row {TEMPEST_AFTER_CLOSE_MIN} min after "
+                     f"the close: {len(diffs)}")
     env.echo(f"  previous-session rows first seen: {first_seen} (present at start: {present_at_start})")
     write_report(env, f"tempest_poll_{uses.isoformat()}", report)
     return report
@@ -1257,7 +1296,15 @@ def check_tempest_compare(env: Env, approved: int | None = None) -> dict[str, An
     second = vol_history_to_table(body)
     write_parquet(folder / first.name, second, {"params": p, "pulled_at": env.now().isoformat(), "repull": "tempest_recheck"})
     diffs = an.compare_vol_tables(pq.read_table(first).replace_schema_metadata(None), second)
-    report = {"first": first.name, "changed_cells": len(diffs), "diffs": diffs[:100]}
+    # when each copy was pulled: a re-pull before the next session's open shows the row is final by then (owner
+    # 2026-10-07: the 16:10 copy of a --today poll against the next morning's)
+    first_at = datetime.fromisoformat(meta["pulled_at"]).astimezone(ET)
+    again_at = env.now().astimezone(ET)
+    nxt = _next_session(env, end)
+    report = {"first": first.name, "first_pulled_at": first_at.isoformat(), "repulled_at": again_at.isoformat(),
+              "repulled_before_open_of": nxt.isoformat()
+              if again_at < datetime.combine(nxt, RTH_OPEN, tzinfo=ET) else None,
+              "changed_cells": len(diffs), "diffs": diffs[:100]}
     env.echo(f"  {len(diffs)} Tempest cells changed between pulls")
     write_report(env, "tempest_compare", report)
     return report

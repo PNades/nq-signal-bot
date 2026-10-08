@@ -308,3 +308,19 @@ def test_historical_to_table_takes_large_whole_numbers():
     assert t.num_rows == 2
     assert t["value"].to_pylist() == [29565152.0, -12.5]
     assert t["node_type"].to_pylist() == ["king", None]
+
+
+def test_tempest_history_loader_ignores_repull_copies(tmp_path):
+    """Owner 2026-10-07: the pre-close Tempest row kept by `tempest-poll --today` (repull/tempest_intraday/) is never
+    read by anything that builds history or features: vol_files() returns only the rows directly in vol/."""
+    from nqbot.storage import Paths
+
+    store = SkylitStore(Paths.under(tmp_path, "nqbot"))
+    d = date(2026, 10, 8)
+    kept = store.vol_path(d, d, "20261008T200000Z")
+    intraday = store.vol_path(d, d, "20261008T193000Z", base=store.base("tempest_intraday"))
+    for p in (kept, intraday):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"x")
+    assert "repull" in intraday.parts and "tempest_intraday" in intraday.parts
+    assert store.vol_files() == [kept] and store.vol_files(d, d) == [kept]

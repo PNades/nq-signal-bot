@@ -271,6 +271,9 @@ def _add_step7(sub: argparse._SubParsersAction) -> None:
     add("late-prints-compare", "re-pull each morning >= 5 trading days later and compare")
     p = add("tempest-poll", "poll the free /v1/vol/symbols until the previous session's row appears")
     p.add_argument("--until", type=_hhmm, default=None, help="stop polling at this ET time (default 09:30)")
+    p.add_argument("--today", action="store_true",
+                   help="start during the session: wait for today's row (polls every minute), see if it exists or "
+                        "changes before the close (owner 2026-10-07)")
     add("tempest-compare", "re-pull the oldest stored Tempest row not yet re-checked and diff it")
     add("tempest-depth", "does Tempest history reach back far enough before month 1 (1-2 credits)")
     add("dp-start-probe", "is dp_history_start still Skylit's first dark-pool date? (5 credits; owner 2026-10-07)")
@@ -383,7 +386,7 @@ def _step7_check(args: argparse.Namespace, settings, paths, log, env, approve) -
         case "late-prints-compare":
             step7.check_late_prints_compare(env, approve)
         case "tempest-poll":
-            step7.check_tempest_poll(env, args.until or step7.RTH_OPEN, approve)
+            step7.check_tempest_poll(env, args.until or step7.RTH_OPEN, approve, today=args.today)
         case "tempest-compare":
             step7.check_tempest_compare(env, approve)
         case "tempest-depth":

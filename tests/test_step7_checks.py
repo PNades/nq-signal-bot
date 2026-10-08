@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -601,3 +602,45 @@ def test_dp_start_probe(env):
     rep = step7.check_dp_start_probe(env)
     assert not rep["still_there"] and rep["new_start"] == "2026-03-04" and len(rep["probes"]) == 3
     assert "price" not in json.dumps(rep)
+
+
+def test_tempest_poll_today_times_the_publish_and_diffs_a_pre_close_row(env):
+    """Owner 2026-10-07: started during the session, --today waits for today's row (each minute); a row out before
+    the close is pulled then and again after the close, and the changed cells are counted (no values)."""
+    clock = {"t": datetime(2026, 3, 16, 15, 0, tzinfo=ET)}
+    env.now = lambda: clock["t"]
+
+    def sleep(sec):
+        clock["t"] += timedelta(seconds=sec)
+
+    def vol_symbols(r):  # today's row appears at 15:30, before the 16:00 close
+        through = "2026-03-16" if clock["t"] >= datetime(2026, 3, 16, 15, 30, tzinfo=ET) else "2026-03-13"
+        return {"data": {"symbols": [{"symbol": "QQQ", "historyThrough": through},
+                                     {"symbol": "SPY", "historyThrough": through}], "missing": []}}
+
+    def hist(r):  # QQQ's svx30 is revised once the session has closed
+        syms = r.url.params["symbols"].split(",")
+        late = clock["t"] >= datetime(2026, 3, 16, 16, 0, tzinfo=ET)
+        val = lambda s: 21.0 if s == "QQQ" and late else 20.0  # noqa: E731
+        return {"data": {"from": r.url.params["from"], "to": r.url.params["to"], "missing": [],
+                         "symbols": [{"symbol": s, "dates": ["2026-03-16"], "columns": {"svx30": [val(s)]}} for s in syms]},
+                "meta": {}}
+
+    env.fake.routes["/v1/vol/symbols"] = vol_symbols
+    env.fake.routes["/v1/vol/history"] = hist
+    rep = step7.check_tempest_poll(env, sleep=sleep, today=True)
+    tm = rep["today_mode"]
+    assert rep["prev_session"] == "2026-03-16" and rep["session_using_row"] == "2026-03-17"
+    assert rep["first_seen"]["QQQ"].startswith("2026-03-16T15:30") and tm["seen_before_close"] == {"QQQ": True, "SPY": True}
+    assert tm["intraday_copy"] and "tempest_intraday" in tm["intraday_copy"]
+    assert tm["changed_cells_after_close"] == 1 and tm["changed_fields"] == ["svx30"]
+    assert clock["t"] >= datetime(2026, 3, 16, 16, 10, tzinfo=ET)  # waited until 10 minutes after the close
+    assert "21.0" not in json.dumps(rep) and "20.0" not in json.dumps(rep)
+    clock["t"] = datetime(2026, 3, 17, 8, 45, tzinfo=ET)  # next morning, before the open: the 16:10 copy is re-checked
+    cmp_ = step7.check_tempest_compare(env)
+    assert cmp_["first"] == Path(rep["stored"]).name and "tempest_intraday" not in cmp_["first"]
+    assert cmp_["first_pulled_at"].startswith("2026-03-16T16:10") and cmp_["repulled_before_open_of"] == "2026-03-17"
+    assert cmp_["changed_cells"] == 0
+    clock["t"] = datetime(2026, 3, 16, 16, 30, tzinfo=ET)
+    with pytest.raises(step7.CheckRefused):
+        step7.check_tempest_poll(env, sleep=sleep, today=True)  # after the close: the plain mode is the one
