@@ -4,11 +4,12 @@ Uses the step-7 Skylit sample days (development month 6) and their step-8 NQ/ES 
 those days first, so this can run after the first night):
 
 - `precision`: at every applied, accepted board, |k * R_prev - k * R_cur| for each relevant node (>= 25% of King),
-  per chain as median / p95 / p99 / max, by time of day and by trailing 15-minute realized-vol tercile; pass =
-  p95 <= mapping_p95_max. Also the F1.2 rejection rate (frequent rejections: find the cause, never raise the
-  threshold) and the stop_buffer floor (the larger of the QQQ and NDXP p95).
-- `spot-lag`: cross-correlation of 1-second `spot` changes with futures trade-price changes over +-120 s; on the
-  1-second sample days the peak must be at 0-1 s. On a cached 1-minute day it is reported only (§3.1: is `asOf`
+  per chain as median / p95 / p99 / max, by time of day and by trailing 15-minute realized-vol tercile, next to
+  mapping_p95_max. A diagnostic since the owner's Q8b-4 answer (2026-10-08), not a gate condition. Also the F1.2
+  rejection rate (frequent rejections: find the cause, never raise the threshold) and the stop floors per level
+  source (`stop_buffer_floor`, §5.1).
+- `spot-lag`: cross-correlation of 1-second `spot` changes with futures trade-price changes over +-120 s; a
+  diagnostic (the alignment check replaces it in the gate). On a cached 1-minute day it answers §3.1 (is `asOf`
   the board's true time, or keep the +60 s?).
 - `atlas`: for minutes the owner picks, the QQQ/SPY strikes the bot treats as relevant nodes (strike, % of King,
   mapped level and band) and the moments spot crossed each strike, with the NQ/ES price then next to the mapped
@@ -286,19 +287,19 @@ def check_precision(env: Env, dates: list[date] | None = None) -> dict[str, Any]
             "boards": c["boards"], "applied": c["applied"], "rejected": c["rejected"],
             "rejection_rate": round(c["rejected"] / c["applied"], 5) if c["applied"] else None,
             "ratio_shift_days": c["shift_days"], "resolutions": c["resolutions"],
-            "p95_max": p95_max[m], "pass": overall["p95"] is not None and overall["p95"] <= p95_max[m],
+            "p95_max": p95_max[m],
+            "within_p95_max": overall["p95"] is not None and overall["p95"] <= p95_max[m],
         }
-    nq = [per_chain[m]["overall"]["p95"] for m in ("QQQ", "NDXP") if per_chain[m]["overall"]["p95"] is not None]
-    floor = max(nq) if nq else None
-    grid = env.features["tune_grids_13"]["execution"]["stop_buffer"]
-    report = {"days": [d.isoformat() for d in days], "per_chain": per_chain, "pass": all(c["pass"] for c in per_chain.values()),
-              "stop_buffer_floor": floor, "stop_buffer_setting": env.settings["stop_buffer"],
-              "stop_buffer_grid_below_floor": [g for g in grid if floor is not None and g < floor]}
+    floors = env.settings["stop_buffer_floor"]
+    report = {"days": [d.isoformat() for d in days], "per_chain": per_chain, "diagnostic": True,
+              "all_within_p95_max": all(c["within_p95_max"] for c in per_chain.values()),
+              "stop_buffer_floor": floors, "stop_buffer_setting": env.settings["stop_buffer"]}
+    env.echo("  F1.6 step change (diagnostic, not a gate condition):")
     for m in MAPS:
         o = per_chain[m]
-        env.echo(f"  {m}: p95 {o['overall']['p95']} {o['unit']} (max allowed {o['p95_max']}) "
-                 f"{'PASS' if o['pass'] else 'FAIL'}; rejected {o['rejected']}/{o['applied']} updates")
-    env.echo(f"  stop_buffer floor (larger of the QQQ/NDXP p95): {floor} NQ pts")
+        env.echo(f"  {m}: p95 {o['overall']['p95']} {o['unit']} (mapping_p95_max {o['p95_max']}: "
+                 f"{'within' if o['within_p95_max'] else 'above'}); rejected {o['rejected']}/{o['applied']} updates")
+    env.echo(f"  stop floors per level source (stop_buffer_floor, NQ pts): {_floors_text(floors)}")
     write_report(env, "precision", report)
     return report
 
@@ -443,6 +444,10 @@ def latest_atlas_by_date(paths: Paths) -> dict[str, dict[str, Any]]:
     return out
 
 
+def _floors_text(floors: dict[str, Any]) -> str:
+    return ", ".join(f"{k} {'pending' if v is None else v}" for k, v in floors.items())
+
+
 def check_report(env: Env) -> Path:
     prec, lag = (latest_report(env.paths, n) for n in ("precision", "spot_lag"))
     try:  # §12 step 8b: every sample day has its own Atlas table
@@ -454,21 +459,20 @@ def check_report(env: Env) -> Path:
     if prec is None:
         lines += ["- Precision: **pending** (`nqbot step8b precision`)"]
     else:
-        lines += [f"- Precision ({', '.join(prec['days'])}): **{'PASS' if prec['pass'] else 'FAIL'}**", "",
-                  "| Chain | p95 | max allowed | median | p99 | max | rejected / applied | pass |",
+        lines += [f"- F1.6 step change ({', '.join(prec['days'])}): diagnostic, not a gate condition (owner, Q8b-4)", "",
+                  "| Chain | p95 | mapping_p95_max | median | p99 | max | rejected / applied | within |",
                   "|---|---:|---:|---:|---:|---:|---|---|"]
         for m, c in prec["per_chain"].items():
             o = c["overall"]
             lines.append(f"| {m} ({c['unit']}) | {o['p95']} | {c['p95_max']} | {o['median']} | {o['p99']} | {o['max']} | "
-                         f"{c['rejected']} / {c['applied']} | {'yes' if c['pass'] else 'NO'} |")
-        lines += ["", f"- stop_buffer floor (larger of the QQQ/NDXP p95): {prec['stop_buffer_floor']} NQ pts "
-                      f"(setting {prec['stop_buffer_setting']}; grid values below it, dropped: "
-                      f"{prec['stop_buffer_grid_below_floor'] or 'none'})"]
+                         f"{c['rejected']} / {c['applied']} | {'yes' if c['within_p95_max'] else 'no'} |")
+        lines += ["", f"- Stop floors per level source (`stop_buffer_floor`, NQ pts, §5.1): "
+                      f"{_floors_text(prec['stop_buffer_floor'])} (`stop_buffer` {prec['stop_buffer_setting']})"]
     if lag is None:
         lines += ["- Spot lag: **pending** (`nqbot step8b spot-lag`)"]
     else:
-        lines += [f"- Spot lag (peak within {lag['pass_window_s'][0]}-{lag['pass_window_s'][1]} s on the 1-second days): "
-                  f"**{'PASS' if lag['pass'] else 'FAIL'}**"]
+        lines += [f"- Spot lag (diagnostic; the alignment check replaces it in the gate): peak within "
+                  f"{lag['pass_window_s'][0]}-{lag['pass_window_s'][1]} s on the 1-second days: {lag['pass']}"]
         for day, per in lag["per_day"].items():
             lines.append(f"  - {day}: " + ", ".join(f"{m} {o['peak_lag_s']} s" + ("" if o["gate"] else f" (1-minute: "
                                                                                      f"{o.get('recommendation')})")
@@ -486,10 +490,13 @@ def check_report(env: Env) -> Path:
                      for c in n["crossings"] if c["gate"])
         lines.append(f"  - {d} ({', '.join(a['minutes'])}): {within} of {a['gated_crossings']} gated crossings within "
                      f"tolerance ({a['crossings']} in all); all within: {a['all_within_tol']} (table: atlas_{d}.md)")
-    gate = bool(prec and prec["pass"] and lag and lag["pass"] and atlas_ok)
-    lines += ["", f"**Gate 8b: {'ready for the owner (Atlas check)' if gate else 'not passed yet'}.** It must pass "
-                  "before step 11. If a chain fails, find the cause (stale spot, wrong second, slow map cadence) "
-                  "before anything else; never raise the threshold."]
+    lines += ["- Gate conditions (a) bias (95% day-block interval contains 0 or is within one futures tick) and (b) the "
+              "chosen estimator's crossing p95 within 10% of the best possible R: **no command yet**; evidence in "
+              "`docs/step8b_findings.md` R2, R7, R8 (all chains pass; NDXP pending its method)",
+              "- Alignment check (content time never after floor(asOf) + 1 s): **no command yet** (`step8b alignment`)"]
+    lines += ["", f"**Gate 8b: {'Atlas tables ready for the owner' if atlas_ok else 'not passed yet'}; (a), (b) and the "
+                  "alignment check still need their commands.** It must pass before step 11. If a chain fails, find the "
+                  "cause (stale spot, wrong second, slow map cadence) before anything else; never raise a threshold."]
     path = reports_dir(env.paths) / "mapping_gate.md"
     atomic_write_text(path, "\n".join(lines) + "\n")
     env.echo(f"report: {path}")

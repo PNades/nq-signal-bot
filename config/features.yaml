@@ -81,6 +81,13 @@ mapping:
   ratio_open_skip_sec: 120
   mapping_p95_max: {QQQ: 1.0, NDXP: 0.5, SPY: 0.25, SPX: 0.25}   # NQ pts for QQQ/NDXP, ES pts for SPY/SPX
   atlas_match_tol: {NQ: 1.0, ES: 0.5}
+  # step 8b, owner 2026-10-08 (§5.1, F1.1, F1.7); NDXP pending the session recordings (§13 Q8b-1)
+  ratio_window_sec: {QQQ: 60, SPY: 60, SPX: 0, NDXP: null}   # trailing median of R over this many seconds; 0 = per board
+  ratio_gap_reset_sec: 10          # a board gap longer than this resets the trailing window
+  skylit_stamp_change_date: 2026-03-17   # Skylit asOf convention changed (before: whole seconds, content later in the second)
+  board_content_offset_ms:         # board content time = floor(asOf) + this; F is read there (median measured, findings R4)
+    before_stamp_change: {QQQ: 740, SPY: 840, SPX: -80, NDXP: null}
+    from_stamp_change: {QQQ: -60, SPY: null, SPX: -80, NDXP: null}   # SPY: March -60, live 10-07 +420; set from the recordings
 
 # --- Entries and order flow (§5.7) ---------------------------------------------------------------
 abs_volume: 300                   # contracts; tuned at step 19 (F16.5); approved 2026-10-05 (feature_spec F15)
@@ -155,7 +162,7 @@ tune_grids_13:
   execution:                      # styles (c) and (d), each on its own single-style policy
     entry_order_type: [limit, marketable_limit, stop_limit]
     entry_ttl_sec: [10, 30, 60, 120, 300]
-    stop_buffer: [1, 2.5, 5, 8, 12]   # pooled (c)+(d) trades; values below the step-8b floor dropped
+    stop_buffer: [1, 2.5, 5, 8, 12]   # pooled (c)+(d) trades; stop_buffer_floor applies per stop (F7)
 tune_grids_19:
   detectors_a:                    # absorption, scored on style (a) trades
     abs_volume: [150, 300, 600]

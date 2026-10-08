@@ -57,7 +57,9 @@ flat_alert_sec: 30
 unknown_alert_min: 5
 webhook_timeout_sec: 5
 entry_ttl_sec: {a: 5, b: 5, c: 60, d: 60}   # per entry style; start values approved 2026-10-05, frozen on months 1-4 (step 13/19)
-stop_buffer: 5                    # NQ pts start; floor = step-8b 95th percentile; frozen at step 13 (F16.4); approved 2026-10-05 (feature_spec F15)
+stop_buffer: 5                    # NQ pts start; frozen at step 13 (F16.4); approved 2026-10-05 (feature_spec F15)
+stop_buffer_floor: {QQQ: 4.0, NDXP: null, chart: 0}   # NQ pts, per source of the level a stop sits beyond (§6.2, F7);
+                                  # owner 2026-10-08 (step 8b): QQQ = the crossing p95; NDXP pending its method; chart levels no mapping floor
 entry_order_type:            # start values per entry style (§5.5b); frozen on months 1-4
   a: marketable_limit
   b: marketable_limit

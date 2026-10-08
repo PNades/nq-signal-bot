@@ -18,6 +18,12 @@ The gate's first run on the five step-7 sample days (2026-03-06, 03-11, 03-18, 0
 
 \* SPX: the level error is measured against a 2-minute centered median, which favours smoothers by construction. On the crossing test, SPX's per-board R beats that median (0.74 vs 0.78), so 0.64 overstates SPX's real level error.
 
+## Owner's decisions (2026-10-08, after round 3)
+- **Approved and written into SPEC §3.1/§5.1/§6.2, feature_spec F0.1/F1.1/F1.2/F1.7/F7 and config:** the ingest rule (τ = floor(`asOf`) + 1 s, F at the content time `board_content_offset_ms`); R = QQQ 60 s, SPY 60 s, SPX per board; `stop_buffer_floor` QQQ 4.0 NQ (the crossing p95), chart levels 0, SPY/SPX none.
+- **Pending:** NDXP's method and stop floor (lower intraday p95 against the real NDX on the recordings; ±20 band kept until the step-13 reaction-distance report); SPY's post-03-17 content offset (re-measured on the recordings).
+- **Q8b-4 answered (owner 2026-10-08):** gate = (a) bias interval contains 0 or within one futures tick, (b) chosen estimator p95 within 10% of the best possible R, the alignment check in place of spot lag, the Atlas check; F1.6 a diagnostic. Commands for (a)/(b) and `step8b alignment` are still to build.
+- **Recordings:** `--maps NDXP,QQQ,SPY` on 10-09, 10-12, 10-13 (≈ 1,185 credits each, ≤ 1,254 with 12 reconnects); $0 Databento NQ and ES trades for each recorded day, priced first.
+
 ## R7. A: is the crossing floor just the 1-second resolution? No.
 - The futures' 1-second move at event moments has p95 5.75 NQ (p50 1.25) at QQQ moments, 1.25 ES (p50 0.25) at SPY and SPX moments, and 12.8 NQ / 2.7–3.4 ES in the fastest 1%. The move across the crossing's own board interval has p95 6.5 NQ / 1.25 ES.
 - The magnitudes are comparable to the crossing floors (4.04 / 0.77 / 0.78 at event moments). An interpolated crossing could be off by about half an interval's move, so the sizes alone don't decide it.

@@ -29,7 +29,7 @@
 **F0.1 Time.** Stored in UTC; session logic in America/New_York. Market data is timed by Databento `ts_event` (ns). A quantity's **known time** `known_ts` is the earliest instant the live engine could have it; a feature at time t may read only quantities with `known_ts ≤ t`.
 - **Trades:** known at their `ts_event`. Records with the same `ts_event` are processed in exchange sequence order.
 - **Bars** (1-second `ohlcv-1s`; 1-minute and 5-minute built from trades) are **labelled by their start** and are known at `start + length` (e.g. the 09:31 1-minute bar covers [09:31:00, 09:32:00) and is known at 09:32:00). All 1- and 5-minute bars are clock-aligned to ET minutes. A bar with no trades has no OHLC (it doesn't exist); it doesn't settle anything.
-- **Skylit boards:** a board's effective time τ = `asOf` (or `asOf` + 60 s for an uncleared 1-minute board, §3.1); in backtest it is applied at `t_apply = τ + map_latency_sec`, live at max(arrival, τ + `map_latency_sec`). Everything derived from a board (nodes, mapped levels, velocity, lean, regime, …) is known at `t_apply`. Only boards with `asOf` ≥ 09:30:00 ET of the session are applied (§3.1). Same-`t_apply` updates are applied as one batch (F5.3).
+- **Skylit boards:** a board's effective time τ = floor(`asOf`) + 1 s (or floor(`asOf`) + 60 s for an uncleared 1-minute board, §3.1), one rule for every history era and live (owner 2026-10-08, step 8b: Skylit's content can sit up to the end of the stamped second); in backtest it is applied at `t_apply = τ + map_latency_sec`, live at max(arrival, τ + `map_latency_sec`). Its **content time** c = floor(`asOf`) + `board_content_offset_ms`[era][map] (F1.1) is when its `spot` was true; c ≤ τ always. Everything derived from a board (nodes, mapped levels, velocity, lean, regime, …) is known at `t_apply`. Only boards with `asOf` ≥ 09:30:00 ET of the session are applied (§3.1). Same-`t_apply` updates are applied as one batch (F5.3).
 - **Profiles** (volume profile, VAH/VAL, POC, LVNs) are recomputed at clock-aligned instants every `profile_update_sec` counted from the profile's anchor, from trades with `ts_event` ≤ that instant, and are known at that instant.
 - **Daily inputs:** Tempest row of session T − `tempest_lag_sessions`, dark-pool prints through the cutoff of §3.1/F4, calendar as known at `preopen_start` (08:30 ET); all known at the start of session T.
 - **Outcome-dependent counts** (holds, day memory, earlier golden-zone results) count only outcomes whose resolution time ≤ t; unresolved ones are "pending".
@@ -70,13 +70,13 @@
 ## F1. Mapping strikes to NQ/ES (§5.1)
 
 **F1.1 Ratio R.**
-- *Definition:* for each applied board of map m, R_m = F ÷ S. S = the board's own `spot`; F = the price of the last trade of the mapped futures (NQ for QQQ/NDXP, ES for SPY/SPX, session front contract) with `ts_event` ≤ τ (the board's effective time, F0.1). The board's levels are converted once with that R (`level = strike × R`, band edges = (strike ± half-band) × R) and stay fixed until the next accepted update of that map. R is never carried across a roll or across sessions.
-- *Inputs → known at:* `spot`, τ (board, at `t_apply`); F (trade, at its `ts_event` ≤ τ < `t_apply`).
+- *Definition:* for each applied board of map m, R_m = F ÷ S. S = the board's own `spot`; F = the price of the last trade of the mapped futures (NQ for QQQ/NDXP, ES for SPY/SPX, session front contract) with `ts_event` ≤ c, the board's content time: c = floor(`asOf`) + `board_content_offset_ms`[era][map], era = before / from `skylit_stamp_change_date` (2026-03-17; live is the later era, parity 2026-10-07), the measured median offsets (step-8b findings R4; SPY from 03-17 and NDXP pending). The board's levels are converted once with the map's R in force (F1.7) (`level = strike × R`, band edges = (strike ± half-band) × R) and stay fixed until the next accepted update of that map. R is never carried across a roll or across sessions.
+- *Inputs → known at:* `spot`, c, τ (board, at `t_apply`); F (trade, at its `ts_event` ≤ c ≤ τ < `t_apply`). The step-8b alignment check fits c per recording against the futures and alerts if a content time falls after floor(`asOf`) + 1 s.
 - *Outputs:* R per map; mapped node levels and bands.
-- *Test:* QQQ strike 750, spot 749.12, F = 30,600.00 → R = 40.84793…, level = 30,635.95…; also a test that F is the trade at or before τ and never a later one (e.g. a trade 1 ms after τ is not used).
+- *Test:* QQQ strike 750, spot 749.12, F = 30,600.00 → R = 40.84793…, level = 30,635.95…; also a test that F is the trade at or before c and never a later one (e.g. a trade 1 ms after c is not used); a pre-03-17 QQQ board stamped 10:00:00 reads F at 10:00:00.740 and is applied at 10:00:01 + `map_latency_sec`.
 
 **F1.2 Outlier rejection and re-accept.**
-- *Definition:* a new R is **rejected** if |R − median(last 5 accepted R of that map, this session)| ÷ that median > `ratio_outlier_bps` × 10⁻⁴. A rejected update still applies its new strike values, converted with the last accepted R, and is logged. If `ratio_reaccept_n` consecutive updates are rejected and all lie within `ratio_outlier_bps` of each other (pairwise relative to their own median), the latest is accepted, the median history is reset to it and the day is flagged `ratio_shift_day`. With fewer than 5 accepted values the median uses those available; the first board of the session is always accepted.
+- *Definition:* applies to maps whose R is per board (SPX; `ratio_window_sec` 0); a trailing median (F1.7) takes the board ratios unfiltered. A new R is **rejected** if |R − median(last 5 accepted R of that map, this session)| ÷ that median > `ratio_outlier_bps` × 10⁻⁴. A rejected update still applies its new strike values, converted with the last accepted R, and is logged. If `ratio_reaccept_n` consecutive updates are rejected and all lie within `ratio_outlier_bps` of each other (pairwise relative to their own median), the latest is accepted, the median history is reset to it and the day is flagged `ratio_shift_day`. With fewer than 5 accepted values the median uses those available; the first board of the session is always accepted.
 - *Params:* `ratio_outlier_bps`, `ratio_reaccept_n` (features.yaml `mapping:`; SPEC start values; step 8b reports the rejection rate, and frequent rejections mean finding the cause, not raising the threshold).
 - *Test:* accepted R values 40.80 ×5, then 40.95 → rejected (36.8 bps); two more values at 40.95 → the second of them is accepted (3 consecutive rejections, the first rejected update included) and the history reset.
 
@@ -89,7 +89,13 @@
 
 **F1.5 Order-price rounding (§5.1).** Order prices only, to 0.25: stops **away** from entry, targets **toward** entry, passive limit entries to the **passive** side (a long limit down, a short limit up). Marketable and stop-limit limits are `max_entry_slip_ticks` beyond their reference (F7). **Test:** a long stop at 30,100.10 → 30,100.00; a long target at 30,150.10 → 30,150.00; a short target at 30,050.10 → 30,050.25.
 
-**F1.6 Precision metric (gate 8b, not a model feature).** At each applied board of map m with a known futures price at τ: error = |strike × R_prev − strike × R_cur| for each relevant node of that board (R_prev = the R in force just before). Reported per chain as median / p95 / p99 / max, by time of day and by realized-vol tercile. The pass rule is §5.1 (`mapping_p95_max`, plus the Atlas match within `atlas_match_tol`).
+**F1.6 Precision metric (gate 8b, not a model feature).** At each applied board of map m with a known futures price at τ: error = |strike × R_prev − strike × R_cur| for each relevant node of that board (R_prev = the R in force just before). Reported per chain as median / p95 / p99 / max, by time of day and by realized-vol tercile. A **diagnostic** next to `mapping_p95_max`, not a gate condition (owner 2026-10-08, SPEC §13 Q8b-4); the pass rule is §5.1 (bias, estimator within 10% of the best possible R, the alignment check, the Atlas match within `atlas_match_tol`).
+
+**F1.7 R estimator per map (owner 2026-10-08, step 8b; SPEC §5.1).**
+- *Definition:* the R in force for map m after an applied board = the median of the board ratios (F1.1) of map m whose content time lies in (c − w, c], w = `ratio_window_sec`[m], over the boards since the last reset; w = 0 means the board's own ratio with F1.2. Values: QQQ 60, SPY 60, SPX 0, NDXP pending (§13 Q8b-1: basis + carry or QQQ × k, chosen by the lower intraday p95 against the real NDX on the owner's session recordings). Trailing only, never centred. **Reset** at the session's first applied board (after `ratio_open_skip_sec` for SPX/NDXP, F1.3), at a contract change (only between sessions, F0) and after a gap between consecutive applied boards of the map longer than `ratio_gap_reset_sec` (10 s). **Warm-up:** after a reset the median uses the boards since it, the first board alone at first, no minimum count. One function for backtest, restart rebuilds and live.
+- *Params:* `ratio_window_sec`, `ratio_gap_reset_sec` (features.yaml `mapping:`; fixed, from the step-8b study: event-moment level error p95 QQQ 0.55 NQ, SPY 0.11 ES, findings R8).
+- *Inputs → known at:* each board's ratio at its `t_apply`; the median at the current board's `t_apply`.
+- *Test:* QQQ boards at content times 0, 30, 61, 62 s with ratios 41.0, 41.2, 41.1, 50.0 → R in force 41.0, 41.1, 41.15 (window (1, 61]: 41.2, 41.1), 41.2 (median of 41.2, 41.1, 50.0); a 12-s gap before the next board resets the window to that board alone.
 
 ---
 
@@ -832,7 +838,7 @@ Each removal takes effect `order_latency_sec` after it occurs; a fill before the
 ## F11. Definitions shared with trades and labels (§6.2–§6.4, §7.1)
 
 ### F11.1 Stop candidates (§6.2)
-Every candidate sits beyond something that could support the trade. Candidates 1, 2, 3 and 6 add `stop_buffer` (floor = the step-8b p95), candidate 5 adds `abs_stop_buffer`, and candidate 4 (the gameplan's own stop) is used as given:
+Every candidate sits beyond something that could support the trade. Candidates 1, 2, 3 and 6 add `stop_buffer`; candidates 2 and 3 add at least `stop_buffer_floor` of the source of the level they sit beyond (the zone member that sets the far edge: QQQ 4.0 NQ, NDXP pending, chart levels 0; owner 2026-10-08, SPEC §5.1), i.e. max(`stop_buffer`, floor); candidate 5 adds `abs_stop_buffer`, and candidate 4 (the gameplan's own stop) is used as given:
 1. the **swing extreme** from the event's last re-arm to `decision_ts` (area events: over the last `swing_lookback_sec`);
 2. the **far edge** of the entry zone, with the band as of `decision_ts`;
 3. the **next structure** behind the entry: the far edge of the next active zone in the stop direction;
@@ -883,7 +889,7 @@ Start values are in F15 (part 2); grids are in F16 (part 3). "SPEC" = the SPEC a
 
 | Parameter | File | Kind | Used in |
 |---|---|---|---|
-| `ratio_outlier_bps`, `ratio_reaccept_n`, `ratio_open_skip_sec`, `mapping_p95_max`, `atlas_match_tol` | features (`mapping:`) | SPEC (step 8b reports, never raised to pass) | F1 |
+| `ratio_outlier_bps`, `ratio_reaccept_n`, `ratio_open_skip_sec`, `mapping_p95_max`, `atlas_match_tol`, `ratio_window_sec`, `ratio_gap_reset_sec`, `skylit_stamp_change_date`, `board_content_offset_ms` | features (`mapping:`) | SPEC (step 8b reports, never raised to pass) | F1 |
 | `skylit_max_strikes` | settings | measured (step 7) | F2.1, F2.3 |
 | `node_band` | features | owner (NDXP confirmed step 13) | F1.4, F2 |
 | `min_node_pct_of_king` | features | owner (0.25) | F2.4 |
@@ -927,7 +933,7 @@ Start values are in F15 (part 2); grids are in F16 (part 3). "SPEC" = the SPEC a
 | `exh_lookback_sec`, `exh_decay_ratio` | features | tuned-19 | F9.6 |
 | `div_lookback_sec`, `div_min_pts` | features | tuned-19 | F9.7 |
 | `tob_window_sec` | features | **NEW** | F9.8 |
-| `abs_stop_buffer`, `abs_stop_window_sec`, `stop_buffer`, `entry_ttl_sec`, `entry_order_type` | features (frozen) / settings (start) | exec | F7, F11.1 |
+| `abs_stop_buffer`, `abs_stop_window_sec`, `stop_buffer`, `stop_buffer_floor`, `entry_ttl_sec`, `entry_order_type` | features (frozen) / settings (start) | exec | F7, F11.1 |
 | `stop_merge_ticks`, `min_stop_pts`, `max_stop_pts` | features | SPEC (null, owner) | F11.1 |
 | `swing_lookback_sec`, `max_target_candidates`, `pair_build_min_rr`, `style_tie_ev_r` | settings | SPEC | F11.1–F11.2, F6.4 |
 | `max_entry_slip_ticks`, `exit_slippage_ticks`, `order_latency_sec`, `map_latency_sec` | settings | SPEC / measured | F0.1, F7 |
@@ -1097,7 +1103,7 @@ POC ties: (a) the price closest to the profile's midpoint; (b) the price closest
 | 35 | `trig_fav_ticks` | 20 ticks (5 pts) | a trigger that worked moves the trade 5 pts within `trig_window_sec` (120 s) | features | label |
 | 36 | `trig_adv_ticks` | 12 ticks (3 pts) | inside the owner's ~5-pt absorption stop, so a "bad" trigger is one that goes against at once | features | label |
 | 37 | `entry_ttl_sec` | {a: 5, b: 5, c: 60, d: 60} | marketable limits fill at once (only a remainder waits); stop-limit and passive limit get one 1-minute bar | settings (start; frozen copy in features) | exec |
-| 38 | `stop_buffer` | 5 NQ pts | no owner value ("let the backtest decide"); borrows his ~5-pt absorption buffer as a neutral start; above the step-8b 95th-percentile floor (≤ 1 pt if the gate passes) | settings (start; frozen copy in features) | exec |
+| 38 | `stop_buffer` | 5 NQ pts | no owner value ("let the backtest decide"); borrows his ~5-pt absorption buffer as a neutral start; a stop beyond a QQQ or NDXP level uses at least `stop_buffer_floor` (QQQ 4.0 NQ, NDXP pending; owner 2026-10-08) | settings (start; frozen copy in features) | exec |
 | 39 | `be_offset_ticks` | 1 tick | covers the 1-tick stop slippage, so a breakeven exit nets ≈ 0 after costs; re-checked once step 13 measures `exit_slippage_ticks` (it should be ≥ that) | settings | fixed |
 | 40 | `guard_port` | 8731 | an unprivileged localhost port, away from common defaults (5000, 8000, 8080, 8501) | settings | fixed |
 | 41 | `engine_port` | 8732 | as above | settings | fixed |
@@ -1219,7 +1225,7 @@ POC ties: (a) the price closest to the profile's midpoint; (b) the price closest
 | Order | Parameter | Grid |
 |---|---|---|
 | 1 (joint, per style) | `entry_order_type` × `entry_ttl_sec` | {limit, marketable_limit, stop_limit} × {10, 30, **60**, 120, 300} s (start types: (c) **stop_limit**, (d) **limit**) |
-| 2 (pooled c + d) | `stop_buffer` (NQ pts) | 1, 2.5, **5**, 8, 12 (values below the step-8b 95th-percentile floor are dropped) |
+| 2 (pooled c + d) | `stop_buffer` (NQ pts) | 1, 2.5, **5**, 8, 12 (none dropped: `stop_buffer_floor` applies per stop by level source, F7) |
 
 - **Size:** 2 styles × 15 + 4 = 34 re-simulations ≈ **≤ 1 night**.
 - **Step 13 in total:** ≈ 3–4 nights, including the final full-window rebuild with the winners (≈ 1 night).

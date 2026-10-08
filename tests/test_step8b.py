@@ -115,21 +115,20 @@ def test_precision_passes_with_a_tight_ratio(env):
     _setup(env, noise=1e-6)
     rep = step8b.check_precision(env)
     qqq = rep["per_chain"]["QQQ"]
-    assert rep["pass"] and qqq["pass"] and qqq["unit"] == "NQ pts"
+    assert rep["all_within_p95_max"] and qqq["within_p95_max"] and qqq["unit"] == "NQ pts"
     assert qqq["overall"]["n"] > 3000 * 3  # three relevant nodes a board (the outer two are < 25% of King)
     assert qqq["rejected"] == 0 and qqq["ratio_shift_days"] == []
     assert rep["per_chain"]["NDXP"]["applied"] == 3600 - 120  # the opening 120 s skipped (F1.3)
     assert set(qqq["by_time"]) == {"09:30", "10:00"} and set(qqq["by_vol"]) >= {"low", "mid", "high"}
-    assert rep["stop_buffer_floor"] == max(qqq["overall"]["p95"], rep["per_chain"]["NDXP"]["overall"]["p95"])
-    assert rep["stop_buffer_grid_below_floor"] == []
+    assert rep["diagnostic"]  # owner Q8b-4: F1.6 is a diagnostic, not a gate condition
+    assert rep["stop_buffer_floor"] == env.settings["stop_buffer_floor"]  # per level source, §5.1
 
 
 def test_precision_fails_with_a_noisy_spot(env):
     _setup(env, noise=1e-4)
     rep = step8b.check_precision(env)
-    assert not rep["pass"] and not rep["per_chain"]["QQQ"]["pass"]
+    assert not rep["all_within_p95_max"] and not rep["per_chain"]["QQQ"]["within_p95_max"]
     assert rep["per_chain"]["QQQ"]["rejected"] > 0  # 1 bp noise: some updates beyond 3 bps of the median
-    assert rep["stop_buffer_grid_below_floor"]  # a floor this high drops the smallest stop_buffer values
 
 
 @pytest.mark.parametrize("lag, ok", [(0, True), (1, True), (5, False)])
@@ -190,7 +189,10 @@ def test_gate_report_and_cli(env, settings, drive, monkeypatch, capsys):
     assert cli.main(["step8b", "atlas", "--date", DAY.isoformat(), "--minutes", "09:45,10:00"]) == 0
     assert cli.main(["step8b", "report"]) == 0
     text = (step8b.reports_dir(env.paths) / "mapping_gate.md").read_text(encoding="utf-8")
-    assert "**PASS**" in text and "ready for the owner (Atlas check)" in text and "owner's check in Atlas replay" in text
+    assert "**PASS**" in text and "Atlas tables ready for the owner" in text and "owner's check in Atlas replay" in text
+    floors = next(line for line in text.splitlines() if line.startswith("- Stop floors per level source"))
+    assert all(x in floors for x in ("QQQ 4.0", "NDXP pending", "chart 0"))
+    assert "diagnostic, not a gate condition" in text and "no command yet" in text  # owner Q8b-4, 2026-10-08
 
 
 def test_boards_after_an_early_close_are_left_out(env):

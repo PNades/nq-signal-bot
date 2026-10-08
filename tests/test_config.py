@@ -104,3 +104,14 @@ def test_step7_skylit_keys():
     # it leaves for the step-7 checks running alongside.
     assert s["skylit_max_failures_in_row"] == 5 and s["skylit_alongside_reserve_credits"] == 1000
     assert s["skylit_dropped_extra_tries"] == 3 and s["skylit_dropped_retry_credits_per_night"] == 500
+
+
+def test_step8b_mapping_values():
+    # Owner 2026-10-08 (step 8b, SPEC §5.1, F1.1/F1.7/F7); NDXP and SPY's post-03-17 offset wait for the recordings.
+    m, s = load_features()["mapping"], load_settings()
+    assert m["ratio_window_sec"] == {"QQQ": 60, "SPY": 60, "SPX": 0, "NDXP": None}
+    assert m["ratio_gap_reset_sec"] == 10
+    assert str(m["skylit_stamp_change_date"]) == "2026-03-17"
+    assert m["board_content_offset_ms"]["before_stamp_change"] == {"QQQ": 740, "SPY": 840, "SPX": -80, "NDXP": None}
+    assert m["board_content_offset_ms"]["from_stamp_change"] == {"QQQ": -60, "SPY": None, "SPX": -80, "NDXP": None}
+    assert s["stop_buffer_floor"] == {"QQQ": 4.0, "NDXP": None, "chart": 0}
