@@ -255,6 +255,10 @@ def _add_step7(sub: argparse._SubParsersAction) -> None:
     add("historical-instants", "40 /v1/historical instants over development months 1-6 (200 credits)")
     p = add("stream-record", "record 15 minutes of /v1/stream during a live session (about 70 credits)")
     p.add_argument("--force", action="store_true", help="record outside the session (testing only)")
+    p = add("stream-session", "record /v1/stream for the given maps until today's close, in 15-minute parts "
+                              "(about 395 credits per map for a full session; owner 2026-10-08)")
+    p.add_argument("--maps", type=lambda s: [x.strip() for x in s.split(",") if x.strip()], default=["NDXP"],
+                   help="comma-separated maps (default NDXP)")
     p = add("parity", "pull the recorded minutes from history and compare (25 credits)")
     p.add_argument("--session", type=_date, required=True)
     p.add_argument("--tag", default=None, help="which recording of that session (default: the latest)")
@@ -331,7 +335,7 @@ def _run_step7(args: argparse.Namespace, settings: dict, paths, log) -> int:
 
 
 # The step-7 checks that run alongside the step-10 backfill without the Skylit lock (decision 2).
-ALONGSIDE_CHECKS = frozenset({"stream-record", "parity", "late-prints-morning", "late-prints-compare", "tempest-poll",
+ALONGSIDE_CHECKS = frozenset({"stream-record", "stream-session", "parity", "late-prints-morning", "late-prints-compare", "tempest-poll",
                               "tempest-compare", "dp-start-probe"})
 
 
@@ -376,6 +380,8 @@ def _step7_check(args: argparse.Namespace, settings, paths, log, env, approve) -
             step7.check_historical_instants(env, approve)
         case "stream-record":
             step7.check_stream_record(env, approved=approve, force=args.force)
+        case "stream-session":
+            step7.check_stream_session(env, args.maps, approved=approve)
         case "parity":
             step7.check_parity(env, args.session, args.tag, approve)
         case "darkpool":

@@ -52,6 +52,9 @@ STREAM_MINUTES = 15  # §12 step 7: record 15 minutes of the stream
 STREAM_RECONNECT_AT = 0.5  # force the one Last-Event-ID reconnect halfway through
 STREAM_MAX_RECONNECTS = 3  # the forced one plus two spare; each costs 4 opens + 4 minutes (presd_fixes 15)
 STREAM_GRACE_SEC = 60  # hard wall-clock end: minutes + this, even if no event ever arrives (presd_fixes 15)
+SESSION_PART_MIN = 15  # stream-session (owner 2026-10-08): a part file every 15 minutes, so memory stays small
+SESSION_MAX_RECONNECTS = 12  # Skylit ends every connection after an hour (6-7 a session) plus spares
+SESSION_EARLIEST_START_MIN = 10  # refuse a start more than this long before 09:30 (minutes charged for nothing)
 LATE_PRINT_MORNINGS = 5  # §12 step 7: >= 5 mornings
 LATE_PRINT_WAIT_SESSIONS = 5  # re-pulled >= 5 trading days later; also how long a date's prints count as provisional
 TEMPEST_MIN_MORNINGS = 2  # §12 step 7: record the first appearance on two or more mornings
@@ -567,6 +570,105 @@ def check_stream_record(env: Env, minutes: float = STREAM_MINUTES, approved: int
              f"credits used {summary['credits_used']}, max ping gap {summary['ping_gap_max']} s"
              + ("" if report["complete"] else f"; INCOMPLETE ({ended}): record again"))
     write_report(env, "stream_record", report)
+    return report
+
+
+async def _record_session(stream: SkylitStream, end_ns: int, write_part: Callable[[list, list], None],
+                          clock_ns: Callable[[], int], part_min: float | None = None) -> str:
+    """Record until end_ns (wall clock) or until the stream stops, handing every `part_min` minutes of boards and
+    events to write_part (and the rest at the end). Returns why it ended."""
+    part_min = SESSION_PART_MIN if part_min is None else part_min
+    snaps: list[dict[str, Any]] = []
+    events: list[dict[str, Any]] = []
+    part_start = clock_ns()
+    ended = "close"
+    try:
+        async with asyncio.timeout(max(0.0, (end_ns - clock_ns()) / 1e9)):
+            async for ev in stream.events():
+                events.append({"kind": ev.kind, "arrival_ns": ev.arrival_ns, "event_id": ev.event_id,
+                               "connection": ev.connection,
+                               "data": None if ev.kind in ("snapshot", "velocity") else ev.data,
+                               "symbol": (ev.data or {}).get("symbol") if ev.kind in ("snapshot", "velocity") else None})
+                if ev.kind == "snapshot" and ev.data:
+                    snaps.append({"payload": ev.data, "arrival_ns": ev.arrival_ns, "event_id": ev.event_id,
+                                  "connection": ev.connection})
+                if ev.arrival_ns - part_start >= part_min * 6e10:
+                    write_part(snaps, events)
+                    snaps, events, part_start = [], [], ev.arrival_ns
+                if ev.arrival_ns >= end_ns:
+                    break
+    except TimeoutError:
+        pass
+    except StreamStopped as e:
+        ended = f"stopped: {e}"
+    finally:
+        await stream.aclose()
+        if snaps or events:
+            write_part(snaps, events)
+    return ended
+
+
+def check_stream_session(env: Env, maps: list[str], approved: int | None = None, force: bool = False,
+                         end: datetime | None = None) -> dict[str, Any]:
+    """Record /v1/stream for the given maps from now until today's close, in 15-minute part files (owner 2026-10-08:
+    NDXP for up to 3 full sessions, to check the NDXP mapping methods against the live index spot)."""
+    unknown = [m for m in maps if m not in MAPS]
+    if unknown or not maps:
+        raise CheckRefused(f"unknown maps {unknown or maps}: choose from {', '.join(MAPS)}")
+    now = env.now()
+    close_at = datetime.combine(now.date(), env.close_of(now.date()), tzinfo=ET)
+    end = end or close_at
+    if not force:
+        open_at = datetime.combine(now.date(), RTH_OPEN, tzinfo=ET)
+        if not env.trading_day(now.date()) or now >= close_at:
+            raise CheckRefused("record a session on a trading day, before the close")
+        if now < open_at - timedelta(minutes=SESSION_EARLIEST_START_MIN):
+            raise CheckRefused(f"start at most {SESSION_EARLIEST_START_MIN} minutes before 09:30 ET")
+    minutes = max(1.0, (end - now).total_seconds() / 60)
+    _gate(env, credits.stream_estimate(f"stream session to {end:%H:%M}, {'+'.join(maps)}", len(maps), minutes,
+                                       reconnects=SESSION_MAX_RECONNECTS), approved)
+    if env.stream_factory is None:
+        from nqbot.secrets import get_secret
+
+        stream = SkylitStream.from_settings(env.settings, get_secret("SKYLIT_API_KEY"), list(maps),
+                                            credits=env.client.credits, log=env.log,
+                                            max_reconnects=SESSION_MAX_RECONNECTS)
+    else:
+        stream = env.stream_factory()
+    folder = env.store.stream_dir(now.date()) / f"session_{now:%H%M%S}"
+    folder.mkdir(parents=True, exist_ok=True)
+    seen: set[tuple[str, str]] = set()  # a resume re-sends each symbol's latest board: keep its first arrival
+    parts: list[dict[str, Any]] = []
+    counts = {"boards": 0, "dropped": 0}
+    all_events: list[dict[str, Any]] = []  # small (no board payloads): for the summary
+
+    def write_part(snaps: list, events: list) -> None:
+        unique = []
+        for s in snaps:
+            key = (s["payload"]["symbol"], s["payload"]["asOf"])
+            if key not in seen:
+                seen.add(key)
+                unique.append(s)
+        counts["dropped"] += len(snaps) - len(unique)
+        n = len(parts)
+        meta = {"params": stream.params, "maps": maps, "part": n, "recorded_at": now.isoformat()}
+        if unique:
+            boards, strikes = stream_snapshots_to_tables(unique, stream.root_to_map)
+            write_parquet(folder / f"part_{n:03d}_boards.parquet", boards, meta)
+            write_parquet(folder / f"part_{n:03d}_strikes.parquet", strikes, meta)
+            counts["boards"] += boards.num_rows
+        atomic_write_text(folder / f"part_{n:03d}_events.jsonl", "".join(json.dumps(e, default=str) + "\n" for e in events))
+        all_events.extend(events)
+        parts.append({"part": n, "boards": len(unique), "events": len(events)})
+
+    ended = asyncio.run(_record_session(stream, int(end.timestamp() * 1e9), write_part, stream.clock_ns))
+    summary = an.event_report(all_events)
+    report = {"folder": str(folder), "maps": maps, "parts": parts, "boards": counts["boards"],
+              "resent_boards_dropped": counts["dropped"], "ended": ended,
+              "complete": ended == "close", "lagged": stream.lagged_count, "events_summary": summary}
+    env.echo(f"  {counts['boards']} boards in {len(parts)} parts ({ended}); credits used {summary['credits_used']}"
+             + ("" if report["complete"] else "; INCOMPLETE"))
+    write_report(env, "stream_session", report)
     return report
 
 

@@ -1,8 +1,94 @@
-# Step 8b findings (2026-10-07, round 2 2026-10-08)
+# Step 8b findings (2026-10-07; rounds 2 and 3 2026-10-08)
 
 The gate's first run on the five step-7 sample days (2026-03-06, 03-11, 03-18, 03-24, 03-26; development month 6) failed every condition. These are the read-only checks the owner asked for afterwards (round 1 2026-10-07, round 2 2026-10-08). **No gate limit or definition has changed.** The open decisions are SPEC §13 "Step 8b" Q8b-1 to Q8b-4. Reports from the runs are on the SSD in `<reports_dir>/step8b/`. The study scripts ran from a scratch folder and are not in the repo; this file records their method and numbers.
 
-**Round 2 (R1–R6 below) supersedes the round-1 recommendations in §4–§5.** Round 1 mapped each crossing with an R that included the crossing pair's first board, so it shared that board's spot. It also used only the five sample days, with offsets fitted per day.
+**Round 3 (the table and R7–R10, first below) is the current proposal; round 2 (R1–R6) supersedes the round-1 recommendations in §4–§5.** Round 1 mapped each crossing with an R that included the crossing pair's first board, so it shared that board's spot. It also used only the five sample days, with offsets fitted per day.
+
+## Round 3 (owner's answers of 2026-10-08, items A–F)
+
+**The table** (22 development days, event moments = crossings of relevant nodes, R known before the crossing, each chain with its approved/chosen estimator; QQQ/NDXP in NQ pts, SPY/SPX in ES pts):
+
+| Chain (estimator) | Crossing p95 | 1-s futures move p95 | Level error p95 | Bias (crossing / level) | Proposed stop floor |
+|---|---:|---:|---:|---|---|
+| QQQ (trailing 60 s) | **4.00** (still futures 3.36) | 5.75 | 0.55 | +0.06 before 03-17, +0.01 after / −0.003 [−0.009, 0.000] | **4.0 NQ** (crossing p95; A did not confirm timing) |
+| SPY (trailing 60 s) | **0.78** (still 0.64) | 1.25 | 0.11 | ≈ 0.00 / 0.000 [0.000, 0.000] | none for NQ stops (ES reads only); band check 0.78 ES |
+| SPX (per board, aligned) | **0.74** (still 0.51) | 1.25 | 0.64* | +0.01 / −0.009 [−0.020, 0.000] | none for NQ stops (ES reads only); band check 0.74 ES |
+| NDXP (method choice pending) | n/a (history spot is NQ) | 5.75 (NQ) | day-ahead p95: basis + carry **15.1**, QQQ × k (N = 5) **13.8**; live 10-07: basis 14.4 / 10.0, QQQ × k 4.6–7.9 / 2.9–6.3 | +0.22 (basis) / +2.2 (QQQ × k) | **≈ 14–15 NQ** pending the method choice and the recordings (owner decides whether NDXP sets the floor) |
+| Chart levels (VWAP, POC, LVN, IB, …) | — | — | — | — | **0** (no mapping) |
+
+\* SPX: the level error is measured against a 2-minute centered median, which favours smoothers by construction. On the crossing test, SPX's per-board R beats that median (0.74 vs 0.78), so 0.64 overstates SPX's real level error.
+
+## R7. A: is the crossing floor just the 1-second resolution? No.
+- The futures' 1-second move at event moments has p95 5.75 NQ (p50 1.25) at QQQ moments, 1.25 ES (p50 0.25) at SPY and SPX moments, and 12.8 NQ / 2.7–3.4 ES in the fastest 1%. The move across the crossing's own board interval has p95 6.5 NQ / 1.25 ES.
+- The magnitudes are comparable to the crossing floors (4.04 / 0.77 / 0.78 at event moments). An interpolated crossing could be off by about half an interval's move, so the sizes alone don't decide it.
+- **The decisive split** bins crossings by how far the futures moved across that crossing's board interval. Floor p95:
+
+| | futures still (0 ticks) | 1 tick | 2–4 ticks | > 4 ticks | all |
+|---|---:|---:|---:|---:|---:|
+| QQQ (NQ) | 3.29 (n 376) | 4.04 | 3.18 | 4.44 | 4.04 |
+| SPY (ES) | 0.62 (n 1,541) | 0.69 | 0.74 | 1.18 | 0.77 |
+| SPX (ES) | 0.53 (n 1,388) | 0.63 | 0.83 | 1.29 | 0.78 |
+
+- With the futures completely still, 81% (QQQ), 80% (SPY) and 68% (SPX) of the floor remains. **Timing explains only the part above the "still" column.** The rest is real: at the moment the ETF or index spot prints the strike, the futures sit up to about 3.3 NQ / 0.6 ES (p95) away from strike × R, even in a still market. That is the instantaneous gap between the underlying's printed spot and the futures, which no R can remove. The level a strike stands for is fuzzy by that much in futures terms.
+- So under the owner's rule (c), the stop floor uses the **crossing p95**, not the level error.
+
+## R8. B: level error
+strike × |R used − best R| at event moments (best R = a centered 120-s median, evaluation only), p95 (p50) and bias [95% day-block interval]:
+
+| Chain | per board, aligned | 15 s | 30 s | 60 s | 120 s | 300 s |
+|---|---|---|---|---|---|---|
+| QQQ (NQ) | 4.70 (0.77) | 1.52 | 0.86 | **0.55** (0.13), bias −0.003 [−0.009, 0.000] | 0.59 | 0.73 |
+| SPY (ES) | 0.89 (0.16) | 0.26 | 0.16 | **0.11** (0.03), bias 0.000 [0.000, 0.000] | 0.11 | 0.15 |
+| SPX (ES) | 0.64 (0.19), bias −0.009 [−0.020, 0.000] | 0.43 | 0.34 | 0.26 | 0.31 | 0.38 |
+
+- **SPY window (E):** the lowest event-moment level error over all moves together is **60 s** (0.107, vs 0.157 for 30 s, 0.256 for 15 s and 0.893 per board). In the fastest 1% it is also the lowest of the four (3.08 vs 6.18 per board).
+- The level error is much smaller than the crossing p95 because both the estimate and the reference average out the same spot noise. It measures how far the estimate sits from a smoothed R, not where the futures actually are when the strike prints (R7).
+
+## R9. C: NDXP, QQQ × k vs basis + carry
+- **Sources (free):**
+  - QQQ official closes and ex-dividend dates: Nasdaq's public quote API (`api.nasdaq.com/api/quote/QQQ/historical`, `/dividends`; QQQ lists on Nasdaq, so this is the closing-cross price). Its 10-06 close, 759.66, equals the stream's QQQ `previousClose` exactly.
+  - NDX closes: FRED `NASDAQ100`.
+  - Cached in `<root>/data/raw/ndx/`. Cost $0. (Stooq answered with a bot check and was not used.)
+- **Method:** k = NDX close ÷ QQQ close, averaged over the previous N sessions. Every QQQ close before an ex-dividend date ≤ the day is moved to the ex basis (close − the declared dividend), so k is continuous across ex-dates. Known before the open. NDX̂(t) = QQQ spot(t) × k, so an NDXP strike K maps to K × F(t) ÷ (QQQ(t) × k), i.e. R_NDXP = R_QQQ ÷ k.
+- **Day-ahead, development months (125 days; NDX̂ at the close vs NDX, pts):**
+  - N = 1: p50 6.5, p95 16.1
+  - N = 3: p50 4.7, p95 14.1
+  - **N = 5: p50 5.4, p95 13.8, signed median +2.2**
+  - N = 10: p50 6.2, p95 14.3
+  - Basis + carry: p50 4.7, p95 15.1, +0.2
+  - Ex-date days (12-22, 03-23): QQQ × k N = 5 errs +1.7 and −12.5.
+- **Live 2026-10-07, against the stream's real NDX (NQ pts at a strike = NDX), recordings 10:01 / 14:59:**
+
+| Method | Signed median | p95 |
+|---|---|---|
+| Basis + carry | +12.4 / +8.0 | 14.4 / 10.0 |
+| QQQ × k, N = 1 | +5.8 / +4.4 | 7.9 / 6.3 |
+| QQQ × k, N = 3 | +8.7 / +7.3 | 10.8 / 9.1 |
+| QQQ × k, N = 5 | +7.0 / +5.5 | 9.1 / 7.4 |
+| QQQ × k, N = 10 | +2.5 / +1.0 | 4.6 / 2.9 |
+
+The per-board QQQ spot and the approved 60-s QQQ R give the same result to within 0.1.
+- **Reading:** both methods carry a day-to-day drift of about 5 pts typical and about 14–15 at p95. QQQ × k was better on the one live day for every N, but one day is one draw of that drift. **Not chosen yet.** The NDXP recordings decide, and they need QQQ in them (R10).
+
+## R10. D–F, and what runs next
+- **D (ingest, approved in principle; written into §5.1/F1 when the final numbers are approved):** one rule for every era and live: apply a board at max(arrival, floor(`asOf`) + 1 s + `map_latency_sec`), and read the futures at the board's measured content time. History has no arrival, so it uses floor(`asOf`) + 1 s + `map_latency_sec`.
+  - Content offsets from the whole second of `asOf`, medians from R4: before 03-17, QQQ +740, SPY +840, SPX −80, NDXP +1000 ms; from 03-17, QQQ −60, SPY −60, SPX −80, NDXP +1000 (0 on 03-24–27); live 10-07, QQQ −110, SPX −60, NDXP −40, SPY +420.
+  - No measured content time is past floor(`asOf`) + 1 s. NDXP's sits exactly at +1 s, and its correlation peak is one step wide.
+  - **Alert rule:** an alignment check fits each recording's offset per map against the futures and alerts if the fitted content time, or the upper edge of its peak, falls after floor(`asOf`) + 1 s. To be built as `step8b alignment` (needs the futures for each recorded day).
+  - The NDXP-only recordings can't measure SPY. SPY is re-measured on the next recording that includes it.
+- **E (R estimator, approved in principle):** QQQ trailing 60-s median; SPY trailing 60-s median (R8); SPX per board (aligned) with F1.2.
+  - Trailing only, over applied boards by content time. Reset at the session's first applied board (09:30, or after `ratio_open_skip_sec` for SPX/NDXP), at a contract change (never inside a session, since the contract is fixed per session, so the session reset covers a roll) and after a board gap > `ratio_gap_reset_sec` (10 s in the study).
+  - **Warm-up:** right after a reset the median uses whatever applied boards exist since it (the first board alone at first), with no minimum count. The study's open and roll-day rows show the cost of that is small.
+  - The same function in backtest, restart rebuilds and live.
+- **F (gate proposal):**
+  - (a) Bias: every chain passes. All intervals contain 0 or sit within one futures tick (largest: QQQ crossing +0.06 NQ before 03-17).
+  - (b) Within 10% of the best possible R: QQQ 4.00 vs 4.04, SPY 0.78 vs 0.77, SPX 0.74 vs 0.78. All pass.
+  - (c) Stop floor per level source, from the crossing p95 (A did not confirm timing): QQQ-edge stops 4.0 NQ; NDXP-edge stops ≈ 14–15 NQ, pending the method; chart levels 0; SPY/SPX create no NQ stops.
+  - Node bands against their chain's error: QQQ ±0.5 $ = ±20.7 NQ ≥ 4.0; SPY ±0.5 $ = ±5.0 ES ≥ 0.78; SPX ±5 ≥ 0.74; NDXP ±20 ≥ ≈ 15 (tight).
+  - F1.6 stays a diagnostic; the spot-lag condition becomes the alignment check. The owner's Atlas replay check stays.
+- **NDXP recordings (approved, NDXP only):** `nqbot step7 stream-session --maps NDXP` (new; 15-minute part files, no Skylit lock, about 395 credits per full session, printed first). Windows task `nqbot NDXP session recording` starts it at 09:27 ET on 2026-10-09, 10-12 and 10-13; log in `<root>/logs/stream_session_<date>.txt`.
+  - **Gap:** NDXP-only recordings can't test QQQ × k, which needs QQQ's spot at the same moments. Adding QQQ costs about 395 more credits per session.
+  - Both methods also need the NQ trades of each recorded day ($0, included) to be scored. Both need the owner's OK.
 
 ## R1. Round-2 method (owner 2026-10-07)
 - **Days:** 22 development days, 11 per stamping era. Before 2026-03-17: 2025-10-15, 10-29, 11-12, 11-25, 12-10, 2026-01-08, 01-22, 02-05, 02-24, 03-06, 03-11. From 2026-03-17: 03-17, 18, 19, 20, 23, 24, 25, 26, 27, 30, 31.

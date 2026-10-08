@@ -517,6 +517,59 @@ def _silent_stream(replies, sleep):
                             200, content=sse(("ping", None, None)), headers={"Content-Type": "text/event-stream"}))[1]))
 
 
+def test_stream_session_writes_parts_until_the_end(env, monkeypatch):
+    """Owner 2026-10-08: a full-session NDXP recording, flushed in parts; a resumed connection's re-sent board is
+    kept once; it stops at the end time."""
+    import pyarrow.parquet as pq
+
+    t0 = datetime(2026, 10, 9, 14, 0, tzinfo=UTC)
+    snap = {"symbol": "NDXP", "spot": 31000.0, "previousClose": 30990.0, "priceChange": 10.0,
+            "priceChangePercent": 0.03, "expirations": ["2026-10-09"], "lagged": False,
+            "strikes": [{"strike": 31000, "value": 1e6, "nodeType": "king"}]}
+    first = sse(("connected", {"creditsRemaining": 1000}, None),
+                *[("snapshot", {**snap, "asOf": z(t0 + timedelta(seconds=i))}, f"NDXP:{i}") for i in range(5)])
+    second = sse(("resumed", {"gapCovered": True, "stateRestored": True, "symbols": []}, "NDXP:4"),
+                 *[("snapshot", {**snap, "asOf": z(t0 + timedelta(seconds=i))}, f"NDXP:{i}") for i in range(4, 12)])
+    replies = [first, second]
+
+    def handler(request):
+        return httpx.Response(200, content=replies.pop(0) if replies else sse(("ping", None, None)),
+                              headers={"Content-Type": "text/event-stream"})
+
+    ticks = iter(range(10**6))
+    clock = lambda: int((t0.timestamp() + next(ticks)) * 1e9)  # noqa: E731  one event per second
+
+    async def nosleep(s):
+        pass
+
+    monkeypatch.setattr(step7, "SESSION_PART_MIN", 3 / 60)  # a part every 3 seconds
+    env.stream_factory = lambda: SkylitStream(Secret(KEY), symbols_map=SYMBOLS_MAP, maps=["NDXP"], metric="gamma",
+                                              max_expirations=1, max_strikes="all", sleep=nosleep, clock_ns=clock,
+                                              transport=httpx.MockTransport(handler))
+    env.now.t = datetime(2026, 10, 9, 10, 0, tzinfo=ET)
+    rep = step7.check_stream_session(env, ["NDXP"], end=t0 + timedelta(seconds=9))
+    assert len(rep["parts"]) >= 2 and rep["resent_boards_dropped"] == 1
+    folder = Path(rep["folder"])
+    boards = pq.read_table(sorted(folder.glob("part_*_boards.parquet")))
+    assert boards.num_rows == rep["boards"] and set(boards["symbol"].to_pylist()) == {"NDXP"}
+    assert boards["as_of"].to_pylist() == sorted(set(boards["as_of"].to_pylist()))  # each board once, in order
+
+
+def test_stream_session_refusals_and_estimate(env):
+    from nqbot.clients import skylit_credits as credits
+
+    with pytest.raises(step7.CheckRefused, match="unknown maps"):
+        step7.check_stream_session(env, ["XYZ"])
+    env.now.t = datetime(2026, 10, 9, 9, 0, tzinfo=ET)
+    with pytest.raises(step7.CheckRefused, match="before 09:30"):
+        step7.check_stream_session(env, ["NDXP"])
+    env.now.t = datetime(2026, 10, 9, 16, 5, tzinfo=ET)
+    with pytest.raises(step7.CheckRefused, match="before the close"):
+        step7.check_stream_session(env, ["NDXP"])
+    est = credits.stream_estimate("x", 1, 393, reconnects=step7.SESSION_MAX_RECONNECTS)  # 09:27 -> 16:00, one map
+    assert est.total == 1 * (1 + 12) + 1 * (393 + 12) < 5_000  # no approval needed, printed first
+
+
 def test_stream_record_refuses_a_start_that_runs_past_the_close(env):
     env.now.t = datetime(2026, 10, 6, 15, 50, tzinfo=ET)
     with pytest.raises(step7.CheckRefused, match="past today's close.*start by 15:44"):
