@@ -1,0 +1,3 @@
+# Byte-exact files (2026-10-07): the glossary's checksum is pinned in the parser, and a hook script with CRLF breaks sh.
+docs/gameplan_glossary.md text eol=lf
+.githooks/* text eol=lf

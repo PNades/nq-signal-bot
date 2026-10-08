@@ -420,9 +420,18 @@ def _review(flags):
 def test_conditional_entry_with_a_zone_needs_review():
     trig = {"type": "acceptance", "nq_price": [30011, 30011], "es_gates": [], "note": "15+ min above 30,011"}
     flags = validate.check(_zone(side="buy", trigger=trig, stop=29990, targets=[tgt(30100)], invalidation=[]))
-    assert any("conditional entry has a zone" in r for _, r in _review(flags))
+    assert any("trades the break has a zone" in r for _, r in _review(flags))
     by_type = {"type": "breakout", "nq_price": None, "es_gates": [], "note": None}
-    assert any("conditional entry has a zone" in r for _, r in _review(validate.check(_zone(trigger=by_type))))
+    assert any("trades the break has a zone" in r for _, r in _review(validate.check(_zone(trigger=by_type))))
+
+
+def test_a_retest_entry_after_a_break_keeps_its_zone():
+    """Glossary §7 (owner 2026-10-07, 09-10 E5): "failed reclaim of 29,000–026 after a settled bar under 29,026"
+    trades the retest of a written zone, so the zone stays and the break is its precondition."""
+    for kind in ("failed_audit", "failed_reclaim", "audited_hold"):
+        trig = {"type": kind, "nq_price": [30640, 30640], "es_gates": [],
+                "note": "failed reclaim of 30,640-722 after a settled bar under 30,640"}
+        assert not [r for _, r in _review(validate.check(_zone(trigger=trig))) if "has a zone" in r], kind
 
 
 @pytest.mark.parametrize("note, flagged", [
@@ -449,3 +458,28 @@ def test_vix_line_in_regime_line_and_copied_levels():
     copied = {**spec_example(), "hvl": [30590, 30590], "regime_line": [30590, 30590]}
     assert any("hold the same value" in r for _, r in
                _review(validate.check(copied, source_text="the HVL pair at 30,590")))  # pair covers hvl/hvl0 only
+
+
+@pytest.mark.parametrize("text, exempt", [
+    ("the HVL pair at 29,790", True),
+    ("HVL/HVL0 29,410", True),
+    ("HVL & HVL0 **29,475**", True),
+    ("MenthorQ's HVL \= HVL0 is now **30,540**", True),
+    ("HVL and HVL0 fell to **29,220**", True),
+    ("price sits below MQ's HVL (29,190)", False),            # 09-02: only HVL written
+    ("HVL moved UP 29,350 → 29,475 (into the weld)", False),  # 09-09
+])
+def test_explicit_hvl_and_hvl0_wordings(text, exempt):
+    """Owner 2026-10-07 (glossary §8): these wordings state both HVL and HVL0 at one price."""
+    same = {**spec_example(), "hvl": [29475, 29475], "hvl0": [29475, 29475]}
+    flagged = any("hold the same value" in r for _, r in _review(validate.check(same, source_text=text)))
+    assert flagged is not exempt
+
+
+def test_an_info_note_never_counts_as_two_versions():
+    """08-17 L3 (2026-10-07): "'INVALID for shorts' has no minutes; 15 used per owner rule (the acceptance branch
+    also says 15 min)" is an info note; its words "used" / "also says" must not raise the two-versions flag."""
+    g = spec_example()
+    g["uncertain"] = [{"kind": "info", "field": "zones[E1].invalidation",
+                       "reason": "no minutes on that line; 15 used per owner rule (the branch also says 15 min)"}]
+    assert not [f for f in validate.check(g) if "written two ways" in f["reason"]]

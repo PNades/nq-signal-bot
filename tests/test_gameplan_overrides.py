@@ -45,7 +45,24 @@ def test_override_that_no_longer_matches_becomes_a_review_flag():
     doc = {"zones": [{"id": "Z9", "zone": [1, 2]}], "flags": [], "status": "ok"}
     out = ov.apply(doc, {"ops": [{"path": ["zones", {"id": "E2"}, "zone"], "value": [5, 6], "reason": "r", "at": "t"}]})
     assert out["status"] == "flagged" and out["owner_overrides"] == []
-    assert out["flags"][-1]["field"] == "owner_override" and "no longer matches" in out["flags"][-1]["reason"]
+    assert out["flags"][-1]["field"] == "owner_override" and "matches no single item" in out["flags"][-1]["reason"]
+
+
+def test_unlabelled_entries_are_found_by_side_and_level_not_name():
+    """Owner 2026-10-07: 08-17's Z6 came back as L5-ACC on the next parse; only E-labels are stable."""
+    z6 = {"id": "Z6", "side": "sell", "zone": None, "trigger": {"nq_price": [30150, 30150]}, "stop": None}
+    assert ov.entry_selector(z6) == {"side": "sell", "trigger.nq_price": [30150, 30150]}
+    assert ov.entry_selector({"id": "E5b", "side": "buy", "zone": [1, 2], "trigger": {}}) == {"id": "E5b"}
+    assert ov.entry_selector({"id": "S1", "side": "buy", "zone": [1, 2], "trigger": {"nq_price": None}}) == \
+        {"side": "buy", "zone": [1, 2]}
+    renamed = {"zones": [{**z6, "id": "L5-ACC"}], "flags": [], "status": "ok"}
+    op = {"path": ["zones", ov.entry_selector(z6), "stop"], "value": 30175, "reason": "r", "at": "t"}
+    assert ov.apply(renamed, {"ops": [op]})["zones"][0]["stop"] == 30175
+    twice = {"zones": [{**z6, "id": "A"}, {**z6, "id": "B"}], "flags": [], "status": "ok"}
+    assert ov.apply(twice, {"ops": [op]})["status"] == "flagged"   # ambiguous: never applied to both
+    named = ov.entry_selector(twice["zones"][1], twice["zones"])    # not unique by side + level: the name is added
+    assert named == {"side": "sell", "trigger.nq_price": [30150, 30150], "id": "B"}
+    assert ov.apply(twice, {"ops": [{**op, "path": ["zones", named, "stop"]}]})["zones"][1]["stop"] == 30175
 
 
 def test_overrides_survive_a_reparse(settings, store):
@@ -55,3 +72,20 @@ def test_overrides_survive_a_reparse(settings, store):
     gp.parse_file(FakeAnthropic(), settings, store, f, reparse=True, out=quiet)
     assert next(z for z in store.load_effective(D_CANON)["zones"] if z["id"] == "E1")["stop"] == 24580
     assert next(z for z in store.load(D_CANON)["zones"] if z["id"] == "E1")["stop"] == 24575
+
+
+def test_an_override_settles_the_review_flags_on_its_field():
+    doc = {"zones": [{"id": "E1", "targets": []}], "regime_line": [29990, 29990], "status": "flagged",
+           "scenario_sets": [{"frame": "ny_am", "scenarios": [{"id": "S2", "prob": None}]}],
+           "flags": [{"field": "zones[E1].targets", "reason": "two versions", "origin": "validate", "review": True},
+                     {"field": "hvl,regime_line", "reason": "same value", "origin": "validate", "review": True},
+                     {"field": "scenario_sets[0].scenarios[S2].prob", "reason": "two", "origin": "model",
+                      "review": True},
+                     {"field": "zones[E1].stop", "reason": "other field", "origin": "model", "review": True}]}
+    ops = [{"path": ["zones", {"id": "E1"}, "targets"], "value": [], "reason": "r", "at": "t"},
+           {"path": ["regime_line"], "value": None, "reason": "r", "at": "t"},
+           {"path": ["scenario_sets", {"frame": "ny_am"}, "scenarios", {"id": "S2"}, "prob"], "value": None,
+            "reason": "r", "at": "t"}]
+    out = ov.apply(doc, {"ops": ops})
+    assert [f["review"] for f in out["flags"]] == [False, False, False, True]   # zones[E1].stop is untouched
+    assert out["flags"][0]["reason"].endswith("[resolved by owner override]")

@@ -36,8 +36,8 @@ from nqbot.gameplan.convert import SUPPORTED_SUFFIXES, CannotConvert, Converted,
 from nqbot.gameplan.schema import GAMEPLAN_SCHEMA, SPEC_FIELDS, from_wire
 from nqbot.storage import append_jsonl, atomic_write_json, atomic_write_text, replace_retry
 
-CHECKS_VERSION = 4  # bump when validate.py's flags change: stored gameplans are rebuilt from their saved answers, free
-PARSER_VERSION = 4  # bump when SYSTEM_PROMPT or GAMEPLAN_SCHEMA changes (then re-parse with --reparse)
+CHECKS_VERSION = 7  # bump when validate.py's flags change: stored gameplans are rebuilt from their saved answers, free
+PARSER_VERSION = 6  # bump when SYSTEM_PROMPT or GAMEPLAN_SCHEMA changes (then re-parse with --reparse)
 MTOK = 1_000_000
 CANONICAL = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATE_PREFIX = re.compile(r"^(\d{4}-\d{2}-\d{2})(?!\d)")  # "2026-10-06 gameplan.md" (owner's Drive names, §3.4)
@@ -111,7 +111,7 @@ Rules:
 # archived and live gameplans are parsed the same way. Editing it changes the prompt: bump PARSER_VERSION and
 # GLOSSARY_SHA256 together (tests/test_gameplan_parser.py checks the pair).
 GLOSSARY_PATH = Path(__file__).resolve().parents[3] / "docs" / "gameplan_glossary.md"
-GLOSSARY_SHA256 = "5033301d046b44869d66afb5d70fd6f20e766e25d2f5de8429323e603b8e359c"
+GLOSSARY_SHA256 = "7b725d862d8c4db9c80566d819f8933f35e99a8fdf8dbb0ae35a409c5ace5bf3"
 GLOSSARY = GLOSSARY_PATH.read_text(encoding="utf-8")
 SYSTEM_PROMPT += "\n" + GLOSSARY
 
@@ -165,8 +165,8 @@ class GameplanStore:
     def calls_path(self) -> Path:
         return self.processed_dir / "calls.jsonl"
 
-    def response_path(self, sha: str) -> Path:
-        return self.processed_dir / "responses" / f"{sha}.v{PARSER_VERSION}.json"
+    def response_path(self, sha: str, version: int | None = None) -> Path:
+        return self.processed_dir / "responses" / f"{sha}.v{PARSER_VERSION if version is None else version}.json"
 
     def load_index(self) -> dict[str, dict[str, Any]]:
         if not self.index_path.exists():
@@ -376,6 +376,29 @@ def _retire_own(store: GameplanStore, old_day: str, sha: str, file: Path, conv: 
         del index[h]
 
 
+def recheck(store: GameplanStore, day: date) -> bool:
+    """Re-run the checks (validate.py) on a stored gameplan from its own saved answer, keeping the parser version it
+    was parsed with: new check rules reach the archive without a re-parse (owner 2026-10-07: no more re-parses for
+    the archive). False when its saved answer is gone (then only --reparse can rebuild it)."""
+    doc = store.load(day)
+    src = doc.get("source", {}) if doc else {}
+    if not doc or src.get("checks_version") == CHECKS_VERSION:
+        return False
+    p = store.response_path(src["sha256"], src.get("parser_version"))
+    if not p.exists():
+        return False
+    parsed, wire_flags = from_wire(json.loads(json.loads(p.read_text(encoding="utf-8"))["text"]))
+    copy = store.raw_dir / src.get("canonical_copy", "")
+    text = copy.read_text(encoding="utf-8") if copy.suffix == ".md" and copy.exists() else None
+    date_flags = [f for f in doc.get("flags") or [] if f.get("field") == "date" and f.get("origin") == "validate"]
+    flags = date_flags + wire_flags + validate.check(parsed, source_text=text)
+    doc["flags"] = flags
+    doc["status"] = "flagged" if validate.needs_review(flags) else "ok"
+    doc["source"]["checks_version"] = CHECKS_VERSION
+    atomic_write_json(store.json_path(day), doc)
+    return True
+
+
 def _rebuildable(store: GameplanStore, doc: dict[str, Any], sha: str) -> bool:
     """The stored gameplan was built by an older parser or checks version and this version's answer is already saved
     (e.g. a --reparse whose file then needed --date, or new flag rules): rebuild it from that answer, for free."""
@@ -540,6 +563,10 @@ def batch(client, settings: dict[str, Any], store: GameplanStore, *, approved_us
     if not found:
         out(f"  no files found: download the Drive folder's files into {store.raw_dir.resolve()} (or one folder "
             "below it), then run this again")
+    if not reparse:  # new check rules: re-check stored gameplans from their own saved answers, no API call
+        rechecked = [d for d in store.parsed_days() if recheck(store, d)]
+        if rechecked:
+            out(f"re-checked {len(rechecked)} stored gameplan(s) with checks version {CHECKS_VERSION}")
     for f in found:
         if f.suffix.lower() not in SUPPORTED_SUFFIXES:
             results.append(Result(f.name, "unconvertible", message=f"{f.suffix or 'no extension'} is not supported"))

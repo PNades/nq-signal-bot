@@ -21,7 +21,14 @@ from typing import Any
 # An NQ level is in the tens of thousands; a VIX line (~19.5) or a 10Y yield is not. Anything this small stored as
 # hvl / hvl0 / regime_line is another instrument's number (glossary §3: the VIX regime line is a gate, not a level).
 MIN_NQ_LEVEL = 1000
-CONDITIONAL_TRIGGERS = ("acceptance", "breakout", "breakdown", "break-plan", "break_plan")
+# Glossary §8 (owner 2026-10-07): wordings that state HVL and HVL0 at one price ("the HVL pair at X", "HVL/HVL0 X",
+# "HVL & HVL0 X", "HVL = HVL0 X"; Markdown may escape the "=" as "\\=").
+_HVL_PAIR = re.compile(r"HVL pair|\bHVL\s*(?:/|&|and|\\?=)\s*HVL\s*0", re.I)
+# Glossary §7 (owner 2026-10-07): an entry that trades the break itself has no zone; one that trades the retest of a
+# written zone after a break keeps that zone (its trigger is failed_audit / audited_hold, the break its precondition).
+BREAK_TRIGGERS = ("acceptance", "breakout", "breakdown", "break-plan", "break_plan", "lost", "loss", "reclaimed",
+                  "initiation")
+RETEST_TRIGGERS = ("failed_audit", "audited_hold", "failed_reclaim", "held_retest", "audit", "retest")
 _PICK_WORDS = re.compile(r"\b(used|took|taken|chose|picked|kept the)\b", re.I)
 _TWO_WORDS = re.compile(r"\b(two|both|vs\.?|while|differs?|also (gives|mentions|lists|says)|whereas)\b"
                         r"|\bgives\b.*\bgives\b|\bin the map and\b", re.I)
@@ -208,12 +215,15 @@ def _glossary_checks(parsed: dict[str, Any], source_text: str | None, flags: lis
     """Owner 2026-10-07: the glossary rules the code can test (docs/gameplan_glossary.md §3, §7)."""
     for z in parsed.get("zones") or []:
         trig = z.get("trigger") or {}
-        conditional = trig.get("nq_price") is not None or (trig.get("type") or "").lower() in CONDITIONAL_TRIGGERS
-        if conditional and z.get("zone") is not None:
-            flags.append(_flag(f"zones[{z.get('id')}].zone", "a conditional entry has a zone: the zone stays empty "
-                                                             "and the level goes in trigger.nq_price (glossary §7)"))
+        kind = (trig.get("type") or "").lower().replace(" ", "_")
+        trades_the_break = kind in BREAK_TRIGGERS or (trig.get("nq_price") is not None and kind not in RETEST_TRIGGERS)
+        if trades_the_break and z.get("zone") is not None:
+            flags.append(_flag(f"zones[{z.get('id')}].zone", "an entry that trades the break has a zone: the zone "
+                                                             "stays empty and the level goes in trigger.nq_price; only "
+                                                             "a retest entry (failed_audit / audited_hold) keeps its "
+                                                             "zone (glossary §7)"))
     for u in parsed.get("uncertain") or []:
-        two = u.get("kind") == "two_versions" or (
+        two = u.get("kind") == "two_versions" or (u.get("kind") != "info" and  # an info note is covered by a rule
             _PICK_WORDS.search(u.get("reason", "")) and _TWO_WORDS.search(u.get("reason", "")))
         found, value = _resolve(parsed, u.get("field", ""))
         if two and found and _filled(value):
@@ -224,7 +234,7 @@ def _glossary_checks(parsed: dict[str, Any], source_text: str | None, flags: lis
         if v and min(v) < MIN_NQ_LEVEL:
             flags.append(_flag(k, f"{v} is not an NQ price (a VIX or yield line?): a VIX regime line is a gate in "
                                   "other_conditions, never a level (glossary §3)"))
-    hvl_pair = bool(source_text and re.search(r"HVL pair", source_text, re.I))
+    hvl_pair = bool(source_text and _HVL_PAIR.search(source_text))
     names = list(levels)
     for i, a in enumerate(names):
         for b in names[i + 1:]:
