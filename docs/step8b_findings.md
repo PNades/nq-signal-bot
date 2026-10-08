@@ -1,6 +1,107 @@
-# Step 8b findings (2026-10-07)
+# Step 8b findings (2026-10-07, round 2 2026-10-08)
 
-The gate's first run on the five step-7 sample days (2026-03-06, 03-11, 03-18, 03-24, 03-26; development month 6) failed every condition. These are the read-only checks the owner asked for afterwards (2026-10-07). **No gate limit or definition has changed.** The open decisions are SPEC §13 "Step 8b" Q8b-1 to Q8b-4. Reports from the runs are on the SSD in `<reports_dir>/step8b/`. The study scripts ran from a scratch folder and are not in the repo; this file records their method and numbers.
+The gate's first run on the five step-7 sample days (2026-03-06, 03-11, 03-18, 03-24, 03-26; development month 6) failed every condition. These are the read-only checks the owner asked for afterwards (round 1 2026-10-07, round 2 2026-10-08). **No gate limit or definition has changed.** The open decisions are SPEC §13 "Step 8b" Q8b-1 to Q8b-4. Reports from the runs are on the SSD in `<reports_dir>/step8b/`. The study scripts ran from a scratch folder and are not in the repo; this file records their method and numbers.
+
+**Round 2 (R1–R6 below) supersedes the round-1 recommendations in §4–§5.** Round 1 mapped each crossing with an R that included the crossing pair's first board, so it shared that board's spot. It also used only the five sample days, with offsets fitted per day.
+
+## R1. Round-2 method (owner 2026-10-07)
+- **Days:** 22 development days, 11 per stamping era. Before 2026-03-17: 2025-10-15, 10-29, 11-12, 11-25, 12-10, 2026-01-08, 01-22, 02-05, 02-24, 03-06, 03-11. From 2026-03-17: 03-17, 18, 19, 20, 23, 24, 25, 26, 27, 30, 31.
+- **Alignment:** a fixed rule per era and chain (not fitted per day). F is read at floor(`asOf`) + δ, with δ in ms: before 03-17, QQQ/SPY +680 and SPX −105; from 03-17, QQQ −70, SPY −55, SPX −80. These come from the five sample days. The out-of-sample check is in R4.
+- **No circularity:** a crossing between boards a0 and a1 is mapped with the R known *before* a0. For per-board R that is the board before a0 (with F1.2 in force). For a trailing median it is the window ending at that board. The board where the crossing starts never contributes its own R.
+- **Event moments:** crossings of strikes that are relevant nodes (≥ 25% of King) on that earlier board. At such a moment the futures price sits at the node, which is where a touch event would fire. The mapped distance is deliberately not used as a filter, because that would cut off the errors being measured. These are split into normal moves and the fastest 1% (largest 60-s futures move, pooled per chain).
+- **Bias:** the median signed error (futures − strike × R) per chain and era. The 95% interval comes from a day-block bootstrap (2,000 resamples of days).
+- **Floor:** the best possible R, a centered median of the aligned per-board R over ±60 s around the crossing. It uses future data and is for evaluation only.
+- **Units:** QQQ in NQ pts, SPY/SPX in ES pts. Underlying ticks use the median R: QQQ 41.39 (1¢ = 0.414 NQ), SPY 10.09 (1¢ = 0.101 ES), SPX 1.006 (0.01 = 0.010 ES).
+
+## R2. The table (p95 unless marked; bias = median signed error [95% day-block interval])
+
+| Chain | Estimator | All crossings | Event, normal | Event, fastest 1% | p95 before / from 03-17 | Bias before 03-17 | Bias from 03-17 |
+|---|---|---:|---:|---:|---|---|---|
+| QQQ | per board, as built | 5.42 | 5.14 | 10.20 | 5.93 / 4.90 | +0.015 [−0.077, +0.089] | +0.007 [0.000, +0.079] |
+| QQQ | per board, aligned | 4.83 | 4.63 | 7.20 | 5.71 / 3.90 | +0.064 [0.000, +0.121] | +0.016 [−0.007, +0.085] |
+| QQQ | trailing 15 s | 4.21 | 4.12 | **5.95** | 5.16 / 3.19 | +0.079 [+0.023, +0.139] | +0.020 [0.000, +0.065] |
+| QQQ | trailing 30 s | 4.08 | 3.99 | 7.90 | 5.15 / 3.25 | +0.073 [+0.036, +0.096] | +0.017 [−0.006, +0.047] |
+| QQQ | **trailing 60 s** | **4.07** | **3.94** | 7.08 | 5.10 / 3.28 | +0.056 [+0.009, +0.089] | +0.012 [−0.016, +0.040] |
+| QQQ | trailing 120 s | 4.09 | 3.98 | 7.19 | 5.04 / 3.27 | +0.038 [+0.008, +0.084] | +0.023 [−0.014, +0.050] |
+| QQQ | trailing 300 s | 4.11 | 4.03 | 7.64 | 5.09 / 3.32 | +0.057 [+0.022, +0.089] | +0.014 [−0.028, +0.055] |
+| QQQ | *floor* | 4.08 | 4.00 | 7.06 | 5.08 / 3.17 | +0.045 [0.000, +0.081] | +0.013 [−0.007, +0.052] |
+| SPY | per board, as built | 1.17 | 1.07 | 2.55 | 1.20 / 1.16 | +0.002 [−0.002, +0.047] | +0.005 [0.000, +0.036] |
+| SPY | per board, aligned | 0.97 | 0.90 | **2.70** | 1.12 / 0.89 | +0.002 [0.000, +0.044] | 0.000 [−0.005, +0.002] |
+| SPY | trailing 15 s | 0.83 | 0.75 | 5.89 | 0.95 / 0.76 | 0.000 [−0.002, +0.005] | 0.000 [0.000, +0.006] |
+| SPY | trailing 30 s | **0.82** | 0.75 | 10.71 | 0.91 / 0.76 | +0.005 [0.000, +0.020] | 0.000 [−0.003, +0.006] |
+| SPY | **trailing 60 s** | 0.82 | **0.75** | 5.57 | 0.90 / 0.76 | +0.002 [−0.002, +0.016] | 0.000 [−0.005, +0.006] |
+| SPY | trailing 120 s | 0.83 | 0.75 | 5.72 | 0.90 / 0.76 | +0.001 [−0.004, +0.010] | 0.000 [−0.005, +0.009] |
+| SPY | trailing 300 s | 0.82 | 0.76 | 3.38 | 0.91 / 0.76 | 0.000 [−0.006, +0.010] | 0.000 [−0.010, +0.010] |
+| SPY | *floor* | 0.82 | 0.75 | 5.57 | 0.90 / 0.76 | +0.001 [−0.004, +0.005] | 0.000 [−0.006, +0.003] |
+| SPX | per board, as built | 0.83 | 0.73 | 1.63 | 0.74 / 0.93 | +0.009 [−0.001, +0.011] | +0.010 [0.000, +0.018] |
+| SPX | **per board, aligned** | **0.82** | **0.72** | **1.47** | 0.75 / 0.91 | +0.010 [0.000, +0.018] | +0.008 [0.000, +0.010] |
+| SPX | trailing 15 s | 0.87 | 0.75 | 2.28 | 0.78 / 0.96 | 0.000 [−0.003, +0.009] | +0.003 [−0.007, +0.011] |
+| SPX | trailing 30 s | 0.92 | 0.79 | 2.60 | 0.82 / 1.01 | −0.001 [−0.009, +0.009] | +0.005 [−0.008, +0.015] |
+| SPX | trailing 60 s | 0.94 | 0.83 | 2.72 | 0.86 / 1.04 | 0.000 [−0.011, +0.010] | +0.004 [−0.007, +0.020] |
+| SPX | trailing 120 s | 0.97 | 0.85 | 2.64 | 0.89 / 1.06 | −0.001 [−0.012, +0.013] | +0.003 [−0.012, +0.021] |
+| SPX | trailing 300 s | 1.00 | 0.87 | 2.63 | 0.92 / 1.08 | +0.001 [−0.019, +0.019] | +0.009 [−0.008, +0.028] |
+| SPX | *floor* | 0.89 | 0.76 | 2.72 | 0.80 / 0.98 | +0.001 [−0.005, +0.009] | −0.006 [−0.017, +0.006] |
+| NDXP | basis + carry, known before the open (R6) | 15.1 (\|day-ahead error\|, 124 days) | — | — | — | +0.22 (signed median, all 124 days) | — |
+| NDXP | as built (spot is NQ, R ≈ 1) | 224 | — | — | — | −128 | — |
+
+Crossings counted: QQQ 9,988 (6,400 at event moments, 65 in the fastest 1%), SPY 10,332 (7,374; 75), SPX 15,599 (6,428; 69). The fastest-1% column rests on 65–75 crossings, so it is noisy.
+
+## R3. What the table says
+1. **Removing the circularity raises every number a little,** and the order of the estimators is unchanged. Alignment still gives the biggest single gain on QQQ/SPY (QQQ 5.42 → 4.83, SPY 1.17 → 0.97).
+2. **QQQ:** a trailing 60-s median reaches the floor (4.07 vs 4.08 overall, 3.94 vs 4.00 at event moments). 30 s and 120 s are within 0.02. 15 s is the best in the fastest 1% (5.95 vs 7.08), on 65 crossings.
+3. **SPY:** every window from 15 s to 300 s reaches the floor in normal moves (0.75 vs 0.90 per board). In the fastest 1% the per-board R does better (2.70 vs 5.6–10.7), on 75 crossings. ES is only read across markets, never traded (F0.11).
+4. **SPX:** the per-board aligned R beats every window and the centered floor (0.82 overall, 1.47 in the fastest 1%). The index already moves in 0.01 steps with no tick noise, and smoothing only adds lag.
+5. **Era:** QQQ's p95 is much higher before 03-17 (5.10 vs 3.28 with 60 s). Before 03-17 the ETF spot was a coarser last trade (half-cent prints 7–11% vs ≤ 2.3% on the sample days) with a vaguer moment in time (correlation peak r 0.35–0.64 vs 0.46–0.72).
+6. **Bias is practically zero:** every median is ≤ 0.08 NQ pt (0.2 of a QQQ cent) and ≤ 0.01 ES pt. Before 03-17, QQQ's intervals for the windows exclude 0 by +0.04–0.08 NQ pts. Part of that is the alignment rule used here: its +680 ms is earlier than the 22-day medians in R4 (QQQ +740, SPY +840).
+7. **Recommended:** **QQQ trailing 60 s, SPY trailing 60 s, SPX per board (aligned), NDXP per R6.** These are the lowest or tied-lowest totals. One window for both ETFs keeps a single parameter. The owner may prefer per-board R for SPY because of its fast-move tail.
+
+## R4. Timestamps across all 22 days, and live (item 4)
+Measured content offset (ms from the whole second of `asOf`; median [range], 11 days per era):
+
+| | QQQ | SPY | SPX | NDXP |
+|---|---|---|---|---|
+| History before 2026-03-17 | +740 [+640, +860] | +840 [+640, +900] | −80 [−100, −20] | **+1000** [+1000, +1000] (r ≈ 0.9997) |
+| History from 2026-03-17 | −60 [−80, 0] | −60 [−120, −20] | −80 [−220, −40] | +1000 on 7 days, 0 on 03-24–27 |
+| Live stream 2026-10-07 (10:01 / 14:59) | −80 / −140 | +520 / +320 (arrival − `asOf` p50 526 / 413 ms) | −100 / −20 | 0 / −80 |
+
+- The pre-03-17 rule holds on the nine new days. QQQ/SPY content is late in the stamped second, never past +0.9 s, and NDXP's is exactly +1 s (its spot equals the NQ trade one second after `asOf` on every pre-era day).
+- In live, nothing is newer than its arrival, and live applies a board at max(arrival, `asOf` + `map_latency_sec`), so live has no lookahead. Live SPY content (+0.3/+0.5 s) differs from post-03-17 history (−0.06 s). **Parity (`step7 parity --session 2026-10-07`, run 2026-10-08 08:50):** 3,585 boards matched, none revised, none only in the stream. History keeps millisecond `asOf` for 10-07, and the stream's whole-second `asOf` is that value cut to the second, so a live board holds the same content as post-03-17 history. QQQ/SPX/NDXP live offsets agree with that era. SPY on 10-07 sits later (+0.3/+0.5 s) than SPY in March (−0.06 s), so SPY's offset has drifted and is re-measured on more days before its value is set.
+- **Proposed ingest rule (Q8b-2), so no board is applied before the latest market data it holds:**
+  - Each board gets a **content time** c = floor(`asOf`) + `board_content_offset_ms`[era][chain] (the measured median), used to read F for R.
+  - It also gets a **latest-data time** u = floor(`asOf`) + `board_content_max_ms`[era][chain] (the measured upper edge, rounded up to the end of the stamped second): before 03-17, QQQ/SPY/NDXP +1000 ms and SPX 0; from 03-17, QQQ/SPY/SPX 0 and NDXP +1000 ms.
+  - History applies the board at max(`asOf`, u) + `map_latency_sec`. Live applies it at max(arrival, `asOf` + `map_latency_sec`), unchanged.
+  - The era boundary is a dated setting (`skylit_stamp_change_date: 2026-03-17`), not inferred from milliseconds, because live stamps whole seconds too.
+  - Effect: pre-03-17 QQQ/SPY/NDXP boards are applied at `asOf` + 1 s + `map_latency_sec` (≈ 1.59 s) instead of `asOf` + 0.59 s, removing the ≈ 0.1–0.4 s look into the future in development months 1–6. The same function serves backtest, restart rebuilds and live (§9).
+  - The live column's values are set from the stream (QQQ −0.11 s, SPX −0.06 s, NDXP −0.04 s; SPY to be decided after parity).
+
+## R5. Floor in underlying ticks, and the proposed gate (item 5)
+Floor p95, overall / at event moments:
+- QQQ: 4.08 / 4.00 NQ pts = **9.8 / 9.7 QQQ cents**.
+- SPY: 0.82 / 0.75 ES = **8.2 / 7.4 SPY cents**.
+- SPX: the per-board R is lower than the centered floor, so the floor for SPX is the per-board value: 0.82 / 0.72 ES = **82 / 72 index ticks** (SPX 0.01).
+
+**Proposed gate (Q8b-4), replacing F1.6 and its `mapping_p95_max` as the pass rule (F1.6 stays in the report as a diagnostic):** on the development sample (≥ 10 days per stamping era), per chain, using non-circular crossings at event moments:
+- (a) **No bias:** the day-block 95% interval of the median signed error contains 0, or the median is within `mapping_bias_max` (proposed: 1 tick of the futures, 0.25 NQ / 0.25 ES). The second clause matters because with ~10,000 crossings a 0.06-pt bias, a fifth of a QQQ cent, is "significant" and harmless.
+- (b) **At the floor:** the chosen estimator's p95 ≤ (1 + `mapping_floor_margin`) × the floor p95, where the floor = the lower of the centered median and the aligned per-board R, and `mapping_floor_margin` is proposed at 0.10. The recommended estimators pass: QQQ 3.94 vs 4.00, SPY 0.75 vs 0.75, SPX 0.72 vs 0.72.
+- (c) **The measured p95 is carried forward** into `mapping_p95` per chain (recorded, not a limit):
+  - `stop_buffer` floor = the larger of the QQQ and NDXP event-moment p95. That is 3.94 NQ from QQQ; NDXP's would be about 15 NQ under R6, which would dominate, so the owner decides whether NDXP counts.
+  - The node band check: each `node_band` converted with R must be ≥ the chain's p95. Now QQQ ±0.5 $ = ±20.7 NQ ≥ 3.9; SPY ±0.5 $ = ±5.0 ES ≥ 0.75; SPX ±5 = ±5.0 ES ≥ 0.72; NDXP ±20 ≥ 15 (tight).
+  - `zone_proximity` (5 NQ) stays above QQQ's 3.94.
+- The spot-lag condition is replaced by an alignment check: each day's fitted offset lies within the era's measured range, or a new era is flagged.
+
+## R6. NDXP: index-to-futures basis (item 6)
+- **Contract mixing confirmed.** The 03-24/26 NDXP up-jumps equal NQU6 (median difference 0.00 against the U6 1-second closes; 84–89% within 1 pt, the rest because U6's bars are sparse). History's NDXP spot is whichever of H6/M6/U6 Skylit used.
+- **NDX close source:** FRED `NASDAQ100`, free (Nasdaq data, personal use), cached at `<root>/data/raw/ndx/NASDAQ100_fred.csv`. Skylit history has none (NDXP `previousClose` is 0 on all 122 development days). Live, the stream's NDXP `previousClose` carries it (10-06: 31,224.47 vs FRED 31,224.69). Nasdaq.com's free historical download is a second free source. Nothing to buy.
+- **NQ settlement:** a proxy, the VWAP of the contract's trades 15:59:30–16:00:00 ET (CME's settlement window), from Databento trades already pulled. A roll day uses the new contract's 1-second bars from the session before.
+- **Method:** ρ = settle ÷ NDX close on the previous session, for the session's own contract only. Carry is decayed by time to that contract's final settlement (third Friday 09:30 ET): ln ρ(t) = ln ρ_prev × τ(t) ÷ τ_prev. An NDXP level = strike × ρ(t), all day, known before the open.
+- **Development months 1–6** (124 days, scored against the same day's close basis): |error| p50 **4.7**, p95 **15.1**, max 22.2 NQ pts, signed median +0.22. Without the carry decay, p50 5.6, p95 17.0, biased +4.3. No basis (as built): p50 128, p95 224. The roll days 2025-12-17 and 2026-03-18 came out −11.5 and +2.6. The truth here (settlement VWAP vs official closing auction) is noisy itself, so these are upper bounds.
+- **Out of sample, live (2026-10-07, predicted from 10-06: NQZ6 settle 31,483.24, NDX 31,224.69, basis 258.55, τ 72.7 d):**
+  - At the 10-07 close, error +12.3 NQ pts (the basis fell to 242.17).
+  - Against the stream's real NDX spot board by board: signed median +12.4 (10:01 recording) and +8.0 (14:59), p95 14.5 and 10.1.
+  - Against 10-07's own closing basis the intraday error is only p95 3.4 and 6.4. So the error is the basis changing between days, not noise within the day.
+- **Expected NDXP mapping error with this method:** about 5 NQ pts typical and about 15 at p95, all day, from the basis drift. That is about 4× QQQ's p95, and it uses up most of NDXP's ±20 band.
+- **Tested and rejected:** NDX derived intraday from QQQ × κ (κ = the previous day's NDX close ÷ QQQ close). Skylit's QQQ `previousClose` in history doesn't hold up as a QQQ close (day-ahead errors up to 371 NDX pts). Live 10-07 it was −5.8 / −4.4 median, p95 7.9 / 6.2, not clearly better than the basis method. It would need an independent QQQ close source.
+- A reliable basis exists, so the fallback (NDXP out of the features until Skylit answers) isn't needed. Better accuracy needs Skylit's answer: an NDX spot per board in history would make NDXP as exact as SPX.
 
 ## 1. First run (as built)
 
@@ -103,7 +204,7 @@ The lag a 15–30 s trailing window adds is small: R moves about a twentieth of 
 
 When spot landed **exactly** on a strike (common on QQQ/SPY, whose spot is on the cent grid while the strikes are whole dollars), the old code counted the touch twice. It counted the arrival (board j, spot = k) and the departure (board j+1, previous spot = k). Both were interpolated to board j's time, so they showed the same second. The departure row used the R of board j, whose own spot *is* the strike: k × F ÷ k = F, so it always showed 0.00 / "yes" and proved nothing. Fixed (commit of 2026-10-07): a touch is counted once, on its arrival, with the R in force before it. The tables were regenerated and the gate report now lists every sample day's table, with any missing day marked pending. `within_tol` is now stored as a JSON boolean (it was written as the string "True"/"False").
 
-## 7. Not done (needs the owner's OK)
+## 7. Not done (needs the owner's OK). Round 2: all four pulls done 2026-10-08, each $0.0000 by `get_cost` (NQZ6/ESZ6 trades 2026-10-07, NQZ6 trades 2026-10-06, NQU6 1-second bars 2026-03-24/26), ledger in `raw/databento/ledger.jsonl`
 
 - The live stream's convention (§2) can be measured against Databento trades for 2026-10-07 (NQ/ES `trades`, included in Standard, $0 by `get_cost`; outside the step-8 plan). Tomorrow's `parity --session 2026-10-07` also compares the stream with history board by board.
 - NQU6 1-second bars for 2026-03-24/26 ($0 included) would confirm the up-jumps are U6.
@@ -112,6 +213,6 @@ When spot landed **exactly** on a strike (common on QQQ/SPY, whose spot is on th
 
 > Subject: NDXP `spot` and the `asOf` convention in `/v1/historical/range`
 >
-> 1. **NDXP spot in history.** In `/v1/historical/range`, NDXP `spot` always sits on a 0.25 grid and matches CME NQ futures last trades to the tick, not the NDX index. On 2026-03-17 consecutive boards switch between the March (NQH6) and June (NQM6) contracts, about 218 points apart. On 2026-03-24 and 03-26 boards jump about +218.75 above the June contract, which looks like September (NQU6). `previousClose` for NDXP is 0 in March 2026 and 30,339.33 on 2026-09-30. In the live stream, NDXP spot moves in 0.01 steps, like the index. Questions: (a) What is NDXP `spot` in history, and which contract is it on each board? (b) Were the NDXP per-strike gamma values computed against that futures price or against NDX? (c) Can history give the NDX index spot for each board (or at least each minute) over the last 365 days? (d) From which date does NDXP history carry the index spot, if it does now?
+> 1. **NDXP spot in history.** In `/v1/historical/range`, NDXP `spot` always sits on a 0.25 grid and matches CME NQ futures last trades to the tick, not the NDX index. On 2026-03-17 consecutive boards switch between the March (NQH6) and June (NQM6) contracts, about 218 points apart. On 2026-03-24 and 03-26 boards jump about +218.75 above the June contract, which matches the September contract (NQU6) to the tick. `previousClose` for NDXP is 0 in March 2026 and 30,339.33 on 2026-09-30. In the live stream, NDXP spot moves in 0.01 steps, like the index. Questions: (a) What is NDXP `spot` in history, and which contract is it on each board? (b) Were the NDXP per-strike gamma values computed against that futures price or against NDX? (c) Can history give the NDX index spot for each board (or at least each minute) over the last 365 days? (d) From which date does NDXP history carry the index spot, if it does now?
 > 2. **What `asOf` means.** Up to 2026-03-16, `asOf` is a whole second, and QQQ/SPY `spot` matches the market about 0.7 s *after* `asOf` (SPX about 0.1 s before). From 2026-03-17, `asOf` has milliseconds (0.5–0.95 s past the second), and `spot` matches the market at the whole second just before `asOf` for all symbols. The live stream stamps whole seconds. Questions: (a) In history before and after 2026-03-17, and in the stream, is `asOf` the snapshot time, the publish time or the start of a 1-second bucket? (b) Which instant does `spot` describe? (c) What is the QQQ/SPY spot source (consolidated last trade, NBBO mid)?
 > 3. **SPX `previousClose`** is 0 on 2026-03-06. Is that expected?
