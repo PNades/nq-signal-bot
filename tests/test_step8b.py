@@ -149,7 +149,8 @@ def test_atlas_side_by_side(env):
     assert len(nodes) == 3 and max(n["pct_of_king"] for n in nodes) == 1.0  # only nodes >= 25% of King
     king = next(n for n in nodes if n["pct_of_king"] == 1.0)
     assert king["band"][0] < king["level"] < king["band"][1]
-    assert rep["crossings"] == rep["gated_crossings"] > 0 and rep["all_within_tol"] and rep["owner_check"] == "pending"
+    assert rep["crossings"] == rep["gated_crossings"] > 0 and rep["owner_check"] == "pending"
+    assert rep["regression_ok"] and rep["share_within_tol"]["SPY"] >= 0.9 and rep["tolerance"] == {"NQ": 4.0, "ES": 0.78}
     md = (step8b.reports_dir(env.paths) / f"atlas_{DAY.isoformat()}.md").read_text(encoding="utf-8")
     assert "| Strike | % of King | Mapped NQ |" in md and "## SPY -> ES" in md
 
@@ -190,7 +191,7 @@ def test_gate_report_and_cli(env, settings, drive, monkeypatch, capsys):
     assert cli.main(["step8b", "atlas", "--date", DAY.isoformat(), "--minutes", "09:45,10:00"]) == 0
     assert cli.main(["step8b", "report"]) == 0
     text = (step8b.reports_dir(env.paths) / "mapping_gate.md").read_text(encoding="utf-8")
-    assert "**PASS**" in text and "not passed yet" in text and "owner's check in Atlas replay" in text
+    assert "gated crossings: ok" in text and "not passed yet" in text and "owner's check in Atlas replay" in text
     floors = next(line for line in text.splitlines() if line.startswith("- Stop floors per level source"))
     assert all(x in floors for x in ("QQQ 4.0", "NDXP pending", "chart 0"))
     assert "diagnostic, not a gate condition" in text and "(a) bias" in text and "**pending**" in text  # Q8b-4
@@ -218,3 +219,13 @@ def test_refuses_while_step10_moves_a_raised_sample_day(env):
     s2.write_bytes(env.sky.range_paths(DAY, "0930")[1].read_bytes())
     with pytest.raises(step8b.CheckRefused, match="replacing this sample day"):
         step8b.skylit_base(env, DAY)
+
+
+def test_atlas_regression_alert(env):
+    """Q8b-5 (owner 2026-10-08): the share within the frozen tolerance is information only, with an alert below 90%."""
+    _setup(env, noise=1e-6, vol=(0.2, 0.1))
+    env.features["mapping"]["atlas_match_tol"] = {"NQ": 0.0, "ES": 0.0}  # nothing within: the regression alert
+    rep = step8b.check_atlas(env, DAY, [time(9, 45)])
+    assert not rep["regression_ok"] and rep["share_within_tol"]["SPY"] < 0.9
+    text = step8b.check_report(env).read_text(encoding="utf-8")
+    assert "REGRESSION ALERT" in text and "owner's check in Atlas replay: pending" in text

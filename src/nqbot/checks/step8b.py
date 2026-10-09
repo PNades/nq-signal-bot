@@ -13,7 +13,8 @@ those days first, so this can run after the first night):
   the board's true time, or keep the +60 s?).
 - `atlas`: for minutes the owner picks, the QQQ/SPY strikes the bot treats as relevant nodes (strike, % of King,
   mapped level and band) and the moments spot crossed each strike, with the NQ/ES price then next to the mapped
-  level (within atlas_match_tol). The owner checks the same strikes in Atlas replay.
+  level. The owner checks the same strikes in Atlas replay (the gate condition, owner 2026-10-08 Q8b-5); the
+  share of crossings within atlas_match_tol is a regression check (alert below atlas_regression_min_share).
 - `report`: <reports_dir>/step8b/mapping_gate.md, the gate evidence (Atlas pending until the owner confirms).
 """
 
@@ -445,15 +446,29 @@ def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
             lines.append("")
     crossings = [c for rows in out.values() for row in rows for n in row.get("nodes", []) for c in n["crossings"]]
     gated = [c for c in crossings if c["gate"]]
+    min_share = env.features["mapping"]["atlas_regression_min_share"]
+    share = {}
+    for m, rows in out.items():
+        g = [c for row in rows for n in row.get("nodes", []) for c in n["crossings"] if c["gate"]]
+        share[m] = round(sum(c["within_tol"] for c in g) / len(g), 4) if g else None
     report = {"date": d.isoformat(), "minutes": [t.strftime("%H:%M") for t in minutes], "maps": out,
-              "crossings": len(crossings), "gated_crossings": len(gated),
-              "all_within_tol": bool(gated) and all(c["within_tol"] for c in gated),
+              "crossings": len(crossings), "gated_crossings": len(gated), "tolerance": dict(tol),
+              "share_within_tol": share, "min_share": min_share,
+              # a map with no crossings in the windows is shown n/a, neither an alert nor a pass
+              "regression_ok": any(v is not None for v in share.values())
+              and all(v is None or v >= min_share for v in share.values()),
               "owner_check": "pending"}
     md_path = reports_dir(env.paths) / f"atlas_{d.isoformat()}.md"
     atomic_write_text(md_path, "\n".join(lines) + "\n")
-    env.echo(f"  {len(crossings)} crossings, all within tolerance: {report['all_within_tol']}; table: {md_path}")
+    env.echo(f"  {len(crossings)} crossings; share within atlas_match_tol "
+             + ", ".join(f"{m} {v:.1%}" if v is not None else f"{m} n/a" for m, v in share.items())
+             + f" ({'ok' if report['regression_ok'] else 'REGRESSION ALERT'}, min {min_share:.0%}); table: {md_path}")
     write_report(env, "atlas", report)
     return report
+
+
+def tol_text(env: Env, root: str) -> str:
+    return f"{env.features['mapping']['atlas_match_tol'][root]} {root}"
 
 
 def _et(ns: int) -> str:
@@ -506,19 +521,20 @@ def check_report(env: Env) -> Path:
             lines.append(f"  - {day}: " + ", ".join(f"{m} {o['peak_lag_s']} s" + ("" if o["gate"] else f" (1-minute: "
                                                                                      f"{o.get('recommendation')})")
                                                     for m, o in per.items()))
-    atlas_ok = bool(atlas_days) and all(d in atlas_by_date and atlas_by_date[d]["all_within_tol"] for d in atlas_days)
-    lines += [f"- Atlas match (every sample day; crossings between 1-second boards within atlas_match_tol): "
-              f"**{'PASS' if atlas_ok else 'FAIL' if all(d in atlas_by_date for d in atlas_days) else 'pending'}**; "
-              "**owner's check in Atlas replay: pending**"]
+    tables = bool(atlas_days) and all("regression_ok" in atlas_by_date.get(d, {}) for d in atlas_days)
+    lines += ["- **Atlas (gate condition): the owner's check in Atlas replay: pending** (owner 2026-10-08, Q8b-5: the "
+              "same strikes show as nodes of similar size)",
+              "- Atlas regression check (information only): share of crossings within the frozen atlas_match_tol "
+              f"(QQQ {tol_text(env, 'NQ')}, SPY {tol_text(env, 'ES')}); alert below "
+              f"{env.features['mapping']['atlas_regression_min_share']:.0%}"]
     for d in atlas_days:
         a = atlas_by_date.get(d)
-        if a is None:
+        if a is None or "regression_ok" not in a:
             lines.append(f"  - {d}: **pending** (`nqbot step8b atlas --date {d} --minutes HH:MM,...`)")
             continue
-        within = sum(c["within_tol"] for rows in a["maps"].values() for row in rows for n in row.get("nodes", [])
-                     for c in n["crossings"] if c["gate"])
-        lines.append(f"  - {d} ({', '.join(a['minutes'])}): {within} of {a['gated_crossings']} gated crossings within "
-                     f"tolerance ({a['crossings']} in all); all within: {a['all_within_tol']} (table: atlas_{d}.md)")
+        shares = ", ".join(f"{m} {v:.1%}" if v is not None else f"{m} n/a" for m, v in a["share_within_tol"].items())
+        lines.append(f"  - {d} ({', '.join(a['minutes'])}): {shares} of {a['gated_crossings']} gated crossings: "
+                     f"{'ok' if a['regression_ok'] else '**REGRESSION ALERT**'} (table: atlas_{d}.md)")
     conditions = {}
     for name, title, cmd in (("bias", "(a) bias: 95% day-block interval contains 0 or lies within one futures tick",
                               "bias"),
@@ -540,7 +556,7 @@ def check_report(env: Env) -> Path:
             else:
                 detail = f"latest content {c['max_offset_ms']} ms after floor(asOf); alerts {c['alerts'] or 'none'}"
             lines.append(f"  - {m}: {detail}: {'pass' if c['pass'] else 'FAIL'}")
-    gate = all(conditions.values()) and atlas_ok
+    gate = all(conditions.values()) and tables
     lines += ["", f"**Gate 8b: {'conditions met; the owner checks Atlas replay' if gate else 'not passed yet'}.** It "
                   "must pass before step 11. If a chain fails, find the cause (stale spot, wrong second, slow map "
                   "cadence) before anything else; never raise a threshold."]

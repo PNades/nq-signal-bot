@@ -45,6 +45,7 @@ The gate's first run on the five step-7 sample days (2026-03-06, 03-11, 03-18, 0
 | 03-26 | 97 | 69% | 99% | 2.45 | 104 | 94% | 97% | 0.51 |
 
   `atlas_match_tol` (1.0 NQ / 0.5 ES) sits below the measured crossing floor (findings R7), so no day can have every crossing within it; asked in §13 (Q8b-5).
+- **Q8b-5 answered (owner 2026-10-08):** the automated match is information only (a regression check); `atlas_match_tol` frozen at QQQ 4.0 NQ / SPY 0.78 ES, alert below 90% of crossings. Baseline (QQQ / SPY): 03-06 89.7% / 97.4% (QQQ just under: alert); 03-11 91.0% / 95.4%; 03-18 100% / 92.5%; 03-24 95.8% / 92.7%; 03-26 99.0% / 97.1%. The owner's replay check is the Atlas gate condition.
 - **`recorded-day`** checked on the 10-07 recording (cached trades, `--with-prev` = 10-06): content offsets QQQ −120, SPY +300, SPX −20, NDXP −60 ms; NDXP basis + carry p95 13.5 NQ (median +8.4); QQQ × k p95 7.4 / 10.2 / 8.5 / 4.0 for N = 1 / 3 / 5 / 10. 10-07 is not one of the three recordings, so it is left out of the choice (owner: N is not chosen from 10-07).
 - **NDXP choice (owner 2026-10-08):** `step8b ndxp-select` after the three recordings: candidates basis + carry and QQQ × k N ∈ {5, 10, 20}, leave one day out, pick on two, score on the held-out day, rotate; each candidate's held-out p95 and median; the best held-out p95 wins and is NDXP's stop floor.
 
