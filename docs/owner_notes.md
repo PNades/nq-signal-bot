@@ -39,7 +39,8 @@ How I trade. Claude Code reads this to write `docs/feature_spec.md`. Answers wri
 - I watch the news myself: for testimony that runs long or anything unscheduled, I pause or flatten the bot by hand. Gameplan blackouts aren't used; this rule replaces them.
 
 ## Accounts (2026-10)
-- MyFundedFutures only: **Rapid EOD 25k** and **Builder 25k**. Max 2 minis / 20 micros on both. Both max losses are EOD trailing ($1,000) and lock at start + $100.
+- MyFundedFutures only: **Rapid EOD 25k**, **Builder 25k** and **Pro 50k** (Pro added 2026-10-08). Max 2 minis / 20 micros on both 25k accounts. Both 25k max losses are EOD trailing ($1,000): in the evaluation they trail continuously; funded, they lock at start + $100 once the $1,100 buffer is reached (2026-10-09).
+- Pro 50k (2026-10-09): the evaluation max loss ($2,000 EOD) trails continuously; funded, it trails until the first payout, then stays at $50,100. A payout is only the profit above $52,100; the 14-day clock restarts after each payout; at the $100,000 cap across all Pro accounts the last payout takes the account back to $52,100 with nothing left to withdraw. Funded max is 5 contracts in total, minis and micros counted alike. Full rules: SPEC §6.7.
 - MFFU on every account: 7-day inactivity rule, no maximum evaluation length, consistency measured on net daily P&L (after commissions and fees). Commissions round trip with all fees: $4.68 per NQ, $1.90 per MNQ. I handle account fees myself.
 - Later I may scale up to MFFU 50k or 100k accounts of the same types: same strategy, bigger size. No retraining; I just enter the new rules on the Accounts page.
 - Rapid EOD eval: $1,500 target, no DLL, 30% consistency, at least 4 trading days, news allowed. Funded: no DLL, no consistency, $1,100 buffer, then payouts of $500 minimum with no maximum (each later payout needs $250 net profit since the last), daily payouts, 7-day inactivity rule, up to 3 funded accounts at once.
