@@ -126,6 +126,17 @@ class DatabentoClient:
 
         return self._call(rec, run)
 
+    def dataset_condition(self, start: date, end: date) -> list[dict[str, Any]]:
+        """Free `metadata.get_dataset_condition` for UTC dates [start, end] (inclusive): one row per date with
+        `condition` (available | degraded | pending | missing | intraday) and `last_modified_date` (§3.2)."""
+        rec = self._rec("condition", start=start.isoformat(), end=end.isoformat())
+
+        def run() -> list[dict[str, Any]]:
+            return [dict(r) for r in self.hist.metadata.get_dataset_condition(
+                dataset=self.dataset, start_date=start.isoformat(), end_date=end.isoformat())]
+
+        return self._call(rec, run)
+
     def cost(self, schema: str, symbols: list[str], start: datetime, end: datetime) -> float:
         rec = self._rec("cost", schema=schema, symbols=symbols, start=utc_iso(start), end=utc_iso(end))
 

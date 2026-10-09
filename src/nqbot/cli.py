@@ -522,6 +522,9 @@ def _add_databento(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--retry-failed-payg", action="store_true",
                    help="let broken pay-as-you-go downloads run once more (only after the owner checked billing)")
     p.add_argument("--today", type=_date, default=None, help=argparse.SUPPRESS)  # testing only
+    c = db.add_parser("condition", help="record get_dataset_condition for the plan's days (warm-up included), measure "
+                      "the non-available days' damage from stored files, write the step-8 report (free, no pull)")
+    c.add_argument("--no-measure", action="store_true", help="record the conditions only")
 
 
 def _run_databento(args: argparse.Namespace, settings: dict, paths, log) -> int:
@@ -534,6 +537,17 @@ def _run_databento(args: argparse.Namespace, settings: dict, paths, log) -> int:
 
     store = DatabentoStore(paths)
     paths.root.mkdir(parents=True, exist_ok=True)
+    if args.action == "condition":
+        from nqbot.clients.databento_pull import condition_report
+
+        try:
+            client = DatabentoClient.from_env(on_call=store.log_call, log=log)
+            path = condition_report(client, store, settings, measure=not args.no_measure)
+        except (MissingSecret, DatabentoError, ConfigError, ValueError, FileNotFoundError) as e:
+            print(f"refused: {e}", file=sys.stderr)
+            return EXIT_REFUSED
+        print(f"report: {path}")
+        return 0
     try:
         with job_locks(paths.root, (DATABENTO,), "databento plan"):
             client = DatabentoClient.from_env(on_call=store.log_call, log=log)

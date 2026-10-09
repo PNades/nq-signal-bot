@@ -113,6 +113,14 @@ skylit_max_failures_in_row: 5   # §3.1 Backfill (decision 4, 2026-10-06): a fai
 skylit_dropped_extra_tries: 3     # §3.1 Backfill (owner 2026-10-06): a window whose connection dropped (maybe charged)
                                   # gets up to this many more tries while still in reach, in the end-of-night retry pass
 skylit_dropped_retry_credits_per_night: 500  # §3.1 Backfill (owner 2026-10-06): cap on those tries' credits per night
+databento_damage_baseline_sessions: 20  # §3.2 Dataset condition (owner 2026-10-09): a non-available day's completeness is
+                                        # compared with this many nearest sessions whose UTC dates are all available
+# §13 Q8-degraded (PROPOSED 2026-10-09, pending the owner; nothing reads them until he approves): handling of
+# non-available days, fixed from completeness only, before any outcome on those days is looked at
+databento_damage_excess_minutes: 5  # a part is damaged if its empty minutes exceed the normal max by more than this, or
+databento_damage_gap_sec: 120       # its longest gap exceeds both the normal max gap and this many seconds
+databento_damage_window_pad_min: 15 # a small RTH damage drops only events whose span comes within this of a damaged minute
+databento_damage_session_minutes: 30  # damaged RTH minutes (excess, any series) above which the whole session is dropped
                                   # (25 each; can go if Skylit confirms a dropped call isn't charged), shared with the
                                   # one paid re-pull of a window, dark-pool date or Tempest range whose kept copy is cut off or corrupt
 skylit_alongside_reserve_credits: 1000  # §3.1 Backfill (decision 2): credits the backfill never spends, kept for the

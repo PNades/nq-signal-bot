@@ -459,7 +459,7 @@ class DatabentoPullJob:
             if size is not None:
                 ctx.log.info("databento %s: %.1f MB%s", it.label, size / 1e6, " (pay-as-you-go)" if part == "payg" else "")
         build_day_outputs(store, plan, day, ctx.log)
-
+        record_day_condition(client, store, day, today, ctx, source=f"{self.name} {chunk_id}")
 
     @staticmethod
     def _download(client: DatabentoClient, store: DatabentoStore, it: PullItem, part: str, ctx: Ctx) -> int | None:
@@ -492,6 +492,23 @@ class DatabentoPullJob:
                 if reason:
                     raise StopChunk(reason) from e
                 ctx.sleep(wait)
+
+
+def record_day_condition(client: DatabentoClient, store: DatabentoStore, day: date, today: date, ctx: Ctx, *,
+                         source: str) -> None:
+    """Every Databento pull records the condition of the UTC dates its CME day touches (day−1, day) and flags any
+    that isn't available (owner 2026-10-09, §3.2). A failed metadata call is logged, never stops the pull."""
+    from nqbot.clients import databento_condition as cond
+
+    try:
+        res = cond.record_conditions(client, store, day - timedelta(days=1), day, today=today, source=source,
+                                     echo=ctx.log.warning)
+    except Exception as e:  # noqa: BLE001 - the data is stored; the condition is re-checked by `databento condition`
+        ctx.log.error("databento %s: get_dataset_condition failed (%s); run `nqbot databento condition`", day, e)
+        return
+    for r in res["flagged"]:
+        ctx.log.warning("databento %s: UTC date %s is %s: see the step-8 report (§13 Q8-degraded)", day,
+                        r["date"][:10], r["condition"])
 
 
 def _fingerprint(keys: list[str]) -> str:
@@ -548,3 +565,44 @@ def build_day_outputs(store: DatabentoStore, plan: dict[str, Any], day: date, lo
         atomic_write_json(out, rec)
         # no spread value in the log or console: a sealed month's roll must not show a number (§7 rule 2b, D11)
         log.info("roll %s %s -> %s on %s: spread measured (%s)", r.root, r.old, r.new, r.roll_day, out.name)
+
+
+# --- dataset condition (owner 2026-10-09, SPEC §3.2 Dataset condition, §13 Q8-degraded) -------------------------
+
+def condition_report(client: DatabentoClient, store: DatabentoStore, settings: dict[str, Any], *, measure: bool = True,
+                     echo: Callable[[str], None] = print, cal: dict[str, Any] | None = None,
+                     today: date | None = None) -> Path:
+    """`nqbot databento condition`: the condition of every UTC date the plan's CME days touch (warm-up included),
+    the ET sessions each non-available date touches and their damage from the stored files; writes the step-8
+    report. Free metadata calls and stored files only: nothing is pulled."""
+    from nqbot.clients import databento_condition as cond
+
+    plan = json.loads(plan_path(store.paths).read_text(encoding="utf-8"))
+    days = sorted({date.fromisoformat(i["day"]) for i in plan["items"]})
+    today = today or datetime.now(ET).date()
+    result = cond.record_conditions(client, store, days[0] - timedelta(days=1), days[-1], today=today,
+                                    source="databento condition", echo=echo)
+    lines = ["# Step 8: Databento dataset condition", "",
+             f"Plan days {days[0]} … {days[-1]} ({len(days)} CME days, warm-up included); UTC dates "
+             f"{result['start']} … {result['end']}. Completeness only: no prices, levels or outcomes (§7 rule 2b).", ""]
+    lines += cond.report_lines(result)
+    lines += ["## ET sessions each non-available UTC date touches", ""]
+    flagged = [date.fromisoformat(r["date"][:10]) for r in result["flagged"]]
+    for u in flagged:
+        parts = cond.parts_touched(u, cal)
+        lines.append(f"- {u} ({u:%a}): " + ("; ".join(f"CME day {p.cme_day} {p.kind} {p.start:%m-%d %H:%M}–"
+                                                         f"{p.end:%m-%d %H:%M} ET" for p in parts)
+                                            or "no CME session (weekend)"))
+    lines.append("")
+    rows: list[dict[str, Any]] = []
+    if measure and flagged:
+        rows = cond.measure_damage(store, plan, flagged, cond.load_conditions(store),
+                                   baseline_sessions=int(settings["databento_damage_baseline_sessions"]), cal=cal,
+                                   month_of=lambda d: months_mod.month_index(d, settings), echo=echo)
+        lines += cond.damage_lines(rows)
+    out = store.paths.reports_dir / "step8"
+    atomic_write_json(out / "dataset_condition.json", {**result, "damage": rows})
+    path = out / "step8_report.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path

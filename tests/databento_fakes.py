@@ -97,6 +97,15 @@ class _Metadata:
         self.fake.calls.append(("dataset_range",))
         return {"start": "2010-06-06T00:00:00.000000000Z", "end": self.fake.dataset_end}
 
+    def get_dataset_condition(self, *, dataset, start_date, end_date):
+        self.fake.calls.append(("condition", start_date, end_date))
+        d, out = date.fromisoformat(start_date), []
+        while d <= date.fromisoformat(end_date):
+            out.append({"date": d.isoformat(), "condition": self.fake.conditions.get(d, "available"),
+                        "last_modified_date": "2026-08-26"})
+            d += timedelta(days=1)
+        return out
+
     def get_cost(self, *, dataset, symbols, schema, stype_in, start, end):
         self.fake.calls.append(("cost", schema, tuple(symbols), start, end))
         # A Standard subscriber: get_cost applies the plan, so included data costs $0 (1-second bars always; L1 from
@@ -143,6 +152,7 @@ class FakeHistorical:
         self.records = records
         self.fail_on = fail_on
         self.calls: list[tuple] = []
+        self.conditions: dict[date, str] = {}  # UTC date -> condition (default available)
         self.symbology = _Symbology(self)
         self.metadata = _Metadata(self)
         self.timeseries = _Timeseries(self)

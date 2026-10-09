@@ -86,7 +86,16 @@ def pull_trades(env: s8.Env, d: date, with_prev: bool, client: DatabentoClient) 
         size = client.download(schema, s, s0, s1, env.db.raw_path(schema, s, day), item="step8b_recorded_day",
                                payg=False, day=day.isoformat())
         env.echo(f"  pulled {schema} {s} {day}: {size:,} bytes")
-    return {"front": sym, "previous_session": prev.isoformat(), "previous_front_nq": prev_sym}
+    # every Databento pull records its days' dataset condition and flags a non-available one (owner 2026-10-09, §3.2)
+    from nqbot.clients import databento_condition as cond
+
+    first = min(day for _, _, day in items)
+    res = cond.record_conditions(client, env.db, first - timedelta(days=1), d, today=env.now().date(),
+                                 source=f"step8b recorded-day {d}", echo=lambda m: env.echo("  ALERT: " + m))
+    condition = {"flagged": [{"date": r["date"][:10], "condition": r["condition"]} for r in res["flagged"]],
+                 "upgrades": res["upgrades"]}
+    return {"front": sym, "previous_session": prev.isoformat(), "previous_front_nq": prev_sym,
+            "dataset_condition": condition}
 
 
 def _trades(env: s8.Env, symbol: str, d: date) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
