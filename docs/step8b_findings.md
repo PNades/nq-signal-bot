@@ -235,6 +235,8 @@ Proposed (not applied): floor = max(0.52, 0.165 × trailing 15-min volatility) E
 | SPY (60 s), n 7,379 | 0.000 [−0.005, +0.005] ES | 0.775 vs 0.791 ES (0.870) | +900 ms (2026-01-08) | all three |
 | SPX (per board), n 6,428 | +0.001 [−0.008, +0.010] ES | 0.779 vs 0.781 ES (0.859) | −20 ms | all three |
 
+Atlas tables regenerated with 0.59 s: pooled QQQ 94.2% of 500, SPY 95.2% of 495 (0 s: 94.4% of 500, 95.0% of 535). The 40 SPY crossings that drop out are all strike 651 on 2026-03-24 in the 09:35 window: it was exactly 25.0% of King on the 09:34:59 board (in force at 0 s) and just under 25% on the 09:34:58 board (in force at 09:35 once the 0.59 s delay applies), so it is no longer listed; every other strike, minute and count is identical. Timing at the relevance cutoff, not a bug or a lost board. Note: the Atlas listing and the gate's event moments use a plain ≥ 25% per board, not §5.2's `node_drop_pct` (20%) hysteresis, which would have kept 651.
+
 10-08 run (`map_latency_sec` not applied), for reference: QQQ +0.022 [−0.018, +0.065], 4.011 vs 4.046; SPY 0.000 [−0.005, +0.005], 0.773 vs 0.791; SPX +0.010 [0.000, +0.018], 0.731 vs 0.783.
 
 - Alignment per day: before 03-17 QQQ +640…+860, SPY +640…+900, SPX −100…−20 ms; from 03-17 QQQ −80…0, SPY −120…−20, SPX −220…−40 ms. None after floor(`asOf`) + 1 s.
