@@ -252,3 +252,19 @@ def ratio_in_force(t_ns: np.ndarray, r: np.ndarray, window_s: float, gap_s: floa
         prev = prev_accepted(acc)
         out[idx] = np.where(acc, r[idx], np.where(prev >= 0, r[idx][np.clip(prev, 0, None)], np.nan))
     return out
+
+
+def apply_times_ns(as_of_ns: np.ndarray, resolution: np.ndarray | str, latency_s: float | None,
+                   arrival_ns: np.ndarray | None = None) -> np.ndarray:
+    """F0.1 / §3.1 Ingest: when each board (in asOf order) is applied: max(arrival, τ + map_latency_sec) live,
+    τ + map_latency_sec in history (no arrival). Made non-decreasing, so no board is in force before an earlier
+    one has been applied."""
+    t = effective_tau_ns(as_of_ns, resolution) + int(round((latency_s or 0) * NS))
+    if arrival_ns is not None:
+        t = np.maximum(t, np.asarray(arrival_ns, dtype=np.int64))
+    return np.maximum.accumulate(t) if len(t) else t
+
+
+def in_force_index(t_apply_ns: np.ndarray, at_ns: np.ndarray | int) -> np.ndarray:
+    """The index of the last board applied at or before each instant (-1: none yet); t_apply_ns non-decreasing."""
+    return np.searchsorted(t_apply_ns, np.asarray(at_ns, dtype=np.int64), side="right") - 1

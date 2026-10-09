@@ -349,8 +349,7 @@ def map_ratio_in_force(env: Env, d: date, md: MapDay, fut: Futures) -> tuple[np.
     if off is None or window is None:
         raise CheckRefused(f"{md.name}: board_content_offset_ms[{era}] or ratio_window_sec not set (pending)")
     tc = mp.content_time_ns(md.as_of, off)
-    latency_ns = int(round((env.settings.get("map_latency_sec") or 0) * mp.NS))
-    t_apply = mp.effective_tau_ns(md.as_of, np.array(md.resolution, dtype=object)) + latency_ns
+    t_apply = mp.apply_times_ns(md.as_of, np.array(md.resolution, dtype=object), env.settings.get("map_latency_sec"))
     A = np.flatnonzero(md.applied)
     with np.errstate(divide="ignore", invalid="ignore"):
         r = mp.last_price_at_or_before(fut.ts, fut.px, tc[A]) / md.spot[A]

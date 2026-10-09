@@ -136,8 +136,9 @@ class FakeDatabento:
         return path.stat().st_size
 
 
-def _recording(env):
-    """1-second boards 09:30-10:30 whose spots hold the futures price 60 ms before asOf (the live content time)."""
+def _recording(env, qqq_arrival_delay_s=None):
+    """1-second boards 09:30-10:30 whose spots hold the futures price 60 ms before asOf (the live content time).
+    With qqq_arrival_delay_s, an arrival column: QQQ boards arrive that late, the others 0.4 s after asOf."""
     nq_ts, nq = _walk(REC, 1, 24_000.0)
     es_ts, es = _walk(REC, 2, 6_000.0)
     as_of = np.arange(int(datetime.combine(REC, time(9, 30), tzinfo=ET).timestamp()) * NS,
@@ -152,6 +153,10 @@ def _recording(env):
         rows["spot"] += sp.tolist()
     t = pa.table({"as_of": pa.array(rows["as_of"], pa.timestamp("ms", "UTC")), "symbol": rows["symbol"],
                   "spot": rows["spot"]})
+    if qqq_arrival_delay_s is not None:
+        delay = np.where(np.array(rows["symbol"]) == "QQQ", int(qqq_arrival_delay_s * NS), 400_000_000)
+        arrival = np.array(rows["as_of"], dtype=np.int64) * 1_000_000 + delay
+        t = t.append_column("arrival", pa.array(arrival, pa.timestamp("ns", "UTC")))
     folder = env.sky.stream_dir(REC) / "session_092700"
     write_parquet(folder / "part_000_boards.parquet", t, {})
     write_parquet(folder / "part_001_boards.parquet", t.slice(0, 100), {})  # a resume re-sends boards: deduped
@@ -247,3 +252,41 @@ def test_gate_report_flags_a_precision_report_from_before_q8b4(env):
                                            "stop_buffer_floor": 4.6})
     text = step8b.check_report(env).read_text(encoding="utf-8")
     assert "Precision: **out of date**" in text
+
+
+def test_crossings_use_the_board_applied_by_then(env):
+    """map_latency_sec delays every board (F0.1): the R at a crossing comes from the last board applied by t*."""
+    _setup(env, noise=1e-6)
+    _whole_second_content(env)
+    front = step8b.front_symbols(env)
+    maps, futs = step8b._day_inputs(env, DAY, front)
+    md, fut = maps["SPY"], futs["ES"]
+    env.settings["map_latency_sec"] = 0.0
+    fast = step8b_gate.chain_crossings(env, DAY, md, fut)
+    env.settings["map_latency_sec"] = 30.0  # a 30-s delay: every crossing uses a map at least ~30 s old
+    slow = step8b_gate.chain_crossings(env, DAY, md, fut)
+    assert len(fast["chosen"]) > 10 and len(slow["chosen"]) > 10
+    assert len(fast["chosen"]) != len(slow["chosen"]) or not np.allclose(fast["chosen"], slow["chosen"])
+    open_s = int(datetime.combine(DAY, time(9, 30), tzinfo=ET).timestamp())
+    assert slow["t"].min() >= (open_s + 31) * NS  # nothing before the first board's apply time (09:30:01 + 30 s)
+
+
+def test_apply_times_and_board_in_force():
+    as_of = np.array([0, 1, 2, 3], dtype=np.int64) * NS + 250_000_000  # asOf with milliseconds
+    t = mp.apply_times_ns(as_of, "1s", 0.59)
+    assert t.tolist() == [int(1.59 * NS), int(2.59 * NS), int(3.59 * NS), int(4.59 * NS)]  # floor(asOf) + 1 s + 0.59 s
+    late = mp.apply_times_ns(as_of, "1s", 0.59, np.array([0, 9 * NS, 0, 0]))  # board 1 arrives at 9 s
+    assert late.tolist() == [int(1.59 * NS), 9 * NS, 9 * NS, 9 * NS]  # board 2 is not in force before board 1
+    assert mp.in_force_index(late, np.array([NS, 2 * NS, 9 * NS])).tolist() == [-1, 0, 3]
+
+
+def test_recorded_day_uses_the_qqq_board_in_force(env):
+    """QQQ x k takes the QQQ R the bot had at each NDXP board: the last QQQ board applied by then (owner 2026-10-09,
+    the same rule as the gate). QQQ boards arriving 200 s late leave the first NDXP boards without a QQQ R."""
+    _recording(env, qqq_arrival_delay_s=200)
+    fake = FakeDatabento(datetime(2026, 3, 6, tzinfo=timezone.utc))
+    rep = step8b_recorded.check_recorded_day(env, REC, with_prev=True, client_factory=lambda: fake, fetch=_fetch)
+    m = rep["ndxp"]["methods"]
+    # NDXP boards start at 09:32:00 (open skip); the first QQQ board applies at 09:30:00 + 200 s = 09:33:20
+    assert m["basis+carry"]["n"] - m["QQQ x k (N=5)"]["n"] == pytest.approx(80, abs=2)
+    assert m["QQQ x k (N=5)"]["abs_p95"] == pytest.approx(0, abs=1e-6)

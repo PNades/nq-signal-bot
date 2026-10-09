@@ -1,9 +1,10 @@
 """Step-8b gate conditions (owner 2026-10-08, SPEC §5.1, §12 step 8b, §13 Q8b-4). Reads stored data only.
 
-Scored on strike crossings at event moments (findings R1): spot crosses a relevant node's strike k (>= 25% of
-King on the board before the crossing pair) between two consecutive applied boards; the crossing time t* is
-interpolated between their content times, and the error is F(t*) - k * R with the R in force after the board
-before the pair (known before the crossing: not circular).
+Scored on strike crossings at event moments (findings R1): spot crosses a strike k between two consecutive applied
+boards; the crossing time t* is interpolated between their content times. The board in force at t* is the last one
+applied by then under the approved ingest rule (applied at floor(asOf) + 1 s + map_latency_sec, F0.1), so it is
+always known before the crossing (not circular); k counts if it is a relevant node (>= 25% of King) on that board,
+and the error is F(t*) - k * R with that board's R in force (F1.7).
 
 - `bias` (a): each chain's median signed error, with a 95% day-block bootstrap interval; pass = the interval
   contains 0 or lies within one futures tick.
@@ -41,7 +42,7 @@ ALIGN_SEARCH_MS = 3000  # alignment: offsets searched from -3 s to +3 s around f
 ALIGN_STEP_MS = 20
 ALIGN_MAX_MS = 1000  # F0.1: content never after floor(asOf) + 1 s (τ)
 ALIGN_MIN_PAIRS = 10  # fewer board-to-board changes than this: no fit
-CACHE_VERSION = 1  # bump when the crossing maths change
+CACHE_VERSION = 2  # bump when the crossing maths change (2: the board in force at t* by apply time, 2026-10-09)
 
 
 # --- crossings ------------------------------------------------------------------------------------------
@@ -51,7 +52,7 @@ def _cfg_key(env: s8.Env) -> str:
     key = {k: m[k] for k in ("board_content_offset_ms", "ratio_window_sec", "ratio_gap_reset_sec", "ratio_outlier_bps",
                              "ratio_reaccept_n", "ratio_open_skip_sec")}
     key.update(min_pct=env.features["min_node_pct_of_king"], stamp=str(m["skylit_stamp_change_date"]),
-               half=BEST_R_HALF_S, v=CACHE_VERSION)
+               latency=env.settings.get("map_latency_sec"), half=BEST_R_HALF_S, v=CACHE_VERSION)
     return hashlib.sha256(json.dumps(key, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 
@@ -73,6 +74,7 @@ def chain_crossings(env: s8.Env, d: date, md: s8.MapDay, fut: s8.Futures) -> dic
     gap = cfg["ratio_gap_reset_sec"]
     r_in = mp.ratio_in_force(tc, r, window, gap, cfg["ratio_outlier_bps"], cfg["ratio_reaccept_n"])
     seg = mp.gap_segments(tc, gap)
+    t_apply = mp.apply_times_ns(md.as_of[A], np.array(md.resolution, dtype=object)[A], env.settings.get("map_latency_sec"))
     pos = np.full(len(md.as_of), -1)
     pos[A] = np.arange(len(A))
     rel = (md.s_pct >= env.features["min_node_pct_of_king"]) & (pos[md.s_board] >= 0)
@@ -80,19 +82,27 @@ def chain_crossings(env: s8.Env, d: date, md: s8.MapDay, fut: s8.Futures) -> dic
     o = np.lexsort((rk, rb))
     rb, rk = rb[o], rk[o]
     lo_s, hi_s = np.searchsorted(rb, np.arange(len(A))), np.searchsorted(rb, np.arange(len(A)), side="right")
+    def in_force(t: float) -> int:  # the last board applied by t (-1: none yet)
+        return int(mp.in_force_index(t_apply, int(t)))
+
     ct, ck, cb = [], [], []
-    for p in range(1, len(A) - 1):
-        if seg[p - 1] != seg[p] or seg[p] != seg[p + 1]:
+    for p in range(len(A) - 1):
+        if seg[p] != seg[p + 1]:
             continue
         a, b = sp[p], sp[p + 1]
         if a == b:
             continue
-        ks = rk[lo_s[p - 1]:hi_s[p - 1]]  # relevant nodes on the board before the pair
-        ks = ks[(ks > a) & (ks <= b)] if b > a else ks[(ks >= b) & (ks < a)]
-        for k in ks:
-            ct.append(tc[p] + (k - a) / (b - a) * (tc[p + 1] - tc[p]))
+        q0, q1 = in_force(tc[p]), in_force(tc[p + 1])  # the map can change between the two content times
+        cand = np.unique(np.concatenate([rk[lo_s[q]:hi_s[q]] for q in {q0, q1} if q >= 0] or [np.zeros(0)]))
+        cand = cand[(cand > a) & (cand <= b)] if b > a else cand[(cand >= b) & (cand < a)]
+        for k in cand:
+            t_k = tc[p] + (k - a) / (b - a) * (tc[p + 1] - tc[p])
+            q = in_force(t_k)
+            if q < 0 or seg[q] != seg[p] or k not in rk[lo_s[q]:hi_s[q]]:
+                continue  # no map yet, a map from before a reset, or not a relevant node on the map in force
+            ct.append(t_k)
             ck.append(k)
-            cb.append(p - 1)
+            cb.append(q)
     if not ct:
         return {"chosen": np.zeros(0), "best": np.zeros(0), "t": np.zeros(0, dtype=np.int64), "k": np.zeros(0)}
     ct_ = np.asarray(ct, dtype=np.int64)

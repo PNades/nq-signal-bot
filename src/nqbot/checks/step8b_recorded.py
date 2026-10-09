@@ -106,7 +106,15 @@ def recording_boards(env: s8.Env, d: date) -> pa.Table:
     files = sorted(Path(env.sky.stream_dir(d)).rglob("*_boards.parquet"))
     if not files:
         raise s8.CheckRefused(f"no stream recording for {d} under {env.sky.stream_dir(d)}")
-    t = pa.concat_tables([pq.read_table(f, columns=["as_of", "symbol", "spot"]) for f in files])
+    tables = []
+    for f in files:
+        x = pq.read_table(f)
+        if "arrival" not in x.column_names:  # a board without its arrival time: applied at τ + map_latency_sec
+            x = x.append_column("arrival", pa.nulls(x.num_rows, pa.timestamp("ns", "UTC")))
+        tables.append(x.select(["as_of", "symbol", "spot", "arrival"]).cast(
+            pa.schema([("as_of", pa.timestamp("ms", "UTC")), ("symbol", pa.string()), ("spot", pa.float64()),
+                       ("arrival", pa.timestamp("ns", "UTC"))])))
+    t = pa.concat_tables(tables)
     as_of = s8._ns(t["as_of"])
     sym = t["symbol"].to_pylist()
     seen, keep = set(), []
@@ -118,13 +126,16 @@ def recording_boards(env: s8.Env, d: date) -> pa.Table:
     return t.take(pa.array(keep, type=pa.int64()))
 
 
-def _series(t: pa.Table, name: str, open_ns: int, close_ns: int) -> tuple[np.ndarray, np.ndarray]:
+def _series(t: pa.Table, name: str, open_ns: int, close_ns: int, with_arrival: bool = False):
     x = t.filter(pc.equal(t["symbol"], name))
     a = s8._ns(x["as_of"])
     sp = x["spot"].to_numpy().astype(np.float64)
     k = (a >= open_ns) & (a < close_ns) & (sp > 0)
     o = np.argsort(a[k], kind="stable")
-    return a[k][o], sp[k][o]
+    if not with_arrival:
+        return a[k][o], sp[k][o]
+    arr = pc.cast(pc.fill_null(x["arrival"], pa.scalar(0, pa.timestamp("ns", "UTC"))), pa.int64()).to_numpy()
+    return a[k][o], sp[k][o], arr[k][o]  # 0 = no arrival recorded (never later than the apply time)
 
 
 def _err_stats(e: np.ndarray) -> dict[str, Any]:
@@ -271,7 +282,7 @@ def check_recorded_day(env: s8.Env, d: date, *, with_prev: bool = False,
             errors[BASIS] = nx * rho - f_n
             methods[BASIS] = {**_err_stats(errors[BASIS]), "settle_prev": round(settle, 2),
                               "ndx_close_prev": closes["ndx"][prev]}
-        aq, q = _series(boards, "QQQ", open_ns, close_ns)
+        aq, q, arr_q = _series(boards, "QQQ", open_ns, close_ns, with_arrival=True)
         q_off = mp.content_offset_ms(cfg, "QQQ", mp.ERA_LIVE)
         if len(aq) == 0 or q_off is None:
             methods["QQQ x k"] = {"skipped": "no QQQ boards in the recording"}
@@ -280,7 +291,10 @@ def check_recorded_day(env: s8.Env, d: date, *, with_prev: bool = False,
             r_q = mp.last_price_at_or_before(nq[0], nq[1], c_q) / q
             r_in = mp.ratio_in_force(c_q, r_q, cfg["ratio_window_sec"]["QQQ"], cfg["ratio_gap_reset_sec"],
                                      cfg["ratio_outlier_bps"], cfg["ratio_reaccept_n"])
-            i = np.searchsorted(c_q, c_n, side="right") - 1  # the QQQ R in force at the NDXP board's content time
+            # the QQQ R the bot had at the NDXP board's content time: the last QQQ board applied by then,
+            # max(arrival, floor(asOf) + 1 s + map_latency_sec) (F0.1, owner 2026-10-09: same rule as the gate)
+            t_apply_q = mp.apply_times_ns(aq, "1s", env.settings.get("map_latency_sec"), arr_q)
+            i = mp.in_force_index(t_apply_q, c_n)
             r_at = np.where(i >= 0, r_in[np.clip(i, 0, None)], np.nan)
             for n in QQQ_K_SESSIONS:
                 k = ndxp.qqq_k(d, closes["ndx"], closes["qqq"], closes["div"], n)
