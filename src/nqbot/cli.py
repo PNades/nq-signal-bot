@@ -409,7 +409,10 @@ def _add_step8b(sub: argparse._SubParsersAction) -> None:
     s8 = sub.add_parser("step8b", help="step-8b mapping precision gate (reads stored data only)").add_subparsers(
         dest="check", required=True)
     for name, help_ in (("precision", "mapping error per chain vs mapping_p95_max (the step-7 sample days)"),
-                        ("spot-lag", "spot vs futures cross-correlation over +-120 s (peak at 0-1 s)")):
+                        ("spot-lag", "spot vs futures cross-correlation over +-120 s (diagnostic)"),
+                        ("bias", "gate (a): median signed crossing error per chain, day-block bootstrap interval"),
+                        ("estimator", "gate (b): the chosen R estimator's crossing p95 vs the best possible R"),
+                        ("alignment", "gate: fitted content time per map never after floor(asOf) + 1 s")):
         p = s8.add_parser(name, help=help_)
         p.add_argument("--dates", type=_dates, default=None,
                        help="comma-separated development-month dates (default: the step-7 sample days)")
@@ -417,11 +420,16 @@ def _add_step8b(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--date", type=_date, required=True, help="a sample day (YYYY-MM-DD)")
     p.add_argument("--minutes", type=lambda t: [_hhmm(x.strip()) for x in t.split(",") if x.strip()], required=True,
                    help="comma-separated ET minutes the owner picks (HH:MM,HH:MM)")
+    p = s8.add_parser("recorded-day", help="after a session recording: $0 NQ/ES trades, alignment, both NDXP methods")
+    p.add_argument("date", type=_date, help="the recorded session (YYYY-MM-DD)")
+    p.add_argument("--with-prev", action="store_true",
+                   help="also pull the previous session's NQ trades ($0; for the basis method; owner's OK first)")
+    s8.add_parser("ndxp-select", help="choose the NDXP method leave-one-day-out across the recorded days")
     s8.add_parser("report", help="write <reports_dir>/step8b/mapping_gate.md from the latest checks")
 
 
 def _run_step8b(args: argparse.Namespace, settings, paths, log) -> int:
-    from nqbot.checks import step8b
+    from nqbot.checks import step8b, step8b_gate
     from nqbot.config import load_features
     from nqbot.months import LedgerMissing, NotDevelopmentMonth
 
@@ -432,13 +440,30 @@ def _run_step8b(args: argparse.Namespace, settings, paths, log) -> int:
                 step8b.check_precision(env, args.dates)
             case "spot-lag":
                 step8b.check_spot_lag(env, args.dates)
+            case "bias":
+                step8b_gate.check_bias(env, args.dates)
+            case "estimator":
+                step8b_gate.check_estimator(env, args.dates)
+            case "alignment":
+                step8b_gate.check_alignment(env, args.dates)
             case "atlas":
                 step8b.check_atlas(env, args.date, args.minutes)
+            case "recorded-day":
+                from nqbot.checks import step8b_recorded
+
+                step8b_recorded.check_recorded_day(env, args.date, with_prev=args.with_prev)
+            case "ndxp-select":
+                from nqbot.checks import step8b_recorded
+
+                step8b_recorded.check_ndxp_select(env)
             case "report":
                 step8b.check_report(env)
     except (step8b.CheckRefused, LedgerMissing, NotDevelopmentMonth) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
+    except LockHeld as e:  # recorded-day takes the Databento lock (the nightly backfill holds it until 07:30)
+        print(f"locked: {e}", file=sys.stderr)
+        return EXIT_LOCKED
     return 0
 
 

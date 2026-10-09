@@ -338,6 +338,27 @@ def check_spot_lag(env: Env, dates: list[date] | None = None) -> dict[str, Any]:
 
 # --- Atlas side by side ---------------------------------------------------------------------------------
 
+def map_ratio_in_force(env: Env, d: date, md: MapDay, fut: Futures) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The approved rule (owner 2026-10-08, §5.1, F0.1, F1.1, F1.7) for one map and session: each board's content
+    time, its apply time floor(asOf) + 1 s + map_latency_sec (0 until set), and the R in force after it (NaN where
+    not applied)."""
+    cfg = env.features["mapping"]
+    era = mp.board_era(d, cfg["skylit_stamp_change_date"])
+    off, window = mp.content_offset_ms(cfg, md.name, era), cfg["ratio_window_sec"][md.name]
+    if off is None or window is None:
+        raise CheckRefused(f"{md.name}: board_content_offset_ms[{era}] or ratio_window_sec not set (pending)")
+    tc = mp.content_time_ns(md.as_of, off)
+    latency_ns = int(round((env.settings.get("map_latency_sec") or 0) * mp.NS))
+    t_apply = mp.effective_tau_ns(md.as_of, np.array(md.resolution, dtype=object)) + latency_ns
+    A = np.flatnonzero(md.applied)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        r = mp.last_price_at_or_before(fut.ts, fut.px, tc[A]) / md.spot[A]
+    r_in = np.full(len(md.as_of), np.nan)
+    r_in[A] = mp.ratio_in_force(tc[A], r, window, cfg["ratio_gap_reset_sec"], cfg["ratio_outlier_bps"],
+                                cfg["ratio_reaccept_n"])
+    return tc, t_apply, r_in
+
+
 def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
     days_to_check(env, [d])
     front = front_symbols(env)
@@ -351,46 +372,52 @@ def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
              f"{min_pct:.0%} of King), their mapped futures level and band, and the moments spot crossed each strike "
              f"in the next {ATLAS_CROSS_WINDOW_MIN} minutes with the futures price then. Check in Atlas replay that "
              "the same strikes show as nodes of similar size.", ""]
+    latency = env.settings.get("map_latency_sec")
+    lines += [f"Approved ingest rule and R estimators (owner 2026-10-08, §5.1, F1.7): a board's futures price is read at "
+              "its content time, the board applies at floor(asOf) + 1 s + map_latency_sec "
+              f"({latency if latency is not None else 'not set yet: 0 used'} s), and the R in force is the map's "
+              "estimator (QQQ/SPY trailing 60-s median, SPX per board). At each crossing the mapped level uses the "
+              "R the bot had then (the last board applied before it).", ""]
     for m in ATLAS_MAPS:
         md, fut, root = maps[m], futs[CHAIN_ROOT[m]], CHAIN_ROOT[m]
-        prev = mp.prev_accepted(md.accepted)
+        tc, t_apply, r_in = map_ratio_in_force(env, d, md, fut)
+        A = np.flatnonzero(md.applied)
         rows_m = []
         for minute in minutes:
             at = int(datetime.combine(d, minute, tzinfo=ET).timestamp()) * mp.NS
-            i = int(np.searchsorted(md.tau, at, side="right")) - 1
-            while i >= 0 and not md.accepted[i]:
-                i -= 1
-            if i < 0:
+            pa_ = int(np.searchsorted(t_apply[A], at, side="right")) - 1  # the last board applied by then
+            if pa_ < 0:
                 rows_m.append({"minute": minute.strftime("%H:%M"), "board": None})
                 continue
+            i = int(A[pa_])
             rel = (md.s_board == i) & (md.s_pct >= min_pct)
-            r_i = md.r[i]
+            r_i = r_in[i]
             window_end = at + ATLAS_CROSS_WINDOW_MIN * 60 * mp.NS
             nodes = []
             for k, pct in sorted(zip(md.s_strike[rel], md.s_pct[rel])):
                 level = k * r_i
                 crossings = []
-                j0 = int(np.searchsorted(md.tau, at, side="right"))
-                for j in range(max(j0, 1), len(md.tau)):
-                    if md.tau[j] > window_end:
+                q0 = int(np.searchsorted(tc[A], at, side="right"))
+                for q in range(max(q0, 1), len(A)):
+                    j0, j = int(A[q - 1]), int(A[q])
+                    if tc[j] > window_end:
                         break
-                    a, b = md.spot[j - 1] - k, md.spot[j] - k
+                    a, b = md.spot[j0] - k, md.spot[j] - k
                     # a spot landing exactly on the strike is one touch, counted on its arrival (b == 0); the pair
-                    # that leaves it (a == 0) is not a second crossing, and its R would come from the board whose
-                    # own spot is the strike (k * F / k = F: a 0.00 diff that proves nothing)
+                    # that leaves it (a == 0) is not a second crossing
                     if a * b > 0 or a == 0:
                         continue
-                    # the moment spot traded at the strike, interpolated between the two boards
-                    t_k = int(md.tau[j - 1] + (a / (a - b)) * (md.tau[j] - md.tau[j - 1])) if a != b else int(md.tau[j])
-                    # the bot's level then: a board applies only after its tau, so the R in force is the last
-                    # accepted one before board j
-                    if prev[j] < 0:
+                    # the moment spot traded at the strike, interpolated between the two boards' content times
+                    t_k = int(tc[j0] + (a / (a - b)) * (tc[j] - tc[j0])) if a != b else int(tc[j])
+                    # the bot's level then: the R in force from the last board applied before t_k
+                    pk = int(np.searchsorted(t_apply[A], t_k, side="right")) - 1
+                    if pk < 0:
                         continue
-                    mapped = k * md.r[prev[j]]
+                    mapped = k * r_in[A[pk]]
                     f_then = float(mp.last_price_at_or_before(fut.ts, fut.px, np.array([t_k]))[0])
                     if not (np.isfinite(mapped) and np.isfinite(f_then)):
                         continue
-                    gated = md.resolution[j] == "1s" and md.resolution[j - 1] == "1s"  # 1-minute: information only
+                    gated = md.resolution[j] == "1s" and md.resolution[j0] == "1s"  # 1-minute: information only
                     crossings.append({"at": _et(t_k), "futures": round(f_then, 2), "mapped": round(mapped, 2),
                                       "diff": round(abs(f_then - mapped), 2), "gate": gated,
                                       "within_tol": bool(abs(f_then - mapped) <= tol[root])})
@@ -458,6 +485,8 @@ def check_report(env: Env) -> Path:
     lines = ["# Step-8b gate: level-mapping precision (§5.1, §12 step 8b)", ""]
     if prec is None:
         lines += ["- Precision: **pending** (`nqbot step8b precision`)"]
+    elif "diagnostic" not in prec:  # written before the owner's Q8b-4 answer (2026-10-08)
+        lines += ["- Precision: **out of date** (written before the Q8b-4 answer): run `nqbot step8b precision` again"]
     else:
         lines += [f"- F1.6 step change ({', '.join(prec['days'])}): diagnostic, not a gate condition (owner, Q8b-4)", "",
                   "| Chain | p95 | mapping_p95_max | median | p99 | max | rejected / applied | within |",
@@ -490,13 +519,31 @@ def check_report(env: Env) -> Path:
                      for c in n["crossings"] if c["gate"])
         lines.append(f"  - {d} ({', '.join(a['minutes'])}): {within} of {a['gated_crossings']} gated crossings within "
                      f"tolerance ({a['crossings']} in all); all within: {a['all_within_tol']} (table: atlas_{d}.md)")
-    lines += ["- Gate conditions (a) bias (95% day-block interval contains 0 or is within one futures tick) and (b) the "
-              "chosen estimator's crossing p95 within 10% of the best possible R: **no command yet**; evidence in "
-              "`docs/step8b_findings.md` R2, R7, R8 (all chains pass; NDXP pending its method)",
-              "- Alignment check (content time never after floor(asOf) + 1 s): **no command yet** (`step8b alignment`)"]
-    lines += ["", f"**Gate 8b: {'Atlas tables ready for the owner' if atlas_ok else 'not passed yet'}; (a), (b) and the "
-                  "alignment check still need their commands.** It must pass before step 11. If a chain fails, find the "
-                  "cause (stale spot, wrong second, slow map cadence) before anything else; never raise a threshold."]
+    conditions = {}
+    for name, title, cmd in (("bias", "(a) bias: 95% day-block interval contains 0 or lies within one futures tick",
+                              "bias"),
+                             ("estimator", "(b) the chosen estimator's crossing p95 within 10% of the best possible R",
+                              "estimator"),
+                             ("alignment", "alignment: fitted content time never after floor(asOf) + 1 s", "alignment")):
+        rep = latest_report(env.paths, name)
+        conditions[name] = bool(rep and rep["pass"])
+        if rep is None:
+            lines.append(f"- {title}: **pending** (`nqbot step8b {cmd} --dates ...`)")
+            continue
+        lines.append(f"- {title} ({len(rep['days'])} days): **{'PASS' if rep['pass'] else 'FAIL'}** "
+                     "(NDXP pending its method, §13 Q8b-1)")
+        for m, c in rep["per_chain"].items():
+            if name == "bias":
+                detail = f"median {c['median']} [{c['interval'][0]}, {c['interval'][1]}] {c['unit']}, n {c['n']}"
+            elif name == "estimator":
+                detail = f"{c['estimator']} p95 {c['chosen_p95']} vs best {c['best_p95']} {c['unit']}"
+            else:
+                detail = f"latest content {c['max_offset_ms']} ms after floor(asOf); alerts {c['alerts'] or 'none'}"
+            lines.append(f"  - {m}: {detail}: {'pass' if c['pass'] else 'FAIL'}")
+    gate = all(conditions.values()) and atlas_ok
+    lines += ["", f"**Gate 8b: {'conditions met; the owner checks Atlas replay' if gate else 'not passed yet'}.** It "
+                  "must pass before step 11. If a chain fails, find the cause (stale spot, wrong second, slow map "
+                  "cadence) before anything else; never raise a threshold."]
     path = reports_dir(env.paths) / "mapping_gate.md"
     atomic_write_text(path, "\n".join(lines) + "\n")
     env.echo(f"report: {path}")

@@ -93,6 +93,10 @@ class _Metadata:
     def __init__(self, fake: FakeHistorical):
         self.fake = fake
 
+    def get_dataset_range(self, *, dataset):
+        self.fake.calls.append(("dataset_range",))
+        return {"start": "2010-06-06T00:00:00.000000000Z", "end": self.fake.dataset_end}
+
     def get_cost(self, *, dataset, symbols, schema, stype_in, start, end):
         self.fake.calls.append(("cost", schema, tuple(symbols), start, end))
         # A Standard subscriber: get_cost applies the plan, so included data costs $0 (1-second bars always; L1 from
@@ -128,11 +132,12 @@ class FakeHistorical:
 
     def __init__(self, nq_roll: date = date(2025, 12, 15), es_roll: date = date(2025, 12, 16), records=default_records,
                  fail_on=None, included_from: date = date(2025, 11, 20), partial_ids: bool = False,
-                 price_all: bool = False):
+                 price_all: bool = False, dataset_end: str = "2030-01-01T00:00:00.000000000Z"):
         """`fail_on(schema, symbol, start)` -> truthy to break that download (an exception instance is raised as
         is, anything else as a ConnectionError)."""
         self.included_from = included_from
         self.price_all = price_all
+        self.dataset_end = dataset_end
         self.partial_ids = partial_ids
         self.rolls = {"NQ.v.0": ("NQZ5", "NQH6", nq_roll), "ES.v.0": ("ESZ5", "ESH6", es_roll)}
         self.records = records

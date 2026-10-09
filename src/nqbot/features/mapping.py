@@ -171,3 +171,84 @@ def trailing_rv(fut_ts_ns: np.ndarray, fut_px: np.ndarray, at_ns: np.ndarray, st
     out = np.sqrt(total)
     out[(k < minutes) | (have < minutes)] = np.nan
     return out
+
+
+# --- step-8b answers (owner 2026-10-08): content time, effective time, trailing R (§5.1, F0.1, F1.1, F1.7) ---------
+
+ONE_SECOND_TAU_NS = NS  # F0.1: τ = floor(asOf) + 1 s, every era and live (owner 2026-10-08)
+ERA_BEFORE, ERA_FROM, ERA_LIVE = "before_stamp_change", "from_stamp_change", "live"
+
+
+def floor_second_ns(as_of_ns: np.ndarray) -> np.ndarray:
+    a = np.asarray(as_of_ns, dtype=np.int64)
+    return (a // NS) * NS
+
+
+def effective_tau_ns(as_of_ns: np.ndarray, resolution: np.ndarray | str, *, spot_lag_cleared: bool = False
+                     ) -> np.ndarray:
+    """F0.1 (owner 2026-10-08): τ = floor(asOf) + 1 s; floor(asOf) + 60 s for an uncleared 1-minute board."""
+    fl = floor_second_ns(as_of_ns)
+    res = np.broadcast_to(np.asarray(resolution), fl.shape)
+    return fl + np.where((res == "1m") & (not spot_lag_cleared), ONE_MINUTE_TAU_SHIFT_NS, ONE_SECOND_TAU_NS)
+
+
+def board_era(day, stamp_change_date, live: bool = False) -> str:
+    """Which `board_content_offset_ms` row applies: live stream, or history before / from the stamp change."""
+    if live:
+        return ERA_LIVE
+    return ERA_BEFORE if day < stamp_change_date else ERA_FROM
+
+
+def content_offset_ms(mapping_cfg: dict, map_name: str, era: str) -> int | None:
+    """F1.1: the measured median offset of a board's content from floor(asOf) (None: pending, owner)."""
+    return mapping_cfg["board_content_offset_ms"][era][map_name]
+
+
+def content_time_ns(as_of_ns: np.ndarray, offset_ms: int) -> np.ndarray:
+    """F1.1: c = floor(asOf) + offset; F for R is read at c."""
+    return floor_second_ns(as_of_ns) + int(offset_ms) * 1_000_000
+
+
+def gap_segments(t_ns: np.ndarray, gap_s: float) -> np.ndarray:
+    """F1.7 reset: a new segment after a gap between consecutive boards longer than gap_s (t_ns sorted)."""
+    t = np.asarray(t_ns, dtype=np.int64)
+    if len(t) == 0:
+        return np.zeros(0, dtype=np.int64)
+    return np.concatenate([[0], np.cumsum(np.diff(t) > gap_s * NS)]).astype(np.int64)
+
+
+def trailing_median(t_ns: np.ndarray, r: np.ndarray, seg: np.ndarray, window_s: float) -> np.ndarray:
+    """F1.7: for each board, the median of r over the boards of its segment with t in (t_i - window, t_i]
+    (t_ns sorted; trailing only, the board itself included; the first board alone right after a reset)."""
+    t = np.asarray(t_ns, dtype=np.int64)
+    r = np.asarray(r, dtype=np.float64)
+    seg = np.asarray(seg)
+    out = np.full(len(t), np.nan)
+    seg_start = np.zeros(len(t), dtype=np.int64)
+    if len(t):
+        starts = np.concatenate([[0], np.flatnonzero(np.diff(seg) != 0) + 1])
+        seg_start = starts[np.searchsorted(starts, np.arange(len(t)), side="right") - 1]
+    lo = np.maximum(np.searchsorted(t, t - int(window_s * NS), side="right"), seg_start)
+    for i in range(len(t)):
+        w = r[lo[i]:i + 1]
+        w = w[np.isfinite(w)]
+        if len(w):
+            out[i] = np.median(w)
+    return out
+
+
+def ratio_in_force(t_ns: np.ndarray, r: np.ndarray, window_s: float, gap_s: float, outlier_bps: float,
+                   reaccept_n: int) -> np.ndarray:
+    """F1.7: the R in force after each applied board of one map and session (boards in content-time order).
+    window_s > 0: trailing median of the board ratios (unfiltered); 0: the board's own R with F1.2."""
+    seg = gap_segments(t_ns, gap_s)
+    r = np.asarray(r, dtype=np.float64)
+    if window_s > 0:
+        return trailing_median(t_ns, r, seg, window_s)
+    out = np.full(len(r), np.nan)
+    for g in np.unique(seg):
+        idx = np.flatnonzero(seg == g)
+        acc, _, _ = accept_ratios(r[idx], outlier_bps, reaccept_n)
+        prev = prev_accepted(acc)
+        out[idx] = np.where(acc, r[idx], np.where(prev >= 0, r[idx][np.clip(prev, 0, None)], np.nan))
+    return out

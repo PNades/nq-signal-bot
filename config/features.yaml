@@ -87,7 +87,9 @@ mapping:
   skylit_stamp_change_date: 2026-03-17   # Skylit asOf convention changed (before: whole seconds, content later in the second)
   board_content_offset_ms:         # board content time = floor(asOf) + this; F is read there (median measured, findings R4)
     before_stamp_change: {QQQ: 740, SPY: 840, SPX: -80, NDXP: null}
-    from_stamp_change: {QQQ: -60, SPY: null, SPX: -80, NDXP: null}   # SPY: March -60, live 10-07 +420; set from the recordings
+    from_stamp_change: {QQQ: -60, SPY: -60, SPX: -80, NDXP: null}
+    live: {QQQ: -60, SPY: null, SPX: -80, NDXP: null}   # live boards = post-03-17 history (parity 10-07); SPY pending
+                                                        # (live 10-07 +420): set from the 10-09/12/13 recordings
 
 # --- Entries and order flow (§5.7) ---------------------------------------------------------------
 abs_volume: 300                   # contracts; tuned at step 19 (F16.5); approved 2026-10-05 (feature_spec F15)

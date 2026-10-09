@@ -143,7 +143,8 @@ def test_atlas_side_by_side(env):
     _setup(env, noise=1e-6, vol=(0.2, 0.1))  # one trade a second: a calm tape keeps the 1-s read within tolerance
     rep = step8b.check_atlas(env, DAY, [time(9, 45), time(10, 0)])
     rows = rep["maps"]["QQQ"]
-    assert [r["minute"] for r in rows] == ["09:45", "10:00"] and rows[0]["board"] == "09:45:00"
+    # the 09:45:00 board applies at floor(asOf) + 1 s (+ map_latency_sec): at 09:45 the 09:44:59 board is in force
+    assert [r["minute"] for r in rows] == ["09:45", "10:00"] and rows[0]["board"] == "09:44:59"
     nodes = rows[0]["nodes"]
     assert len(nodes) == 3 and max(n["pct_of_king"] for n in nodes) == 1.0  # only nodes >= 25% of King
     king = next(n for n in nodes if n["pct_of_king"] == 1.0)
@@ -189,10 +190,10 @@ def test_gate_report_and_cli(env, settings, drive, monkeypatch, capsys):
     assert cli.main(["step8b", "atlas", "--date", DAY.isoformat(), "--minutes", "09:45,10:00"]) == 0
     assert cli.main(["step8b", "report"]) == 0
     text = (step8b.reports_dir(env.paths) / "mapping_gate.md").read_text(encoding="utf-8")
-    assert "**PASS**" in text and "Atlas tables ready for the owner" in text and "owner's check in Atlas replay" in text
+    assert "**PASS**" in text and "not passed yet" in text and "owner's check in Atlas replay" in text
     floors = next(line for line in text.splitlines() if line.startswith("- Stop floors per level source"))
     assert all(x in floors for x in ("QQQ 4.0", "NDXP pending", "chart 0"))
-    assert "diagnostic, not a gate condition" in text and "no command yet" in text  # owner Q8b-4, 2026-10-08
+    assert "diagnostic, not a gate condition" in text and "(a) bias" in text and "**pending**" in text  # Q8b-4
 
 
 def test_boards_after_an_early_close_are_left_out(env):

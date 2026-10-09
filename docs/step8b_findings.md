@@ -24,6 +24,30 @@ The gate's first run on the five step-7 sample days (2026-03-06, 03-11, 03-18, 0
 - **Q8b-4 answered (owner 2026-10-08):** gate = (a) bias interval contains 0 or within one futures tick, (b) chosen estimator p95 within 10% of the best possible R, the alignment check in place of spot lag, the Atlas check; F1.6 a diagnostic. Commands for (a)/(b) and `step8b alignment` are still to build.
 - **Recordings:** `--maps NDXP,QQQ,SPY` on 10-09, 10-12, 10-13 (≈ 1,185 credits each, ≤ 1,254 with 12 reconnects); $0 Databento NQ and ES trades for each recorded day, priced first.
 
+## R11. The gate commands on the 22 development days (2026-10-08)
+`nqbot step8b bias|estimator|alignment --dates <the 22 days of R1>`; QQQ, SPY, SPX (NDXP pending); event-moment crossings with the approved ingest rule and estimators. Reports in `<reports_dir>/step8b/`.
+
+| Chain | (a) bias, median [95% day-block interval] | (b) chosen p95 vs best possible R | Alignment: latest fitted content (max +1000 ms) | Pass |
+|---|---|---|---|---|
+| QQQ (60 s) | +0.022 [−0.018, +0.065] NQ | 4.01 vs 4.05 NQ | +860 ms (2025-12-10) | all three |
+| SPY (60 s) | 0.000 [−0.005, +0.005] ES | 0.77 vs 0.79 ES | +900 ms (2026-01-08) | all three |
+| SPX (per board) | +0.010 [0.000, +0.018] ES | 0.73 vs 0.78 ES | −20 ms | all three |
+
+- Alignment per day: before 03-17 QQQ +640…+860, SPY +640…+900, SPX −100…−20 ms; from 03-17 QQQ −80…0, SPY −120…−20, SPX −220…−40 ms. None after floor(`asOf`) + 1 s.
+- **Atlas tables regenerated** with the approved rule (content-time F, boards applied at floor(`asOf`) + 1 s + `map_latency_sec` (0 until set), F1.7 R in force at each crossing). Share of gated crossings within `atlas_match_tol` (1.0 NQ / 0.5 ES) and within the crossing p95 (4.0 NQ / 0.78 ES):
+
+| Day | QQQ n | QQQ ≤ 1.0 | QQQ ≤ 4.0 | QQQ p95 | SPY n | SPY ≤ 0.5 | SPY ≤ 0.78 | SPY p95 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 03-06 | 145 | 42% | 90% | 5.46 | 114 | 92% | 97% | 0.58 |
+| 03-11 | 67 | 37% | 91% | 4.62 | 86 | 86% | 95% | 0.67 |
+| 03-18 | 49 | 53% | 100% | 1.98 | 107 | 83% | 93% | 0.91 |
+| 03-24 | 142 | 59% | 96% | 3.78 | 124 | 85% | 93% | 0.93 |
+| 03-26 | 97 | 69% | 99% | 2.45 | 104 | 94% | 97% | 0.51 |
+
+  `atlas_match_tol` (1.0 NQ / 0.5 ES) sits below the measured crossing floor (findings R7), so no day can have every crossing within it; asked in §13 (Q8b-5).
+- **`recorded-day`** checked on the 10-07 recording (cached trades, `--with-prev` = 10-06): content offsets QQQ −120, SPY +300, SPX −20, NDXP −60 ms; NDXP basis + carry p95 13.5 NQ (median +8.4); QQQ × k p95 7.4 / 10.2 / 8.5 / 4.0 for N = 1 / 3 / 5 / 10. 10-07 is not one of the three recordings, so it is left out of the choice (owner: N is not chosen from 10-07).
+- **NDXP choice (owner 2026-10-08):** `step8b ndxp-select` after the three recordings: candidates basis + carry and QQQ × k N ∈ {5, 10, 20}, leave one day out, pick on two, score on the held-out day, rotate; each candidate's held-out p95 and median; the best held-out p95 wins and is NDXP's stop floor.
+
 ## R7. A: is the crossing floor just the 1-second resolution? No.
 - The futures' 1-second move at event moments has p95 5.75 NQ (p50 1.25) at QQQ moments, 1.25 ES (p50 0.25) at SPY and SPX moments, and 12.8 NQ / 2.7–3.4 ES in the fastest 1%. The move across the crossing's own board interval has p95 6.5 NQ / 1.25 ES.
 - The magnitudes are comparable to the crossing floors (4.04 / 0.77 / 0.78 at event moments). An interpolated crossing could be off by about half an interval's move, so the sizes alone don't decide it.

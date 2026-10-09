@@ -116,6 +116,16 @@ class DatabentoClient:
         return out, [first, second]
 
     # --- cost (free) -----------------------------------------------------------------------------------
+    def dataset_end(self) -> datetime:
+        """The end of the data Databento has published for the dataset (UTC): a day is complete once it is past it."""
+        rec = self._rec("dataset_range")
+
+        def run() -> datetime:
+            end = str(self.hist.metadata.get_dataset_range(dataset=self.dataset)["end"])
+            return datetime.fromisoformat(end.replace("Z", "+00:00"))
+
+        return self._call(rec, run)
+
     def cost(self, schema: str, symbols: list[str], start: datetime, end: datetime) -> float:
         rec = self._rec("cost", schema=schema, symbols=symbols, start=utc_iso(start), end=utc_iso(end))
 
