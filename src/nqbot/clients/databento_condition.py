@@ -6,8 +6,8 @@
   for its own days (step-8 backfill, `step8b recorded-day`, and later the top-ups and the evening archive) and lists
   any date that isn't `available` in its report.
 - An upgrade (a date stored while not available that Databento now calls available) is written to `upgrades.jsonl`
-  and flagged; it is never re-pulled by itself (a re-pull isn't one of CLAUDE.md rule 2's exceptions: proposed in
-  §13 Q8-degraded, owner's OK and a printed cost first).
+  and flagged; it is never re-pulled by itself (CLAUDE.md rule 2 exception, owner 2026-10-09, §13 Q8-degraded-2:
+  once per day, only after the owner's OK for that day, cost printed first, old files kept in `repull/degraded/`).
 - `measure_damage`: for each non-available UTC date, the ET sessions it touches (overnight/ETH and RTH parts of the
   CME days it overlaps) and, from the stored files only, NQ and ES `trades` and NQ `mbp-1` completeness: minutes with
   no record, the longest gap and gaps over a minute, next to the same part of the nearest normal sessions.
@@ -84,7 +84,7 @@ def record_conditions(client: DatabentoClient, store: DatabentoStore, start: dat
             append_jsonl(condition_dir(store) / "upgrades.jsonl", up)
             new_upgrades.append(up)
             echo(f"databento {day}: upgraded {prev['condition']} -> available; stored copy kept, NOT re-pulled "
-                 f"({'inside' if included else 'outside'} the included window): ask the owner (§13 Q8-degraded)")
+                 f"({'inside' if included else 'outside'} the included window): ask the owner (§3.2, §13 Q8-degraded-2)")
         entry.update(condition=cond, last_modified_date=mod, last_checked=now)
         known[day] = entry
     atomic_write_json(condition_dir(store) / "conditions.json", dict(sorted(known.items())))
@@ -261,12 +261,12 @@ def damage_lines(rows: list[dict[str, Any]]) -> list[str]:
              "| UTC date | CME day | month | part | span | series | empty min | normal median / max | longest gap s "
              "| normal max gap s | gaps > 60 s |", "|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
+        month = "" if r.get("part") is None else r["month"] if r.get("month") is not None else "warm-up"
         if r.get("part") is None or "note" in r:
-            lines.append(f"| {r['utc_date']} | {r.get('cme_day', '')} | {r.get('month', '')} | {r.get('part') or ''} | "
+            lines.append(f"| {r['utc_date']} | {r.get('cme_day', '')} | {month} | {r.get('part') or ''} | "
                          f"{r.get('span', '')} | {r.get('series', '')} | {r['note']} | | | | |")
             continue
         gaps = "; ".join(f"{g['from']} {g['sec']:.0f}s" for g in r["gaps"][:6]) + (" …" if len(r["gaps"]) > 6 else "")
-        month = r["month"] if r["month"] is not None else "warm-up"
         lines.append(f"| {r['utc_date']} | {r['cme_day']} | {month} | {r['part']} | {r['span']} | {r['series']} | "
                      f"{r['empty_minutes']}/{r['minutes']} | {r['baseline_empty_median']} / {r['baseline_empty_max']} | "
                      f"{r['longest_gap_sec']} | {r['baseline_gap_max_sec']} | {gaps or '—'} |")

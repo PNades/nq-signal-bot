@@ -122,6 +122,12 @@ class FakeDatabento:
         return {"NQ": [(date(2025, 12, 15), date(2026, 3, 13), "NQH6")],
                 "ES": [(date(2025, 12, 15), date(2026, 3, 13), "ESH6")]}, []
 
+    def dataset_condition(self, start, end):  # every pull records its days' condition (owner 2026-10-09, §3.2)
+        self.conditions = (start, end)
+        n = (end - start).days + 1
+        return [{"date": (start + timedelta(days=i)).isoformat(), "condition": "available",
+                 "last_modified_date": None} for i in range(n)]
+
     def cost(self, schema, symbols, start, end):
         self.costs.append((schema, symbols[0], start))
         return self.usd
@@ -213,6 +219,8 @@ def test_recorded_day_without_the_previous_session(env):
     fake = FakeDatabento(datetime(2026, 3, 6, tzinfo=timezone.utc))
     rep = step8b_recorded.check_recorded_day(env, REC, client_factory=lambda: fake, fetch=_fetch)
     assert "--with-prev" in rep["ndxp"]["methods"]["basis+carry"]["skipped"]
+    assert rep["databento"]["dataset_condition"] == {"flagged": [], "upgrades": []}
+    assert fake.conditions[1] == REC
     with pytest.raises(step8b.CheckRefused, match="needs 3"):
         step8b_recorded.check_ndxp_select(env)
 

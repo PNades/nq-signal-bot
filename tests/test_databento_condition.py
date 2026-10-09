@@ -94,3 +94,15 @@ def test_backfill_records_each_days_condition_and_flags_it(paths, dec_settings, 
     known = cond.load_conditions(DatabentoStore(paths))
     assert known["2025-12-01"]["condition"] == "degraded" and known["2025-12-02"]["condition"] == "available"
     assert any("2025-12-01 is degraded" in r.getMessage() for r in caplog.records)
+
+
+def test_damage_lines_label_warm_up_rows():
+    rows = [{"utc_date": "2025-09-17", "cme_day": "2025-09-17", "month": None, "part": "RTH", "span": "s",
+             "series": "NQ mbp-1", "note": "no stored file"},
+            {"utc_date": "2025-09-17", "cme_day": "2025-09-17", "month": None, "part": "RTH", "span": "s",
+             "series": "NQ trades", "minutes": 390, "empty_minutes": 0, "records": 9, "longest_gap_sec": 5.0,
+             "gaps": [], "baseline_n": 20, "baseline_empty_median": 0, "baseline_empty_max": 0,
+             "baseline_gap_max_sec": 7.0},
+            {"utc_date": "2026-01-31", "part": None, "note": "touches no CME session (weekend)"}]
+    text = "\n".join(cond.damage_lines(rows))
+    assert text.count("| warm-up |") == 2 and "None" not in text

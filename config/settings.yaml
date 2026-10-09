@@ -115,8 +115,8 @@ skylit_dropped_extra_tries: 3     # §3.1 Backfill (owner 2026-10-06): a window 
 skylit_dropped_retry_credits_per_night: 500  # §3.1 Backfill (owner 2026-10-06): cap on those tries' credits per night
 databento_damage_baseline_sessions: 20  # §3.2 Dataset condition (owner 2026-10-09): a non-available day's completeness is
                                         # compared with this many nearest sessions whose UTC dates are all available
-# §13 Q8-degraded (PROPOSED 2026-10-09, pending the owner; nothing reads them until he approves): handling of
-# non-available days, fixed from completeness only, before any outcome on those days is looked at
+# §3.2 Dataset condition (owner 2026-10-09, §13 Q8-degraded): handling of non-available days, fixed from
+# completeness only, before any outcome on those days was looked at (steps 11/13 apply it)
 databento_damage_excess_minutes: 5  # a part is damaged if its empty minutes exceed the normal max by more than this, or
 databento_damage_gap_sec: 120       # its longest gap exceeds both the normal max gap and this many seconds
 databento_damage_window_pad_min: 15 # a small RTH damage drops only events whose span comes within this of a damaged minute
