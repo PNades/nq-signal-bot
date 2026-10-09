@@ -116,3 +116,16 @@ def test_step8b_mapping_values():
     assert m["board_content_offset_ms"]["from_stamp_change"] == {"QQQ": -60, "SPY": -60, "SPX": -80, "NDXP": None}
     assert m["board_content_offset_ms"]["live"] == {"QQQ": -60, "SPY": None, "SPX": -80, "NDXP": None}
     assert s["stop_buffer_floor"] == {"QQQ": 4.0, "NDXP": None, "chart": 0}
+
+
+def test_step7_measured_values_and_tempest_pre_open():
+    # Owner 2026-10-09: map_latency_sec from the 10-07 recording (p99.9 0.585 s); tempest_lag_sessions waits for the
+    # Mon 10-12 finality check; a Tempest copy counts only from the pre-open (the store's constant = preopen_start).
+    from datetime import time
+
+    from nqbot.clients.skylit_store import TEMPEST_FINAL_FROM_ET
+
+    s, f = load_settings(), load_features()
+    assert s["map_latency_sec"] == 0.59
+    assert f["tempest_lag_sessions"] == 1 and f["dp_lag_sessions"] == 1  # start values, not set yet
+    assert time.fromisoformat(s["preopen_start"]) == TEMPEST_FINAL_FROM_ET

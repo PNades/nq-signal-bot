@@ -106,7 +106,7 @@ skylit_max_strikes: "all"    # step 7 (owner 2026-10-06): whole 0DTE chain; API 
 strike_edge_margin: 5
 skylit_stale_sec: 45
 skylit_credit_warn: 10000
-map_latency_sec: null        # measured at step 7 (99.9th percentile stream delay)
+map_latency_sec: 0.59         # step 7 (owner 2026-10-09): stream delay p99.9 0.585 s (14:59 recording 10-07), parity confirmed
 skylit_reach_margin_min: 30  # §3.1 Backfill: a window is pulled only if it starts after now - 365 days + this margin
 skylit_max_failures_in_row: 5   # §3.1 Backfill (decision 4, 2026-10-06): a failing window/date is recorded and skipped;
                                 # this many in a row stop the backfill cleanly (status failures)

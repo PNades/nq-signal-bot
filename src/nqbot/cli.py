@@ -279,6 +279,12 @@ def _add_step7(sub: argparse._SubParsersAction) -> None:
                    help="start during the session: wait for today's row (polls every minute), see if it exists or "
                         "changes before the close (owner 2026-10-07)")
     add("tempest-compare", "re-pull the oldest stored Tempest row not yet re-checked and diff it")
+    p = add("tempest-morning", "pull a session's Tempest row at the pre-open of a later day into vol/ (1 credit; "
+                               "owner 2026-10-09: the only copy the bot keeps)")
+    p.add_argument("--date", type=_date, default=None, help="the session (default: the last one before today)")
+    p = add("tempest-finality", "re-pull rows stored from a pre-open pull and compare with that first copy "
+                                "(1 credit each; decides tempest_lag_sessions, owner 2026-10-09)")
+    p.add_argument("--dates", type=_dates, required=True)
     add("tempest-depth", "does Tempest history reach back far enough before month 1 (1-2 credits)")
     add("dp-start-probe", "is dp_history_start still Skylit's first dark-pool date? (5 credits; owner 2026-10-07)")
     add("report", "write the parameter check for the owner (and the step-10 backfill estimate)")
@@ -336,7 +342,7 @@ def _run_step7(args: argparse.Namespace, settings: dict, paths, log) -> int:
 
 # The step-7 checks that run alongside the step-10 backfill without the Skylit lock (decision 2).
 ALONGSIDE_CHECKS = frozenset({"stream-record", "stream-session", "parity", "late-prints-morning", "late-prints-compare", "tempest-poll",
-                              "tempest-compare", "dp-start-probe"})
+                              "tempest-compare", "tempest-morning", "tempest-finality", "dp-start-probe"})
 
 
 def _step7_hint(check: str, e) -> str:
@@ -395,6 +401,10 @@ def _step7_check(args: argparse.Namespace, settings, paths, log, env, approve) -
             step7.check_tempest_poll(env, args.until or step7.RTH_OPEN, approve, today=args.today)
         case "tempest-compare":
             step7.check_tempest_compare(env, approve)
+        case "tempest-morning":
+            step7.check_tempest_morning(env, args.date, approve)
+        case "tempest-finality":
+            step7.check_tempest_finality(env, args.dates, approve)
         case "tempest-depth":
             step7.check_tempest_depth(env, approve)
         case "dp-start-probe":

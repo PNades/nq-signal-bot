@@ -342,7 +342,13 @@ def test_tempest_lag_recommendation(env):
     assert step7.tempest_lag_recommendation(env.paths)["recommend_tempest_lag_sessions"] is None
     for day, ok in (("2026-03-16", True), ("2026-03-17", True)):
         step7.atomic_write_json(d / f"tempest_poll_{day}_x.json", {"session_using_row": day, "by_09_00": {"QQQ": ok}})
+    # owner 2026-10-09: no decision until the finality check has compared the pre-open copies
+    assert step7.tempest_lag_recommendation(env.paths)["recommend_tempest_lag_sessions"] is None
+    step7.atomic_write_json(d / "tempest_finality_1.json", {"any_changed": False, "days": [{"day": "2026-03-16"}]})
     assert step7.tempest_lag_recommendation(env.paths)["recommend_tempest_lag_sessions"] == 1
+    step7.atomic_write_json(d / "tempest_finality_2.json", {"any_changed": True, "days": [{"day": "2026-03-16"}]})
+    assert step7.tempest_lag_recommendation(env.paths)["recommend_tempest_lag_sessions"] == 2
+    step7.atomic_write_json(d / "tempest_finality_3.json", {"any_changed": False, "days": [{"day": "2026-03-16"}]})
     step7.atomic_write_json(d / "tempest_poll_2026-03-18_x.json", {"session_using_row": "2026-03-18", "by_09_00": {"QQQ": False}})
     assert step7.tempest_lag_recommendation(env.paths)["recommend_tempest_lag_sessions"] == 2
 

@@ -35,7 +35,7 @@ from nqbot.clients.skylit_pull import (INCLUSIVE_END, MAPS, SessionResult, Skyli
                                        session_windows, window_reachable)
 from nqbot.clients.skylit_store import (
     SkylitStore, cached_or_mismatch, historical_to_table, prints_to_table, read_meta, stream_snapshots_to_tables,
-    top_prints_to_table, vol_history_to_table, write_parquet,
+    tempest_final, top_prints_to_table, vol_history_to_table, write_parquet,
 )
 from nqbot.clients.skylit_stream import SkylitStream, StreamStopped
 from nqbot.features import darkpool as dp
@@ -1346,16 +1346,20 @@ def check_tempest_poll(env: Env, until: time = RTH_OPEN, approved: int | None = 
         while env.now() < after:
             sleep(min(60.0, max(1.0, (after - env.now()).total_seconds())))
     stored = None
-    already = env.store.vol_files(prev, prev)
+    prefix = f"history_{prev.isoformat()}_{prev.isoformat()}_"
+    already = env.store.vol_files(prev, prev) + [p for p in env.store.vol_drafts() if p.name.startswith(prefix)]
     if seen and not already:  # pull only the new row, once (later rows are re-pulled only by tempest-compare)
         _gate(env, credits.vol_history_estimate("Tempest row just published", len(seen), prev, prev), approved)
         with env.client.tagged(tempest="new_row"):
             body, rec = env.client.vol_history(seen, prev, prev)
         pulled = env.now().astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        stored = env.store.vol_path(prev, prev, pulled)
-        write_parquet(stored, vol_history_to_table(body),
-                      {"params": {"symbols": seen, "from": prev.isoformat(), "to": prev.isoformat()},
-                       "pulled_at": env.now().isoformat()})
+        meta = {"params": {"symbols": seen, "from": prev.isoformat(), "to": prev.isoformat()},
+                "pulled_at": env.now().isoformat()}
+        # owner 2026-10-09: a row pulled before the next day's pre-open is a draft (it changes overnight): kept apart
+        # for the timing and re-pull checks, never in vol/
+        final = tempest_final(meta)
+        stored = env.store.vol_path(prev, prev, pulled, base=None if final else env.store.base("tempest_draft", pulled))
+        write_parquet(stored, vol_history_to_table(body), meta if final else {**meta, "repull": "tempest_draft"})
     deadline_09 = datetime.combine(uses, TEMPEST_DEADLINE_ET, tzinfo=ET)
     on_time = {s: t is not None and datetime.fromisoformat(t) <= deadline_09 for s, t in first_seen.items()}
     report = {"session_using_row": uses.isoformat(), "prev_session": prev.isoformat(), "first_seen": first_seen,
@@ -1383,7 +1387,7 @@ def check_tempest_compare(env: Env, approved: int | None = None) -> dict[str, An
     list every changed cell (re-pull `tempest_recheck`; no values in the report, §7 rule 2b)."""
     today = env.now().date()
     candidates = []
-    for f in env.store.vol_files():
+    for f in sorted(env.store.vol_files() + env.store.vol_drafts(), key=lambda p: p.name):
         meta = read_meta(f)
         pulled = datetime.fromisoformat(meta["pulled_at"]).astimezone(ET).date()
         done = (env.store.root / "repull" / "tempest_recheck" / f.stem)
@@ -1398,8 +1402,14 @@ def check_tempest_compare(env: Env, approved: int | None = None) -> dict[str, An
     with env.client.tagged(repull="tempest_recheck"):
         body, rec = env.client.vol_history(p["symbols"], start, end)
     second = vol_history_to_table(body)
-    write_parquet(folder / first.name, second, {"params": p, "pulled_at": env.now().isoformat(), "repull": "tempest_recheck"})
+    again = {"params": p, "pulled_at": env.now().isoformat()}
+    write_parquet(folder / first.name, second, {**again, "repull": "tempest_recheck"})
     diffs = an.compare_vol_tables(pq.read_table(first).replace_schema_metadata(None), second)
+    promoted = None
+    if tempest_final(again) and not env.store.vol_files(start, end):
+        # owner 2026-10-09: the re-pull of a draft, made at or after the pre-open, is the copy the bot keeps (no credits)
+        promoted = env.store.vol_path(start, end, env.now().astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
+        write_parquet(promoted, second, {**again, "source": "tempest_recheck", "replaces_draft": first.name})
     # when each copy was pulled: a re-pull before the next session's open shows the row is final by then (owner
     # 2026-10-07: the 16:10 copy of a --today poll against the next morning's)
     first_at = datetime.fromisoformat(meta["pulled_at"]).astimezone(ET)
@@ -1408,9 +1418,77 @@ def check_tempest_compare(env: Env, approved: int | None = None) -> dict[str, An
     report = {"first": first.name, "first_pulled_at": first_at.isoformat(), "repulled_at": again_at.isoformat(),
               "repulled_before_open_of": nxt.isoformat()
               if again_at < datetime.combine(nxt, RTH_OPEN, tzinfo=ET) else None,
-              "changed_cells": len(diffs), "diffs": diffs[:100]}
+              "changed_cells": len(diffs), "diffs": diffs[:100], "stored_as_final": str(promoted) if promoted else None}
     env.echo(f"  {len(diffs)} Tempest cells changed between pulls")
     write_report(env, "tempest_compare", report)
+    return report
+
+
+def check_tempest_morning(env: Env, day: date | None = None, approved: int | None = None) -> dict[str, Any]:
+    """Owner 2026-10-09: pull a session's Tempest row at the pre-open of a later day, before the next session opens:
+    the only kind of copy the bot keeps in vol/ (§3.1 Tempest). Default: the last session before today. 1 credit."""
+    now = env.now()
+    day = day or dp.previous_session(now.date(), 1, env.trading_day)
+    nxt = _next_session(env, day)
+    start = datetime.combine(day + timedelta(days=1), env.preopen(), tzinfo=ET)
+    if not start <= now < datetime.combine(nxt, RTH_OPEN, tzinfo=ET):
+        raise CheckRefused(f"tempest-morning pulls {day}'s row from {start:%Y-%m-%d %H:%M} ET until the {nxt} open")
+    if env.store.vol_files(day, day):
+        raise CheckRefused(f"{day}'s row is already stored from a pre-open pull: never pulled again (rule 2)")
+    through, _ = _history_through(env.client.vol_symbols())
+    symbols = [s for s in (*TEMPEST_SYMBOLS, VIX) if through.get(s) and through[s] >= day.isoformat()]
+    if not symbols:
+        raise CheckRefused(f"Tempest doesn't show {day}'s row yet (/v1/vol/symbols)")
+    _gate(env, credits.vol_history_estimate(f"Tempest row of {day} at the pre-open", len(symbols), day, day), approved)
+    with env.client.tagged(tempest="pre_open"):
+        body, _ = env.client.vol_history(symbols, day, day)
+    meta = {"params": {"symbols": symbols, "from": day.isoformat(), "to": day.isoformat()},
+            "pulled_at": env.now().isoformat(), "pre_open": True}
+    path = env.store.vol_path(day, day, env.now().astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
+    write_parquet(path, vol_history_to_table(body), meta)
+    report = {"day": day.isoformat(), "pulled_at": meta["pulled_at"], "symbols": symbols, "stored": str(path)}
+    env.echo(f"  {day}'s row stored from the pre-open: {path}")
+    write_report(env, f"tempest_morning_{day.isoformat()}", report)
+    return report
+
+
+def check_tempest_finality(env: Env, days: list[date], approved: int | None = None) -> dict[str, Any]:
+    """Owner 2026-10-09: re-pull rows already stored from a pre-open pull and compare them cell by cell with that
+    first copy (re-pull `tempest_finality`; counts and fields only, §7 rule 2b). Unchanged everywhere:
+    tempest_lag_sessions = 1; anything changed: 2."""
+    now = env.now()
+    firsts = {}
+    for d in days:
+        copies = sorted(env.store.vol_files(d, d), key=lambda p: read_meta(p)["pulled_at"])
+        if not copies:
+            raise CheckRefused(f"no copy of {d}'s row pulled at a pre-open yet (`nqbot step7 tempest-morning --date {d}`)")
+        if datetime.fromisoformat(read_meta(copies[0])["pulled_at"]).astimezone(ET).date() >= now.date():
+            raise CheckRefused(f"{d}'s first pre-open copy was pulled today: re-check it on a later day")
+        firsts[d] = copies[0]
+    est = credits.Estimate("Tempest finality re-pull")
+    for d, f in firsts.items():
+        est.add_total(f"/v1/vol/history {d}..{d}", 1, credits.vol_history_cost(len(read_meta(f)["params"]["symbols"]), d, d))
+    _gate(env, est, approved)
+    pulled = now.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    per_day = []
+    for d, f in firsts.items():
+        meta = read_meta(f)
+        with env.client.tagged(repull="tempest_finality"):
+            body, _ = env.client.vol_history(meta["params"]["symbols"], d, d)
+        second = vol_history_to_table(body)
+        write_parquet(env.store.vol_path(d, d, pulled, base=env.store.base("tempest_finality", pulled)), second,
+                      {"params": meta["params"], "pulled_at": env.now().isoformat(), "repull": "tempest_finality"})
+        diffs = an.compare_vol_tables(pq.read_table(f).replace_schema_metadata(None), second)
+        per_day.append({"day": d.isoformat(), "first": f.name, "first_pulled_at": meta["pulled_at"],
+                        "changed_cells": len(diffs),
+                        "changed_fields": sorted({x.get("field") for x in diffs if x.get("field")})})
+    changed = any(r["changed_cells"] for r in per_day)
+    report = {"repulled_at": now.isoformat(), "days": per_day, "any_changed": changed,
+              "recommend_tempest_lag_sessions": 2 if changed else 1}
+    for r in per_day:
+        env.echo(f"  {r['day']}: {r['changed_cells']} cells changed since the pre-open copy of {r['first_pulled_at']}")
+    env.echo(f"  recommend tempest_lag_sessions = {report['recommend_tempest_lag_sessions']} (the owner sets it)")
+    write_report(env, "tempest_finality", report)
     return report
 
 
@@ -1448,13 +1526,18 @@ def check_tempest_depth(env: Env, approved: int | None = None) -> dict[str, Any]
 
 def tempest_lag_recommendation(paths: Paths) -> dict[str, Any]:
     """§5.2: tempest_lag_sessions = 1 only if the previous session's row was there by 09:00 on every recorded
-    morning (at least two); otherwise 2. Fewer than two mornings: not decided yet."""
+    morning (at least two) and the finality check found the pre-open copies unchanged (owner 2026-10-09); otherwise
+    2. Fewer than two mornings or no finality check yet: not decided."""
     polls = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(reports_dir(paths).glob("tempest_poll_*.json"))]
     mornings = {p["session_using_row"]: p for p in polls}
-    if len(mornings) < TEMPEST_MIN_MORNINGS:
-        return {"mornings": len(mornings), "recommend_tempest_lag_sessions": None}
+    final = latest_report(paths, "tempest_finality")
+    out: dict[str, Any] = {"mornings": len(mornings),
+                           "finality": None if final is None else {"any_changed": final["any_changed"],
+                                                                   "days": [r["day"] for r in final["days"]]}}
+    if len(mornings) < TEMPEST_MIN_MORNINGS or final is None:
+        return {**out, "recommend_tempest_lag_sessions": None}
     ok = all(all(p["by_09_00"].values()) and p["by_09_00"] for p in mornings.values())
-    return {"mornings": len(mornings), "all_by_09_00": ok, "recommend_tempest_lag_sessions": 1 if ok else 2}
+    return {**out, "all_by_09_00": ok, "recommend_tempest_lag_sessions": 1 if ok and not final["any_changed"] else 2}
 
 
 # --- parameter check and backfill estimate ------------------------------------------------------------------
@@ -1592,8 +1675,10 @@ def check_report(env: Env) -> str:
             lines.append("")
         if names is ALONGSIDE:
             rec = tempest_lag_recommendation(env.paths)
+            pending = ("pending: the finality check (`step7 tempest-finality`, owner 2026-10-09)"
+                       if rec["finality"] is None else "pending (runs alongside)")
             lines += ["## Tempest timing (tempest_lag_sessions)",
-                      "pending (runs alongside)" if rec["recommend_tempest_lag_sessions"] is None else "",
+                      pending if rec["recommend_tempest_lag_sessions"] is None else "",
                       "```json", json.dumps(rec, indent=1), "```", ""]
     try:
         bf = backfill_estimate(env)

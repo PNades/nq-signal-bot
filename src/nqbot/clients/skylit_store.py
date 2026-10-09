@@ -7,7 +7,8 @@ Layout under <paths.raw_dir>/skylit/:
   historical/<YYYYMMDDTHHMMSSZ>.parquet      /v1/historical instants (Skylit's nodeType kept, step-12 report)
   darkpool/trades/<YYYY-MM-DD>.parquet       every print of one ET trade date for the requested tickers
   darkpool/top_prints/<TICKER>_<YYYY-MM-DD>.parquet
-  vol/history_<from>_<to>_<pulled>.parquet   Tempest daily rows (one per symbol and session)
+  vol/history_<from>_<to>_<pulled>.parquet   Tempest daily rows (one per symbol and session), final copies only:
+                                             pulled at or after the pre-open of a later day (owner 2026-10-09)
   stream/<YYYY-MM-DD>/<HHMMSS>_{boards,strikes}.parquet + _events.jsonl   stream recordings (step 7)
   fullchain/range/<YYYY-MM-DD>/...           step-7 strike-window pulls (maxStrikes=all), same layout as range/
   repull/<reason>/<pulled>/...               the CLAUDE.md rule-2 re-pull exceptions, never over the original
@@ -24,9 +25,10 @@ from __future__ import annotations
 import io
 import json
 from dataclasses import asdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pyarrow as pa
@@ -42,6 +44,8 @@ REPULL_REASONS = frozenset({
     "late_print",          # step-7 dark-pool late-print check
     "tempest_recheck",     # step 7/22: do Tempest rows change on later pulls
     "tempest_intraday",    # step-7 tempest-poll --today: the row seen before the close (Tempest re-pull check, owner 2026-10-07)
+    "tempest_draft",       # a Tempest row pulled before the next day's pre-open: a draft, timing checks only (owner 2026-10-09)
+    "tempest_finality",    # step 7: re-pull of rows already stored from the pre-open, to see if they are final (owner 2026-10-09)
     "strike_window_raise", # a step-7 sample day if skylit_max_strikes is raised
     "partial_write",       # a window whose two files weren't both written (crash between renames)
 })
@@ -233,6 +237,20 @@ def read_meta(path: Path) -> dict[str, Any]:
     return json.loads(md[META_KEY]) if META_KEY in md else {}
 
 
+ET = ZoneInfo("America/New_York")
+# §3.1 Tempest (owner 2026-10-09): the row Tempest publishes just after the close is a draft that changes overnight.
+# A copy counts only if pulled at or after the pre-open of a day after its last row. Equal to settings.yaml
+# `preopen_start` (§9); tests/test_config.py checks the two match.
+TEMPEST_FINAL_FROM_ET = time(8, 30)
+
+
+def tempest_final(meta: dict[str, Any]) -> bool:
+    """Is this stored Tempest copy final (pulled at or after the pre-open of a day after its last row)?"""
+    pulled = datetime.fromisoformat(meta["pulled_at"])
+    last = date.fromisoformat(meta["params"]["to"])
+    return pulled >= datetime.combine(last + timedelta(days=1), TEMPEST_FINAL_FROM_ET, tzinfo=ET)
+
+
 LEDGER = "ledger.jsonl"
 
 
@@ -350,13 +368,19 @@ class SkylitStore:
 
     def vol_files(self, start: date | None = None, end: date | None = None) -> list[Path]:
         """The stored Tempest rows: the one loader that history, features and the step-7/10 code read. Only files
-        directly in `vol/`, never a copy under `repull/` (e.g. the pre-close `tempest_intraday` row, owner 2026-10-07)."""
+        directly in `vol/`, never a copy under `repull/` (e.g. the pre-close `tempest_intraday` row, owner 2026-10-07),
+        and never a draft pulled before the next day's pre-open, even one left in `vol/` (owner 2026-10-09)."""
         folder = self.root / "vol"
         files = sorted(folder.glob("history_*.parquet")) if folder.exists() else []
         files = [p for p in files if "repull" not in p.relative_to(self.root).parts]  # guard, whatever the glob
+        files = [p for p in files if tempest_final(read_meta(p))]
         if start and end:
             files = [p for p in files if p.name.startswith(f"history_{start.isoformat()}_{end.isoformat()}_")]
         return files
+
+    def vol_drafts(self) -> list[Path]:
+        """Tempest copies kept as drafts (`repull/tempest_draft/`): for the timing and re-pull checks only."""
+        return sorted((self.root / "repull" / "tempest_draft").glob("*/vol/history_*.parquet"), key=lambda p: p.name)
 
     def stream_dir(self, session: date) -> Path:
         return self.root / "stream" / session.isoformat()

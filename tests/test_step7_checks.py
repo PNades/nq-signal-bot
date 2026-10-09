@@ -708,11 +708,74 @@ def test_tempest_poll_today_times_the_publish_and_diffs_a_pre_close_row(env):
     assert tm["changed_cells_after_close"] == 1 and tm["changed_fields"] == ["svx30"]
     assert clock["t"] >= datetime(2026, 3, 16, 16, 10, tzinfo=ET)  # waited until 10 minutes after the close
     assert "21.0" not in json.dumps(rep) and "20.0" not in json.dumps(rep)
+    # owner 2026-10-09: the 16:10 copy is a draft, kept apart and never loaded
+    assert "tempest_draft" in rep["stored"] and env.store.vol_files() == []
     clock["t"] = datetime(2026, 3, 17, 8, 45, tzinfo=ET)  # next morning, before the open: the 16:10 copy is re-checked
     cmp_ = step7.check_tempest_compare(env)
     assert cmp_["first"] == Path(rep["stored"]).name and "tempest_intraday" not in cmp_["first"]
     assert cmp_["first_pulled_at"].startswith("2026-03-16T16:10") and cmp_["repulled_before_open_of"] == "2026-03-17"
     assert cmp_["changed_cells"] == 0
+    # the 08:45 re-pull is a pre-open copy: it becomes the stored row (no extra call)
+    assert env.store.vol_files() == [Path(cmp_["stored_as_final"])]
     clock["t"] = datetime(2026, 3, 16, 16, 30, tzinfo=ET)
     with pytest.raises(step7.CheckRefused):
         step7.check_tempest_poll(env, sleep=sleep, today=True)  # after the close: the plain mode is the one
+
+
+def _tempest_routes(env, values):
+    """/v1/vol/symbols shows each day's row; /v1/vol/history answers svx30 = values[day] (changed by the test)."""
+    env.fake.routes["/v1/vol/symbols"] = lambda r: {"data": {"symbols": [
+        {"symbol": s, "historyThrough": max(values)} for s in ("QQQ", "SPY")], "missing": []}}
+
+    def hist(r):
+        d, syms = r.url.params["from"], r.url.params["symbols"].split(",")
+        return {"data": {"from": d, "to": r.url.params["to"], "missing": [],
+                         "symbols": [{"symbol": s, "dates": [d], "columns": {"svx30": [values[d]]}} for s in syms]},
+                "meta": {}}
+
+    env.fake.routes["/v1/vol/history"] = hist
+
+
+def test_tempest_morning_then_finality(env):
+    """Owner 2026-10-09: only a copy pulled at the pre-open of a later day is stored in vol/; the finality check
+    re-pulls it on a later day and recommends tempest_lag_sessions 1 if nothing changed, else 2."""
+    values = {"2026-03-12": 20.0, "2026-03-13": 30.0}
+    _tempest_routes(env, values)
+    env.now = Now(datetime(2026, 3, 13, 8, 0, tzinfo=ET))  # Friday before the pre-open: too early for Thursday's row
+    with pytest.raises(step7.CheckRefused, match="08:30"):
+        step7.check_tempest_morning(env)
+    env.now = Now(datetime(2026, 3, 13, 8, 40, tzinfo=ET))
+    rep = step7.check_tempest_morning(env)
+    assert rep["day"] == "2026-03-12" and env.store.vol_files(date(2026, 3, 12), date(2026, 3, 12))
+    with pytest.raises(step7.CheckRefused, match="already stored"):
+        step7.check_tempest_morning(env)  # never pulled twice
+    env.now = Now(datetime(2026, 3, 13, 9, 31, tzinfo=ET))
+    with pytest.raises(step7.CheckRefused, match="open"):
+        step7.check_tempest_morning(env, date(2026, 3, 12))  # after the open of the session using it
+    env.now = Now(datetime(2026, 3, 14, 8, 47, tzinfo=ET))  # Saturday morning: Friday's row, before Monday's open
+    assert step7.check_tempest_morning(env)["day"] == "2026-03-13"
+    with pytest.raises(step7.CheckRefused, match="later day"):
+        step7.check_tempest_finality(env, [date(2026, 3, 13)])  # pulled today: nothing to compare yet
+    with pytest.raises(step7.CheckRefused, match="tempest-morning"):
+        step7.check_tempest_finality(env, [date(2026, 3, 11)])
+    assert step7.tempest_lag_recommendation(env.paths)["recommend_tempest_lag_sessions"] is None
+    env.now = Now(datetime(2026, 3, 16, 9, 0, tzinfo=ET))  # Monday before the open
+    fin = step7.check_tempest_finality(env, [date(2026, 3, 12), date(2026, 3, 13)])
+    assert fin["any_changed"] is False and fin["recommend_tempest_lag_sessions"] == 1
+    assert [r["changed_cells"] for r in fin["days"]] == [0, 0] and "30.0" not in json.dumps(fin)
+    assert len(env.store.vol_files(date(2026, 3, 13), date(2026, 3, 13))) == 1  # the re-pull is kept apart
+    values["2026-03-13"] = 31.0  # revised after the pre-open copy was taken
+    fin = step7.check_tempest_finality(env, [date(2026, 3, 12), date(2026, 3, 13)])
+    assert fin["any_changed"] and fin["days"][1]["changed_fields"] == ["svx30"]
+    assert fin["recommend_tempest_lag_sessions"] == 2
+
+
+def test_tempest_poll_after_the_close_keeps_a_draft_only(env):
+    """Owner 2026-10-09: the row seen just after the close changes overnight: tempest-poll keeps it apart."""
+    _tempest_routes(env, {"2026-03-13": 30.0})
+    env.now = Now(datetime(2026, 3, 13, 16, 7, tzinfo=ET))
+    rep = step7.check_tempest_poll(env, sleep=lambda s: None)
+    assert "tempest_draft" in rep["stored"] and env.store.vol_files() == []
+    n = len(env.fake.calls)
+    step7.check_tempest_poll(env, sleep=lambda s: None)  # the draft counts as pulled: not pulled again
+    assert all(r.url.path != "/v1/vol/history" for r in env.fake.calls[n:])

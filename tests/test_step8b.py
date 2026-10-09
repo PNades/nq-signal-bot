@@ -141,6 +141,11 @@ def test_spot_lag_gate(env, lag, ok):
 
 def test_atlas_side_by_side(env):
     _setup(env, noise=1e-6, vol=(0.2, 0.1))  # one trade a second: a calm tape keeps the 1-s read within tolerance
+    env.settings["map_latency_sec"] = 0.59  # the owner's step-7 value (2026-10-09)
+    late = step8b.check_atlas(env, DAY, [time(9, 45)])["maps"]["QQQ"]
+    # the 09:44:59 board applies at 09:45:00.59: at 09:45:00 the 09:44:58 board is still in force
+    assert late[0]["board"] == "09:44:58"
+    env.settings["map_latency_sec"] = 0
     rep = step8b.check_atlas(env, DAY, [time(9, 45), time(10, 0)])
     rows = rep["maps"]["QQQ"]
     # the 09:45:00 board applies at floor(asOf) + 1 s (+ map_latency_sec): at 09:45 the 09:44:59 board is in force

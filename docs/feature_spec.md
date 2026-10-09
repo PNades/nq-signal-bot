@@ -327,7 +327,7 @@
 - *Source:* §5.2 Daily vol context; §3.1 Tempest.
 - *Definition:* for QQQ and SPY (and NDXP/SPX/VIX if served), the `/v1/vol/history` row of session T − `tempest_lag_sessions`: SVX 1d, 9d, 30d, 3m, 6m, ATM vol, term slope, 30-day risk reversal, butterfly, skew slope, call/put tilt. `rv_nq` = the annualised standard deviation of NQ RTH close-to-close log returns over the last `rv_lookback_sessions` completed sessions (roll-adjusted); `rv_iv_ratio` = `rv_nq` ÷ SVX30d(QQQ)/100. These are inputs to the structure, day-type and pair models (not the trigger model).
 - *Known at:* the session start.
-- *Params:* `tempest_lag_sessions` (*measured*, step 7), `rv_lookback_sessions`.
+- *Params:* `tempest_lag_sessions` (*measured*, step 7: the morning timings and the finality check of the pre-open copies, owner 2026-10-09), `rv_lookback_sessions`. Only Tempest copies pulled at or after the pre-open of a later day are read (the post-close row is a draft, SPEC §3.1 Tempest).
 - *Test:* with T − 1 the row of the previous session is used, never session T's own row.
 
 ### F2.22 Flags and calendar context

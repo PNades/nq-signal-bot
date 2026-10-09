@@ -315,12 +315,26 @@ def test_tempest_history_loader_ignores_repull_copies(tmp_path):
     read by anything that builds history or features: vol_files() returns only the rows directly in vol/."""
     from nqbot.storage import Paths
 
+    import pyarrow as pa
+
+    from nqbot.clients.skylit_store import write_parquet
+
     store = SkylitStore(Paths.under(tmp_path, "nqbot"))
     d = date(2026, 10, 8)
-    kept = store.vol_path(d, d, "20261008T200000Z")
-    intraday = store.vol_path(d, d, "20261008T193000Z", base=store.base("tempest_intraday"))
-    for p in (kept, intraday):
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_bytes(b"x")
+    et = ZoneInfo("America/New_York")
+    params = {"symbols": ["QQQ"], "from": d.isoformat(), "to": d.isoformat()}
+
+    def put(path, pulled):
+        write_parquet(path, pa.table({"x": [1]}), {"params": params, "pulled_at": pulled.isoformat()})
+        return path
+
+    kept = put(store.vol_path(d, d, "20261009T124500Z"), datetime(2026, 10, 9, 8, 45, tzinfo=et))
+    intraday = put(store.vol_path(d, d, "20261008T193000Z", base=store.base("tempest_intraday")),
+                   datetime(2026, 10, 8, 15, 30, tzinfo=et))
     assert "repull" in intraday.parts and "tempest_intraday" in intraday.parts
     assert store.vol_files() == [kept] and store.vol_files(d, d) == [kept]
+    # owner 2026-10-09: a copy pulled after the close or before the next day's pre-open is a draft, never loaded,
+    # even if left in vol/
+    put(store.vol_path(d, d, "20261008T200700Z"), datetime(2026, 10, 8, 16, 7, tzinfo=et))
+    put(store.vol_path(d, d, "20261009T060000Z"), datetime(2026, 10, 9, 6, 0, tzinfo=et))
+    assert store.vol_files(d, d) == [kept]
