@@ -57,7 +57,7 @@ def _cfg_key(env: s8.Env) -> str:
 
 def chain_crossings(env: s8.Env, d: date, md: s8.MapDay, fut: s8.Futures) -> dict[str, np.ndarray]:
     """Signed errors (futures - k * R) at the event-moment crossings of one map and session: the chosen estimator
-    (F1.7) and the best possible R."""
+    (F1.7) and the best possible R, with each crossing's time t* (ns) and strike."""
     cfg = env.features["mapping"]
     era = mp.board_era(d, cfg["skylit_stamp_change_date"])
     off = mp.content_offset_ms(cfg, md.name, era)
@@ -94,14 +94,14 @@ def chain_crossings(env: s8.Env, d: date, md: s8.MapDay, fut: s8.Futures) -> dic
             ck.append(k)
             cb.append(p - 1)
     if not ct:
-        return {"chosen": np.zeros(0), "best": np.zeros(0)}
+        return {"chosen": np.zeros(0), "best": np.zeros(0), "t": np.zeros(0, dtype=np.int64), "k": np.zeros(0)}
     ct_ = np.asarray(ct, dtype=np.int64)
     ck_, cb_ = np.asarray(ck), np.asarray(cb)
     f_gt = mp.last_price_at_or_before(fut.ts, fut.px, ct_)
     lo = np.searchsorted(tc, ct_ - BEST_R_HALF_S * mp.NS)
     hi = np.searchsorted(tc, ct_ + BEST_R_HALF_S * mp.NS, side="right")
     best = np.array([np.nanmedian(r[i:j]) if np.isfinite(r[i:j]).any() else np.nan for i, j in zip(lo, hi)])
-    return {"chosen": f_gt - ck_ * r_in[cb_], "best": f_gt - ck_ * best}
+    return {"chosen": f_gt - ck_ * r_in[cb_], "best": f_gt - ck_ * best, "t": ct_, "k": ck_}
 
 
 def day_crossings(env: s8.Env, d: date, front: dict[str, dict[str, str]]) -> dict[str, Any]:

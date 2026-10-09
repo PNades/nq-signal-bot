@@ -150,7 +150,8 @@ def test_atlas_side_by_side(env):
     king = next(n for n in nodes if n["pct_of_king"] == 1.0)
     assert king["band"][0] < king["level"] < king["band"][1]
     assert rep["crossings"] == rep["gated_crossings"] > 0 and rep["owner_check"] == "pending"
-    assert rep["regression_ok"] and rep["share_within_tol"]["SPY"] >= 0.9 and rep["tolerance"] == {"NQ": 4.0, "ES": 0.78}
+    assert rep["share_within_tol"]["SPY"] >= 0.9 and rep["tolerance"] == {"NQ": 4.0, "ES": 0.78}
+    assert rep["within_tol_counts"]["SPY"][1] > 0
     md = (step8b.reports_dir(env.paths) / f"atlas_{DAY.isoformat()}.md").read_text(encoding="utf-8")
     assert "| Strike | % of King | Mapped NQ |" in md and "## SPY -> ES" in md
 
@@ -191,7 +192,7 @@ def test_gate_report_and_cli(env, settings, drive, monkeypatch, capsys):
     assert cli.main(["step8b", "atlas", "--date", DAY.isoformat(), "--minutes", "09:45,10:00"]) == 0
     assert cli.main(["step8b", "report"]) == 0
     text = (step8b.reports_dir(env.paths) / "mapping_gate.md").read_text(encoding="utf-8")
-    assert "gated crossings: ok" in text and "not passed yet" in text and "owner's check in Atlas replay" in text
+    assert "pooled over every sample day" in text and "REGRESSION ALERT" not in text and "not passed yet" in text and "owner's check in Atlas replay" in text
     floors = next(line for line in text.splitlines() if line.startswith("- Stop floors per level source"))
     assert all(x in floors for x in ("QQQ 4.0", "NDXP pending", "chart 0"))
     assert "diagnostic, not a gate condition" in text and "(a) bias" in text and "**pending**" in text  # Q8b-4
@@ -226,6 +227,14 @@ def test_atlas_regression_alert(env):
     _setup(env, noise=1e-6, vol=(0.2, 0.1))
     env.features["mapping"]["atlas_match_tol"] = {"NQ": 0.0, "ES": 0.0}  # nothing within: the regression alert
     rep = step8b.check_atlas(env, DAY, [time(9, 45)])
-    assert not rep["regression_ok"] and rep["share_within_tol"]["SPY"] < 0.9
+    assert rep["share_within_tol"]["SPY"] < 0.9
     text = step8b.check_report(env).read_text(encoding="utf-8")
-    assert "REGRESSION ALERT" in text and "owner's check in Atlas replay: pending" in text
+    assert "**REGRESSION ALERT** (SPY)" in text and "owner's check in Atlas replay: pending" in text
+
+
+def test_atlas_regression_is_judged_pooled():
+    """One day under 90% doesn't alert when the share pooled over the sample days is above it (owner 2026-10-08)."""
+    days = [{"within_tol_counts": {"QQQ": [130, 145], "SPY": [111, 114]}},  # QQQ 89.7% that day
+            {"within_tol_counts": {"QQQ": [97, 97], "SPY": [0, 0]}}]
+    pooled = step8b.atlas_pooled_share(days)
+    assert pooled == {"QQQ": (227, 242), "SPY": (111, 114)} and 227 / 242 >= 0.9

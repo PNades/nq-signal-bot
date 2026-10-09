@@ -24,6 +24,128 @@ The gate's first run on the five step-7 sample days (2026-03-06, 03-11, 03-18, 0
 - **Q8b-4 answered (owner 2026-10-08):** gate = (a) bias interval contains 0 or within one futures tick, (b) chosen estimator p95 within 10% of the best possible R, the alignment check in place of spot lag, the Atlas check; F1.6 a diagnostic. Commands for (a)/(b) and `step8b alignment` are still to build.
 - **Recordings:** `--maps NDXP,QQQ,SPY` on 10-09, 10-12, 10-13 (≈ 1,185 credits each, ≤ 1,254 with 12 reconnects); $0 Databento NQ and ES trades for each recorded day, priced first.
 
+## R12. Does the crossing error scale with market speed? (owner 2026-10-08, read-only)
+The 22 development days of R1, event-moment crossings with the approved estimators (QQQ 60 s, SPY 60 s). **Trailing volatility** = the mean high-low range of the completed 1-minute futures bars in the 15 minutes before each crossing (only bars that ended at or before it: no lookahead). The day's NQ/ES volatility in the per-day table is the session's mean 1-minute range (descriptive only). Errors are |futures − strike × R|.
+
+### QQQ (NQ pts; 6400 crossings)
+
+Spearman |error| vs trailing 15-min volatility 0.293 (vs 5-min 0.289); day p95 vs day volatility 0.337.
+
+| Day | n | p50 | p95 | max | Day mean 1-min NQ range | Day bias (median) | Bias within 1 tick |
+|---|---:|---:|---:|---:|---:|---:|---|
+| 2025-10-15 | 172 | 1.05 | 4.57 | 11.2 | 17.74 | +0.145 | yes |
+| 2025-10-29 | 309 | 0.93 | 4.54 | 12.45 | 15.77 | -0.099 | yes |
+| 2025-11-12 | 166 | 0.61 | 3.52 | 8.08 | 15.94 | +0.162 | yes |
+| 2025-11-25 | 284 | 1.13 | 5.5 | 11.79 | 17.8 | +0.226 | yes |
+| 2025-12-10 | 213 | 0.83 | 4.63 | 9.44 | 16.04 | +0.069 | yes |
+| 2026-01-08 | 221 | 0.7 | 3.24 | 10.18 | 13.66 | +0.045 | yes |
+| 2026-01-22 | 190 | 1.17 | 3.82 | 15.68 | 12.94 | +0.298 | no |
+| 2026-02-05 | 434 | 1.67 | 7.12 | 13.65 | 28.77 | +0.055 | yes |
+| 2026-02-24 | 285 | 0.76 | 3.31 | 7.01 | 13.98 | -0.051 | yes |
+| 2026-03-06 | 361 | 1.33 | 5.59 | 22.47 | 23.92 | -0.045 | yes |
+| 2026-03-11 | 261 | 1.19 | 4.59 | 10.34 | 18.56 | +0.242 | yes |
+| 2026-03-17 | 183 | 0.69 | 2.68 | 4.16 | 11.91 | +0.054 | yes |
+| 2026-03-18 | 208 | 0.6 | 2.06 | 3.83 | 16.13 | +0.020 | yes |
+| 2026-03-19 | 408 | 0.7 | 2.65 | 8.69 | 21.63 | +0.091 | yes |
+| 2026-03-20 | 100 | 0.61 | 2.71 | 5.43 | 18.9 | +0.078 | yes |
+| 2026-03-23 | 348 | 0.81 | 3.47 | 7.21 | 21.77 | +0.033 | yes |
+| 2026-03-24 | 393 | 0.89 | 3.52 | 14.31 | 21.51 | -0.023 | yes |
+| 2026-03-25 | 257 | 0.74 | 3.18 | 8.15 | 18.36 | -0.121 | yes |
+| 2026-03-26 | 313 | 0.62 | 2.75 | 4.79 | 16.54 | +0.040 | yes |
+| 2026-03-27 | 394 | 0.59 | 2.29 | 5.22 | 17.13 | -0.046 | yes |
+| 2026-03-30 | 508 | 0.62 | 2.69 | 7.61 | 16.83 | +0.030 | yes |
+| 2026-03-31 | 392 | 0.85 | 5.42 | 54.59 | 22.46 | -0.117 | yes |
+
+| Trailing-volatility quartile | 15-min mean 1-min range (NQ) | Crossings | p50 | p95 | max | Within fixed 4.0 |
+|---|---|---:|---:|---:|---:|---:|
+| Q1 | 5.9–13.6 | 1598 | 0.56 | 2.52 | 22.56 | 98.9% |
+| Q2 | 13.62–19.12 | 1597 | 0.7 | 3.18 | 11.79 | 97.4% |
+| Q3 | 19.13–26.42 | 1604 | 0.95 | 3.89 | 13.6 | 95.4% |
+| Q4 | 26.43–64.32 | 1601 | 1.31 | 5.97 | 54.59 | 88.1% |
+
+| # | Date | Time ET | Strike | Error | Trailing vol | Day bias | Within 1 tick |
+|---:|---|---|---:|---:|---:|---:|---|
+| 1 | 2026-03-31 | 12:44:06 | 575 | -54.59 | 37.72 | -0.117 | yes |
+| 2 | 2026-03-31 | 12:43:47 | 575 | -50.22 | 34.12 | -0.117 | yes |
+| 3 | 2026-03-31 | 12:43:46 | 575 | -45.23 | 34.12 | -0.117 | yes |
+| 4 | 2026-03-31 | 12:43:56 | 575 | -44.07 | 34.12 | -0.117 | yes |
+| 5 | 2026-03-31 | 12:43:55 | 575 | -38.82 | 34.12 | -0.117 | yes |
+| 6 | 2026-03-31 | 12:44:01 | 575 | -37.57 | 37.72 | -0.117 | yes |
+| 7 | 2026-03-31 | 12:44:15 | 575 | -35.83 | 37.72 | -0.117 | yes |
+| 8 | 2026-03-31 | 12:44:14 | 575 | -35.76 | 37.72 | -0.117 | yes |
+| 9 | 2026-03-31 | 12:44:37 | 575 | -33.78 | 37.72 | -0.117 | yes |
+| 10 | 2026-03-31 | 12:44:04 | 575 | -32.57 | 37.72 | -0.117 | yes |
+
+Proposed (not applied): floor = max(2.75, 0.195 × trailing 15-min volatility) NQ pts; the minimum = the p95 error in the quietest quartile of months 1–4, k the smallest giving 95% coverage on months 1–4 (7 days, 1555 crossings: 95.1%); checked on months 5–6 (15 days, 4845 crossings): 96.5% vs 95.3% for the fixed 4.0, mean floor 4.31 vs 4.0.
+
+| Months 5–6 quartile | Crossings | Scaled floor (mean) | Coverage, scaled | Coverage, fixed 4.0 |
+|---|---:|---:|---:|---:|
+| Q1 | 971 | 2.75 | 97.2% | 99.4% |
+| Q2 | 1329 | 3.19 | 95.8% | 98.0% |
+| Q3 | 1360 | 4.43 | 96.5% | 95.6% |
+| Q4 | 1185 | 6.73 | 96.7% | 88.6% |
+
+### SPY (ES pts; 7374 crossings)
+
+Spearman |error| vs trailing 15-min volatility 0.198 (vs 5-min 0.208); day p95 vs day volatility 0.538.
+
+| Day | n | p50 | p95 | max | Day mean 1-min ES range | Day bias (median) | Bias within 1 tick |
+|---|---:|---:|---:|---:|---:|---:|---|
+| 2025-10-15 | 184 | 0.19 | 0.78 | 1.09 | 3.8 | +0.020 | yes |
+| 2025-10-29 | 263 | 0.25 | 1.23 | 1.97 | 3.47 | -0.003 | yes |
+| 2025-11-12 | 171 | 0.18 | 0.68 | 1.85 | 2.92 | -0.002 | yes |
+| 2025-11-25 | 161 | 0.2 | 0.81 | 1.48 | 3.44 | +0.100 | yes |
+| 2025-12-10 | 336 | 0.2 | 0.78 | 1.62 | 3.29 | +0.011 | yes |
+| 2026-01-08 | 218 | 0.13 | 0.5 | 0.9 | 2.54 | -0.000 | yes |
+| 2026-01-22 | 228 | 0.12 | 0.45 | 0.75 | 2.48 | -0.006 | yes |
+| 2026-02-05 | 556 | 0.24 | 0.94 | 2.18 | 5.62 | -0.005 | yes |
+| 2026-02-24 | 222 | 0.15 | 0.7 | 1.57 | 2.86 | +0.006 | yes |
+| 2026-03-06 | 402 | 0.21 | 0.95 | 2.19 | 5.45 | +0.007 | yes |
+| 2026-03-11 | 301 | 0.23 | 0.9 | 1.7 | 4.22 | -0.047 | yes |
+| 2026-03-17 | 283 | 0.15 | 0.45 | 1.06 | 2.89 | +0.000 | yes |
+| 2026-03-18 | 343 | 0.17 | 0.65 | 1.59 | 3.84 | -0.014 | yes |
+| 2026-03-19 | 620 | 0.2 | 0.74 | 1.89 | 4.97 | -0.012 | yes |
+| 2026-03-20 | 428 | 0.19 | 0.65 | 2.23 | 4.51 | -0.005 | yes |
+| 2026-03-23 | 522 | 0.18 | 0.73 | 4.89 | 5.19 | -0.007 | yes |
+| 2026-03-24 | 397 | 0.18 | 0.79 | 2.08 | 4.94 | -0.011 | yes |
+| 2026-03-25 | 480 | 0.16 | 0.73 | 1.55 | 4.24 | +0.035 | yes |
+| 2026-03-26 | 379 | 0.13 | 0.55 | 1.57 | 3.7 | +0.017 | yes |
+| 2026-03-27 | 215 | 0.15 | 0.45 | 0.93 | 4.02 | -0.032 | yes |
+| 2026-03-30 | 319 | 0.15 | 0.61 | 4.75 | 3.83 | -0.003 | yes |
+| 2026-03-31 | 346 | 0.21 | 2.14 | 16.06 | 5.15 | +0.000 | yes |
+
+| Trailing-volatility quartile | 15-min mean 1-min range (ES) | Crossings | p50 | p95 | max | Within fixed 0.78 |
+|---|---|---:|---:|---:|---:|---:|
+| Q1 | 1.33–3.15 | 1840 | 0.14 | 0.52 | 1.85 | 98.8% |
+| Q2 | 3.17–4.18 | 1846 | 0.18 | 0.78 | 4.75 | 95.1% |
+| Q3 | 4.2–5.53 | 1835 | 0.2 | 0.76 | 5.93 | 95.3% |
+| Q4 | 5.55–14.25 | 1853 | 0.23 | 1.0 | 16.06 | 91.4% |
+
+| # | Date | Time ET | Strike | Error | Trailing vol | Day bias | Within 1 tick |
+|---:|---|---|---:|---:|---:|---:|---|
+| 1 | 2026-03-31 | 12:41:30 | 646 | +16.06 | 5.98 | +0.000 | yes |
+| 2 | 2026-03-31 | 12:41:31 | 646 | +15.81 | 5.98 | +0.000 | yes |
+| 3 | 2026-03-31 | 12:41:24 | 646 | +13.06 | 5.98 | +0.000 | yes |
+| 4 | 2026-03-31 | 12:41:23 | 646 | +12.56 | 5.98 | +0.000 | yes |
+| 5 | 2026-03-31 | 12:41:20 | 646 | +11.31 | 5.98 | +0.000 | yes |
+| 6 | 2026-03-31 | 12:41:12 | 646 | +10.31 | 5.98 | +0.000 | yes |
+| 7 | 2026-03-31 | 12:47:05 | 646 | +7.58 | 11.95 | +0.000 | yes |
+| 8 | 2026-03-31 | 12:47:02 | 646 | +7.33 | 11.95 | +0.000 | yes |
+| 9 | 2026-03-31 | 12:40:10 | 645 | +5.93 | 4.82 | +0.000 | yes |
+| 10 | 2026-03-31 | 12:40:38 | 646 | -5.42 | 4.82 | +0.000 | yes |
+
+Proposed (not applied): floor = max(0.53, 0.2 × trailing 15-min volatility) ES pts; the minimum = the p95 error in the quietest quartile of months 1–4, k the smallest giving 95% coverage on months 1–4 (7 days, 1561 crossings: 95.0%); checked on months 5–6 (15 days, 5813 crossings): 96.6% vs 95.2% for the fixed 0.78, mean floor 0.94 vs 0.78.
+
+| Months 5–6 quartile | Crossings | Scaled floor (mean) | Coverage, scaled | Coverage, fixed 0.78 |
+|---|---:|---:|---:|---:|
+| Q1 | 1037 | 0.56 | 97.3% | 99.4% |
+| Q2 | 1502 | 0.74 | 94.7% | 95.5% |
+| Q3 | 1655 | 0.97 | 96.7% | 95.2% |
+| Q4 | 1619 | 1.34 | 98.0% | 92.4% |
+
+- **The worst crossings are one event:** 2026-03-31 12:40–12:47 ET. NQ rallied about 150 pts in two minutes and fell back while QQQ and SPY spot kept rising until 12:44:30, so R itself moved about 0.5% in two minutes (41.55 → 41.31). It is a fast-market ETF-vs-futures dislocation, not a data glitch; the day's bias stayed ≈ 0. No floor of this kind covers it (the scaled floor gives about 7 NQ there).
+- **Verdict:** the error grows with trailing volatility, but moderately (QQQ Spearman 0.29, p95 2.5 → 6.0 NQ from the quietest to the busiest quartile; SPY 0.20, 0.52 → 1.0 ES). The fixed floor over-covers quiet periods and under-covers busy ones (QQQ months 5–6: 99.4% vs 88.6%); a scaled floor keeps coverage about flat (96–97%). Proposed for step 13 (§13 Q13-vol), not applied.
+
 ## R11. The gate commands on the 22 development days (2026-10-08)
 `nqbot step8b bias|estimator|alignment --dates <the 22 days of R1>`; QQQ, SPY, SPX (NDXP pending); event-moment crossings with the approved ingest rule and estimators. Reports in `<reports_dir>/step8b/`.
 
@@ -45,7 +167,7 @@ The gate's first run on the five step-7 sample days (2026-03-06, 03-11, 03-18, 0
 | 03-26 | 97 | 69% | 99% | 2.45 | 104 | 94% | 97% | 0.51 |
 
   `atlas_match_tol` (1.0 NQ / 0.5 ES) sits below the measured crossing floor (findings R7), so no day can have every crossing within it; asked in §13 (Q8b-5).
-- **Q8b-5 answered (owner 2026-10-08):** the automated match is information only (a regression check); `atlas_match_tol` frozen at QQQ 4.0 NQ / SPY 0.78 ES, alert below 90% of crossings. Baseline (QQQ / SPY): 03-06 89.7% / 97.4% (QQQ just under: alert); 03-11 91.0% / 95.4%; 03-18 100% / 92.5%; 03-24 95.8% / 92.7%; 03-26 99.0% / 97.1%. The owner's replay check is the Atlas gate condition.
+- **Q8b-5 answered (owner 2026-10-08):** the automated match is information only (a regression check); `atlas_match_tol` frozen at QQQ 4.0 NQ / SPY 0.78 ES, alert below 90% of crossings. Judged on the share pooled over the five sample days (owner 2026-10-08): QQQ 94.4% of 500, SPY 95.0% of 535: no alert. Per day, information only (QQQ / SPY): 03-06 89.7% / 97.4%; 03-11 91.0% / 95.4%; 03-18 100% / 92.5%; 03-24 95.8% / 92.7%; 03-26 99.0% / 97.1%. The owner's replay check is the Atlas gate condition.
 - **`recorded-day`** checked on the 10-07 recording (cached trades, `--with-prev` = 10-06): content offsets QQQ −120, SPY +300, SPX −20, NDXP −60 ms; NDXP basis + carry p95 13.5 NQ (median +8.4); QQQ × k p95 7.4 / 10.2 / 8.5 / 4.0 for N = 1 / 3 / 5 / 10. 10-07 is not one of the three recordings, so it is left out of the choice (owner: N is not chosen from 10-07).
 - **NDXP choice (owner 2026-10-08):** `step8b ndxp-select` after the three recordings: candidates basis + carry and QQQ × k N ∈ {5, 10, 20}, leave one day out, pick on two, score on the held-out day, rotate; each candidate's held-out p95 and median; the best held-out p95 wins and is NDXP's stop floor.
 

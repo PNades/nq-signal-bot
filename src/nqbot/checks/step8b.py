@@ -446,25 +446,32 @@ def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
             lines.append("")
     crossings = [c for rows in out.values() for row in rows for n in row.get("nodes", []) for c in n["crossings"]]
     gated = [c for c in crossings if c["gate"]]
-    min_share = env.features["mapping"]["atlas_regression_min_share"]
-    share = {}
+    counts, share = {}, {}
     for m, rows in out.items():
         g = [c for row in rows for n in row.get("nodes", []) for c in n["crossings"] if c["gate"]]
-        share[m] = round(sum(c["within_tol"] for c in g) / len(g), 4) if g else None
+        counts[m] = [int(sum(c["within_tol"] for c in g)), len(g)]
+        share[m] = round(counts[m][0] / len(g), 4) if g else None  # information only (judged pooled, owner Q8b-5)
     report = {"date": d.isoformat(), "minutes": [t.strftime("%H:%M") for t in minutes], "maps": out,
               "crossings": len(crossings), "gated_crossings": len(gated), "tolerance": dict(tol),
-              "share_within_tol": share, "min_share": min_share,
-              # a map with no crossings in the windows is shown n/a, neither an alert nor a pass
-              "regression_ok": any(v is not None for v in share.values())
-              and all(v is None or v >= min_share for v in share.values()),
-              "owner_check": "pending"}
+              "within_tol_counts": counts, "share_within_tol": share, "owner_check": "pending"}
     md_path = reports_dir(env.paths) / f"atlas_{d.isoformat()}.md"
     atomic_write_text(md_path, "\n".join(lines) + "\n")
-    env.echo(f"  {len(crossings)} crossings; share within atlas_match_tol "
+    env.echo(f"  {len(crossings)} crossings; share within atlas_match_tol (information; the regression check pools "
+             "every sample day in `step8b report`) "
              + ", ".join(f"{m} {v:.1%}" if v is not None else f"{m} n/a" for m, v in share.items())
-             + f" ({'ok' if report['regression_ok'] else 'REGRESSION ALERT'}, min {min_share:.0%}); table: {md_path}")
+             + f"; table: {md_path}")
     write_report(env, "atlas", report)
     return report
+
+
+def atlas_pooled_share(reports: list[dict[str, Any]]) -> dict[str, tuple[int, int]]:
+    """Owner Q8b-5 (2026-10-08): crossings within atlas_match_tol and gated crossings per map, pooled over days."""
+    out: dict[str, tuple[int, int]] = {}
+    for rep in reports:
+        for m, (w, n) in rep["within_tol_counts"].items():
+            a, b = out.get(m, (0, 0))
+            out[m] = (a + w, b + n)
+    return out
 
 
 def tol_text(env: Env, root: str) -> str:
@@ -521,20 +528,28 @@ def check_report(env: Env) -> Path:
             lines.append(f"  - {day}: " + ", ".join(f"{m} {o['peak_lag_s']} s" + ("" if o["gate"] else f" (1-minute: "
                                                                                      f"{o.get('recommendation')})")
                                                     for m, o in per.items()))
-    tables = bool(atlas_days) and all("regression_ok" in atlas_by_date.get(d, {}) for d in atlas_days)
+    tables = bool(atlas_days) and all("within_tol_counts" in atlas_by_date.get(d, {}) for d in atlas_days)
+    min_share = env.features["mapping"]["atlas_regression_min_share"]
     lines += ["- **Atlas (gate condition): the owner's check in Atlas replay: pending** (owner 2026-10-08, Q8b-5: the "
-              "same strikes show as nodes of similar size)",
-              "- Atlas regression check (information only): share of crossings within the frozen atlas_match_tol "
-              f"(QQQ {tol_text(env, 'NQ')}, SPY {tol_text(env, 'ES')}); alert below "
-              f"{env.features['mapping']['atlas_regression_min_share']:.0%}"]
+              "same strikes show as nodes of similar size)"]
+    if tables:
+        pooled = atlas_pooled_share([atlas_by_date[d] for d in atlas_days])
+        alert = [m for m, (w, n) in pooled.items() if n and w / n < min_share]
+        lines.append("- Atlas regression check (information only; owner Q8b-5): share of crossings within the frozen "
+                     f"atlas_match_tol (QQQ {tol_text(env, 'NQ')}, SPY {tol_text(env, 'ES')}), pooled over every "
+                     f"sample day, alert below {min_share:.0%}: "
+                     + ", ".join(f"{m} {w / n:.1%} of {n}" if n else f"{m} n/a" for m, (w, n) in pooled.items())
+                     + (f": **REGRESSION ALERT** ({', '.join(alert)})" if alert else ": ok"))
+    else:
+        lines.append("- Atlas regression check (information only): pooled over every sample day once each has a table")
     for d in atlas_days:
         a = atlas_by_date.get(d)
-        if a is None or "regression_ok" not in a:
+        if a is None or "within_tol_counts" not in a:
             lines.append(f"  - {d}: **pending** (`nqbot step8b atlas --date {d} --minutes HH:MM,...`)")
             continue
         shares = ", ".join(f"{m} {v:.1%}" if v is not None else f"{m} n/a" for m, v in a["share_within_tol"].items())
-        lines.append(f"  - {d} ({', '.join(a['minutes'])}): {shares} of {a['gated_crossings']} gated crossings: "
-                     f"{'ok' if a['regression_ok'] else '**REGRESSION ALERT**'} (table: atlas_{d}.md)")
+        lines.append(f"  - {d} ({', '.join(a['minutes'])}): {shares} of {a['gated_crossings']} gated crossings "
+                     f"(this day, information only) (table: atlas_{d}.md)")
     conditions = {}
     for name, title, cmd in (("bias", "(a) bias: 95% day-block interval contains 0 or lies within one futures tick",
                               "bias"),
