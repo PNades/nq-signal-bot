@@ -298,3 +298,22 @@ def test_recorded_day_uses_the_qqq_board_in_force(env):
     # NDXP boards start at 09:32:00 (open skip); the first QQQ board applies at 09:30:00 + 200 s = 09:33:20
     assert m["basis+carry"]["n"] - m["QQQ x k (N=5)"]["n"] == pytest.approx(80, abs=2)
     assert m["QQQ x k (N=5)"]["abs_p95"] == pytest.approx(0, abs=1e-6)
+
+
+def test_recorded_day_leaves_out_boards_near_an_uncovered_gap(env):
+    """Owner 2026-10-10: a resume with gapCovered=False leaves out the boards from 2 s before it to 60 s after it
+    (QQQ's trailing window); a covered resume leaves nothing out."""
+    _recording(env)
+    at = int(datetime.combine(REC, time(10, 0), tzinfo=ET).timestamp()) * NS
+    events = [{"kind": "resumed", "arrival_ns": at, "data": {"gapCovered": False, "symbols": [
+                  {"symbol": "NDXP", "status": "advanced"}, {"symbol": "QQQ", "status": "unchanged"}]}},
+              {"kind": "resumed", "arrival_ns": at + 3600 * NS, "data": {"gapCovered": True, "symbols": []}}]
+    path = env.sky.stream_dir(REC) / "session_092700" / "part_000_events.jsonl"
+    path.write_text("".join(json.dumps(e) + "\n" for e in events), encoding="utf-8")
+    fake = FakeDatabento(datetime(2026, 3, 6, tzinfo=timezone.utc))
+    rep = step8b_recorded.check_recorded_day(env, REC, with_prev=True, client_factory=lambda: fake, fetch=_fetch)
+    gaps = rep["ndxp"]["uncovered_gaps"]
+    assert gaps["resumes"] == [{"at_et": "10:00:00", "advanced": ["NDXP"]}] and gaps["window_s"] == [-2, 60]
+    # by content time (fitted NDXP offset -500 ms here): boards with asOf 09:59:59 ... 10:01:00
+    assert gaps["boards_left_out"] == 62
+    assert rep["ndxp"]["methods"]["QQQ x k (N=5)"]["n"] == rep["ndxp"]["methods"]["basis+carry"]["n"]

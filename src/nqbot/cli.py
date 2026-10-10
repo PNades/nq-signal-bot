@@ -471,7 +471,7 @@ def _run_step8b(args: argparse.Namespace, settings, paths, log) -> int:
             case "dislocations":
                 from nqbot.checks import step8b_disloc
 
-                step8b_disloc.check_dislocations(env, args.dates)
+                step8b_disloc.check_dislocations(env, args.dates, isolate=True)
             case "atlas":
                 step8b.check_atlas(env, args.date, args.minutes)
             case "recorded-day":

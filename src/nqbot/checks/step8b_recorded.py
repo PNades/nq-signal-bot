@@ -18,7 +18,9 @@ with the best held-out p95 wins and that p95 becomes NDXP's `stop_buffer_floor`.
 
 from __future__ import annotations
 
-from datetime import date, timedelta, timezone
+import json
+
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -42,6 +44,7 @@ from nqbot.storage import atomic_write_bytes
 
 ET = s8.ET
 CONTINUOUS = {"NQ": "NQ.v.0", "ES": "ES.v.0"}  # §3.2: the session's front month
+UNCOVERED_GAP_PRE_S = 2  # owner 2026-10-10: from just before the resume (its lastAsOf -> currentAsOf step)
 QQQ_K_SESSIONS = (5, 10, 20)  # owner 2026-10-08: QQQ x k candidates (k averaged over N previous sessions)
 BASIS = "basis+carry"
 SELECT_MIN_DAYS = 3  # owner 2026-10-08: leave-one-day-out across the three recordings
@@ -147,6 +150,10 @@ def _series(t: pa.Table, name: str, open_ns: int, close_ns: int, with_arrival: b
     return a[k][o], sp[k][o], arr[k][o]  # 0 = no arrival recorded (never later than the apply time)
 
 
+def _et_ns(ns: int) -> str:
+    return datetime.fromtimestamp(ns / 1e9, timezone.utc).astimezone(s8.ET).strftime("%H:%M:%S")
+
+
 def _err_stats(e: np.ndarray) -> dict[str, Any]:
     e = e[np.isfinite(e)]
     if not len(e):
@@ -234,6 +241,28 @@ def _r(x: float | None) -> float | None:
     return None if x is None else round(float(x), 3)
 
 
+def uncovered_gaps(env: s8.Env, d: date) -> list[dict[str, Any]]:
+    """Every resume the stream reported with gapCovered=False (its events files), with the symbols it advanced."""
+    out = []
+    for f in sorted(Path(env.sky.stream_dir(d)).rglob("*_events.jsonl")):
+        for line in f.read_text(encoding="utf-8").splitlines():
+            e = json.loads(line)
+            data = e.get("data")
+            if e.get("kind") == "resumed" and isinstance(data, dict) and data.get("gapCovered") is False:
+                out.append({"arrival_ns": int(e["arrival_ns"]),
+                            "advanced": [x["symbol"] for x in data.get("symbols", [])
+                                         if isinstance(x, dict) and x.get("status") != "unchanged"]})
+    return out
+
+
+def gap_mask(t_ns: np.ndarray, gaps: list[dict[str, Any]], post_s: float) -> np.ndarray:
+    """True for boards to keep: outside [resume - UNCOVERED_GAP_PRE_S, resume + post_s] of every uncovered gap."""
+    keep = np.ones(len(t_ns), dtype=bool)
+    for g in gaps:
+        keep &= ~((t_ns >= g["arrival_ns"] - UNCOVERED_GAP_PRE_S * mp.NS) & (t_ns <= g["arrival_ns"] + int(post_s * mp.NS)))
+    return keep
+
+
 # --- the command ----------------------------------------------------------------------------------------
 
 def check_recorded_day(env: s8.Env, d: date, *, with_prev: bool = False,
@@ -277,6 +306,14 @@ def check_recorded_day(env: s8.Env, d: date, *, with_prev: bool = False,
     else:
         c_n = mp.content_time_ns(an, off)
         f_n = mp.last_price_at_or_before(nq[0], nq[1], c_n)
+        # owner 2026-10-10: boards near a resume with gapCovered=False are left out: from 2 s before it to the
+        # longest trailing R window after it (a missed board would sit in QQQ's 60-s median that long)
+        gaps = uncovered_gaps(env, d)
+        post_s = max(v for v in cfg["ratio_window_sec"].values() if v is not None)
+        keep = gap_mask(c_n, gaps, post_s)
+        f_n = np.where(keep, f_n, np.nan)
+        ndxp_out["uncovered_gaps"] = {"resumes": [{"at_et": _et_ns(g["arrival_ns"]), "advanced": g["advanced"]} for g in gaps],
+                                      "window_s": [-UNCOVERED_GAP_PRE_S, post_s], "boards_left_out": int((~keep).sum())}
         methods: dict[str, Any] = {}
         errors: dict[str, np.ndarray] = {}
         prev_trades = _trades(env, sym, prev)

@@ -27,7 +27,9 @@ def test_dislocation_count_on_a_hand_built_day(env):
     rep = step8b_disloc.check_dislocations(env, [DAY])
     assert rep["days"] == 1 and set(rep["chains"]) == {"QQQ", "SPY", "SPX"}
     for m in rep["chains"]:
-        assert set(rep["chains"][m]) == {str(t) for t in step8b_disloc.THRESHOLDS}
+        assert set(rep["chains"][m]) == {"board", "in_force"}  # both series (owner 2026-10-10)
+        assert set(rep["chains"][m]["in_force"]) == {str(t) for t in step8b_disloc.THRESHOLDS}
+    assert rep["per_day"][0]["futures_mean_1min_range"]["NQ"] > 0
     saved = step8b.reports_dir(env.paths) / "dislocations" / f"{DAY.isoformat()}.json"
     assert saved.exists()  # one file per day: a stopped run resumes
     assert (step8b.reports_dir(env.paths) / "dislocations.md").read_text(encoding="utf-8").startswith("# Mapping")
@@ -35,3 +37,37 @@ def test_dislocation_count_on_a_hand_built_day(env):
     assert again["chains"] == rep["chains"]
     missing = step8b_disloc.check_dislocations(env, [date(2026, 3, 4)])  # no boards stored: recorded as skipped
     assert missing["days"] == 0 and "2026-03-04" in missing["skipped"]
+
+
+def test_a_one_board_glitch_counts_on_the_board_r_not_on_the_bots_r():
+    """Owner 2026-10-10: the 60-s median the bot uses removes a one-board glitch, so it is no dislocation there."""
+    t = np.arange(600, dtype=np.int64) * NS
+    r = np.full(600, 41.0)
+    r[300] = 41.0 * 1.003  # one bad board, 0.3%
+    seg = mp.gap_segments(t, 10)
+    board = step8b_disloc.events(t, step8b_disloc.trailing_range(t, r, seg), 0.002)
+    r_in = mp.ratio_in_force(t, r, 60, 10, 3, 3)
+    in_force = step8b_disloc.events(t, step8b_disloc.trailing_range(t, r_in, seg), 0.002)
+    assert len(board) == 1 and in_force == []
+
+
+def test_isolated_run_stops_cleanly_on_low_memory(env, monkeypatch):
+    """Owner 2026-10-10: each day in its own process, and a clean stop before a day when memory is short."""
+    import pytest
+
+    _setup(env, noise=1e-6)
+    calls = []
+    monkeypatch.setattr(step8b_disloc, "free_mb", lambda: 1000)
+    monkeypatch.setattr(step8b_disloc, "_run_day_in_child", lambda d: calls.append(d))
+    with pytest.raises(step8b.CheckRefused, match="1000 MB free"):
+        step8b_disloc.check_dislocations(env, [DAY, date(2026, 3, 6)], isolate=True)
+    assert calls == []
+    monkeypatch.setattr(step8b_disloc, "free_mb", lambda: 8000)
+    monkeypatch.setattr(step8b_disloc, "_run_day_in_child",
+                        lambda d: (calls.append(d), step8b_disloc.day_dislocations(
+                            env, d, step8b.front_symbols(env), step8b_disloc.cal_mod.load())))
+    rep = step8b_disloc.check_dislocations(env, [DAY, date(2026, 3, 6)], isolate=True)
+    assert calls == [DAY, date(2026, 3, 6)] and rep["days"] == 1  # 03-06 has no boards here: skipped
+    calls.clear()
+    step8b_disloc.check_dislocations(env, [DAY, date(2026, 3, 6)], isolate=True)
+    assert calls == []  # both saved: nothing runs again
