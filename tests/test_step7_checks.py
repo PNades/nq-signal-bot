@@ -553,6 +553,9 @@ def test_stream_session_writes_parts_until_the_end(env, monkeypatch):
     boards = pq.read_table(sorted(folder.glob("part_*_boards.parquet")))
     assert boards.num_rows == rep["boards"] and set(boards["symbol"].to_pylist()) == {"NDXP"}
     assert boards["as_of"].to_pylist() == sorted(set(boards["as_of"].to_pylist()))  # each board once, in order
+    # owner 2026-10-10: the last line says how the session ended and the boards per map
+    assert rep["boards_per_map"] == {"NDXP": rep["boards"]}
+    assert env.lines[-1].startswith("session ended ") and f"NDXP {rep['boards']:,} boards" in env.lines[-1]
 
 
 def test_stream_session_refusals_and_estimate(env):

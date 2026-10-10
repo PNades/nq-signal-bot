@@ -640,6 +640,7 @@ def check_stream_session(env: Env, maps: list[str], approved: int | None = None,
     seen: set[tuple[str, str]] = set()  # a resume re-sends each symbol's latest board: keep its first arrival
     parts: list[dict[str, Any]] = []
     counts = {"boards": 0, "dropped": 0}
+    per_map: dict[str, int] = {m: 0 for m in maps}
     all_events: list[dict[str, Any]] = []  # small (no board payloads): for the summary
 
     def write_part(snaps: list, events: list) -> None:
@@ -657,18 +658,23 @@ def check_stream_session(env: Env, maps: list[str], approved: int | None = None,
             write_parquet(folder / f"part_{n:03d}_boards.parquet", boards, meta)
             write_parquet(folder / f"part_{n:03d}_strikes.parquet", strikes, meta)
             counts["boards"] += boards.num_rows
+            for m in boards["symbol"].to_pylist():
+                per_map[m] = per_map.get(m, 0) + 1
         atomic_write_text(folder / f"part_{n:03d}_events.jsonl", "".join(json.dumps(e, default=str) + "\n" for e in events))
         all_events.extend(events)
         parts.append({"part": n, "boards": len(unique), "events": len(events)})
 
     ended = asyncio.run(_record_session(stream, int(end.timestamp() * 1e9), write_part, stream.clock_ns))
     summary = an.event_report(all_events)
-    report = {"folder": str(folder), "maps": maps, "parts": parts, "boards": counts["boards"],
+    report = {"folder": str(folder), "maps": maps, "parts": parts, "boards": counts["boards"], "boards_per_map": per_map,
               "resent_boards_dropped": counts["dropped"], "ended": ended,
               "complete": ended == "close", "lagged": stream.lagged_count, "events_summary": summary}
     env.echo(f"  {counts['boards']} boards in {len(parts)} parts ({ended}); credits used {summary['credits_used']}"
              + ("" if report["complete"] else "; INCOMPLETE"))
     write_report(env, "stream_session", report)
+    # owner 2026-10-10: the last line of the task log says how the session ended and what each map recorded
+    env.echo(f"session ended {env.now():%Y-%m-%d %H:%M:%S} ET ({ended}, {'complete' if report['complete'] else 'INCOMPLETE'}): "
+             + ", ".join(f"{m} {n:,}" for m, n in per_map.items()) + f" boards (total {counts['boards']:,})")
     return report
 
 

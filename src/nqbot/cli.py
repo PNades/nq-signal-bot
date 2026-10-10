@@ -18,6 +18,7 @@ from nqbot.storage import SSDNotFound, resolve_paths
 
 EXIT_REFUSED = 2
 EXIT_LOCKED = 3
+EXIT_INCOMPLETE = 4  # stream-session ended before the close (owner 2026-10-10: the task's exit code is the recorder's)
 
 
 def _until(text: str) -> str:
@@ -45,6 +46,9 @@ def main(argv: list[str] | None = None) -> int:
     backup.add_argument("--until", default=DEFAULT_UNTIL, type=_until,
                         help="stop before this ET time (HH:MM, default 07:30); the next run resumes")
     sub.add_parser("status", help="SSD use and job progress")
+    sub.add_parser("test", help="run the full test suite; the whole output goes to <root>/logs/pytest_<date-time>.txt, "
+                                "ending with 'PYTEST EXIT CODE: N' (owner 2026-10-10: run before every commit); any "
+                                "further arguments go to pytest (the commit check uses none)")
     stop = sub.add_parser("stop", help="ask a running job to stop after the call it is in (its answer saved), "
                                        "unlike Ctrl-C (SPEC section 11)")
     stop.add_argument("job", choices=sorted(JOBS))
@@ -66,7 +70,9 @@ def main(argv: list[str] | None = None) -> int:
     _add_skylit(sub)
     _add_databento(sub)
     _add_gameplan(sub)
-    args = parser.parse_args(argv)
+    args, extra = parser.parse_known_args(argv)
+    if extra and args.command != "test":  # only `nqbot test` passes unknown arguments on (to pytest)
+        parser.error(f"unrecognized arguments: {' '.join(extra)}")
 
     try:
         settings = load_settings()
@@ -92,6 +98,10 @@ def main(argv: list[str] | None = None) -> int:
         return _stop(args, paths)
 
     log = setup_logging(paths.log_dir)
+    if args.command == "test":
+        from nqbot.testrun import run_tests
+
+        return run_tests(paths.log_dir, extra)[0]
     if args.command == "step7":
         return _run_step7(args, settings, paths, log)
     if args.command == "step8b":
@@ -387,7 +397,8 @@ def _step7_check(args: argparse.Namespace, settings, paths, log, env, approve) -
         case "stream-record":
             step7.check_stream_record(env, approved=approve, force=args.force)
         case "stream-session":
-            step7.check_stream_session(env, args.maps, approved=approve)
+            if not step7.check_stream_session(env, args.maps, approved=approve)["complete"]:
+                return EXIT_INCOMPLETE
         case "parity":
             step7.check_parity(env, args.session, args.tag, approve)
         case "darkpool":
