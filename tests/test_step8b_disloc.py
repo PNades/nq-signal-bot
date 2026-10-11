@@ -36,7 +36,7 @@ def test_dislocation_count_on_a_hand_built_day(env):
     again = step8b_disloc.check_dislocations(env, [DAY])
     assert again["chains"] == rep["chains"]
     missing = step8b_disloc.check_dislocations(env, [date(2026, 3, 4)])  # no boards stored: recorded as skipped
-    assert missing["days"] == 0 and "2026-03-04" in missing["skipped"]
+    assert missing["days"] == 1 and "2026-03-04" in missing["skipped"]  # the summary keeps every saved day
 
 
 def test_a_one_board_glitch_counts_on_the_board_r_not_on_the_bots_r():
@@ -71,3 +71,23 @@ def test_isolated_run_stops_cleanly_on_low_memory(env, monkeypatch):
     calls.clear()
     step8b_disloc.check_dislocations(env, [DAY, date(2026, 3, 6)], isolate=True)
     assert calls == []  # both saved: nothing runs again
+
+
+def test_every_run_summarizes_all_saved_days(env):
+    """Owner 2026-10-11: a one-day run (as each day's own process does) writes the summary of every saved day file;
+    an old day file without the bot's-R series is listed as not counted yet, never summarized."""
+    import json
+
+    _setup(env, noise=1e-6)
+    step8b_disloc.check_dislocations(env, [DAY])
+    folder = step8b.reports_dir(env.paths) / "dislocations"
+    x = json.loads((folder / f"{DAY.isoformat()}.json").read_text(encoding="utf-8"))
+    other, old = date(2026, 3, 4), date(2026, 3, 3)
+    (folder / f"{other.isoformat()}.json").write_text(json.dumps({**x, "date": other.isoformat()}), encoding="utf-8")
+    v1 = {"date": old.isoformat(), "era": x["era"], "chains": {m: {"events": {}} for m in x["chains"]}}
+    (folder / f"{old.isoformat()}.json").write_text(json.dumps(v1), encoding="utf-8")
+    rep = step8b_disloc.check_dislocations(env, [DAY])
+    assert rep["days"] == 2 and [p["date"] for p in rep["per_day"]] == [other.isoformat(), DAY.isoformat()]
+    assert old.isoformat() in rep["pending"]
+    md = (step8b.reports_dir(env.paths) / "dislocations.md").read_text(encoding="utf-8")
+    assert "2 days" in md and old.isoformat() in md

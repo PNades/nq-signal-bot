@@ -121,10 +121,10 @@
 
 ### F2.4 Relevant nodes, hysteresis and identity
 - *Source:* §5.2 Relevant nodes and Node identity; owner notes (25%).
-- *Definition:* node identity = (map, strike). A node **becomes relevant** at the first applied board where `pct_of_king` ≥ `min_node_pct_of_king` (0.25, owner) and **stops being relevant** at the first applied board where `pct_of_king` < `node_drop_pct`. In between it keeps its state. Only relevant QQQ/NDXP nodes are NQ registry levels; relevant SPY/SPX nodes are ES cross-market levels.
+- *Definition:* node identity = (map, strike). A node **becomes relevant** at the first applied board where `pct_of_king` ≥ `min_node_pct_of_king` (0.25, owner) and **stops being relevant** at the first applied board where `pct_of_king` < `node_drop_pct`. In between it keeps its state. `pct_of_king` is always against the King of that same board (F2.3, over the strikes the board carries); a strike missing from a board keeps its state (F2.1). The state starts fresh (not relevant) at each session's first applied board (owner 2026-10-11: history is RTH-only and the 0DTE chain is a new expiration every day). One function, `features/nodes.py` `relevance`, for the step-8b checks and step 11 (owner 2026-10-11). Only relevant QQQ/NDXP nodes are NQ registry levels; relevant SPY/SPX nodes are ES cross-market levels.
 - *Params:* `min_node_pct_of_king` (*owner*), `node_drop_pct`.
 - *Outputs:* `relevant` flag, `minutes_since_relevant`.
-- *Test:* pct 0.24 → 0.26 (becomes relevant) → 0.22 (stays) → 0.19 (drops).
+- *Test:* pct 0.24 → 0.26 (becomes relevant) → 0.22 (stays) → 0.19 (drops); a fresh strike at 0.22 is not relevant; a non-applied board neither counts nor changes the state (`tests/test_nodes.py`).
 
 ### F2.5 Node types (King, Gatekeeper, significant, normal; pika/barney colour)
 - *Source:* §5.2 Node types; `pattern-gatekeeper.md`; colours from the regime docs; **owner answer 2026-10-05** (FQ-02/FQ-03: "gatekeepers and significant nodes are at least 25% the magnitude of the King").

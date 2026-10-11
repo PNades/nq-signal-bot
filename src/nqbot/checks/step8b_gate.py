@@ -3,7 +3,8 @@
 Scored on strike crossings at event moments (findings R1): spot crosses a strike k between two consecutive applied
 boards; the crossing time t* is interpolated between their content times. The board in force at t* is the last one
 applied by then under the approved ingest rule (applied at floor(asOf) + 1 s + map_latency_sec, F0.1), so it is
-always known before the crossing (not circular); k counts if it is a relevant node (>= 25% of King) on that board,
+always known before the crossing (not circular); k counts if it is a relevant node on that board (F2.4: >= 25% of
+King to become relevant, kept until < 20%, `features/nodes.py`),
 and the error is F(t*) - k * R with that board's R in force (F1.7).
 
 - `bias` (a): each chain's median signed error, with a 95% day-block bootstrap interval; pass = the interval
@@ -42,7 +43,8 @@ ALIGN_SEARCH_MS = 3000  # alignment: offsets searched from -3 s to +3 s around f
 ALIGN_STEP_MS = 20
 ALIGN_MAX_MS = 1000  # F0.1: content never after floor(asOf) + 1 s (τ)
 ALIGN_MIN_PAIRS = 10  # fewer board-to-board changes than this: no fit
-CACHE_VERSION = 2  # bump when the crossing maths change (2: the board in force at t* by apply time, 2026-10-09)
+CACHE_VERSION = 3  # bump when the crossing maths change (2: the board in force at t* by apply time, 2026-10-09;
+# 3: F2.4 relevance with the 20% hold, owner 2026-10-11)
 
 
 # --- crossings ------------------------------------------------------------------------------------------
@@ -51,9 +53,43 @@ def _cfg_key(env: s8.Env) -> str:
     m = env.features["mapping"]
     key = {k: m[k] for k in ("board_content_offset_ms", "ratio_window_sec", "ratio_gap_reset_sec", "ratio_outlier_bps",
                              "ratio_reaccept_n", "ratio_open_skip_sec")}
-    key.update(min_pct=env.features["min_node_pct_of_king"], stamp=str(m["skylit_stamp_change_date"]),
+    key.update(min_pct=env.features["min_node_pct_of_king"], drop_pct=env.features["node_drop_pct"], stamp=str(m["skylit_stamp_change_date"]),
                latency=env.settings.get("map_latency_sec"), half=BEST_R_HALF_S, v=CACHE_VERSION)
     return hashlib.sha256(json.dumps(key, sort_keys=True, default=str).encode()).hexdigest()[:12]
+
+
+def event_crossings(tc: np.ndarray, sp: np.ndarray, seg: np.ndarray, t_apply: np.ndarray, rel_board: np.ndarray,
+                    rel_strike: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Spot crosses strike k between two consecutive boards (content times tc, same gap segment); t* is interpolated
+    between their content times; k counts if it is a relevant node (F2.4) on the board in force at t* (the last one
+    applied by then). rel_board / rel_strike: the relevant (board, strike) rows. Returns (t*, k, board in force)."""
+    o = np.lexsort((rel_strike, rel_board))
+    rb, rk = np.asarray(rel_board)[o], np.asarray(rel_strike)[o]
+    n = len(tc)
+    lo_s, hi_s = np.searchsorted(rb, np.arange(n)), np.searchsorted(rb, np.arange(n), side="right")
+
+    def in_force(t: float) -> int:  # the last board applied by t (-1: none yet)
+        return int(mp.in_force_index(t_apply, int(t)))
+
+    ct, ck, cb = [], [], []
+    for p in range(n - 1):
+        if seg[p] != seg[p + 1]:
+            continue
+        a, b = sp[p], sp[p + 1]
+        if a == b:
+            continue
+        q0, q1 = in_force(tc[p]), in_force(tc[p + 1])  # the map can change between the two content times
+        cand = np.unique(np.concatenate([rk[lo_s[q]:hi_s[q]] for q in {q0, q1} if q >= 0] or [np.zeros(0)]))
+        cand = cand[(cand > a) & (cand <= b)] if b > a else cand[(cand >= b) & (cand < a)]
+        for k in cand:
+            t_k = tc[p] + (k - a) / (b - a) * (tc[p + 1] - tc[p])
+            q = in_force(t_k)
+            if q < 0 or seg[q] != seg[p] or k not in rk[lo_s[q]:hi_s[q]]:
+                continue  # no map yet, a map from before a reset, or not a relevant node on the map in force
+            ct.append(t_k)
+            ck.append(k)
+            cb.append(q)
+    return np.asarray(ct, dtype=np.int64), np.asarray(ck, dtype=np.float64), np.asarray(cb, dtype=np.int64)
 
 
 def chain_crossings(env: s8.Env, d: date, md: s8.MapDay, fut: s8.Futures) -> dict[str, np.ndarray]:
@@ -77,36 +113,10 @@ def chain_crossings(env: s8.Env, d: date, md: s8.MapDay, fut: s8.Futures) -> dic
     t_apply = mp.apply_times_ns(md.as_of[A], np.array(md.resolution, dtype=object)[A], env.settings.get("map_latency_sec"))
     pos = np.full(len(md.as_of), -1)
     pos[A] = np.arange(len(A))
-    rel = (md.s_pct >= env.features["min_node_pct_of_king"]) & (pos[md.s_board] >= 0)
-    rb, rk = pos[md.s_board[rel]], md.s_strike[rel]
-    o = np.lexsort((rk, rb))
-    rb, rk = rb[o], rk[o]
-    lo_s, hi_s = np.searchsorted(rb, np.arange(len(A))), np.searchsorted(rb, np.arange(len(A)), side="right")
-    def in_force(t: float) -> int:  # the last board applied by t (-1: none yet)
-        return int(mp.in_force_index(t_apply, int(t)))
-
-    ct, ck, cb = [], [], []
-    for p in range(len(A) - 1):
-        if seg[p] != seg[p + 1]:
-            continue
-        a, b = sp[p], sp[p + 1]
-        if a == b:
-            continue
-        q0, q1 = in_force(tc[p]), in_force(tc[p + 1])  # the map can change between the two content times
-        cand = np.unique(np.concatenate([rk[lo_s[q]:hi_s[q]] for q in {q0, q1} if q >= 0] or [np.zeros(0)]))
-        cand = cand[(cand > a) & (cand <= b)] if b > a else cand[(cand >= b) & (cand < a)]
-        for k in cand:
-            t_k = tc[p] + (k - a) / (b - a) * (tc[p + 1] - tc[p])
-            q = in_force(t_k)
-            if q < 0 or seg[q] != seg[p] or k not in rk[lo_s[q]:hi_s[q]]:
-                continue  # no map yet, a map from before a reset, or not a relevant node on the map in force
-            ct.append(t_k)
-            ck.append(k)
-            cb.append(q)
-    if not ct:
+    rel = s8.node_relevance(env, md)[0] & (pos[md.s_board] >= 0)
+    ct_, ck_, cb_ = event_crossings(tc, sp, seg, t_apply, pos[md.s_board[rel]], md.s_strike[rel])
+    if not len(ct_):
         return {"chosen": np.zeros(0), "best": np.zeros(0), "t": np.zeros(0, dtype=np.int64), "k": np.zeros(0)}
-    ct_ = np.asarray(ct, dtype=np.int64)
-    ck_, cb_ = np.asarray(ck), np.asarray(cb)
     f_gt = mp.last_price_at_or_before(fut.ts, fut.px, ct_)
     lo = np.searchsorted(tc, ct_ - BEST_R_HALF_S * mp.NS)
     hi = np.searchsorted(tc, ct_ + BEST_R_HALF_S * mp.NS, side="right")

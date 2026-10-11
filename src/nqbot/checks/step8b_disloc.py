@@ -194,17 +194,26 @@ def check_dislocations(env: s8.Env, dates: list[date] | None = None, isolate: bo
                 raise s8.CheckRefused(f"stopped before {d}: {mb} MB free (< {min_free_mb}); every finished day is saved, "
                                       "run the same command again to resume")
             _run_day_in_child(d)
-    per_day = []
     for d in days:
         x = day_dislocations(env, d, front, cal)
-        per_day.append(x)
         if "skip" in x:
             env.echo(f"  {d}: skipped ({x['skip']})")
         else:
             env.echo(f"  {d}: " + ", ".join(f"{m} {[len(c['board']['events'][str(t)]) for t in THRESHOLDS]} -> "
                                             f"{[len(c['in_force']['events'][str(t)]) for t in THRESHOLDS]}"
                                             for m, c in x["chains"].items()))
-    report = summarize(per_day)
+    # the summary always covers every saved day file of months 1-6, whatever dates this run was given (owner
+    # 2026-10-11: each day's own process used to overwrite it with that one day)
+    saved, pending = [], []
+    for d in development_days(env, cal):
+        if _day_done(env, d):
+            saved.append(json.loads((_dir(env) / f"{d.isoformat()}.json").read_text(encoding="utf-8")))
+        else:
+            pending.append(d.isoformat())
+    report = summarize(saved)
+    report["pending"] = pending
+    if pending:
+        env.echo(f"  {len(pending)} development days not counted yet (first {pending[0]}): the summary leaves them out")
     s8.write_report(env, "dislocations", report)
     atomic_write_text(s8.reports_dir(env.paths) / "dislocations.md", to_markdown(report))
     env.echo(f"summary: {s8.reports_dir(env.paths) / 'dislocations.md'}")
@@ -242,7 +251,9 @@ def _series_summary(used: list[dict[str, Any]], m: str, name: str) -> dict[str, 
 def to_markdown(rep: dict[str, Any]) -> str:
     label = {"board": "per-board R", "in_force": "R the bot uses"}
     lines = ["# Mapping dislocations, development months 1-6 (owner 2026-10-09/10)", "",
-             f"{rep['days']} days ({len(rep['skipped'])} skipped: {', '.join(rep['skipped']) or 'none'}). R moving more "
+             f"{rep['days']} days ({len(rep['skipped'])} skipped: {', '.join(rep['skipped']) or 'none'}; "
+             f"{len(rep.get('pending', []))} not counted yet{': ' + ', '.join(rep['pending']) if rep.get('pending') else ''}"
+             "). R moving more "
              f"than the threshold within {WINDOW_S // 60} minutes (trailing range); events merge flagged boards less than "
              f"{WINDOW_S} s apart (a single jump flags about 2 minutes). Two series: the per-board R (each board's own "
              "ratio at its content time) and the R the bot uses (F1.7: QQQ/SPY trailing 60-s median, SPX per board with "

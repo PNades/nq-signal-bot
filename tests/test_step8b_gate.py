@@ -166,6 +166,18 @@ def _recording(env, qqq_arrival_delay_s=None):
     folder = env.sky.stream_dir(REC) / "session_092700"
     write_parquet(folder / "part_000_boards.parquet", t, {})
     write_parquet(folder / "part_001_boards.parquet", t.slice(0, 100), {})  # a resume re-sends boards: deduped
+    # NDXP strikes every 10 points around spot: the middle one the King, the outer two below 25% of King
+    s_as, s_k, s_v = [], [], []
+    for a, sp in zip(as_of, spots["NDXP"]):
+        mid = round(sp / 10) * 10
+        for j, v in zip((-2, -1, 0, 1, 2), (1e5, 6e5, -1e6, 4e5, 2e5)):
+            s_as.append(int(a // 1_000_000))
+            s_k.append(mid + j * 10.0)
+            s_v.append(v)
+    st = pa.table({"as_of": pa.array(s_as, pa.timestamp("ms", "UTC")), "symbol": ["NDXP"] * len(s_as),
+                   "strike": pa.array(s_k, pa.float32()), "value": pa.array(s_v, pa.float32())})
+    write_parquet(folder / "part_000_strikes.parquet", st, {})
+    write_parquet(folder / "part_001_strikes.parquet", st.slice(0, 500), {})  # re-sent with its boards: deduped
 
 
 def _fetch(url: str) -> bytes:
@@ -194,6 +206,13 @@ def test_recorded_day_scores_both_ndxp_methods(env):
     assert methods["basis+carry"]["n"] > 3000 and np.isfinite(methods["basis+carry"]["abs_p95"])
     saved = step8b_recorded._load_errors(step8b.reports_dir(env.paths) / "recorded_days" / f"{REC}.npz")
     assert set(saved) == set(step8b_recorded.candidates()) and len(saved["basis+carry"]) == methods["basis+carry"]["n"]
+    # report only (owner 2026-10-11): the same methods at relevant-node crossings, on the NDXP board in force
+    nx = rep["ndxp"]["crossings"]["n"]
+    assert nx > 20 and rep["ndxp"]["crossings"]["report_only"]
+    for c in step8b_recorded.candidates():
+        assert methods[c]["crossings"]["n"] == nx and np.isfinite(methods[c]["crossings"]["abs_p95"])
+    xs = step8b_recorded._load_errors(step8b.reports_dir(env.paths) / "recorded_days" / f"{REC}.npz", crossings=True)
+    assert set(xs) == set(step8b_recorded.candidates()) and len(xs["basis+carry"]) == nx
     # a second run pulls nothing again (cached) and fetches the closes once a day
     fake2 = FakeDatabento(datetime(2026, 3, 6, tzinfo=timezone.utc))
     step8b_recorded.check_recorded_day(env, REC, with_prev=True, client_factory=lambda: fake2,
@@ -249,7 +268,19 @@ def test_ndxp_select_leave_one_day_out(env):
     assert rep["rotations"][2]["held_out_p95"] > 15
     assert picks["2026-10-09"] == picks["2026-10-12"] == "QQQ x k (N=10)"
     assert rep["winner"] == "QQQ x k (N=10)"
-    assert rep["stop_floor_nq"] == rep["candidates"]["QQQ x k (N=10)"]["held_out_p95"] == pytest.approx(2.85, abs=0.1)
+    assert rep["every_board_held_out_p95"] == rep["candidates"]["QQQ x k (N=10)"]["held_out_p95"] == pytest.approx(
+        2.85, abs=0.1)
+    # no crossing errors saved: no proposal until recorded-day is re-run for those days
+    assert rep["proposed_stop_floor_nq"] is None and len(rep["days_without_crossings"]) == 3
+    # owner 2026-10-11: the proposal is the larger of the every-board held-out p95 and the crossing p95
+    for day, scale in errs.items():
+        d = date.fromisoformat(day)
+        step8b_recorded._save_errors(env, d, {c: rng.uniform(-s, s, 1000) for c, s in scale.items()},
+                                     {c: rng.uniform(-2 * s, 2 * s, 200) for c, s in scale.items()})
+    rep = step8b_recorded.check_ndxp_select(env)
+    w = rep["candidates"][rep["winner"]]
+    assert rep["crossing_p95"] == w["crossing_p95"] > rep["every_board_held_out_p95"]
+    assert rep["proposed_stop_floor_nq"] == w["crossing_p95"] and w["crossings_n"] == 600
     step8b_recorded._save_errors(env, date(2026, 10, 14), {"QQQ x k (N=5)": np.zeros(3)})
     with pytest.raises(step8b.CheckRefused, match="not scored on every day"):
         step8b_recorded.check_ndxp_select(env)

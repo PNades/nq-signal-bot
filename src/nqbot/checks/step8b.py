@@ -3,7 +3,8 @@
 Uses the step-7 Skylit sample days (development month 6) and their step-8 NQ/ES trades (the Databento plan pulls
 those days first, so this can run after the first night):
 
-- `precision`: at every applied, accepted board, |k * R_prev - k * R_cur| for each relevant node (>= 25% of King),
+- `precision`: at every applied, accepted board, |k * R_prev - k * R_cur| for each relevant node (F2.4: >= 25% of
+  King to become relevant, kept until < 20%),
   per chain as median / p95 / p99 / max, by time of day and by trailing 15-minute realized-vol tercile, next to
   mapping_p95_max. A diagnostic since the owner's Q8b-4 answer (2026-10-08), not a gate condition. Also the F1.2
   rejection rate (frequent rejections: find the cause, never raise the threshold) and the stop floors per level
@@ -41,6 +42,7 @@ from nqbot.clients.databento_store import DatabentoStore, read_records
 from nqbot.clients.skylit_pull import MAPS, sample_days
 from nqbot.clients.skylit_store import SkylitStore
 from nqbot.features import mapping as mp
+from nqbot.features import nodes
 from nqbot.features.bars import PRICE_SCALE
 from nqbot.storage import Paths, atomic_write_json, atomic_write_text
 
@@ -210,6 +212,13 @@ def map_day(env: Env, d: date, name: str, boards: pa.Table, strikes: pa.Table, f
     return MapDay(name, as_of, tau, spot, res, r, applied, accepted, rejected, shifted, s_board, s_strike, s_value, pct)
 
 
+def node_relevance(env: Env, md: MapDay) -> tuple[np.ndarray, np.ndarray]:
+    """F2.4 (owner 2026-10-11, §5.2): (relevant, held by the 20% hold) per strike row, over the session's applied
+    boards."""
+    return nodes.relevance(md.s_board, md.s_strike, md.s_pct, md.applied, env.features["min_node_pct_of_king"],
+                           env.features["node_drop_pct"])
+
+
 def _day_inputs(env: Env, d: date, front: dict[str, dict[str, str]]) -> tuple[dict[str, MapDay], dict[str, Futures]]:
     boards, strikes = env.sky.read_range(d, skylit_base(env, d))
     if boards.num_rows == 0:
@@ -244,7 +253,6 @@ def _tod_label(tau_ns: np.ndarray, d: date) -> np.ndarray:
 def check_precision(env: Env, dates: list[date] | None = None) -> dict[str, Any]:
     days = days_to_check(env, dates)
     front = front_symbols(env)
-    min_pct = env.features["min_node_pct_of_king"]
     acc: dict[str, dict[str, list[Any]]] = {m: {"err": [], "tod": [], "rv": []} for m in MAPS}
     counts: dict[str, dict[str, Any]] = {m: {"boards": 0, "applied": 0, "rejected": 0, "shift_days": [],
                                              "resolutions": {}} for m in MAPS}
@@ -252,7 +260,7 @@ def check_precision(env: Env, dates: list[date] | None = None) -> dict[str, Any]
         maps, futs = _day_inputs(env, d, front)
         start, end = _session_ns(env, d)
         for m, md in maps.items():
-            relevant = md.s_pct >= min_pct
+            relevant = node_relevance(env, md)[0]
             err, rows = mp.step_errors(md.r, md.accepted, md.applied, md.s_board, md.s_strike, relevant)
             fut = futs[CHAIN_ROOT[m]]
             rv = mp.trailing_rv(fut.ts, fut.px, md.tau[rows], start, end)
@@ -363,15 +371,18 @@ def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
     days_to_check(env, [d])
     front = front_symbols(env)
     maps, futs = _day_inputs(env, d, front)
-    min_pct = env.features["min_node_pct_of_king"]
+    min_pct, drop_pct = env.features["min_node_pct_of_king"], env.features["node_drop_pct"]
     tol = env.features["mapping"]["atlas_match_tol"]
     bands = env.features["node_band"]
     out: dict[str, Any] = {}
     lines = [f"# Atlas side-by-side, {d} (§5.1)", "",
-             "For each minute: the board in force, the strikes the bot treats as relevant nodes (>= "
-             f"{min_pct:.0%} of King), their mapped futures level and band, and the moments spot crossed each strike "
-             f"in the next {ATLAS_CROSS_WINDOW_MIN} minutes with the futures price then. Check in Atlas replay that "
-             "the same strikes show as nodes of similar size.", ""]
+             "For each minute: the board in force, the strikes the bot treats as relevant nodes (F2.4, §5.2: a "
+             f"node becomes relevant at >= {min_pct:.0%} of its board's King and stays relevant until it drops below "
+             f"{drop_pct:.0%}, fresh each session), their mapped futures level and band, and the moments spot crossed "
+             f"each strike in the next {ATLAS_CROSS_WINDOW_MIN} minutes with the futures price then (a crossing counts "
+             "only while the node is still relevant on the board in force then). Check in Atlas replay that the same "
+             f"strikes show as nodes of similar size. **held** = listed only because of the {drop_pct:.0%} hold (now "
+             f"under {min_pct:.0%} of King).", ""]
     latency = env.settings.get("map_latency_sec")
     lines += [f"Approved ingest rule and R estimators (owner 2026-10-08, §5.1, F1.7): a board's futures price is read at "
               "its content time, the board applies at floor(asOf) + 1 s + map_latency_sec "
@@ -382,6 +393,15 @@ def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
         md, fut, root = maps[m], futs[CHAIN_ROOT[m]], CHAIN_ROOT[m]
         tc, t_apply, r_in = map_ratio_in_force(env, d, md, fut)
         A = np.flatnonzero(md.applied)
+        rel_rows, held_rows = node_relevance(env, md)
+        ro = np.flatnonzero(rel_rows)
+        ro = ro[np.lexsort((md.s_strike[ro], md.s_board[ro]))]
+        rb_sorted = md.s_board[ro]
+
+        def relevant_on(board: int, k: float) -> bool:  # k is a relevant node on that board (F2.4)
+            lo, hi = np.searchsorted(rb_sorted, board), np.searchsorted(rb_sorted, board, side="right")
+            return bool(np.any(md.s_strike[ro[lo:hi]] == k))
+
         rows_m = []
         for minute in minutes:
             at = int(datetime.combine(d, minute, tzinfo=ET).timestamp()) * mp.NS
@@ -390,11 +410,11 @@ def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
                 rows_m.append({"minute": minute.strftime("%H:%M"), "board": None})
                 continue
             i = int(A[pa_])
-            rel = (md.s_board == i) & (md.s_pct >= min_pct)
+            rel = (md.s_board == i) & rel_rows
             r_i = r_in[i]
             window_end = at + ATLAS_CROSS_WINDOW_MIN * 60 * mp.NS
             nodes = []
-            for k, pct in sorted(zip(md.s_strike[rel], md.s_pct[rel])):
+            for k, pct, held in sorted(zip(md.s_strike[rel], md.s_pct[rel], held_rows[rel])):
                 level = k * r_i
                 crossings = []
                 q0 = int(np.searchsorted(tc[A], at, side="right"))
@@ -411,8 +431,8 @@ def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
                     t_k = int(tc[j0] + (a / (a - b)) * (tc[j] - tc[j0])) if a != b else int(tc[j])
                     # the bot's level then: the R in force from the last board applied before t_k
                     pk = int(np.searchsorted(t_apply[A], t_k, side="right")) - 1
-                    if pk < 0:
-                        continue
+                    if pk < 0 or not relevant_on(int(A[pk]), k):
+                        continue  # no map yet, or no longer a relevant node on the map in force (as in the gate)
                     mapped = k * r_in[A[pk]]
                     f_then = float(mp.last_price_at_or_before(fut.ts, fut.px, np.array([t_k]))[0])
                     if not (np.isfinite(mapped) and np.isfinite(f_then)):
@@ -421,7 +441,10 @@ def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
                     crossings.append({"at": _et(t_k), "futures": round(f_then, 2), "mapped": round(mapped, 2),
                                       "diff": round(abs(f_then - mapped), 2), "gate": gated,
                                       "within_tol": bool(abs(f_then - mapped) <= tol[root])})
-                nodes.append({"strike": float(k), "pct_of_king": round(float(pct), 3), "level": round(level, 2),
+                # a held node is under 25% of King by definition: its % is rounded down, so 24.999% never reads as 25%
+                pct_r = float(np.floor(pct * 1e4) / 1e4) if held else round(float(pct), 4)
+                nodes.append({"strike": float(k), "pct_of_king": pct_r, "held": bool(held),
+                              "level": round(level, 2),
                               "band": [round((k - bands[m]) * r_i, 2), round((k + bands[m]) * r_i, 2)],
                               "crossings": crossings})
             rows_m.append({"minute": minute.strftime("%H:%M"), "board": _et(md.as_of[i]), "spot": float(md.spot[i]),
@@ -436,7 +459,9 @@ def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
                       f"| Strike | % of King | Mapped {root} | Band | Crossed at | {root} then | Diff | OK |",
                       "|---:|---:|---:|---|---|---:|---:|---|"]
             for n in row["nodes"]:
-                head = f"| {n['strike']:g} | {n['pct_of_king']:.0%} | {n['level']:.2f} | {n['band'][0]:.2f}-{n['band'][1]:.2f}"
+                pct_txt = (f"{np.floor(n['pct_of_king'] * 1000) / 10:.1f}% held" if n.get("held")
+                           else f"{n['pct_of_king']:.0%}")
+                head = f"| {n['strike']:g} | {pct_txt} | {n['level']:.2f} | {n['band'][0]:.2f}-{n['band'][1]:.2f}"
                 if not n["crossings"]:
                     lines.append(head + " | - | - | - | - |")
                 for c in n["crossings"]:

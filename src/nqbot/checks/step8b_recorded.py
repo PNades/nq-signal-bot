@@ -9,6 +9,8 @@
    floor(asOf) + 1 s. SPY's is the live offset still pending in `board_content_offset_ms` (§5.1).
 4. NDXP: both methods (findings R6/R9; `features/ndxp.py`) against the recording's real NDX spot. The error at a
    board is the NQ level the method gives the index's own price minus NQ at the board's content time, in NQ pts.
+   Report only (owner 2026-10-11): the same methods' errors at relevant-node crossings (F2.4 on the NDXP board in
+   force, the gate's crossing rule): strike x the method's NQ/NDX ratio at t* minus NQ at t*, with count and p95.
 
 The report is `<reports_dir>/step8b/recorded_day_<date>_<stamp>.json`; each candidate's per-board errors are kept in
 `<reports_dir>/step8b/recorded_days/<date>.npz` for `step8b ndxp-select` (owner 2026-10-08): leave one recorded
@@ -37,7 +39,7 @@ from nqbot.clients.databento_client import DATASET, TRADES, DatabentoClient
 from nqbot.clients.databento_contracts import cme_day_span
 from nqbot.clients.databento_store import read_records
 from nqbot.features import mapping as mp
-from nqbot.features import ndxp
+from nqbot.features import ndxp, nodes
 from nqbot.features.bars import PRICE_SCALE
 from nqbot.jobs.lock import DATABENTO, job_locks
 from nqbot.storage import atomic_write_bytes
@@ -175,18 +177,64 @@ def _errors_dir(env: s8.Env) -> Path:
     return s8.reports_dir(env.paths) / "recorded_days"
 
 
-def _save_errors(env: s8.Env, d: date, errors: dict[str, np.ndarray]) -> None:
+CROSS_PREFIX = "x__"  # crossing errors in the same file (report only, owner 2026-10-11)
+
+
+def _save_errors(env: s8.Env, d: date, errors: dict[str, np.ndarray],
+                 crossings: dict[str, np.ndarray] | None = None) -> None:
     import io
 
     buf = io.BytesIO()
-    np.savez_compressed(buf, **{k.replace(" ", "_"): v for k, v in errors.items()})
+    arrays = {k.replace(" ", "_"): v for k, v in errors.items()}
+    arrays.update({CROSS_PREFIX + k.replace(" ", "_"): v for k, v in (crossings or {}).items()})
+    np.savez_compressed(buf, **arrays)
     atomic_write_bytes(_errors_dir(env) / f"{d.isoformat()}.npz", buf.getvalue())
 
 
-def _load_errors(path: Path) -> dict[str, np.ndarray]:
+def _load_errors(path: Path, crossings: bool = False) -> dict[str, np.ndarray]:
+    """Every-board errors per candidate, or (crossings=True) the relevant-node crossing errors (report only)."""
     z = np.load(path, allow_pickle=False)
-    names = {c.replace(" ", "_"): c for c in candidates()}
+    names = {(CROSS_PREFIX if crossings else "") + c.replace(" ", "_"): c for c in candidates()}
     return {names[k]: z[k] for k in z.files if k in names}
+
+
+def recording_strikes(env: s8.Env, d: date, name: str, as_of_ns: np.ndarray
+                      ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """One map's recorded strike rows joined to its boards (as_of_ns sorted, unique): (board, strike, value), each
+    (asOf, strike) once (a board written twice around a resume has its strikes twice)."""
+    a_l, k_l, v_l = [], [], []
+    for f in sorted(Path(env.sky.stream_dir(d)).rglob("*_strikes.parquet")):
+        x = pq.read_table(f, columns=["as_of", "symbol", "strike", "value"])
+        x = x.filter(pc.equal(x["symbol"], name))
+        a_l.append(s8._ns(x["as_of"]))
+        k_l.append(x["strike"].to_numpy().astype(np.float64))
+        v_l.append(x["value"].to_numpy().astype(np.float64))
+    if not a_l or not len(as_of_ns):
+        return np.zeros(0, dtype=np.int64), np.zeros(0), np.zeros(0)
+    a, k, v = np.concatenate(a_l), np.concatenate(k_l), np.concatenate(v_l)
+    o = np.lexsort((k, a))
+    a, k, v = a[o], k[o], v[o]
+    first = np.concatenate([[True], (a[1:] != a[:-1]) | (k[1:] != k[:-1])]) if len(a) else np.zeros(0, dtype=bool)
+    a, k, v = a[first], k[first], v[first]
+    idx = np.clip(np.searchsorted(as_of_ns, a), 0, len(as_of_ns) - 1)
+    ok = as_of_ns[idx] == a
+    return idx[ok], k[ok], v[ok]
+
+
+def ndxp_crossings(env: s8.Env, d: date, a_n: np.ndarray, spot: np.ndarray, arrival: np.ndarray, c_n: np.ndarray
+                   ) -> tuple[np.ndarray, np.ndarray]:
+    """NDXP's relevant-node crossings in a recording (report only, owner 2026-10-11): F2.4 over the session's NDXP
+    boards, the gate's crossing rule on the board in force (applied at max(arrival, floor(asOf) + 1 s +
+    map_latency_sec)). Returns (t*, strike)."""
+    cfg = env.features["mapping"]
+    bi, k, v = recording_strikes(env, d, "NDXP", a_n)
+    pct = mp.pct_of_king(bi, v, len(a_n))
+    rel, _ = nodes.relevance(bi, k, pct, np.ones(len(a_n), dtype=bool), env.features["min_node_pct_of_king"],
+                             env.features["node_drop_pct"])
+    t_apply = mp.apply_times_ns(a_n, "1s", env.settings.get("map_latency_sec"), arrival)
+    t, strike, _ = gate.event_crossings(c_n, spot, mp.gap_segments(c_n, cfg["ratio_gap_reset_sec"]), t_apply,
+                                        bi[rel], k[rel])
+    return t, strike
 
 
 # --- leave-one-day-out choice (owner 2026-10-08) --------------------------------------------------------
@@ -223,15 +271,30 @@ def check_ndxp_select(env: s8.Env) -> dict[str, Any]:
         per_candidate[c] = {"held_out_p95": _r(_p95([e])), "held_out_median": _r(float(np.median(e))),
                             "per_day_p95": {str(d): _r(_p95([days[d][c]])) for d in sorted(days)},
                             "picked_in_rotations": sum(r["picked"] == c for r in rotations)}
+    # report only (owner 2026-10-11): each candidate's p95 at relevant-node crossings, pooled over the days
+    cross = {date.fromisoformat(f.stem): _load_errors(f, crossings=True) for f in sorted(_errors_dir(env).glob("*.npz"))}
+    no_cross = [str(d) for d in sorted(days) if set(cross.get(d, {})) != set(candidates())]
+    for c in candidates():
+        e = [cross[d][c] for d in sorted(days) if c in cross.get(d, {})]
+        per_candidate[c]["crossing_p95"] = None if no_cross else _r(_p95(e))
+        per_candidate[c]["crossings_n"] = int(sum(np.isfinite(x).sum() for x in e))
     winner = min(per_candidate, key=lambda c: per_candidate[c]["held_out_p95"])
     procedure = _p95([days[date.fromisoformat(r["held_out"])][r["picked"]] for r in rotations])
+    w = per_candidate[winner]
+    # owner 2026-10-11: propose the larger of the two, so stops are never tighter than crossings show; owner decides
+    proposal = None if w["crossing_p95"] is None else max(w["held_out_p95"], w["crossing_p95"])
     report = {"days": [str(d) for d in sorted(days)], "candidates": per_candidate, "rotations": rotations,
-              "winner": winner, "stop_floor_nq": per_candidate[winner]["held_out_p95"],
+              "winner": winner, "every_board_held_out_p95": w["held_out_p95"], "crossing_p95": w["crossing_p95"],
+              "proposed_stop_floor_nq": proposal, "days_without_crossings": no_cross,
               "selection_procedure_held_out_p95": _r(procedure)}
     for c, v in per_candidate.items():
         env.echo(f"  {c}: held-out p95 {v['held_out_p95']} NQ, median {v['held_out_median']:+} "
-                 f"(picked in {v['picked_in_rotations']} of {len(rotations)} rotations)")
-    env.echo(f"  winner: {winner}; NDXP stop floor {report['stop_floor_nq']} NQ pts (the leave-one-day-out pick "
+                 f"(picked in {v['picked_in_rotations']} of {len(rotations)} rotations); at relevant-node crossings "
+                 f"p95 {v['crossing_p95']} (n {v['crossings_n']}, report only)")
+    if no_cross:
+        env.echo(f"  no crossing errors saved for {', '.join(no_cross)}: re-run `step8b recorded-day` for them")
+    env.echo(f"  winner: {winner}; proposed NDXP stop floor {proposal} NQ pts = the larger of every-board "
+             f"{w['held_out_p95']} and crossings {w['crossing_p95']} (owner decides; the leave-one-day-out pick "
              f"itself: held-out p95 {report['selection_procedure_held_out_p95']})")
     s8.write_report(env, "ndxp_select", report)
     return report
@@ -299,7 +362,8 @@ def check_recorded_day(env: s8.Env, d: date, *, with_prev: bool = False,
     prev = date.fromisoformat(pulled["previous_session"])
     sym = pulled["front"]["NQ"]
     ndxp_out: dict[str, Any] = {"previous_session": prev.isoformat(), "contract": sym, "sources": closes["folder"]}
-    an, nx = _series(boards, "NDXP", open_ns + cfg["ratio_open_skip_sec"] * mp.NS, close_ns)
+    an, nx, arr_n = _series(boards, "NDXP", open_ns + cfg["ratio_open_skip_sec"] * mp.NS, close_ns,
+                            with_arrival=True)
     off = align.get("NDXP", {}).get("offset_ms")
     if len(an) == 0 or off is None:
         ndxp_out["skipped"] = "no NDXP boards (or no fitted content offset) in the recording"
@@ -316,6 +380,7 @@ def check_recorded_day(env: s8.Env, d: date, *, with_prev: bool = False,
                                       "window_s": [-UNCOVERED_GAP_PRE_S, post_s], "boards_left_out": int((~keep).sum())}
         methods: dict[str, Any] = {}
         errors: dict[str, np.ndarray] = {}
+        ratio_at: dict[str, Callable[[np.ndarray], np.ndarray]] = {}  # each method's NQ/NDX ratio at any instant
         prev_trades = _trades(env, sym, prev)
         prev_close_ns = s8._session_ns(env, prev)[1]
         settle = (ndxp.settlement_vwap(*prev_trades, prev_close_ns) if prev_trades is not None else None)
@@ -326,6 +391,7 @@ def check_recorded_day(env: s8.Env, d: date, *, with_prev: bool = False,
         else:
             rho = ndxp.basis_ratio(c_n, sym, settle, closes["ndx"][prev], prev_close_ns)
             errors[BASIS] = nx * rho - f_n
+            ratio_at[BASIS] = lambda t, s=settle, c=closes["ndx"][prev]: ndxp.basis_ratio(t, sym, s, c, prev_close_ns)
             methods[BASIS] = {**_err_stats(errors[BASIS]), "settle_prev": round(settle, 2),
                               "ndx_close_prev": closes["ndx"][prev]}
         aq, q, arr_q = _series(boards, "QQQ", open_ns, close_ns, with_arrival=True)
@@ -342,6 +408,10 @@ def check_recorded_day(env: s8.Env, d: date, *, with_prev: bool = False,
             t_apply_q = mp.apply_times_ns(aq, "1s", env.settings.get("map_latency_sec"), arr_q)
             i = mp.in_force_index(t_apply_q, c_n)
             r_at = np.where(i >= 0, r_in[np.clip(i, 0, None)], np.nan)
+
+            def qqq_r_at(t: np.ndarray) -> np.ndarray:  # the QQQ R in force at t
+                j = mp.in_force_index(t_apply_q, t)
+                return np.where(j >= 0, r_in[np.clip(j, 0, None)], np.nan)
             for n in QQQ_K_SESSIONS:
                 k = ndxp.qqq_k(d, closes["ndx"], closes["qqq"], closes["div"], n)
                 key = qqq_key(n)
@@ -349,12 +419,25 @@ def check_recorded_day(env: s8.Env, d: date, *, with_prev: bool = False,
                     methods[key] = {"skipped": f"fewer than {n} sessions of NDX and QQQ closes before {d}"}
                 else:
                     errors[key] = nx * r_at / k - f_n
+                    ratio_at[key] = lambda t, k=k: qqq_r_at(t) / k
                     methods[key] = {**_err_stats(errors[key]), "k": round(k, 6)}
+        # report only (owner 2026-10-11): the same methods at relevant-node crossings
+        t_x, k_x = ndxp_crossings(env, d, an, nx, arr_n, c_n)
+        keep_x = gap_mask(t_x, gaps, post_s)
+        t_x, k_x = t_x[keep_x], k_x[keep_x]
+        f_x = mp.last_price_at_or_before(nq[0], nq[1], t_x)
+        cross_err = {c: k_x * fn(t_x) - f_x for c, fn in ratio_at.items()}
+        for c, e in cross_err.items():
+            methods[c]["crossings"] = _err_stats(e)
+        ndxp_out["crossings"] = {"n": int(len(t_x)), "left_out_near_gaps": int((~keep_x).sum()), "report_only": True}
         ndxp_out["methods"] = methods
         for name, v in methods.items():
+            x = v.get("crossings", {})
             env.echo(f"  NDXP {name}: " + (v["skipped"] if "skipped" in v else
-                                          f"p95 {v['abs_p95']} NQ pts, median {v['signed_median']:+} (n {v['n']})"))
-        _save_errors(env, d, errors)
+                                          f"p95 {v['abs_p95']} NQ pts, median {v['signed_median']:+} (n {v['n']}); "
+                                          f"at relevant-node crossings p95 {x.get('abs_p95')} (n {x.get('n', 0)}, "
+                                          "report only)"))
+        _save_errors(env, d, errors, cross_err)
     report = {"date": d.isoformat(), "databento": pulled, "alignment": align, "ndxp": ndxp_out,
               "alerts": [m for m, v in align.items() if v.get("pass") is False],
               "spy_live_offset_ms": align.get("SPY", {}).get("offset_ms")}

@@ -161,6 +161,27 @@ def test_atlas_side_by_side(env):
     assert "| Strike | % of King | Mapped NQ |" in md and "## SPY -> ES" in md
 
 
+def test_atlas_lists_a_held_node_and_drops_its_crossings_after_it_drops(env):
+    """F2.4 (owner 2026-10-11): QQQ spot 600 -> 599 at 09:50 puts strike 601 from 40% to 20% of King: it stays
+    relevant, marked held, and its crossing at 09:55 (599 -> 603) counts; at 603 it is 10% of King and drops, so the
+    crossing back down at 10:00 (603 -> 600.5) does not."""
+    ts = np.arange(_ns(time(9, 0)), _ns(time(10, 30)), NS, dtype=np.int64)
+    nq = np.select([ts < _ns(time(9, 50)), ts < _ns(time(9, 55)), ts < _ns(time(10, 0))],
+                   [24_000.0, 23_960.0, 24_120.0], 24_020.0)
+    px = {"NQ": nq, "ES": np.full(len(ts), 6_001.0)}
+    _write_futures(env, ts, px)
+    _write_boards(env, ts, px, noise=0.0)
+    rep = step8b.check_atlas(env, DAY, [time(9, 45), time(9, 52), time(9, 57)])
+    by_min = {r["minute"]: {n["strike"]: n for n in r["nodes"]} for r in rep["maps"]["QQQ"]}
+    assert by_min["09:45"][601.0]["held"] is False and by_min["09:45"][601.0]["pct_of_king"] == 0.4
+    n601 = by_min["09:52"][601.0]
+    assert n601["held"] is True and n601["pct_of_king"] == 0.2
+    assert [c["at"][:5] for c in n601["crossings"]] == ["09:55"]  # not the 10:00 one: dropped by then
+    assert 601.0 not in by_min["09:57"]  # present at 10% of King: not relevant
+    md = (step8b.reports_dir(env.paths) / f"atlas_{DAY.isoformat()}.md").read_text(encoding="utf-8")
+    assert "| 601 | 20.0% held |" in md
+
+
 def test_atlas_counts_an_exact_touch_once(env):
     """QQQ spot 599.5 -> exactly 600.0 for 5 s -> 600.5: strike 600 is crossed once, not twice (the board that
     leaves the strike would map it with its own R, k * F / k = F, a 0.00 diff that proves nothing)."""
