@@ -82,6 +82,14 @@ def no_network(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def ssd_event_log(tmp_path_factory, monkeypatch):
+    """Tests never write the real SSD drop log on the internal drive (owner 2026-10-11)."""
+    log = tmp_path_factory.mktemp("ssd_events") / "ssd_events.log"
+    monkeypatch.setattr(storage, "SSD_EVENT_LOG", log)
+    return log
+
+
+@pytest.fixture(autouse=True)
 def no_power_calls(monkeypatch):
     """Tests never call powercfg or SetThreadExecutionState: the calls are recorded instead (tests/test_power.py)."""
     from nqbot import power

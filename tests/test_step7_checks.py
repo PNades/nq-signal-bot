@@ -782,3 +782,59 @@ def test_tempest_poll_after_the_close_keeps_a_draft_only(env):
     n = len(env.fake.calls)
     step7.check_tempest_poll(env, sleep=lambda s: None)  # the draft counts as pulled: not pulled again
     assert all(r.url.path != "/v1/vol/history" for r in env.fake.calls[n:])
+
+
+def test_stream_session_switches_to_the_internal_drive_when_the_ssd_drops(env, monkeypatch, tmp_path):
+    """Owner 2026-10-11: a part the SSD can't take (after the storage retry) and every later part go to the same
+    folder on the internal drive; no board is lost or counted twice, and fallback-move puts them back."""
+    import errno
+
+    import pyarrow.parquet as pq
+
+    from nqbot import fallback
+    from nqbot.storage import Paths
+
+    monkeypatch.setattr("nqbot.storage.SSD_EVENT_LOG", tmp_path / "events.log")
+    t0 = datetime(2026, 10, 9, 14, 0, tzinfo=UTC)
+    snap = {"symbol": "NDXP", "spot": 31000.0, "previousClose": 30990.0, "priceChange": 10.0,
+            "priceChangePercent": 0.03, "expirations": ["2026-10-09"], "lagged": False,
+            "strikes": [{"strike": 31000, "value": 1e6, "nodeType": "king"}]}
+    body = sse(("connected", {"creditsRemaining": 1000}, None),
+               *[("snapshot", {**snap, "asOf": z(t0 + timedelta(seconds=i))}, f"NDXP:{i}") for i in range(12)])
+    replies = [body]
+
+    def handler(request):
+        return httpx.Response(200, content=replies.pop(0) if replies else sse(("ping", None, None)),
+                              headers={"Content-Type": "text/event-stream"})
+
+    ticks = iter(range(10**6))
+    clock = lambda: int((t0.timestamp() + next(ticks)) * 1e9)  # noqa: E731
+
+    async def nosleep(s):
+        pass
+
+    monkeypatch.setattr(step7, "SESSION_PART_MIN", 3 / 60)
+    env.stream_factory = lambda: SkylitStream(Secret(KEY), symbols_map=SYMBOLS_MAP, maps=["NDXP"], metric="gamma",
+                                              max_expirations=1, max_strikes="all", sleep=nosleep, clock_ns=clock,
+                                              transport=httpx.MockTransport(handler))
+    ssd_root = env.paths.root
+    real = step7.write_parquet
+
+    def flaky(path, table, meta):  # the SSD is gone from part 1 on
+        if Path(path).is_relative_to(ssd_root) and meta["part"] >= 1:
+            raise OSError(errno.EBADF, "Bad file descriptor")
+        real(path, table, meta)
+
+    monkeypatch.setattr(step7, "write_parquet", flaky)
+    local = Paths.under(tmp_path / "internal", "nqbot")
+    env.now.t = datetime(2026, 10, 9, 10, 0, tzinfo=ET)
+    rep = step7.check_stream_session(env, ["NDXP"], end=t0 + timedelta(seconds=11), fallback=local)
+    assert rep["fallback"]["from_part"] == 1 and str(local.root) in rep["fallback"]["folder"]
+    ssd_parts = sorted(Path(rep["folder"]).glob("part_*_boards.parquet"))
+    local_parts = sorted(Path(rep["fallback"]["folder"]).glob("part_*_boards.parquet"))
+    assert [p.name for p in ssd_parts] == ["part_000_boards.parquet"] and local_parts
+    n = sum(pq.read_table(p).num_rows for p in ssd_parts + local_parts)
+    assert n == rep["boards"] == rep["boards_per_map"]["NDXP"] and rep["resent_boards_dropped"] == 0
+    fallback.move_fallback(local, env.paths, echo=lambda s: None)
+    moved = sorted(Path(rep["folder"]).glob("part_*_boards.parquet"))
+    assert len(moved) == 1 + len(local_parts) and sum(pq.read_table(p).num_rows for p in moved) == n

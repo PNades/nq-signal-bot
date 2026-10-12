@@ -30,6 +30,13 @@ def _until(text: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from nqbot.power import keep_awake
+
+    with keep_awake():  # owner 2026-10-11: every command, so a screen-off Modern Standby can't drop the SSD mid-run
+        return _main(argv)
+
+
+def _main(argv: list[str] | None = None) -> int:
     # The Windows console is cp1252: never crash on a character it can't show.
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
@@ -46,6 +53,11 @@ def main(argv: list[str] | None = None) -> int:
     backup.add_argument("--until", default=DEFAULT_UNTIL, type=_until,
                         help="stop before this ET time (HH:MM, default 07:30); the next run resumes")
     sub.add_parser("status", help="SSD use and job progress")
+    v = sub.add_parser("verify", help="read back every file under the root written since a date and list anything "
+                                      "damaged (owner 2026-10-11; reads only, report in <reports_dir>/verify/)")
+    v.add_argument("--since", type=lambda t: datetime.fromisoformat(t), required=True, help="YYYY-MM-DD (local time)")
+    sub.add_parser("fallback-move", help="move a session recording kept on the internal drive (stream-session "
+                                         "--fallback-local) onto the SSD, checked file by file")
     sub.add_parser("test", help="run the full test suite; the whole output goes to <root>/logs/pytest_<date-time>.txt, "
                                 "ending with 'PYTEST EXIT CODE: N' (owner 2026-10-10: run before every commit); any "
                                 "further arguments go to pytest (the commit check uses none)")
@@ -81,11 +93,19 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_REFUSED
     if args.command == "setup-ssd":  # before resolve_paths: paths.root and the marker don't exist yet
         return _run_setup_ssd(args, settings)
+    recording_fallback = (args.command == "step7" and getattr(args, "check", None) == "stream-session"
+                          and args.fallback_local)
     try:
         paths = resolve_paths(settings)
     except SSDNotFound as e:
-        print(f"SSD not found: {e}", file=sys.stderr)
-        return EXIT_REFUSED
+        if not recording_fallback:
+            print(f"SSD not found: {e}", file=sys.stderr)
+            return EXIT_REFUSED
+        paths, why = None, str(e)
+    if recording_fallback:
+        paths = _choose_recording_target(args, settings, paths, why if paths is None else None)
+        if args.check_only:
+            return 0
 
     if args.command == "status":
         print("\n".join(status_lines(paths)))
@@ -98,6 +118,16 @@ def main(argv: list[str] | None = None) -> int:
         return _stop(args, paths)
 
     log = setup_logging(paths.log_dir)
+    if args.command == "verify":
+        from nqbot.verify import run_verify
+
+        res, _ = run_verify(paths, args.since)
+        return 1 if res.damaged or res.size_mismatch or res.unreadable else 0
+    if args.command == "fallback-move":
+        from nqbot.fallback import fallback_paths, move_fallback
+
+        res = move_fallback(fallback_paths(settings["paths"]["root"]), paths)
+        return 1 if res.conflicts else 0
     if args.command == "test":
         from nqbot.testrun import run_tests
 
@@ -269,6 +299,11 @@ def _add_step7(sub: argparse._SubParsersAction) -> None:
                               "(about 395 credits per map for a full session; owner 2026-10-08)")
     p.add_argument("--maps", type=lambda s: [x.strip() for x in s.split(",") if x.strip()], default=["NDXP"],
                    help="comma-separated maps (default NDXP)")
+    p.add_argument("--fallback-local", action="store_true",
+                   help="if the SSD isn't reachable or writable, or fails during the session, record to the internal "
+                        "drive and move it to the SSD after the close (owner 2026-10-11, recording only)")
+    p.add_argument("--check-only", action="store_true",
+                   help="with --fallback-local: say where the recording would go, test both folders, start no stream")
     p = add("parity", "pull the recorded minutes from history and compare (25 credits)")
     p.add_argument("--session", type=_date, required=True)
     p.add_argument("--tag", default=None, help="which recording of that session (default: the latest)")
@@ -298,6 +333,53 @@ def _add_step7(sub: argparse._SubParsersAction) -> None:
     add("tempest-depth", "does Tempest history reach back far enough before month 1 (1-2 credits)")
     add("dp-start-probe", "is dp_history_start still Skylit's first dark-pool date? (5 credits; owner 2026-10-07)")
     add("report", "write the parameter check for the owner (and the step-10 backfill estimate)")
+
+
+def _choose_recording_target(args: argparse.Namespace, settings: dict, ssd, why: str | None):
+    """stream-session --fallback-local (owner 2026-10-11): record on the SSD if it is reachable and writable, with
+    the internal drive as the mid-session switch; else record on the internal drive from the start."""
+    from nqbot.fallback import fallback_paths, folder_writable, ssd_writable
+    from nqbot.storage import log_ssd_event
+
+    local = fallback_paths(settings["paths"]["root"])
+    if ssd is not None:
+        ok, why = ssd_writable(ssd)
+        if ok:
+            args.switch_to = local
+            print(f"recording target: the SSD ({ssd.root}); if it fails during the session: {local.root}")
+            target = ssd
+        else:
+            ssd = None
+    if ssd is None:
+        args.switch_to = None
+        log_ssd_event("stream-session", local.root, f"SSD not usable at the start ({why}): recording to {local.root}")
+        print(f"recording target: the internal drive ({local.root}); SSD not usable: {why}")
+        target = local
+    if args.check_only:
+        ok, msg = folder_writable(local.tmp_dir)
+        print(f"internal drive folder writable: {ok} ({msg}; {local.root}); no stream started (--check-only)")
+    return target
+
+
+def _move_after_session(args: argparse.Namespace, settings: dict, rep: dict) -> None:
+    """After the close: move a recording kept on the internal drive onto the SSD, if the SSD is usable now."""
+    from nqbot.fallback import fallback_paths, move_fallback, ssd_writable
+
+    local = fallback_paths(settings["paths"]["root"])
+    if not local.root.exists():
+        return
+    try:
+        ssd = resolve_paths(settings)
+    except SSDNotFound as e:
+        print(f"recording kept on the internal drive ({local.root}); SSD not found ({e}): run `uv run nqbot "
+              "fallback-move` once it is back")
+        return
+    ok, why = ssd_writable(ssd)
+    if not ok:
+        print(f"recording kept on the internal drive ({local.root}); SSD not writable ({why}): run `uv run nqbot "
+              "fallback-move` once it is back")
+        return
+    move_fallback(local, ssd)
 
 
 def _run_step7(args: argparse.Namespace, settings: dict, paths, log) -> int:
@@ -397,7 +479,11 @@ def _step7_check(args: argparse.Namespace, settings, paths, log, env, approve) -
         case "stream-record":
             step7.check_stream_record(env, approved=approve, force=args.force)
         case "stream-session":
-            if not step7.check_stream_session(env, args.maps, approved=approve)["complete"]:
+            rep = step7.check_stream_session(env, args.maps, approved=approve,
+                                             fallback=getattr(args, "switch_to", None))
+            if getattr(args, "fallback_local", False):
+                _move_after_session(args, settings, rep)
+            if not rep["complete"]:
                 return EXIT_INCOMPLETE
         case "parity":
             step7.check_parity(env, args.session, args.tag, approve)

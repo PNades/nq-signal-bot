@@ -55,3 +55,19 @@ def test_non_english_powercfg_is_read_by_position():
               "    Aktueller Gleichstrom-Energieeinstellungsindex: 0x00000000\n")
     w = power.power_warnings(lambda sub, setting: german if setting == power.CHECKS[0][2] else GOOD)
     assert len(w) == 1 and "value 3600" in w[0]
+
+
+def test_keep_awake_nests_and_every_command_holds_it(monkeypatch, no_power_calls):
+    """Owner 2026-10-11: every nqbot command holds it (a screen-off Modern Standby dropped the SSD under step8b);
+    `nqbot run` / step7 holding it again inside must not release it early."""
+    from nqbot import cli
+
+    monkeypatch.setattr(power.os, "name", "nt")
+    with power.keep_awake():
+        with power.keep_awake():
+            pass
+        assert no_power_calls == [power.ES_CONTINUOUS | power.ES_SYSTEM_REQUIRED]  # still held
+    assert no_power_calls[-1] == power.ES_CONTINUOUS and len(no_power_calls) == 2
+    seen = []
+    monkeypatch.setattr(cli, "_main", lambda argv: seen.append(list(no_power_calls)) or 0)
+    assert cli.main(["status"]) == 0 and seen[0][-1] == power.ES_CONTINUOUS | power.ES_SYSTEM_REQUIRED

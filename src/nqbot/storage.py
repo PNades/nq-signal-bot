@@ -6,8 +6,10 @@ drives for the marker file .nqbot_drive (never by drive letter); every path is b
 
 from __future__ import annotations
 
+import errno
 import gc
 import json
+import logging
 import os
 import shutil
 import time
@@ -16,7 +18,8 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePath
-from typing import Any, Iterator
+from datetime import datetime, timezone
+from typing import Any, Callable, Iterator
 
 MARKER = ".nqbot_drive"
 GB = 1024**3
@@ -27,6 +30,17 @@ REPLACE_RETRY_TOTAL_SEC = 30.0
 REPLACE_RETRY_FIRST_SEC = 0.1
 REPLACE_RETRY_MAX_SEC = 5.0
 _sleep = time.sleep  # tests replace it
+# A USB drop of the SSD (owner 2026-10-11: the drive disappeared and came back within ~3-4 s, a dozen times an
+# evening): a write that fails because the device vanished waits up to SSD_DROP_WAIT_SEC for the drive to come back,
+# then is retried once. Every drop is logged to SSD_EVENT_LOG on the internal drive (writable while the SSD is gone)
+# and, once it is back, to <root>/logs/ssd_events.log.
+SSD_DROP_WAIT_SEC = 30.0
+SSD_DROP_POLL_SEC = 0.5
+DROP_ERRNOS = frozenset({errno.EBADF, errno.EIO, errno.ENODEV, errno.ENXIO})
+# Windows: not ready, invalid handle, device not existing / connected, I/O device error, hardware error
+DROP_WINERRORS = frozenset({21, 6, 55, 433, 1167, 1117, 483})
+SSD_EVENT_LOG = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "nqbot" / "ssd_events.log"
+_log = logging.getLogger("nqbot")
 
 
 class SSDNotFound(Exception):
@@ -170,9 +184,93 @@ def remove_stale_temps(path: Path) -> None:
                 pass
 
 
+def _anchor_ok(path: Path) -> bool:
+    try:
+        return Path(path.anchor or path).exists() and path.parent.exists()
+    except OSError:
+        return False
+
+
+def is_device_drop(e: BaseException, path: Path) -> bool:
+    """Did this error come from the drive vanishing (not from a full disk, a bad name or a locked file)?"""
+    if not isinstance(e, OSError) or isinstance(e, PermissionError):
+        return False
+    if getattr(e, "winerror", None) in DROP_WINERRORS or e.errno in DROP_ERRNOS:
+        return True
+    return isinstance(e, (FileNotFoundError, NotADirectoryError)) and not _anchor_ok(path)
+
+
+def log_ssd_event(op: str, path: Path, detail: str) -> None:
+    """One line per SSD event, to the internal drive first (always writable), then the logger."""
+    line = f"{datetime.now(timezone.utc).isoformat()} pid {os.getpid()} {op} {path}: {detail}"
+    try:
+        SSD_EVENT_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(SSD_EVENT_LOG, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
+    _log.warning("SSD event: %s", line)
+
+
+def wait_for_drive(path: Path, wait: float = SSD_DROP_WAIT_SEC) -> float | None:
+    """Seconds until the drive holding `path` is back (its folder visible again), or None after `wait`."""
+    waited = 0.0
+    while waited <= wait:
+        if _anchor_ok(path):
+            return waited
+        _sleep(SSD_DROP_POLL_SEC)
+        waited += SSD_DROP_POLL_SEC
+    return None
+
+
+def drop_retry(op: str, path: Path, attempt: Callable[[], Any], cleanup: Callable[[], None] | None = None) -> Any:
+    """Run `attempt`; if it fails because the drive vanished, log it, wait for the drive and run it once more."""
+    try:
+        return attempt()
+    except OSError as e:
+        if not is_device_drop(e, path):
+            raise
+        log_ssd_event(op, path, f"device dropped ({type(e).__name__}: {e}); waiting up to {SSD_DROP_WAIT_SEC:.0f} s")
+        back = wait_for_drive(path)
+        if back is None:
+            log_ssd_event(op, path, f"drive not back after {SSD_DROP_WAIT_SEC:.0f} s: giving up")
+            raise
+        log_ssd_event(op, path, f"drive back after {back:.1f} s: retrying once")
+        if cleanup is not None:
+            try:
+                cleanup()
+            except OSError:
+                pass
+        try:
+            out = attempt()
+        except OSError as e2:
+            log_ssd_event(op, path, f"retry failed ({type(e2).__name__}: {e2})")
+            raise
+        log_ssd_event(op, path, "retry succeeded")
+        _copy_event_to_ssd(path)
+        return out
+
+
+def _copy_event_to_ssd(path: Path) -> None:
+    """Once the drive is back, keep the drop in <root>/logs/ssd_events.log too (best effort)."""
+    for parent in path.parents:
+        if parent.name == "data" or (parent / "logs").is_dir():
+            root = parent.parent if parent.name == "data" else parent
+            try:
+                lines = SSD_EVENT_LOG.read_text(encoding="utf-8").splitlines()[-4:]
+                with open(root / "logs" / "ssd_events.log", "a", encoding="utf-8") as f:
+                    f.write("\n".join(lines) + "\n")
+            except OSError:
+                pass
+            return
+
+
 def atomic_write_bytes(path: Path, data: bytes) -> None:
-    with atomic_path(path) as tmp:
-        tmp.write_bytes(data)
+    def once() -> None:
+        with atomic_path(path) as tmp:
+            tmp.write_bytes(data)
+
+    drop_retry("atomic write", path, once, cleanup=lambda: remove_stale_temps(path))
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -185,11 +283,34 @@ def atomic_write_json(path: Path, obj: Any) -> None:
 
 def append_jsonl(path: Path, row: dict[str, Any]) -> None:
     """Append one line and fsync it (call ledgers: every paid or failed call is kept, CLAUDE.md rule 2)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(row, sort_keys=True, default=str) + "\n")
-        f.flush()
-        os.fsync(f.fileno())
+    line = json.dumps(row, sort_keys=True, default=str) + "\n"
+
+    def once() -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if retrying and path.exists() and _last_line(path).rstrip("\r\n") == line.rstrip("\n"):
+            return  # the first try did land before the drive dropped: never append it twice
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line)
+            f.flush()
+            os.fsync(f.fileno())
+
+    retrying = False
+
+    def again() -> None:
+        nonlocal retrying
+        retrying = True
+
+    drop_retry("append", path, once, cleanup=again)
+
+
+def _last_line(path: Path) -> str:
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        f.seek(max(0, size - 65536))
+        tail = f.read().decode("utf-8", errors="replace")
+    lines = tail.splitlines(keepends=True)
+    return lines[-1] if lines else ""
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:

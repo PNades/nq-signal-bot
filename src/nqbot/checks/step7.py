@@ -39,7 +39,7 @@ from nqbot.clients.skylit_store import (
 )
 from nqbot.clients.skylit_stream import SkylitStream, StreamStopped
 from nqbot.features import darkpool as dp
-from nqbot.storage import Paths, atomic_write_bytes, atomic_write_json, atomic_write_text
+from nqbot.storage import Paths, atomic_write_bytes, atomic_write_json, atomic_write_text, is_device_drop, log_ssd_event
 from nqbot.warmup import warmup_sessions
 
 ET = ZoneInfo("America/New_York")
@@ -609,9 +609,13 @@ async def _record_session(stream: SkylitStream, end_ns: int, write_part: Callabl
 
 
 def check_stream_session(env: Env, maps: list[str], approved: int | None = None, force: bool = False,
-                         end: datetime | None = None) -> dict[str, Any]:
+                         end: datetime | None = None, fallback: Paths | None = None) -> dict[str, Any]:
     """Record /v1/stream for the given maps from now until today's close, in 15-minute part files (owner 2026-10-08:
-    NDXP for up to 3 full sessions, to check the NDXP mapping methods against the live index spot)."""
+    NDXP for up to 3 full sessions, to check the NDXP mapping methods against the live index spot).
+
+    fallback (owner 2026-10-11, recording only): if a part can't be written to the SSD even after the storage
+    retry, this part and the rest go to the same folder under `fallback` (the internal drive), moved to the SSD after
+    the close (`nqbot fallback-move`)."""
     unknown = [m for m in maps if m not in MAPS]
     if unknown or not maps:
         raise CheckRefused(f"unknown maps {unknown or maps}: choose from {', '.join(MAPS)}")
@@ -642,36 +646,64 @@ def check_stream_session(env: Env, maps: list[str], approved: int | None = None,
     counts = {"boards": 0, "dropped": 0}
     per_map: dict[str, int] = {m: 0 for m in maps}
     all_events: list[dict[str, Any]] = []  # small (no board payloads): for the summary
+    switched: dict[str, Any] = {}
+    target = {"folder": folder}
 
     def write_part(snaps: list, events: list) -> None:
-        unique = []
+        try:
+            _write_part(snaps, events)
+        except OSError as e:
+            if fallback is None or switched or not is_device_drop(e, target["folder"]):
+                raise
+            local = SkylitStore(fallback, env.ledger_name).stream_dir(now.date()) / folder.name
+            local.mkdir(parents=True, exist_ok=True)
+            log_ssd_event("stream-session", target["folder"], f"part {len(parts)} not written ({e}): recording to {local}")
+            env.echo(f"  SSD write failed ({e}): part {len(parts)} and the rest go to {local}")
+            switched.update(from_part=len(parts), folder=str(local), error=f"{type(e).__name__}: {e}")
+            target["folder"] = local
+            _write_part(snaps, events)
+
+    def _write_part(snaps: list, events: list) -> None:
+        folder = target["folder"]
+        unique, keys = [], set()
         for s in snaps:
             key = (s["payload"]["symbol"], s["payload"]["asOf"])
-            if key not in seen:
-                seen.add(key)
+            if key not in seen and key not in keys:
+                keys.add(key)
                 unique.append(s)
-        counts["dropped"] += len(snaps) - len(unique)
         n = len(parts)
         meta = {"params": stream.params, "maps": maps, "part": n, "recorded_at": now.isoformat()}
         if unique:
             boards, strikes = stream_snapshots_to_tables(unique, stream.root_to_map)
             write_parquet(folder / f"part_{n:03d}_boards.parquet", boards, meta)
             write_parquet(folder / f"part_{n:03d}_strikes.parquet", strikes, meta)
+        atomic_write_text(folder / f"part_{n:03d}_events.jsonl", "".join(json.dumps(e, default=str) + "\n" for e in events))
+        # counted only once the whole part is written (a part retried on the fallback drive is counted once)
+        seen.update(keys)
+        counts["dropped"] += len(snaps) - len(unique)
+        if unique:
             counts["boards"] += boards.num_rows
             for m in boards["symbol"].to_pylist():
                 per_map[m] = per_map.get(m, 0) + 1
-        atomic_write_text(folder / f"part_{n:03d}_events.jsonl", "".join(json.dumps(e, default=str) + "\n" for e in events))
         all_events.extend(events)
         parts.append({"part": n, "boards": len(unique), "events": len(events)})
 
     ended = asyncio.run(_record_session(stream, int(end.timestamp() * 1e9), write_part, stream.clock_ns))
     summary = an.event_report(all_events)
-    report = {"folder": str(folder), "maps": maps, "parts": parts, "boards": counts["boards"], "boards_per_map": per_map,
+    report = {"folder": str(folder), "fallback": switched or None, "maps": maps, "parts": parts,
+              "boards": counts["boards"], "boards_per_map": per_map,
               "resent_boards_dropped": counts["dropped"], "ended": ended,
               "complete": ended == "close", "lagged": stream.lagged_count, "events_summary": summary}
     env.echo(f"  {counts['boards']} boards in {len(parts)} parts ({ended}); credits used {summary['credits_used']}"
              + ("" if report["complete"] else "; INCOMPLETE"))
-    write_report(env, "stream_session", report)
+    try:
+        write_report(env, "stream_session", report)
+    except OSError as e:
+        if fallback is None or not is_device_drop(e, reports_dir(env.paths)):
+            raise
+        path = reports_dir(fallback) / f"stream_session_{env.now().astimezone(timezone.utc):%Y%m%dT%H%M%SZ}.json"
+        atomic_write_json(path, {"check": "stream_session", "written": env.now().isoformat(), **report})
+        env.echo(f"report (SSD unreachable, kept on the internal drive): {path}")
     # owner 2026-10-10: the last line of the task log says how the session ended and what each map recorded
     env.echo(f"session ended {env.now():%Y-%m-%d %H:%M:%S} ET ({ended}, {'complete' if report['complete'] else 'INCOMPLETE'}): "
              + ", ".join(f"{m} {n:,}" for m, n in per_map.items()) + f" boards (total {counts['boards']:,})")

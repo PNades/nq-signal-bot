@@ -34,6 +34,10 @@ CHECKS = (
     ("USB selective suspend (on AC)", SUB_USB, "48e6b7a6-50f5-4782-a5d4-53bb8f07e226", 0,
      'Power Options > Change plan settings > Change advanced power settings > USB settings > '
      'USB selective suspend setting, Plugged in = Disabled'),
+    # owner 2026-10-11: the SSD's JMS583 bridge resets under link power management (U1/U2); keep the link awake
+    ("USB 3 link power management (on AC)", SUB_USB, "d4e98f31-5ffe-4ce1-be31-1b38b384c009", 0,
+     "powercfg /setacvalueindex SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 "
+     "d4e98f31-5ffe-4ce1-be31-1b38b384c009 0 && powercfg /setactive SCHEME_CURRENT"),
 )
 # powercfg prints the AC index then the DC index as the last two "...: 0x........" lines; matched by position, so a
 # non-English Windows (translated labels) is read too.
@@ -47,17 +51,29 @@ def _set_state(flags: int) -> None:
         logging.getLogger("nqbot.power").warning("SetThreadExecutionState failed: Windows may sleep during the job")
 
 
+_depth = 0  # keep_awake nests (every nqbot command holds it, and `nqbot run` / step7 hold it again inside)
+
+
 @contextmanager
 def keep_awake() -> Iterator[None]:
-    """System sleep is held off until the block ends (no-op off Windows)."""
+    """System sleep is held off until the outermost block ends (no-op off Windows).
+
+    Owner 2026-10-11: held by every nqbot command, not only `nqbot run`. With the screen off a command that didn't
+    hold it let the laptop enter Modern Standby, which powers down the Type-C controller, and the SSD dropped off the
+    bus 1-2 minutes later (System log 2026-10-08..11: every drop followed a standby entry; none under `nqbot run`)."""
+    global _depth
     if os.name != "nt":
         yield
         return
-    _set_state(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+    if _depth == 0:
+        _set_state(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+    _depth += 1
     try:
         yield
     finally:
-        _set_state(ES_CONTINUOUS)
+        _depth -= 1
+        if _depth == 0:
+            _set_state(ES_CONTINUOUS)
 
 
 def powercfg_query(subgroup: str, setting: str) -> str | None:

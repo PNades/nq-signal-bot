@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from nqbot.secrets import get_secret
-from nqbot.storage import atomic_path, remove_stale_temps
+from nqbot.storage import atomic_path, is_device_drop, log_ssd_event, remove_stale_temps
 
 DATASET = "GLBX.MDP3"  # §3.2
 TRADES, MBP1, OHLCV_1S = "trades", "mbp-1", "ohlcv-1s"  # §3.2: the v1 schemas (L1 only, no depth)
@@ -156,10 +156,16 @@ class DatabentoClient:
 
         def run() -> int:
             remove_stale_temps(path)  # left by a download that died on an earlier run (e.g. an unplugged SSD)
-            with atomic_path(path) as tmp:
-                self.hist.timeseries.get_range(dataset=self.dataset, symbols=[symbol], schema=schema,
-                                               stype_in=STYPE_RAW, start=utc_iso(start), end=utc_iso(end),
-                                               path=tmp)
+            try:
+                with atomic_path(path) as tmp:
+                    self.hist.timeseries.get_range(dataset=self.dataset, symbols=[symbol], schema=schema,
+                                                   stype_in=STYPE_RAW, start=utc_iso(start), end=utc_iso(end),
+                                                   path=tmp)
+            except OSError as e:
+                # logged, never re-sent here: a stream is billed for the data sent (owner 2026-10-11)
+                if is_device_drop(e, path):
+                    log_ssd_event("databento download", path, f"device dropped ({type(e).__name__}: {e}); not retried")
+                raise
             size = path.stat().st_size
             rec.bytes = size
             return size

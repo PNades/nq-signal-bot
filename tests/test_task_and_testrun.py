@@ -62,3 +62,24 @@ def test_task_wrapper_exit_code_is_the_programs_own(tmp_path, code):
     assert lines[0].startswith("TASK START") and lines[0].endswith("--maps NDXP")
     assert "3 passed" in lines and "INFO nqbot: a log line" in lines
     assert lines[-1] == f"TASK EXIT CODE: {code}"
+
+
+def test_nqbot_test_keeps_the_log_when_the_ssd_drops_mid_run(tmp_path, monkeypatch):
+    """Owner 2026-10-11: the 22:27 run died with an empty log when the SSD dropped; the output is kept in memory and
+    the whole log written at the end."""
+    import errno
+    import pathlib
+
+    real_open = pathlib.Path.open
+
+    def flaky_open(self, *a, **k):
+        if self.name.startswith("pytest_"):
+            raise OSError(errno.EIO, "device gone")
+        return real_open(self, *a, **k)
+
+    monkeypatch.setattr(pathlib.Path, "open", flaky_open)
+    got, path = testrun.run_tests(tmp_path / "logs", cmd=_stand_in(tmp_path, 0), now=datetime(2026, 10, 11, 22, 27, 41),
+                                  out=io.BytesIO())
+    monkeypatch.setattr(pathlib.Path, "open", real_open)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert got == 0 and "3 passed" in lines and lines[-1] == "PYTEST EXIT CODE: 0"

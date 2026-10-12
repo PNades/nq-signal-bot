@@ -8,17 +8,35 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\nqbot_task.ps1 -LogDir D:\nqbot\logs `
 #       -LogName stream_session -NqbotArgs "step7 stream-session --maps NDXP,QQQ,SPY"
 #
-# Log: <LogDir>\<LogName>_<yyyyMMdd>.txt (appended), ending with "TASK EXIT CODE: N".
+# Log: <LogDir>\<LogName>_<yyyyMMdd>.txt (appended), ending with "TASK EXIT CODE: N". If LogDir can't be written
+# (the SSD is unplugged or dropping, owner 2026-10-11), the log goes to FallbackLogDir on the internal drive instead,
+# so the command still runs (stream-session --fallback-local then records there too).
 param(
     [Parameter(Mandatory = $true)][string]$LogDir,
     [Parameter(Mandatory = $true)][string]$LogName,
     [Parameter(Mandatory = $true)][string]$NqbotArgs,
-    [string]$Exe = "uv run nqbot"  # tests replace it with a stand-in program
+    [string]$Exe = "uv run nqbot",  # tests replace it with a stand-in program
+    [string]$FallbackLogDir = (Join-Path $env:LOCALAPPDATA "nqbot\fallback\nqbot\logs")
 )
+
+function Test-Writable([string]$dir) {
+    try {
+        New-Item -ItemType Directory -Force -Path $dir -ErrorAction Stop | Out-Null
+        $probe = Join-Path $dir (".probe_" + [guid]::NewGuid().ToString("N"))
+        [System.IO.File]::WriteAllText($probe, "x")
+        Remove-Item -LiteralPath $probe -Force -ErrorAction Stop
+        return $true
+    } catch { return $false }
+}
 
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
-New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+$note = ""
+if (-not (Test-Writable $LogDir)) {
+    $note = "log dir $LogDir not writable: logging to $FallbackLogDir`r`n"
+    $LogDir = $FallbackLogDir
+    New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+}
 $log = Join-Path $LogDir ("{0}_{1}.txt" -f $LogName, (Get-Date -Format yyyyMMdd))
 if ($log.Contains(" ")) { throw "the log path may not contain spaces: $log" }
 $utf8 = New-Object System.Text.UTF8Encoding $false
@@ -26,7 +44,7 @@ $utf8 = New-Object System.Text.UTF8Encoding $false
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 $env:PYTHONUNBUFFERED = "1"  # stdout and stderr lines stay in order in the log
-[System.IO.File]::AppendAllText($log, ("TASK START {0} ET: {1} {2}`r`n" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Exe, $NqbotArgs), $utf8)
+[System.IO.File]::AppendAllText($log, ("TASK START {0} ET: {1} {2}`r`n{3}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Exe, $NqbotArgs, $note), $utf8)
 & cmd.exe /d /c "$Exe $NqbotArgs >> $log 2>&1"
 $code = $LASTEXITCODE
 [System.IO.File]::AppendAllText($log, ("TASK EXIT CODE: {0}`r`n" -f $code), $utf8)
