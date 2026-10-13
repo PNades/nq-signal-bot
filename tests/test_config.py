@@ -119,13 +119,14 @@ def test_step8b_mapping_values():
 
 
 def test_step7_measured_values_and_tempest_pre_open():
-    # Owner 2026-10-09: map_latency_sec from the 10-07 recording (p99.9 0.585 s); tempest_lag_sessions waits for the
-    # Mon 10-12 finality check; a Tempest copy counts only from the pre-open (the store's constant = preopen_start).
+    # Owner 2026-10-09: map_latency_sec from the 10-07 recording (p99.9 0.585 s); tempest_lag_sessions decided 1 by the
+    # 10-12 finality check (0 cells changed); a Tempest copy counts only from the pre-open (store constant = preopen_start).
     from datetime import time
 
     from nqbot.clients.skylit_store import TEMPEST_FINAL_FROM_ET
 
     s, f = load_settings(), load_features()
     assert s["map_latency_sec"] == 0.59
-    assert f["tempest_lag_sessions"] == 1 and f["dp_lag_sessions"] == 1  # start values, not set yet
+    assert f["tempest_lag_sessions"] == 1  # step 7 decided 2026-10-12
+    assert f["dp_lag_sessions"] == 1  # start value until late-prints-compare
     assert time.fromisoformat(s["preopen_start"]) == TEMPEST_FINAL_FROM_ET

@@ -58,7 +58,8 @@ dp_in_model: false              # owner 2026-10-06: dark-pool levels and feature
 dp_min_notional: 1000000        # USD, the API's default floor; step 7 checks the top-3 lists lose nothing by it
 
 # --- Vol context (§5.2) ---------------------------------------------------------------------------
-tempest_lag_sessions: 1         # step 7 decides (if in doubt, 2)
+tempest_lag_sessions: 1         # step 7 decided 2026-10-12 (§5.2): rows out by 09:00 both mornings, pre-open copies of
+                                # 10-08/10-09 unchanged on re-pull (0 cells); step 22 re-checks it live
 
 # --- Skylit structure (§5.2) ------------------------------------------------------------------------
 ib_avg_sessions: 20
