@@ -37,8 +37,56 @@ The gate's first run on the five step-7 sample days (2026-03-06, 03-11, 03-18, 0
 - **Which way the clock biases `map_latency_sec` (owner 2026-10-10):** the delay is arrival (laptop clock) − `asOf` (Skylit's clock). A laptop clock running δ behind stamps every arrival δ too early, so the measured delay is the true delay − δ: a clock behind makes `map_latency_sec` **too small**, never too large. 0.59 was measured on 10-07 (14:59 recording, p99.9 0.585 s), not 10-09; that day's bound says the clock was at least ≈ 0.07 s behind, with no upper limit, so the true 10-07 delay was at least ≈ 0.66 s and possibly more. (10-09's clock, ≥ 0.6 s behind, would have understated it by ≥ 0.6 s.) Too small is the risky direction: the backtest would apply a board up to δ before live could have it (a small lookahead). **Decision (owner 2026-10-10):** the 10-12 and 10-13 recordings, with the clock synced, re-measure the delay (p99.9 over both, and the arrival − content bound to confirm the clock); Wednesday sets `map_latency_sec` from them before the gate re-run, and if the value changes, the gate (bias, estimator), the Atlas tables and the volatility numbers are re-run with it. Content offsets, alignment and the gate's `asOf`-based timing don't use the laptop clock and are unaffected.
 - **Clock:** arrival − `asOf` was negative on 10-09 (QQQ p50 −0.84 s, SPY −0.02, NDXP −0.20; on 10-07 +0.04 / +0.42 / +0.12) and drifted ≈ −0.1 s over the session for all three; the Windows Time service was not running (`w32tm`: "The service has not been started"). The per-symbol shifts differ, so part is Skylit's stamping per symbol and part is the laptop clock. §13 Q21-resume notes it for §9 Clock.
 
-## R13. Mapping dislocations, months 1–6 (owner 2026-10-09)
-Built as `nqbot step8b dislocations` (per-board R moving more than 0.05% / 0.1% / 0.2% within 2 minutes; QQQ, SPY, SPX; every trading day of months 1–6, one day at a time). **Not run yet:** the owner starts it; results go to `<reports_dir>/step8b/dislocations.md`.
+## R13. Mapping dislocations, months 1–6 (owner 2026-10-09; run by the owner, finished 2026-10-12)
+`nqbot step8b dislocations` (read-only): R moving more than 0.05% / 0.1% / 0.2% within 2 minutes (trailing range), events merging flagged boards less than 120 s apart, on two series: the **per-board R** (each board's own F ÷ spot at its content time) and **the bot's R** (F1.7: QQQ/SPY trailing 60-s median, SPX per board with F1.2's outlier rule, at each board's apply time). 121 trading days counted (2025-10-07 … 2026-03-31: 110 before the 2026-03-17 stamping change, 11 from it), 4 skipped as expected (2025-10-01/02/03/06, no Skylit boards), 0 left uncounted; the 44 older day files without the bot's-R series were recounted first. Full per-day table: `<reports_dir>/step8b/dislocations.md`.
+
+**Side by side, events per-board → bot's R (days with at least one; events per day in brackets):**
+
+| Chain | Threshold | Before 03-17 (110 days) | From 03-17 (11 days) | Total (121 days) |
+|---|---|---|---|---|
+| QQQ | 0.05% | 1,515 → 2 (109 → 2 d; 13.8 → 0.02/d) | 102 → 3 (11 → 2 d; 9.3 → 0.27/d) | **1,617 → 5** (120 → 4 d) |
+| QQQ | 0.1% | 264 → 0 (63 → 0 d) | 11 → 2 (2 → 1 d) | **275 → 2** (65 → 1 d) |
+| QQQ | 0.2% | 2 → 0 | 4 → 1 (2 → 1 d) | **6 → 1** (4 → 1 d) |
+| SPY | 0.05% | 768 → 0 (90 → 0 d; 7.0 → 0/d) | 58 → 4 (11 → 3 d; 5.3 → 0.36/d) | **826 → 4** (101 → 3 d) |
+| SPY | 0.1% | 23 → 0 (15 → 0 d) | 8 → 1 (2 → 1 d) | **31 → 1** (17 → 1 d) |
+| SPY | 0.2% | 0 → 0 | 3 → 1 (2 → 1 d) | **3 → 1** (2 → 1 d) |
+| SPX | 0.05% | 46 → 37 (35 → 30 d; 0.42 → 0.34/d) | 86 → 57 (11 → 10 d; 7.8 → 5.2/d) | **132 → 94** (46 → 40 d) |
+| SPX | 0.1% | 1 → 0 | 21 → 11 (8 → 4 d) | **22 → 11** (9 → 4 d) |
+| SPX | 0.2% | 0 → 0 | 3 → 2 (1 → 1 d) | **3 → 2** (1 → 1 d) |
+
+- **QQQ/SPY: on the bot's R, dislocations nearly vanish.** The per-board R's 1,617 / 826 events at 0.05% are spot noise (the ETF last trade, R4/R7), which the 60-s median removes. What is left is 2026-03-30/31: at 0.1%, QQQ 2 events and SPY 1, all on 03-31; at 0.05%, outside 03-30/31 only QQQ 2 (2026-01-23, 2026-02-25) and SPY 1 (2026-03-23). In 121 sessions the bot's QQQ/SPY R had one real ETF-vs-futures dislocation day (03-31 12:40–12:47, the R12 tail, R ≈ 0.33% in two minutes) and one smaller one (03-30).
+- **SPX barely changes and rises after 03-17.** SPX's R is per board, so the bot's R stays close to the per-board R (132 → 94 at 0.05%; F1.2's outlier rule removes about a third). Before 03-17 it is quiet (0.34 events per day at 0.05%, none at 0.1%); from 03-17 it is 5.2 per day at 0.05% (2.9 per day without 03-30/31) and 11 events at 0.1% (3 without 03-30/31). It is not just busier markets: the busiest days before 03-17 (ES mean 1-minute range above 5) had 0–2 events at 0.05%, the 11 days from 03-17 (ES 2.9–5.2) a median of 4 (0–20); at a similar ES range SPX's median 2-minute range of R is also higher (e.g. 03-17 1.96 bps at ES 2.89 vs 12-02 1.68 at 3.09; 03-31 3.40 at 5.15 vs 03-06 2.32 at 5.45). The rise starts with the 2026-03-17 stamping change; SPX's median content offset is −80 ms in both eras (R4), so the median did not move. Whether these moves are noise or real was tested read-only (§13 Q8b-6): a trailing median makes SPX's crossing error **worse** in both eras (p95 from 03-17: per board 0.809 ES, 30 s 0.842, 60 s 0.878), so at least part of the movement is real and the per-board R follows it; smoothing lags it. Only 11 days lie after the change, so the size of the rise is uncertain.
+- **The 0.1% events on the bot's R, by time of day** (ET, minutes after the open; none in a news blackout):
+
+| Chain | Date | Start | Min after open | Flagged (s) | Peak range | First 15 min |
+|---|---|---|---:|---:|---:|---|
+| QQQ | 2026-03-31 | 09:30:03 | 0.1 | 124 | 0.159% | yes |
+| QQQ | 2026-03-31 | 12:41:39 | 191.7 | 411 | 0.334% | |
+| SPY | 2026-03-31 | 12:41:39 | 191.7 | 365 | 0.323% | |
+| SPX | 2026-03-24 | 10:52:00 | 82.0 | 141 | 0.146% | |
+| SPX | 2026-03-27 | 11:23:57 | 114.0 | 118 | 0.117% | |
+| SPX | 2026-03-27 | 13:07:17 | 217.3 | 109 | 0.100% | |
+| SPX | 2026-03-30 | 09:32:15 | 2.3 | 118 | 0.179% | yes |
+| SPX | 2026-03-30 | 13:47:19 | 257.3 | 125 | 0.126% | |
+| SPX | 2026-03-30 | 15:50:09 | 380.2 | 114 | 0.102% | |
+| SPX | 2026-03-31 | 09:32:22 | 2.4 | 156 | 0.503% | yes |
+| SPX | 2026-03-31 | 09:49:28 | 19.5 | 153 | 0.175% | |
+| SPX | 2026-03-31 | 12:40:00 | 190.0 | 775 | 0.879% | |
+| SPX | 2026-03-31 | 13:36:43 | 246.7 | 124 | 0.158% | |
+| SPX | 2026-03-31 | 15:51:02 | 381.0 | 68 | 0.106% | |
+
+  Per-board R for comparison (0.1%, time of day 09:30–10:00 / 10:00–11:00 / 11:00–14:00 / 14:00–15:00 / 15:00–16:00): QQQ 82 / 76 / 99 / 11 / 7 (24 in a news blackout, 51 in the first 15 minutes); SPY 8 / 8 / 13 / 2 / 0 (3, 4); SPX 3 / 6 / 11 / 0 / 2 (1, 2). The per-board noise sits in the morning and around news; the bot's R has none of the news cases.
+- **SPX trailing-median what-if (read-only, 2026-10-13; 22 gate days, the same 6,951 crossings, §5.2 relevance, `map_latency_sec` 0.59; config unchanged; `<reports_dir>/step8b/spx_window_whatif.json`):**
+
+| SPX R | Gate p95 (ES) | vs best 0.785 (limit 0.863) | p95 before / from 03-17 | p99 | Bias, median [95% interval] |
+|---|---|---|---|---|---|
+| **per board (current)** | **0.779** | 0.993 pass | 0.759 / 0.809 | 1.274 | +0.008 [−0.002, +0.014] |
+| trailing 30 s median | 0.808 | 1.030 pass | 0.780 / 0.842 | 1.292 | −0.009 [−0.024, +0.003] |
+| trailing 60 s median | 0.849 | 1.082 pass | 0.825 / 0.878 | 1.357 | −0.016 [−0.030, +0.002] |
+| trailing 120 s median | 0.873 | 1.112 **fail** | 0.859 / 0.889 | 1.328 | −0.010 [−0.028, +0.004] |
+
+  Per board is best at every window, in both eras and in the tail. SPX's spot is the index (computed from its components), not an ETF last trade, so its board-to-board R carries little spot noise and a median only adds lag (QQQ/SPY are the opposite, R4/R7).
+- **Consequence:** §13 Q11-instab (recommendation there) and §13 Q8b-6 (SPX estimator: keep per board). Nothing changed.
 
 ## R12. Does the crossing error scale with market speed? (owner 2026-10-08; re-run 2026-10-09 with `map_latency_sec` 0.59)
 The 22 development days of R1, event-moment crossings with the approved estimators (QQQ 60 s, SPY 60 s, SPX per board), each crossing using the board in force by its apply time (floor(`asOf`) + 1 s + 0.59 s). **Trailing volatility** = the mean high-low range of the completed 1-minute futures bars in the 15 minutes before each crossing (only bars that ended at or before it: no lookahead). The day's volatility in the per-day tables is the session's mean 1-minute range (descriptive only). Errors are |futures − strike × R|. SPX has no NQ stop floor; its fixed column is its crossing p95 (0.78 ES), for comparison. Result files: `<reports_dir>/step8b/volstudy/`.
