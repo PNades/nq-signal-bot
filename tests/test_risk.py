@@ -62,12 +62,31 @@ def test_loss_run_limit_is_0_15_for_every_fraction():
     assert risk.meets_loss_run_limit(None, 0.15)
 
 
-def test_raise_needs_the_typed_confirmation():
-    assert risk.is_raise(3, 2) and not risk.is_raise(3, 4) and not risk.is_raise(3, 3)
+@pytest.mark.parametrize("old_n,new_n", [(3, 2), (4, 3), (4, 2)])
+def test_raising_risk_n_down_needs_confirmation_and_waits_for_the_sweep(old_n, new_n):
+    """Risk goes UP when N goes down (e.g. 1/3 -> 1/2): typed confirmation, then the sweep, next session."""
+    assert risk.default_risk_usd(1000, new_n) > risk.default_risk_usd(1000, old_n)
+    assert risk.raises_risk(old_n, new_n) and risk.risk_change(old_n, new_n) == risk.RISK_UP
+    assert risk.needs_typed_confirmation(old_n, new_n) and risk.waits_for_sweep(old_n, new_n)
+
+
+@pytest.mark.parametrize("old_n,new_n", [(3, 4), (2, 3), (2, 4)])
+def test_lowering_risk_n_up_applies_from_the_next_trade(old_n, new_n):
+    """Risk goes DOWN when N goes up (e.g. 1/3 -> 1/4): no confirmation, no wait for the sweep."""
+    assert risk.default_risk_usd(1000, new_n) < risk.default_risk_usd(1000, old_n)
+    assert not risk.raises_risk(old_n, new_n) and risk.risk_change(old_n, new_n) == risk.RISK_DOWN
+    assert not risk.needs_typed_confirmation(old_n, new_n) and not risk.waits_for_sweep(old_n, new_n)
+
+
+def test_same_fraction_is_no_change():
+    assert risk.risk_change(3, 3) == risk.NO_CHANGE and not risk.needs_typed_confirmation(3, 3)
+
+
+def test_the_typed_confirmation_text():
     assert risk.confirmation_text("mffur1", 2) == "mffur1 1/2"
-    assert risk.confirm_raise("mffur1", 2, " mffur1 1/2 ")
-    assert not risk.confirm_raise("mffur1", 2, "mffur1 1/3")
-    assert not risk.confirm_raise("mffur1", 2, "yes")
+    assert risk.confirm_risk_increase("mffur1", 2, " mffur1 1/2 ")
+    assert not risk.confirm_risk_increase("mffur1", 2, "mffur1 1/3")
+    assert not risk.confirm_risk_increase("mffur1", 2, "yes")
 
 
 def test_config_loader_refuses_a_fraction_outside_the_range(tmp_path):

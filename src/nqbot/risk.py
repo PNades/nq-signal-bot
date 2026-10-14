@@ -89,15 +89,37 @@ def meets_loss_run_limit(rate: float | None, limit: float) -> bool:
     return rate is None or rate <= limit
 
 
-def is_raise(old_n: int, new_n: int) -> bool:
-    """A smaller N risks more: it needs the typed confirmation and waits for the sweep (§6.8)."""
+RISK_UP = "risk_up"  # N goes down (e.g. 3 -> 2): typed confirmation, then waits for the sweep, next session after it
+RISK_DOWN = "risk_down"  # N goes up (e.g. 3 -> 4): applies from the next trade, no confirmation
+NO_CHANGE = "no_change"
+
+
+def raises_risk(old_n: int, new_n: int) -> bool:
+    """True when the change raises risk: a smaller N is a larger share of the drawdown (3 -> 2 = 1/3 -> 1/2)."""
     return check_divisor(new_n) < check_divisor(old_n)
 
 
+def risk_change(old_n: int, new_n: int) -> str:
+    """§6.1/§6.8/§9b (owner 2026-10-14): raising risk (N down) needs the typed confirmation and waits for the
+    account's sweep; lowering risk (N up) applies from the next trade."""
+    if raises_risk(old_n, new_n):
+        return RISK_UP
+    return RISK_DOWN if new_n > old_n else NO_CHANGE
+
+
+def needs_typed_confirmation(old_n: int, new_n: int) -> bool:
+    return risk_change(old_n, new_n) == RISK_UP
+
+
+def waits_for_sweep(old_n: int, new_n: int) -> bool:
+    """Raising risk waits for the sweep and takes effect at the next session after it; lowering risk does not."""
+    return risk_change(old_n, new_n) == RISK_UP
+
+
 def confirmation_text(account_name: str, n: int) -> str:
-    """What the owner types to raise the fraction (§9b), e.g. `mffur1 1/2`."""
+    """What the owner types to raise an account's risk to 1/N of the drawdown (§9b), e.g. `mffur1 1/2`."""
     return f"{account_name} 1/{check_divisor(n)}"
 
 
-def confirm_raise(account_name: str, new_n: int, typed: str) -> bool:
+def confirm_risk_increase(account_name: str, new_n: int, typed: str) -> bool:
     return typed.strip() == confirmation_text(account_name, new_n)
