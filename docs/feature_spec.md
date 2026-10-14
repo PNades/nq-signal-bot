@@ -444,6 +444,16 @@ All are computed on RTH from 09:30 and known at t:
 
 ---
 
+### F3.11 Expected-move (sigma) levels (owner 2026-10-14, SPEC §13 Q-sigma)
+- *Definition:* for session T, row = the pre-open `/v1/vol/history` row of session T − `tempest_lag_sessions` (QQQ for NQ, SPY for ES) and C = the NQ RTH close of session T − 1 (the last front-contract trade at or before the RTH close, roll-shifted to today's front contract; ES: the ES close). m = `em_1d_pct` ÷ 100 of the row (Tempest's own one-day move in calendar time: SVX1d ÷ √365 on a Monday–Thursday row, × √3 on a Friday row; SPEC §13 Q-svxwknd). The levels are C × (1 + k·m) for k ∈ `em_level_sigmas` ({−2, −1, +1, +2}; owner rule, never tuned), fixed for the whole session (they do not move intraday), so they match Tempest's chart lines (`/v1/vol/cones` `levels[day]`). With `tempest_lag_sessions` = 2 the row's own move spans the wrong day, so m = SVX1d of that row ÷ 100 × √(calendar days from the T − 1 close to the T close ÷ 365) instead (the same calendar-time rule).
+- NQ lines are registry levels (sub-types `em_dn2`, `em_dn1`, `em_up1`, `em_up2`; level-type key `em_level`, F5.14): the chart-level state machine F5.2 (crossed = a settled 1-minute candle beyond the band, flipped = a settled 5-minute bar), half-width `chart_level_half_width[em_level]` frozen at step 13 from the reaction-distance report. Not sweep-eligible (computed lines like the VWAP bands, not traded highs/lows). ES lines are cross-market features only (F0.9).
+- *Outputs:* the levels as zone members; `running_sigma` = (price − C) ÷ (C·m), signed; the distance to the nearest line above and below (pts, ATR, EM); which line (k) a zone member is.
+- *Known at:* the pre-open job (the row is pulled at or after 08:30 ET, SPEC §3.1 Tempest; C is known at T − 1's close).
+- *Missing row:* no lines that session (never a stale row), as for the other vol-context features.
+- *Params:* `em_level_sigmas` (owner rule); `chart_level_half_width[em_level]`, `chart_level_half_width_cap[em_level]`, `flip_margin[em_level]` (F5.14, F15).
+- *Test:* C = 20,000, `em_1d_pct` 0.80 → ±1σ 19,840 / 20,160, ±2σ 19,680 / 20,320; a Friday row with SVX1d 15.4381 and `tempest_lag_sessions` = 2 → m = 15.4381 ÷ 100 × √(3 ÷ 365) = 1.400% from Friday's close to Monday's.
+- *Live check:* `nqbot step7 sigma-check` compares Tempest's live `day` lines (`/v1/vol/cones`) with C × (1 ± k·m) rebuilt from the stored row (QQQ/SPY prices; the NQ conversion is the bot's own), on three sessions (SPEC §13 Q-sigma).
+
 ## F4. Dark-pool levels (§3.1, §5.4)
 
 - *Definition:* per ticker (QQQ, SPY), at session T: from the raw prints (`/v1/dark-pool/trades`) with trade `timestamp` ≤ 16:00 ET of session T − `dp_lag_sessions` and ≥ that cutoff − `dp_lookback_days` calendar days, take the `dp_top_n` prints with the largest `notional` (ties: later timestamp first).
@@ -472,11 +482,12 @@ All are computed on RTH from 09:30 and known at t:
   - Session highs/lows: ON, PDH/PDL, prior RTH, prior week, retested extremes (F3.7–F3.8).
   - Volume profile: daily/weekly POC and LVNs, single prints (F3.2–F3.5).
   - VWAP: the 18:00 and 09:30 lines and bands (F3.1).
+  - Expected-move levels: ±1σ and ±2σ around the previous RTH close (F3.11).
   - QQQ dark pools (F4).
   - Gameplan zones (F8, containers).
 - **Sweep-eligible:** session highs/lows and IB high/low.
 - **Chart levels:** every type except GEX nodes, the golden zone and gameplan zones.
-- **ES cross-market levels:** SPY/SPX relevant nodes, SPY dark pools, ES ON high/low and ES PDH/PDL. They run on the same machinery on ES but never create NQ events.
+- **ES cross-market levels:** SPY/SPX relevant nodes, SPY dark pools, ES ON high/low, ES PDH/PDL and the ES expected-move lines (from SPY, F3.11). They run on the same machinery on ES but never create NQ events.
 - **`level_id`:**
   - node = map + strike;
   - chart level = type + its session (e.g. `pdh-2025-11-18`);
@@ -594,6 +605,7 @@ Computed as of the touch for events and as of `decision_ts` for pairs:
 |---|---|
 | `vwap` | the 18:00 and 09:30 VWAP lines |
 | `vwap_band` | their ±1σ and ±2σ bands |
+| `em_level` | the ±1σ and ±2σ expected-move lines (F3.11) |
 | `poc` | daily and weekly POC |
 | `lvn` | daily and weekly LVNs |
 | `single_print` | single-print sub-runs |
@@ -897,6 +909,7 @@ Start values are in F15 (part 2); grids are in F16 (part 3). "SPEC" = the SPEC a
 | `velocity_lookback_sec` | features | SPEC | F2.8 |
 | `lean_window` | features | owner (1 min, 2026-10-05) | F2.9, F2.18 |
 | `magnet_min_dist_em` | features | **NEW** | F2.10 |
+| `em_level_sigmas` | features | owner rule (2026-10-14), never tuned | F3.11 |
 | ~~`roll_window_min`~~ | — | removed (owner 2026-10-05: no timer on rolls) | F2.11 |
 | `node_switch_min_sec` | features | **NEW** | F2.11, F2.16 |
 | `regime_band` | features | owner (1%, 2026-10-05) | F2.12 |
@@ -1068,7 +1081,7 @@ POC ties: (a) the price closest to the profile's midpoint; (b) the price closest
 |---|---|---|---|---|---|
 | 1 | `zone_proximity` | 5 NQ pts | a small buffer (~1/8 of a QQQ node band) so a touch starts just before the band | features | tuned-13 |
 | 2 | `confluence_tol` | 10 NQ pts | merges thin chart levels whose bands don't overlap; = `rearm_dist`, well under `max_zone_width` (60) | features | tuned-13 |
-| 3 | `chart_level_half_width_cap` | 12 NQ pts per line type (VWAP lines and bands, POC, LVN, ON / PDH-PDL / prior RTH / prior week / IB high-low / retested extremes); single prints 6 | two capped levels merged at `confluence_tol` span 10 + 2 × 12 = 34 pts, well inside `max_zone_width` (60); single-print bands already span the run | features | cap |
+| 3 | `chart_level_half_width_cap` | 12 NQ pts per line type (VWAP lines and bands, POC, LVN, ON / PDH-PDL / prior RTH / prior week / IB high-low / retested extremes, expected-move lines); single prints 6 | two capped levels merged at `confluence_tol` span 10 + 2 × 12 = 34 pts, well inside `max_zone_width` (60); single-print bands already span the run | features | cap |
 | 4 | `chart_level_half_width` | 4 NQ pts per line type; single prints 0 (SPEC §5.3: start 0, the unfilled run is the band) | a narrow start for steps 11–12 only; the step-13 reaction report replaces it (frozen on months 1–4) | features | frozen at step 13 |
 | 5 | `lean_window` | **1 min** (owner 2026-10-05; proposed 5) | owner: "accumulation shifts quickly" | features | owner |
 | 6 | `regime_band` | **1** (% of spot; owner 2026-10-05; proposed 2) | ≈ ±1.2 EM, the nodes near enough to matter today; well inside `skylit_max_strikes` | features | owner |
@@ -1163,7 +1176,7 @@ POC ties: (a) the price closest to the profile's midpoint; (b) the price closest
   - The grid contains `tuning_start` (0.20 / 0.40).
   - The low corner (0.05 / 0.30) leaves the Aggressive profile room below Normal (§6.8).
   - 0.60 is what a 1:1 trade needs for EV 0.2.
-  - The `max_three_loss_rate` limit removes loose points that lose too often in a row.
+  - The `max_loss_run_rate` limit (L-trade runs of full losses, L = the lives the account's risk fraction allows; SPEC §6.5b, owner 2026-10-14) removes loose points that lose too often in a row. The per-account sweep runs at the account's own fraction (1/2, 1/3 or 1/4); preset entries are written at 1/3 only, and the prop-simulator risk fraction report sweeps each of the three.
   - Conservative, Protect and the last life use EV quantiles (`profile_ev_quantiles`, `last_life_grid`), not this grid.
 - **Cost:** re-simulation of calibrated selections only, minutes per fold; a per-account `nqbot run sweep` takes well under 1 night.
 

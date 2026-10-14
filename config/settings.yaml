@@ -71,6 +71,8 @@ max_target_candidates: 10
 pair_build_min_rr: 0.8
 swing_lookback_sec: 300
 lives_dust_usd: 25
+max_loss_run_rate: 0.15          # §6.5b start value of each account's max_loss_run_rate (renamed from max_three_loss_rate,
+                                 # owner 2026-10-14): the share of L-trade all-full-loss runs, L = lives at a full drawdown; 0.15 for every N
 be_trigger:                  # the breakeven rules chosen per fold (<= 4, §6.4; feature_spec F16.2; approved 2026-10-05)
   - none
   - first_structure            # owner's rule (F11.3)

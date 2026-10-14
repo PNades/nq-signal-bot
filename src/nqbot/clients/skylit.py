@@ -487,6 +487,11 @@ class SkylitClient:
         return self.get("/v1/vol/history", {"symbols": ",".join(symbols), "from": start.isoformat(),
                                             "to": end.isoformat()})
 
+    def vol_cones(self, symbols: list[str]) -> tuple[dict[str, Any], CallRecord]:
+        """Tempest Cones (live only, no history): the `day`/`week`/`month` lines priced at a past close. 1 credit per
+        call, up to 10 symbols. Used only by the step-7 sigma live check (§13 Q-sigma), never as a feature input."""
+        return self.get("/v1/vol/cones", {"symbols": ",".join(symbols)})
+
 
 def _ts_ns(ts: str) -> int:
     """RFC3339 -> ns since the epoch (exact whatever the sub-second precision)."""

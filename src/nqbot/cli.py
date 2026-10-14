@@ -331,6 +331,8 @@ def _add_step7(sub: argparse._SubParsersAction) -> None:
                                 "(1 credit each; decides tempest_lag_sessions, owner 2026-10-09)")
     p.add_argument("--dates", type=_dates, required=True)
     add("tempest-depth", "does Tempest history reach back far enough before month 1 (1-2 credits)")
+    add("sigma-check", "compare Tempest's live sigma lines (/v1/vol/cones) with the bot's expected-move lines "
+                       "(1-2 credits; §13 Q-sigma, owner 2026-10-14)")
     add("dp-start-probe", "is dp_history_start still Skylit's first dark-pool date? (5 credits; owner 2026-10-07)")
     add("report", "write the parameter check for the owner (and the step-10 backfill estimate)")
 
@@ -434,7 +436,8 @@ def _run_step7(args: argparse.Namespace, settings: dict, paths, log) -> int:
 
 # The step-7 checks that run alongside the step-10 backfill without the Skylit lock (decision 2).
 ALONGSIDE_CHECKS = frozenset({"stream-record", "stream-session", "parity", "late-prints-morning", "late-prints-compare", "tempest-poll",
-                              "tempest-compare", "tempest-morning", "tempest-finality", "dp-start-probe"})
+                              "tempest-compare", "tempest-morning", "tempest-finality", "dp-start-probe",
+                              "sigma-check"})
 
 
 def _step7_hint(check: str, e) -> str:
@@ -502,6 +505,8 @@ def _step7_check(args: argparse.Namespace, settings, paths, log, env, approve) -
             step7.check_tempest_morning(env, args.date, approve)
         case "tempest-finality":
             step7.check_tempest_finality(env, args.dates, approve)
+        case "sigma-check":
+            step7.check_sigma(env, approve)
         case "tempest-depth":
             step7.check_tempest_depth(env, approve)
         case "dp-start-probe":

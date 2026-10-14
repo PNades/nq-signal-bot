@@ -838,3 +838,47 @@ def test_stream_session_switches_to_the_internal_drive_when_the_ssd_drops(env, m
     fallback.move_fallback(local, env.paths, echo=lambda s: None)
     moved = sorted(Path(rep["folder"]).glob("part_*_boards.parquet"))
     assert len(moved) == 1 + len(local_parts) and sum(pq.read_table(p).num_rows for p in moved) == n
+
+
+def test_sigma_check_against_the_stored_row(env):
+    """§13 Q-sigma (owner 2026-10-14): Tempest's live `day` lines vs the bot's close ± k x em_1d from the stored
+    pre-open row of the previous session; the row is pulled first if missing, the cones answer is kept apart."""
+    env.fake.routes["/v1/vol/symbols"] = lambda r: {"data": {"symbols": [
+        {"symbol": s, "historyThrough": "2026-03-12"} for s in ("QQQ", "SPY")], "missing": []}}
+    rowcols = {"QQQ": {"close": [600.0], "em_1d_pct": [0.8], "em_1d": [4.8]},
+               "SPY": {"close": [500.0], "em_1d_pct": [0.6], "em_1d": [3.0]}}
+    env.fake.routes["/v1/vol/history"] = lambda r: {"data": {"from": r.url.params["from"], "to": r.url.params["to"],
+        "missing": [], "symbols": [{"symbol": s, "dates": [r.url.params["from"]], "columns": rowcols[s]}
+                                   for s in r.url.params["symbols"].split(",")]}, "meta": {}}
+
+    def cones(r):
+        def day(c, pct, skew=0.0):
+            em = c * pct / 100
+            return {"levels": [{"name": "day", "anchor": c, "em1_pct": pct, "hi1": c + em, "lo1": c - em,
+                                "hi2": c + 2 * em + skew, "lo2": c - 2 * em}]}
+        return {"data": {"symbols": [{"symbol": "QQQ", "sessionDate": "2026-03-13", "cones": day(600.0, 0.8)},
+                                     {"symbol": "SPY", "sessionDate": "2026-03-13", "cones": day(500.0, 0.6005, 0.5)}],
+                         "missing": []}, "meta": {}}
+
+    env.fake.routes["/v1/vol/cones"] = cones
+    env.now = Now(datetime(2026, 3, 13, 8, 0, tzinfo=ET))
+    with pytest.raises(step7.CheckRefused, match="08:30"):
+        step7.check_sigma(env)
+    env.now = Now(datetime(2026, 3, 13, 9, 5, tzinfo=ET))
+    rep = step7.check_sigma(env)
+    assert env.fake.paths().count("/v1/vol/history") == 1 and env.store.vol_files(date(2026, 3, 12), date(2026, 3, 12))
+    q, s = rep["symbols"]["QQQ"], rep["symbols"]["SPY"]
+    assert q["ok"] and q["two_sigma_symmetric"] and q["anchor_matches_close"] and q["bot_lines"]["hi2"] == 609.6
+    assert s["ok"] is True and s["em1_pct_diff"] == 0.0005  # within 0.001 percentage points
+    assert not s["two_sigma_symmetric"]  # a skew-shaped 2σ is reported, the owner decides
+    assert list((env.store.root / "tempest_cones" / "2026-03-13").glob("cones_*.json"))
+    env.now = Now(datetime(2026, 3, 13, 12, 0, tzinfo=ET))  # the midday run reuses the stored row
+    step7.check_sigma(env)
+    assert env.fake.paths().count("/v1/vol/history") == 1 and env.fake.paths().count("/v1/vol/cones") == 2
+
+
+def test_compare_sigma_flags_a_mismatch():
+    row = {"date": "2026-03-12", "close": 600.0, "em_1d_pct": 0.8}
+    bad = {"levels": [{"name": "day", "em1_pct": 0.9, "hi1": 605.4, "lo1": 594.6, "hi2": 610.8, "lo2": 589.2}]}
+    assert step7.compare_sigma(row, bad)["ok"] is False
+    assert step7.compare_sigma(row, {"levels": []})["ok"] is None

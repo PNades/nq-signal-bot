@@ -52,5 +52,13 @@ def load_features(config_dir: Path | None = None) -> dict[str, Any]:
 
 
 def load_accounts(config_dir: Path | None = None) -> list[dict[str, Any]]:
+    from nqbot import risk  # §6.1: refuse a risk fraction outside 1/2 .. 1/4 (owner 2026-10-14)
+
     data = load_yaml((config_dir or CONFIG_DIR) / "accounts.yaml") or {}
-    return data.get("accounts") or []
+    accounts = data.get("accounts") or []
+    for a in accounts:
+        try:
+            risk.divisor_of(a)
+        except risk.RiskConfigError as e:
+            raise ConfigError(f"accounts.yaml, account {a.get('name')!r}: {e}") from e
+    return accounts

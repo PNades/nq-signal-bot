@@ -1530,6 +1530,95 @@ def check_tempest_finality(env: Env, days: list[date], approved: int | None = No
     return report
 
 
+SIGMA_SYMBOLS = ("QQQ", "SPY")  # §13 Q-sigma: NQ lines from QQQ, ES lines from SPY
+SIGMA_PCT_TOL = 0.001  # §13 Q-sigma live check: em1_pct within 0.001 percentage points of the row's em_1d_pct
+SIGMA_PRICE_TOL = 0.01  # §13 Q-sigma live check: hi/lo lines within $0.01 of close ± k × em_1d
+VOL_CONES_CREDITS = 1  # /v1/vol/cones: 1 credit per call, up to 10 symbols (Skylit OpenAPI)
+
+
+def _num(x: Any) -> float | None:
+    try:
+        return None if x is None or isinstance(x, bool) else float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def compare_sigma(row: dict[str, Any], cones: dict[str, Any]) -> dict[str, Any]:
+    """§13 Q-sigma: Tempest's live `day` lines (priced at the prior close) vs the lines the bot rebuilds from the
+    stored pre-open /v1/vol/history row of that close (close ± k × em_1d, em_1d = close × em_1d_pct / 100)."""
+    levels = (cones or {}).get("levels") or []
+    day = next((lv for lv in levels if isinstance(lv, dict) and lv.get("name") == "day"), None)
+    close, pct = _num(row.get("close")), _num(row.get("em_1d_pct"))
+    out: dict[str, Any] = {"row_date": str(row.get("date")), "row_close": close, "row_em_1d_pct": pct,
+                           "tempest_day_level": day}
+    if day is None or close is None or pct is None:
+        out["ok"] = None
+        out["note"] = "no `day` level from Tempest" if day is None else "the stored row has no close / em_1d_pct"
+        return out
+    em = close * pct / 100
+    mine = {"hi1": close + em, "lo1": close - em, "hi2": close + 2 * em, "lo2": close - 2 * em}
+    diffs = {k: (round(_num(day.get(k)) - v, 4) if _num(day.get(k)) is not None else None) for k, v in mine.items()}
+    em1 = _num(day.get("em1_pct"))
+    out.update({"bot_lines": {k: round(v, 4) for k, v in mine.items()}, "diff_tempest_minus_bot": diffs,
+                "em1_pct_diff": round(em1 - pct, 5) if em1 is not None else None,
+                "one_sigma_ok": em1 is not None and abs(em1 - pct) <= SIGMA_PCT_TOL
+                and all(diffs[k] is not None and abs(diffs[k]) <= SIGMA_PRICE_TOL for k in ("hi1", "lo1")),
+                "two_sigma_symmetric": all(diffs[k] is not None and abs(diffs[k]) <= SIGMA_PRICE_TOL
+                                           for k in ("hi2", "lo2")),
+                "anchor_matches_close": _num(day.get("anchor")) is not None
+                and abs(_num(day.get("anchor")) - close) <= SIGMA_PRICE_TOL})
+    out["ok"] = out["one_sigma_ok"]
+    return out
+
+
+def check_sigma(env: Env, approved: int | None = None) -> dict[str, Any]:
+    """§13 Q-sigma live check (owner 2026-10-14): on a session, pull Tempest's /v1/vol/cones for QQQ and SPY (1 credit)
+    and compare its `day` lines with the ones the bot rebuilds from the previous session's pre-open history row (pulled
+    first, 1 credit, if not stored yet). The cones answer is kept apart under `tempest_cones/` and is never a feature
+    input. Run it before the open and once about midday (the `day` lines must not move)."""
+    now = env.now()
+    today = now.astimezone(ET).date()
+    if not env.trading_day(today) or now.astimezone(ET).time() < env.preopen():
+        raise CheckRefused(f"sigma-check runs on a trading day from {env.preopen():%H:%M} ET")
+    prev = dp.previous_session(today, 1, env.trading_day)
+    need_row = not env.store.vol_files(prev, prev)
+    est = credits.Estimate("Tempest sigma live check")
+    if need_row:
+        est.add_total(f"/v1/vol/history {prev}..{prev} (pre-open row)", 1,
+                      credits.vol_history_cost(len(TEMPEST_SYMBOLS) + 1, prev, prev))
+    est.add_total("/v1/vol/cones QQQ,SPY", 1, VOL_CONES_CREDITS)
+    _gate(env, est, approved)
+    if need_row:
+        check_tempest_morning(env, prev, approved)
+    rows: dict[str, dict[str, Any]] = {}
+    for f in env.store.vol_files(prev, prev):
+        for r in pq.read_table(f).to_pylist():
+            rows.setdefault(r["symbol"], r)
+    with env.client.tagged(tempest="sigma_check"):
+        body, _ = env.client.vol_cones(list(SIGMA_SYMBOLS))
+    stamp = now.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    atomic_write_json(env.store.root / "tempest_cones" / today.isoformat() / f"cones_{stamp}.json",
+                      {"pulled_at": now.isoformat(), "body": body})
+    per = {}
+    for s in (body.get("data") or {}).get("symbols") or []:
+        if s.get("symbol") in SIGMA_SYMBOLS:
+            res = compare_sigma(rows.get(s["symbol"], {}), s.get("cones") or {})
+            res.update({"asOf": s.get("asOf"), "sessionDate": s.get("sessionDate"), "stale": s.get("stale")})
+            per[s["symbol"]] = res
+    for sym in SIGMA_SYMBOLS:
+        r = per.get(sym)
+        if r is None:
+            env.echo(f"  {sym}: not in Tempest's answer")
+            continue
+        env.echo(f"  {sym}: 1σ {'matches' if r['ok'] else 'DIFFERS' if r['ok'] is False else 'not comparable'}"
+                 f" (em1_pct diff {r.get('em1_pct_diff')}), 2σ {'symmetric' if r.get('two_sigma_symmetric') else 'not symmetric'}"
+                 f", diffs {r.get('diff_tempest_minus_bot')}")
+    report = {"session": today.isoformat(), "row_session": prev.isoformat(), "pulled_at": now.isoformat(),
+              "symbols": per, "all_one_sigma_ok": bool(per) and all(r["ok"] for r in per.values())}
+    write_report(env, f"sigma_check_{today.isoformat()}", report)
+    return report
+
+
 def _tempest_start(env: Env) -> date:
     """§12 step 10: Tempest from warmup_sessions + 2 sessions before month 1."""
     d = months_mod.days_of(1, env.settings)[0]

@@ -2,7 +2,7 @@
 # Values are the SPEC's start values and the docs/feature_spec.md F15 start values the owner approved at
 # step 6 (2026-10-05); the step-13/19 grids are tune_grids_13 / tune_grids_19 (F16). Frozen execution parameters are added here at step 13/19,
 # marked `frozen_from: months 1-4` (§7.1).
-features_version: 1               # 1: golden-zone upper fib 0.786 -> 0.79 (owner 2026-10-14); nothing was built under 0
+features_version: 2               # 1: golden-zone upper fib 0.786 -> 0.79; 2: expected-move (sigma) levels F3.11 (owner 2026-10-14); nothing was built under 0 or 1
 
 # --- Structure (§5.2-§5.4b) -----------------------------------------------------------------------
 zone_proximity: 5                 # NQ pts; tuned at step 13 (F16.4); approved 2026-10-05 (feature_spec F15)
@@ -13,15 +13,15 @@ rearm_dist: 10                  # NQ pts
 entry_reprice_tol: 2            # NQ pts
 # Chart-level half-widths per level type (NQ pts; F5.14, F15 rows 3-4, approved 2026-10-05): start values for steps 11-12,
 # replaced at step 13 by the reaction-distance report (frozen on months 1-4), never above the cap.
-chart_level_half_width: {vwap: 4, vwap_band: 4, poc: 4, lvn: 4, on_extreme: 4, pdh_pdl: 4, prior_rth: 4, prior_week: 4, ib: 4, retested_extreme: 4, single_print: 0}
-chart_level_half_width_cap: {vwap: 12, vwap_band: 12, poc: 12, lvn: 12, on_extreme: 12, pdh_pdl: 12, prior_rth: 12, prior_week: 12, ib: 12, retested_extreme: 12, single_print: 6}
+chart_level_half_width: {vwap: 4, vwap_band: 4, poc: 4, lvn: 4, on_extreme: 4, pdh_pdl: 4, prior_rth: 4, prior_week: 4, ib: 4, retested_extreme: 4, single_print: 0, em_level: 4}
+chart_level_half_width_cap: {vwap: 12, vwap_band: 12, poc: 12, lvn: 12, on_extreme: 12, pdh_pdl: 12, prior_rth: 12, prior_week: 12, ib: 12, retested_extreme: 12, single_print: 6, em_level: 12}
 node_band: {QQQ: 0.5, SPY: 0.5, SPX: 5, NDXP: 20}   # in each underlying's own units; NDXP confirmed at step 13
 min_node_pct_of_king: 0.25      # owner
 node_drop_pct: 0.20
 lean_window: 1                  # minutes; owner 2026-10-05 (accumulation shifts quickly); fixed
 velocity_lookback_sec: 60
 regime_band: 1                  # % of spot; owner 2026-10-05; fixed
-flip_margin: {qqq_node: 0, ndxp_node: 0, vwap: 0, vwap_band: 0, poc: 0, lvn: 0, single_print: 0, dark_pool: 0, on_extreme: 0, pdh_pdl: 0, prior_rth: 0, prior_week: 0, ib: 0, retested_extreme: 0}
+flip_margin: {qqq_node: 0, ndxp_node: 0, vwap: 0, vwap_band: 0, poc: 0, lvn: 0, single_print: 0, dark_pool: 0, on_extreme: 0, pdh_pdl: 0, prior_rth: 0, prior_week: 0, ib: 0, retested_extreme: 0, em_level: 0}
                                 # NQ pts per level type (start 0); tuned at step 13 per group (tune_grids_13), written per type;
                                 # ES-side types use their NQ counterpart x ES/NQ at the open (F0.11): SPY/SPX nodes = gex_nodes group,
                                 # SPY dark pools = chart_lines, ES ON high/low and PDH/PDL = highs_lows
@@ -37,6 +37,8 @@ retest_lookback_sessions: 10
 atr_period: 14                  # sessions
 rotation_min_pts: 0.25          # x ATR
 rv_lookback_sessions: 20
+em_level_sigmas: [-2, -1, 1, 2]   # owner 2026-10-14, never tuned (F3.11): expected-move lines at C x (1 + k x em_1d_pct / 100),
+                                  # C = previous NQ RTH close, em_1d_pct = Tempest's calendar-day 1-day move (QQQ row; ES: SPY)
 
 # --- Volume profile (§5.3) ------------------------------------------------------------------------
 lvn_smooth_ticks: 8                 # Gaussian sigma = lvn_smooth_ticks / 2 (owner 2026-10-05, FQ-10)
@@ -163,7 +165,7 @@ tune_grids_13:
     flip_margin:                  # one value per group, written to each of its level types
       groups:
         gex_nodes: [qqq_node, ndxp_node]
-        chart_lines: [vwap, vwap_band, poc, lvn, single_print, dark_pool]
+        chart_lines: [vwap, vwap_band, poc, lvn, single_print, dark_pool, em_level]
         highs_lows: [on_extreme, pdh_pdl, prior_rth, prior_week, ib, retested_extreme]
       values: [0, 2, 5]
   execution:                      # styles (c) and (d), each on its own single-style policy

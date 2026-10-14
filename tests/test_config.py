@@ -28,7 +28,11 @@ def test_features_and_accounts_load():
     # golden zone (§5.8, F10): upper fib 0.79 (owner 2026-10-14), the zone runs 0.5 .. the upper fib
     assert f["golden_fib_levels"] == [0.5, 0.618, 0.705, 0.79]
     assert f["golden_zone_upper_fib"] == 0.79 == max(f["golden_fib_levels"]) and min(f["golden_fib_levels"]) == 0.5
-    assert f["features_version"] == 1
+    assert f["features_version"] == 2
+    # expected-move (sigma) levels (F3.11, owner 2026-10-14): ±1σ and ±2σ only, a chart-line level type
+    assert f["em_level_sigmas"] == [-2, -1, 1, 2]
+    assert "em_level" in f["chart_level_half_width"] and "em_level" in f["flip_margin"]
+    assert "em_level" in f["tune_grids_13"]["detectors"]["flip_margin"]["groups"]["chart_lines"]
     assert load_accounts() == []
 
 
