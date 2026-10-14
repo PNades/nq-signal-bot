@@ -2,7 +2,7 @@
 # Values are the SPEC's start values and the docs/feature_spec.md F15 start values the owner approved at
 # step 6 (2026-10-05); the step-13/19 grids are tune_grids_13 / tune_grids_19 (F16). Frozen execution parameters are added here at step 13/19,
 # marked `frozen_from: months 1-4` (§7.1).
-features_version: 0
+features_version: 1               # 1: golden-zone upper fib 0.786 -> 0.79 (owner 2026-10-14); nothing was built under 0
 
 # --- Structure (§5.2-§5.4b) -----------------------------------------------------------------------
 zone_proximity: 5                 # NQ pts; tuned at step 13 (F16.4); approved 2026-10-05 (feature_spec F15)
@@ -28,6 +28,8 @@ flip_margin: {qqq_node: 0, ndxp_node: 0, vwap: 0, vwap_band: 0, poc: 0, lvn: 0, 
 flip_bar_minutes: 5
 ib_fib_start_minute: 20         # owner rule, never tuned (golden zone opens 09:50)
 ib_lock_minute: 30              # owner rule, never tuned (all setups from 10:00)
+golden_fib_levels: [0.5, 0.618, 0.705, 0.79]   # owner rule, never tuned (§5.8, F10): the fib levels recorded in the golden zone
+golden_zone_upper_fib: 0.79     # owner 2026-10-14 (was 0.786), never tuned: the zone's far edge (settled-past invalidation, stop candidate 2)
 sweep_max_depth: 15             # NQ pts
 sweep_reclaim_bars: 3           # 1-minute bars
 retest_tol_ticks: 4

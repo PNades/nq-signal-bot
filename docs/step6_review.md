@@ -194,10 +194,10 @@ The rest of this section-by-section summary explains what each measurement means
 - **Orientation (your rule):**
   - low then high = an up leg: long pullbacks;
   - high then low = a down leg: short pullbacks.
-- **The zone:** between the 0.5 and 0.786 levels, with 0.618 and 0.705 recorded too.
+- **The zone:** between the 0.5 and 0.79 levels, with 0.618 and 0.705 recorded too (0.786 changed to 0.79 by the owner, 2026-10-14).
   - Targets include the range extreme and the −0.272 / −0.618 extensions.
   - The stop candidate is the far extreme (the 1.0 level).
-- **Invalidation:** a 1-minute bar settling past 0.786.
+- **Invalidation:** a 1-minute bar settling past 0.79.
 - **Repeat tests:** every return after re-arming is a new event, with no limit.
 - **Trading window:** it is the only setup that can trade 09:50–10:00. Other levels still count as confluence inside it.
 

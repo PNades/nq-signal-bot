@@ -14,8 +14,8 @@ How I trade. Claude Code reads this to write `docs/feature_spec.md`. Answers wri
 
 ## Opening-range fib golden zone
 - Orientation: drawn on the most recent swing. If price went high then low, the fib is drawn from the top to the bottom (and the reverse).
-- Any of the fib levels (0.5 / 0.618 / 0.705 / 0.786) can play out.
-- If price settles past 0.786, the setup is invalidated.
+- Any of the fib levels (0.5 / 0.618 / 0.705 / 0.79) can play out.
+- If price settles past 0.79, the setup is invalidated.
 
 ## Chart levels
 - I don't know the ideal zone widths for POC, LVNs, single prints, VWAP and bands, highs/lows or IB high/low: the model should learn them.

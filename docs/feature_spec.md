@@ -7,7 +7,7 @@
 
 **Precedence.** SPEC.md is the source of truth for definitions; this file refines §5 and supplies what §5.2 defers. Where this file conflicts with a SPEC rule, the conflict goes to SPEC §13. Owner notes win over the Skylit docs. If owner notes and SPEC disagree, the conflict goes to §13 and SPEC is followed until the owner answers (none found; see F14).
 
-**Values.** F0–F12 name parameters without valuing them; the proposed start values are all in one table, F15 (part 2). Exceptions valued in place: the owner's fixed definitional constants (25% of King, the 0.5/0.618/0.705/0.786 fib levels, the 70% value area, 1σ/2σ, 30-minute TPO periods, `ib_fib_start_minute` 20, `ib_lock_minute` 30, `session.flat_by` 15:59, `min_minutes_before_flat` 14) and SPEC-fixed method constants. Parameters marked **NEW** were not in SPEC §11 before part 1. Their start values (F15) were approved by the owner at step 6 (2026-10-05) and are in `config/`.
+**Values.** F0–F12 name parameters without valuing them; the proposed start values are all in one table, F15 (part 2). Exceptions valued in place: the owner's fixed definitional constants (25% of King, the 70% value area, 1σ/2σ, 30-minute TPO periods, `ib_fib_start_minute` 20, `ib_lock_minute` 30, `session.flat_by` 15:59, `min_minutes_before_flat` 14) and SPEC-fixed method constants. The golden-zone fib levels (0.5/0.618/0.705/0.79; upper fib 0.79, owner 2026-10-14) are the named owner-rule parameters `golden_fib_levels` and `golden_zone_upper_fib` in features.yaml (never tuned). Parameters marked **NEW** were not in SPEC §11 before part 1. Their start values (F15) were approved by the owner at step 6 (2026-10-05) and are in `config/`.
 
 **Open questions** are numbered `FQ-nn` and collected in F13. Each one offered options for the owner; all were answered at step 6 (2026-10-05, F13), and the answers are written into the definitions.
 
@@ -526,7 +526,7 @@ All are computed on RTH from 09:30 and known at t:
   - **Unresolved breaks:** while a member's break is unresolved, trades on the far side neither re-arm the zone nor change its approach side, and coming back inside is the same event. A break is unresolved when:
     - a high/low is inside its sweep window and within `sweep_max_depth`;
     - a chart level is beyond its band with no settled 1-minute bar yet;
-    - the golden zone is beyond 0.786 with no settled bar yet.
+    - the golden zone is beyond 0.79 with no settled bar yet.
   - After a cross and a flip, the zone re-arms on the new side; after a reclaim, on the original side.
 - *Params:* `zone_proximity`, `rearm_dist`.
 - *Test:* zone [100, 102], `zone_proximity` 2, `rearm_dist` 10. Price 120 (armed, from above) → 104 (touch) → 110 (no re-arm) → 115 (re-armed) → 103.5 (second touch).
@@ -688,7 +688,7 @@ These values are measured after the touch: `swept`, `sweep_depth`, `sweep_second
 
 **Time-to-live and removal.** These are the only removal reasons:
 - `entry_ttl_sec` expiry;
-- zone crossed (golden zone: settled past 0.786; gameplan zone: traded past its far edge, F5.9);
+- zone crossed (golden zone: settled past 0.79; gameplan zone: traded past its far edge, F5.9);
 - zone vanished, or moved more than `entry_reprice_tol` from the entry price;
 - start of a news blackout;
 - data outage;
@@ -811,15 +811,15 @@ Each removal takes effect `order_latency_sec` after it occurs; a fill before the
     - t_L < t_H (low first, then high): the leg is up, anchored low → high. Fib level x sits at H − x·(H − L) and the zone is a **long** pullback zone.
     - t_H < t_L (high first): the leg is down. Level x sits at L + x·(H − L) and the zone is a **short** pullback zone.
     - It is re-evaluated at every redraw and fixed for the rest of the day at the lock.
-  - **Golden zone** = between the 0.5 and 0.786 levels (a container), with fib levels 0.5, 0.618, 0.705 and 0.786.
+  - **Golden zone** = between the 0.5 and 0.79 levels (a container), with fib levels 0.5, 0.618, 0.705 and 0.79 (`golden_fib_levels`; the far edge is `golden_zone_upper_fib`, 0.79 since owner 2026-10-14, was 0.786).
     - Level 0 = the range extreme in the trade direction (a target candidate).
     - Level 1.0 = the opposite extreme (stop candidate 6).
     - Extensions at −0.272 and −0.618 are target candidates.
-  - **Invalidation:** a 1-minute bar settles beyond the 0.786 level, on the side away from the zone (F0.5).
-  - **Re-arm:** once price is back on the original side of 0.786 and ≥ `rearm_dist` away from the zone (plus the normal F5.6 rule). Every return is a new event, and there is no limit on tests.
+  - **Invalidation:** a 1-minute bar settles beyond the 0.79 level, on the side away from the zone (F0.5).
+  - **Re-arm:** once price is back on the original side of 0.79 and ≥ `rearm_dist` away from the zone (plus the normal F5.6 rule). Every return is a new event, and there is no limit on tests.
 - *Known at:* each trade (the range); 10:00:00 (the lock).
 - *Outputs:*
-  - `in_golden_zone`; `fib_level_reached` (the deepest of 0.5/0.618/0.705/0.786 reached by `decision_ts`; a pair column);
+  - `in_golden_zone`; `fib_level_reached` (the deepest of 0.5/0.618/0.705/0.79 reached by `decision_ts`; a pair column);
   - minutes after 09:30 when the range was established (20 unless redrawn), and the number of redraws;
   - range size (pts, ATR, EM) and the range ÷ its `ib_avg_sessions` average; `range_broke_on` (H > ON high or L < ON low);
   - touch history: today's touch number; earlier touches' outcomes and how far they ran, if resolved (pending otherwise); minutes since the last touch; minutes since the lock; `left_ib_since_lock`;
@@ -829,9 +829,9 @@ Each removal takes effect `order_latency_sec` after it occurs; a fill before the
     - Trinity inside the zone;
     - confluence members (F5.9).
 - *Test:*
-  - L 20,000 at 09:35, H 20,200 at 09:45 → up leg, zone [20,042.8, 20,100], long.
+  - L 20,000 at 09:35, H 20,200 at 09:45 → up leg, zone [20,042, 20,100], long.
   - A new high of 20,300 at 09:55 → redraw.
-  - In a separate case keeping the 09:45 drawing (0.786 at 20,042.8): a bar at 10:05 that opens at 20,040 and closes at 20,030 → invalidated.
+  - In a separate case keeping the 09:45 drawing (0.79 at 20,042): a bar at 10:05 that opens at 20,040 and closes at 20,030 → invalidated.
 
 ---
 
@@ -1034,7 +1034,7 @@ POC ties: (a) the price closest to the profile's midpoint; (b) the price closest
 **Owner notes vs SPEC: none found.** Checked:
 - 25% of King (owner notes = §5.2);
 - "QQQ level with SPY and/or SPX also approaching on ES" (= the Trinity count features, §5.2);
-- golden-zone orientation, levels and settled-past-0.786 invalidation (= §5.8);
+- golden-zone orientation, levels and settled-past-0.79 invalidation (= §5.8);
 - chart levels break on a settled 1-minute candle, nodes on trading past the band, sweeps their own case (= §5.4, §5.3);
 - absorption, push-away, absorbed + exhausted, big trades input only (= §5.7);
 - the absorption stop (~5 pts) (= §6.2);
