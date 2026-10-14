@@ -2,7 +2,7 @@
 # Values are the SPEC's start values and the docs/feature_spec.md F15 start values the owner approved at
 # step 6 (2026-10-05); the step-13/19 grids are tune_grids_13 / tune_grids_19 (F16). Frozen execution parameters are added here at step 13/19,
 # marked `frozen_from: months 1-4` (§7.1).
-features_version: 2               # 1: golden-zone upper fib 0.786 -> 0.79; 2: expected-move (sigma) levels F3.11 (owner 2026-10-14); nothing was built under 0 or 1
+features_version: 3               # 1: golden-zone upper fib 0.786 -> 0.79; 2: expected-move (sigma) levels F3.11; 3: mapping-dislocation guard F1.8 (owner 2026-10-14); nothing was built under 0-2
 
 # --- Structure (§5.2-§5.4b) -----------------------------------------------------------------------
 zone_proximity: 5                 # NQ pts; tuned at step 13 (F16.4); approved 2026-10-05 (feature_spec F15)
@@ -97,6 +97,13 @@ mapping:
     from_stamp_change: {QQQ: -60, SPY: -60, SPX: -80, NDXP: null}
     live: {QQQ: -60, SPY: null, SPX: -80, NDXP: null}   # live boards = post-03-17 history (parity 10-07); SPY pending
                                                         # (live 10-07 +420): set from the 10-09/12/13 recordings
+  # mapping-dislocation guard (owner 2026-10-14, SPEC §5.1/§9, §13 Q-dislguard, feature_spec F1.8): a data-quality guard,
+  # fixed from data quality, never tuned on trade results
+  disl_guard_pct: 0.002            # 0.2% of R
+  disl_guard_window_sec: 120       # within 2 minutes (trailing)
+  disl_guard_confirm_sec: 10       # per-board trigger: both ends held by two boards within 10 s
+  disl_guard_hold_sec: 60          # blocked until 60 s after the last flagged board
+  disl_guard_maps: [QQQ, SPY, SPX] # NDXP follows QQQ's block if its R comes from QQQ x k (§13 Q8b-1)
 
 # --- Entries and order flow (§5.7) ---------------------------------------------------------------
 abs_volume: 300                   # contracts; tuned at step 19 (F16.5); approved 2026-10-05 (feature_spec F15)

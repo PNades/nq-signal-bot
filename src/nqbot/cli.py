@@ -525,10 +525,13 @@ def _add_step8b(sub: argparse._SubParsersAction) -> None:
                         ("bias", "gate (a): median signed crossing error per chain, day-block bootstrap interval"),
                         ("estimator", "gate (b): the chosen R estimator's crossing p95 vs the best possible R"),
                         ("alignment", "gate: fitted content time per map never after floor(asOf) + 1 s"),
-                        ("dislocations", "count fast moves of the mapping ratio (0.05/0.1/0.2% in 2 min), months 1-6")):
+                        ("dislocations", "count fast moves of the mapping ratio (0.05/0.1/0.2% in 2 min) and the guard's fires")):
         p = s8.add_parser(name, help=help_)
         p.add_argument("--dates", type=_dates, default=None,
                        help="comma-separated development-month dates (default: the step-7 sample days)")
+        if name == "dislocations":
+            p.add_argument("--months", choices=("development", "walk-forward"), default="development",
+                           help="months 1-6 (default) or the walk-forward months 7-9 (automated counts only)")
     p = s8.add_parser("atlas", help="the QQQ/SPY nodes and strike crossings for the owner's Atlas replay check")
     p.add_argument("--date", type=_date, required=True, help="a sample day (YYYY-MM-DD)")
     p.add_argument("--minutes", type=lambda t: [_hhmm(x.strip()) for x in t.split(",") if x.strip()], required=True,
@@ -562,7 +565,7 @@ def _run_step8b(args: argparse.Namespace, settings, paths, log) -> int:
             case "dislocations":
                 from nqbot.checks import step8b_disloc
 
-                step8b_disloc.check_dislocations(env, args.dates, isolate=True)
+                step8b_disloc.check_dislocations(env, args.dates, isolate=True, month_set=args.months)
             case "atlas":
                 step8b.check_atlas(env, args.date, args.minutes)
             case "recorded-day":

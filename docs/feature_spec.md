@@ -97,6 +97,13 @@
 - *Inputs → known at:* each board's ratio at its `t_apply`; the median at the current board's `t_apply`.
 - *Test:* QQQ boards at content times 0, 30, 61, 62, 74 s with ratios 41.0, 41.2, 41.1, 50.0, 41.3. With `ratio_gap_reset_sec` 10 every gap but 61→62 resets: R in force 41.0, 41.2, 41.1, 45.55 (median of 41.1, 50.0), 41.3. With the reset at 60 s (illustration only): 41.0, 41.1, 41.15 (window (1, 61]: 41.2, 41.1), 41.2 (41.2, 41.1, 50.0), 41.25 (window (14, 74]).
 
+**F1.8 Mapping-dislocation guard (owner 2026-10-14; SPEC §5.1, §9, §13 Q-dislguard; `features/disloc_guard.py`).**
+- *Definition:* per chain m in `disl_guard_maps` (QQQ, SPY, SPX) and session, boards in apply-time order (`t_apply`, F0.1). **Per-board trigger:** r_k = board k's own ratio (F1.1, F at its content time ÷ its spot); held_high_k = min(r_k, max r of the boards in [t_k − `disl_guard_confirm_sec`, t_k)), held_low_k = max(r_k, min of those) (undefined with no such board); board k is flagged when, over the boards in (t_k − `disl_guard_window_sec`, t_k], max held_high − min held_low > `disl_guard_pct` × median r. **Bot's-R trigger (backstop):** with q_k = the R in force after board k (F1.7), flagged when (max q − min q) ÷ median q over (t_k − window, t_k] > `disl_guard_pct`. Both windows reset after a gap between boards longer than `ratio_gap_reset_sec` and at the session's first board. The chain is **blocked** at time t when some flagged board (either trigger) lies in [t − `disl_guard_hold_sec`, t] (trailing only). A **fire** = a trigger's first flagged board outside that trigger's current block; logged with trigger, chain, size (the range at that board) and peak. No opening-minutes exception. A data-quality guard (rule 6): only mapping inputs, thresholds never tuned on trade results.
+- *Effect:* a pair is not tradeable (F5.7 `tradeable`) when its `decision_ts` is inside a block of a chain with a member in its zone (NDXP follows QQQ's block if its R comes from QQQ × k); live and both simulators remove pending entries at those zones at the block start and send no new entry there; open trades keep their brackets.
+- *Params:* `disl_guard_pct`, `disl_guard_window_sec`, `disl_guard_confirm_sec`, `disl_guard_hold_sec`, `disl_guard_maps` (features.yaml `mapping:`; owner, fixed from data quality: 0.002, 120, 10, 60, [QQQ, SPY, SPX]), `ratio_gap_reset_sec`.
+- *Inputs → known at:* each board's ratio and the R in force at its `t_apply`.
+- *Test (hand-built, 1-s boards at R = 41.0):* one board 50 bps up (or down), the next back → no fire; a 25-bp shift held by every later board from board 100 → fires at board 101 (both levels held by two boards); one board 19.8 bps down at 100, then +1 bp from 101 → no fire (its starting level is held by one board only); the same with board 99 also down → fires at board 102; R in force stepping 0.25% at board 120 → a bot's-R fire at 120; after the shift at 100 the block lasts until 60 s after the last flagged board (218 → 278); a shift across a 21-s gap → no fire.
+
 ---
 
 ## F2. Skylit structure (§5.2, `docs/skylit/`)
@@ -552,7 +559,7 @@ All are computed on RTH from 09:30 and known at t:
     - flipped levels use their current role;
     - golden zone: from the fib orientation (F10);
     - gameplan zones: the approach rule, with agreement with the gameplan `side` as a feature (F8).
-  - **Event tags:** `in_golden_zone` (the zone is the golden-zone container), `minutes_since_open`, `tradeable` (a pair-level filter on `decision_ts`, §1.2).
+  - **Event tags:** `in_golden_zone` (the zone is the golden-zone container), `minutes_since_open`, `tradeable` (a pair-level filter on `decision_ts`, §1.2; also false inside a mapping-dislocation block of a chain in the zone, F1.8).
 - *Test:* the event-id format, and that two firings of style (b) on the same event get different order ids.
 
 ### F5.8 Area events (VAH/VAL, from step 19)
@@ -901,7 +908,7 @@ Start values are in F15 (part 2); grids are in F16 (part 3). "SPEC" = the SPEC a
 
 | Parameter | File | Kind | Used in |
 |---|---|---|---|
-| `ratio_outlier_bps`, `ratio_reaccept_n`, `ratio_open_skip_sec`, `mapping_p95_max`, `atlas_match_tol`, `atlas_regression_min_share`, `ratio_window_sec`, `ratio_gap_reset_sec`, `skylit_stamp_change_date`, `board_content_offset_ms` | features (`mapping:`) | SPEC (step 8b reports, never raised to pass) | F1 |
+| `ratio_outlier_bps`, `ratio_reaccept_n`, `ratio_open_skip_sec`, `mapping_p95_max`, `atlas_match_tol`, `atlas_regression_min_share`, `ratio_window_sec`, `ratio_gap_reset_sec`, `skylit_stamp_change_date`, `board_content_offset_ms`, `disl_guard_pct`, `disl_guard_window_sec`, `disl_guard_confirm_sec`, `disl_guard_hold_sec`, `disl_guard_maps` | features (`mapping:`) | SPEC (step 8b reports, never raised to pass) | F1 |
 | `skylit_max_strikes` | settings | measured (step 7) | F2.1, F2.3 |
 | `node_band` | features | owner (NDXP confirmed step 13) | F1.4, F2 |
 | `min_node_pct_of_king` | features | owner (0.25) | F2.4 |

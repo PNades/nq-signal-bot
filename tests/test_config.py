@@ -28,7 +28,12 @@ def test_features_and_accounts_load():
     # golden zone (§5.8, F10): upper fib 0.79 (owner 2026-10-14), the zone runs 0.5 .. the upper fib
     assert f["golden_fib_levels"] == [0.5, 0.618, 0.705, 0.79]
     assert f["golden_zone_upper_fib"] == 0.79 == max(f["golden_fib_levels"]) and min(f["golden_fib_levels"]) == 0.5
-    assert f["features_version"] == 2
+    assert f["features_version"] == 3
+    # mapping-dislocation guard (F1.8, owner 2026-10-14): fixed from data quality, never tuned
+    m = f["mapping"]
+    assert (m["disl_guard_pct"], m["disl_guard_window_sec"], m["disl_guard_confirm_sec"], m["disl_guard_hold_sec"]) == (
+        0.002, 120, 10, 60)
+    assert m["disl_guard_maps"] == ["QQQ", "SPY", "SPX"]
     # expected-move (sigma) levels (F3.11, owner 2026-10-14): ±1σ and ±2σ only, a chart-line level type
     assert f["em_level_sigmas"] == [-2, -1, 1, 2]
     assert "em_level" in f["chart_level_half_width"] and "em_level" in f["flip_margin"]

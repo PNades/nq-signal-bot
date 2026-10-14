@@ -64,7 +64,7 @@ def test_isolated_run_stops_cleanly_on_low_memory(env, monkeypatch):
     assert calls == []
     monkeypatch.setattr(step8b_disloc, "free_mb", lambda: 8000)
     monkeypatch.setattr(step8b_disloc, "_run_day_in_child",
-                        lambda d: (calls.append(d), step8b_disloc.day_dislocations(
+                        lambda d, month_set="development": (calls.append(d), step8b_disloc.day_dislocations(
                             env, d, step8b.front_symbols(env), step8b_disloc.cal_mod.load())))
     rep = step8b_disloc.check_dislocations(env, [DAY, date(2026, 3, 6)], isolate=True)
     assert calls == [DAY, date(2026, 3, 6)] and rep["days"] == 1  # 03-06 has no boards here: skipped
@@ -91,3 +91,36 @@ def test_every_run_summarizes_all_saved_days(env):
     assert old.isoformat() in rep["pending"]
     md = (step8b.reports_dir(env.paths) / "dislocations.md").read_text(encoding="utf-8")
     assert "2 days" in md and old.isoformat() in md
+
+
+def test_the_report_counts_the_guards_fires_and_possible_false_fires(env):
+    """Owner 2026-10-14 (§13 Q-dislguard): every day records the guard's fires; the summary counts blocks, the possible
+    false fires (only the per-board trigger fired) and their weekly rate against about one a week."""
+    _setup(env, noise=1e-6)
+    rep = step8b_disloc.check_dislocations(env, [DAY])
+    assert set(rep["guard"]["chains"]) == {"QQQ", "SPY", "SPX"}
+    assert all(c["blocks"] == 0 for c in rep["guard"]["chains"].values())  # a quiet hand-built day: no fire
+    day = lambda d, chain_blocks: {"date": d, "era": "x", "futures_mean_1min_range": {}, "chains": {
+        m: {"board": {"events": {}, "median_range_bps": 0}, "in_force": {"events": {}, "median_range_bps": 0},
+            "guard": {"fires": [{"trigger": t} for b in chain_blocks.get(m, []) for t in b["triggers"]],
+                      "blocks": chain_blocks.get(m, [])}} for m in step8b_disloc.DISLOC_MAPS}}
+    blk = lambda trig: {"start_et": "10:00:00", "end_et": "10:02:00", "s": 120.0, "triggers": trig, "peak_pct": 0.25,
+                        "possible_false": trig == ["per_board"], "min_after_open": 30, "in_news_blackout": False}
+    used = [day(f"2026-01-0{i}", {}) for i in range(1, 5)]
+    used.append(day("2026-01-05", {"QQQ": [blk(["per_board"]), blk(["bot_r", "per_board"])], "SPY": [blk(["per_board"])]}))
+    g = step8b_disloc._guard_summary(used)  # 5 days = one week
+    assert g["chains"]["QQQ"]["blocks"] == 2 and g["chains"]["QQQ"]["possible_false"] == 1
+    assert g["chains"]["QQQ"]["fires"] == {"per_board": 2, "bot_r": 1}
+    assert g["possible_false_per_week_all"] == 2.0 and g["over_limit"]
+    used[-1] = day("2026-01-05", {"QQQ": [blk(["per_board"])]})
+    assert not step8b_disloc._guard_summary(used)["over_limit"]  # exactly one a week: not above
+
+
+def test_walk_forward_months_only_take_walk_forward_dates(env):
+    import pytest
+
+    _setup(env, noise=1e-6)
+    with pytest.raises(step8b_disloc.months_mod.NotDevelopmentMonth):
+        step8b_disloc.check_dislocations(env, [DAY], month_set="walk-forward")  # DAY is a development day
+    with pytest.raises(step8b.CheckRefused, match="top-up and demo"):
+        step8b_disloc.check_dislocations(env, [DAY], month_set="sealed")
