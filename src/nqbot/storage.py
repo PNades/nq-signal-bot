@@ -36,6 +36,13 @@ _sleep = time.sleep  # tests replace it
 # and, once it is back, to <root>/logs/ssd_events.log.
 SSD_DROP_WAIT_SEC = 30.0
 SSD_DROP_POLL_SEC = 0.5
+# Owner 2026-10-13: on 10-12 03:51 the retry ran 3 ms after the drop because the old volume's folder still looked
+# present, and failed again (the volume came back 4 s later). The drive counts as back only when a freshly opened
+# probe file can be written, fsynced and removed SSD_STABLE_PROBES times in a row (SSD_DROP_POLL_SEC apart), and
+# never sooner than SSD_DROP_MIN_WAIT_SEC after the drop.
+SSD_STABLE_PROBES = 4
+SSD_DROP_MIN_WAIT_SEC = 2.0
+PROBE_PREFIX = ".nqbot_probe_"  # a .tmp name: backups skip it (backup.TEMP_FILTER)
 DROP_ERRNOS = frozenset({errno.EBADF, errno.EIO, errno.ENODEV, errno.ENXIO})
 # Windows: not ready, invalid handle, device not existing / connected, I/O device error, hardware error
 DROP_WINERRORS = frozenset({21, 6, 55, 433, 1167, 1117, 483})
@@ -212,11 +219,36 @@ def log_ssd_event(op: str, path: Path, detail: str) -> None:
     _log.warning("SSD event: %s", line)
 
 
+def _probe(path: Path) -> bool:
+    """Can a new file be written, fsynced and removed next to `path` right now (fresh handle each time)?"""
+    folder = path.parent
+    while not _anchor_ok(folder / "x"):
+        if folder.parent == folder:
+            return False
+        folder = folder.parent
+    probe = folder / f"{PROBE_PREFIX}{os.getpid()}_{uuid.uuid4().hex}.tmp"
+    try:
+        with open(probe, "wb") as f:
+            f.write(b"ok")
+            f.flush()
+            os.fsync(f.fileno())
+        os.remove(probe)
+        return True
+    except OSError:
+        try:
+            os.remove(probe)
+        except OSError:
+            pass
+        return False
+
+
 def wait_for_drive(path: Path, wait: float = SSD_DROP_WAIT_SEC) -> float | None:
-    """Seconds until the drive holding `path` is back (its folder visible again), or None after `wait`."""
-    waited = 0.0
+    """Seconds until the drive holding `path` is back and stable (SSD_STABLE_PROBES good probes in a row, at least
+    SSD_DROP_MIN_WAIT_SEC after the drop), or None after `wait`."""
+    waited, good = 0.0, 0
     while waited <= wait:
-        if _anchor_ok(path):
+        good = good + 1 if _probe(path) else 0
+        if good >= SSD_STABLE_PROBES and waited >= SSD_DROP_MIN_WAIT_SEC:
             return waited
         _sleep(SSD_DROP_POLL_SEC)
         waited += SSD_DROP_POLL_SEC
@@ -235,7 +267,8 @@ def drop_retry(op: str, path: Path, attempt: Callable[[], Any], cleanup: Callabl
         if back is None:
             log_ssd_event(op, path, f"drive not back after {SSD_DROP_WAIT_SEC:.0f} s: giving up")
             raise
-        log_ssd_event(op, path, f"drive back after {back:.1f} s: retrying once")
+        log_ssd_event(op, path, f"drive back and stable after {back:.1f} s ({SSD_STABLE_PROBES} fresh-handle probes): "
+                                "retrying once")
         if cleanup is not None:
             try:
                 cleanup()

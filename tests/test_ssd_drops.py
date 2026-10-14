@@ -48,11 +48,12 @@ def test_atomic_write_retries_once_after_a_drop_and_logs_it(tmp_path, monkeypatc
     assert target.read_bytes() == b"{}"
     assert not list(target.parent.glob(".*.tmp"))  # the failed try's temp file is gone
     text = events.read_text(encoding="utf-8")
-    assert "device dropped" in text and "drive back after" in text and "retry succeeded" in text
+    assert "device dropped" in text and "drive back and stable after" in text and "retry succeeded" in text
 
 
 def test_a_second_failure_or_another_error_is_not_retried(tmp_path, monkeypatch, events):
     target = tmp_path / "a.bin"
+    monkeypatch.setattr(storage, "_probe", lambda p: True)  # the drive looks stable: the second failure is the retry's
     _flaky_fsync(monkeypatch, 2, OSError(errno.EIO, "I/O error"))
     with pytest.raises(OSError):
         storage.atomic_write_bytes(target, b"x")  # retried once only
@@ -67,7 +68,7 @@ def test_a_second_failure_or_another_error_is_not_retried(tmp_path, monkeypatch,
 def test_drive_gone_too_long_gives_up(tmp_path, monkeypatch, events):
     gone = tmp_path / "gone" / "x.bin"  # its folder never appears
     _flaky_fsync(monkeypatch, 1, OSError(errno.EBADF, "x"))
-    monkeypatch.setattr(storage, "_anchor_ok", lambda p: False)
+    monkeypatch.setattr(storage, "_probe", lambda p: False)
     with pytest.raises(OSError):
         storage.atomic_write_bytes(gone, b"x")
     assert "giving up" in events.read_text(encoding="utf-8")
@@ -204,3 +205,30 @@ def test_verify_reads_utf16_task_logs(tmp_path):
     bad.write_bytes(b"\x80\x81 not utf-8")
     with pytest.raises(UnicodeDecodeError):
         verify.check_file(bad)
+
+
+def test_a_drop_lasting_seconds_waits_for_a_stable_drive_before_the_retry(tmp_path, monkeypatch, events):
+    """Owner 2026-10-13 (10-12 03:51): the old volume still looked present, the retry ran 3 ms after the drop and
+    failed again; the volume came back 4 s later. Now the retry waits for fresh-handle probes to succeed in a row."""
+    clock = {"t": 0.0}
+    drop_ends = 5.0  # the device is gone for 5 s: every fsync fails until then
+    monkeypatch.setattr(storage, "_sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+    real = storage.os.fsync
+    tries = []
+
+    def fsync(fd):
+        if clock["t"] < drop_ends:
+            raise OSError(errno.EBADF, "Bad file descriptor")
+        tries.append(clock["t"])
+        return real(fd)
+
+    monkeypatch.setattr(storage.os, "fsync", fsync)
+    target = tmp_path / "ssd" / "nqbot" / "reports" / "day.json"
+    storage.atomic_write_bytes(target, b'{"ok": 1}')
+    assert target.read_bytes() == b'{"ok": 1}'
+    # not retried until the drive had been back for SSD_STABLE_PROBES probes in a row
+    stable_at = drop_ends + (storage.SSD_STABLE_PROBES - 1) * storage.SSD_DROP_POLL_SEC
+    assert clock["t"] >= stable_at and len(tries) == storage.SSD_STABLE_PROBES + 1  # the probes, then the write
+    text = events.read_text(encoding="utf-8")
+    assert "drive back and stable after" in text and "retry succeeded" in text and "retry failed" not in text
+    assert not list(target.parent.glob(".*.tmp")) and not list(target.parent.glob(storage.PROBE_PREFIX + "*"))

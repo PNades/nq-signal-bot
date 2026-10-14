@@ -18,6 +18,7 @@ from nqbot.storage import SSDNotFound, resolve_paths
 
 EXIT_REFUSED = 2
 EXIT_LOCKED = 3
+EXIT_WARN = 5  # preflight found something to fix before the session (owner 2026-10-14)
 EXIT_INCOMPLETE = 4  # stream-session ended before the close (owner 2026-10-10: the task's exit code is the recorder's)
 
 
@@ -56,6 +57,8 @@ def _main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("verify", help="read back every file under the root written since a date and list anything "
                                       "damaged (owner 2026-10-11; reads only, report in <reports_dir>/verify/)")
     v.add_argument("--since", type=lambda t: datetime.fromisoformat(t), required=True, help="YYYY-MM-DD (local time)")
+    sub.add_parser("preflight", help="pre-session machine check: restart pending, Windows Update paused through the "
+                                     "session, SSD writable, AC power, SSD drops (exit 5 on any warning; §9)")
     sub.add_parser("fallback-move", help="move a session recording kept on the internal drive (stream-session "
                                          "--fallback-local) onto the SSD, checked file by file")
     sub.add_parser("test", help="run the full test suite; the whole output goes to <root>/logs/pytest_<date-time>.txt, "
@@ -91,6 +94,10 @@ def _main(argv: list[str] | None = None) -> int:
     except ConfigError as e:
         print(f"config error: {e}", file=sys.stderr)
         return EXIT_REFUSED
+    if args.command == "preflight":  # before resolve_paths: it must report a missing SSD, not refuse
+        from nqbot.preflight import preflight
+
+        return EXIT_WARN if preflight(settings)["warnings"] else 0
     if args.command == "setup-ssd":  # before resolve_paths: paths.root and the marker don't exist yet
         return _run_setup_ssd(args, settings)
     recording_fallback = (args.command == "step7" and getattr(args, "check", None) == "stream-session"
