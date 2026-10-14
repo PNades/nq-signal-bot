@@ -39,6 +39,7 @@ from nqbot.clients.skylit_store import (
 )
 from nqbot.clients.skylit_stream import SkylitStream, StreamStopped
 from nqbot.features import darkpool as dp
+from nqbot.live.map_freshness import blocks_from_arrivals
 from nqbot.storage import Paths, atomic_write_bytes, atomic_write_json, atomic_write_text, is_device_drop, log_ssd_event
 from nqbot.warmup import warmup_sessions
 
@@ -645,6 +646,7 @@ def check_stream_session(env: Env, maps: list[str], approved: int | None = None,
     parts: list[dict[str, Any]] = []
     counts = {"boards": 0, "dropped": 0}
     per_map: dict[str, int] = {m: 0 for m in maps}
+    arrivals: list[tuple[str, int]] = []  # (map, arrival ns): the per-map freshness count (§13 Q-mapstale)
     all_events: list[dict[str, Any]] = []  # small (no board payloads): for the summary
     switched: dict[str, Any] = {}
     target = {"folder": folder}
@@ -685,13 +687,20 @@ def check_stream_session(env: Env, maps: list[str], approved: int | None = None,
             counts["boards"] += boards.num_rows
             for m in boards["symbol"].to_pylist():
                 per_map[m] = per_map.get(m, 0) + 1
+            arrivals.extend(zip(boards["symbol"].to_pylist(), boards["arrival"].cast("int64").to_pylist()))
         all_events.extend(events)
         parts.append({"part": n, "boards": len(unique), "events": len(events)})
 
     ended = asyncio.run(_record_session(stream, int(end.timestamp() * 1e9), write_part, stream.clock_ns))
     summary = an.event_report(all_events)
+    fresh = blocks_from_arrivals(arrivals, maps, float(env.settings["skylit_map_stale_sec"]),
+                                 float(env.settings["skylit_stale_sec"]), int(now.timestamp() * 1e9),
+                                 int(end.timestamp() * 1e9) if ended == "close"
+                                 else max((t for _, t in arrivals), default=int(now.timestamp() * 1e9)))
     report = {"folder": str(folder), "fallback": switched or None, "maps": maps, "parts": parts,
               "boards": counts["boards"], "boards_per_map": per_map,
+              "map_stale_blocks": {"skylit_map_stale_sec": env.settings["skylit_map_stale_sec"],
+                                   "per_map": fresh.summary()},
               "resent_boards_dropped": counts["dropped"], "ended": ended,
               "complete": ended == "close", "lagged": stream.lagged_count, "events_summary": summary}
     env.echo(f"  {counts['boards']} boards in {len(parts)} parts ({ended}); credits used {summary['credits_used']}"
@@ -704,9 +713,105 @@ def check_stream_session(env: Env, maps: list[str], approved: int | None = None,
         path = reports_dir(fallback) / f"stream_session_{env.now().astimezone(timezone.utc):%Y%m%dT%H%M%SZ}.json"
         atomic_write_json(path, {"check": "stream_session", "written": env.now().isoformat(), **report})
         env.echo(f"report (SSD unreachable, kept on the internal drive): {path}")
+    env.echo("  map stale blocks (newest board older than "
+             f"{env.settings['skylit_map_stale_sec']} s): "
+             + ", ".join(f"{m} {v['blocks']} ({v['total_s']:.0f} s, longest {v['longest_s']:.0f} s)"
+                         for m, v in fresh.summary().items()))
     # owner 2026-10-10: the last line of the task log says how the session ended and what each map recorded
     env.echo(f"session ended {env.now():%Y-%m-%d %H:%M:%S} ET ({ended}, {'complete' if report['complete'] else 'INCOMPLETE'}): "
              + ", ".join(f"{m} {n:,}" for m, n in per_map.items()) + f" boards (total {counts['boards']:,})")
+    return report
+
+
+STREAM_DROPS_WINDOW_MIN = 15  # §13 Q-mapstale (c): one /v1/historical/range window (25 credits) per recording
+STREAM_DROPS_GAP_SEC = 2  # a stream gap: two boards of one map more than this many seconds apart
+
+
+def _stream_seconds(boards: Any, strikes: Any, lo: int, hi: int) -> dict[str, dict[int, tuple[float, dict]]]:
+    """map -> second -> (spot, {strike: value}) for the boards whose content second is in [lo, hi]."""
+    vals: dict[tuple[str, int], dict[float, float]] = {}
+    for m, t, k, v in zip(strikes["symbol"].to_pylist(), strikes["as_of"].cast("int64").to_pylist(),
+                          strikes["strike"].to_pylist(), strikes["value"].to_pylist()):
+        vals.setdefault((m, t), {})[float(k)] = float(v)
+    out: dict[str, dict[int, tuple[float, dict]]] = {}
+    for m, t, spot in zip(boards["symbol"].to_pylist(), boards["as_of"].cast("int64").to_pylist(),
+                          boards["spot"].to_pylist()):
+        if lo <= t // 1000 <= hi:
+            out.setdefault(m, {})[t // 1000] = (float(spot), vals.get((m, t), {}))
+    return out
+
+
+def _same_board(a: tuple[float, dict] | None, b: tuple[float, dict] | None) -> bool:
+    if a is None or b is None or abs(a[0] - b[0]) > 1e-9 or a[1].keys() != b[1].keys():
+        return False
+    return all(abs(a[1][k] - b[1][k]) <= 1e-6 * max(1.0, abs(b[1][k])) for k in a[1])
+
+
+def check_stream_drops(env: Env, session: date, window: time | None = None,
+                       approved: int | None = None) -> dict[str, Any]:
+    """§13 Q-mapstale (c), owner 2026-10-14: one /v1/historical/range window per session recording (25 credits),
+    compared second by second with what the stream sent: each map's drop rate (seconds history holds that the stream
+    never sent) and how many of those boards had changed since the last one the stream did send. Default window: the
+    session's 15 minutes with the most stream gaps (the worst case), or `window` (ET start). Kept under repull/parity/."""
+    ready = datetime.combine(_next_session(env, session), env.preopen(), tzinfo=ET)
+    if env.now() < ready:
+        raise CheckRefused(f"wait until {ready:%Y-%m-%d %H:%M} ET (the next session's pre-open) to pull the history")
+    sessions = sorted(env.store.stream_dir(session).glob("session_*"))
+    if not sessions:
+        raise CheckRefused(f"no session recording under {env.store.stream_dir(session)}")
+    folder = sessions[-1]
+    parts_b = sorted(folder.glob("part_*_boards.parquet"))
+    sb, ss = pq.read_table(parts_b), pq.read_table(sorted(folder.glob("part_*_strikes.parquet")))
+    chosen = window is None
+    if window is None:  # the quarter-hour with the most seconds missing between a map's boards
+        missing: dict[int, int] = {}
+        by_map: dict[str, list[int]] = {}
+        for m, t in zip(sb["symbol"].to_pylist(), sb["as_of"].cast("int64").to_pylist()):
+            by_map.setdefault(m, []).append(t // 1000)
+        for secs in by_map.values():
+            secs = sorted(set(secs))
+            for a, b in zip(secs, secs[1:]):
+                if b - a > STREAM_DROPS_GAP_SEC:
+                    for x in range(a + 1, b):
+                        q = datetime.fromtimestamp(x, ET)
+                        if RTH_OPEN <= q.time() < env.close_of(session):
+                            key = q.hour * 60 + q.minute // STREAM_DROPS_WINDOW_MIN * STREAM_DROPS_WINDOW_MIN
+                            missing[key] = missing.get(key, 0) + 1
+        best = max(missing, key=missing.get) if missing else RTH_OPEN.hour * 60 + RTH_OPEN.minute
+        window = time(best // 60, best % 60)
+    start = datetime.combine(session, window, tzinfo=ET)
+    end = start + timedelta(minutes=STREAM_DROPS_WINDOW_MIN) - timedelta(milliseconds=1)
+    base = env.store.base("parity", pulled=f"{session.isoformat()}_{folder.name}_{window:%H%M}")
+    cached = bool(env.store.stored_windows(session, base))
+    _gate(env, credits.range_estimate(f"stream drops: {session} {window:%H:%M} ET from /v1/historical/range",
+                                      0 if cached else 1), approved)
+    params = json.loads((pq.read_schema(parts_b[0]).metadata or {})[b"nqbot"])["params"]
+    pull_window(env.client, env.store, Window(session, start, end), max_strikes=params["maxStrikes"],
+                result=SessionResult(session), log=env.log, base=base, repull="parity")
+    hb, hs = env.store.read_range(session, base)
+    lo, hi = int(start.timestamp()), int(end.timestamp())
+    st_all, hi_all = _stream_seconds(sb, ss, lo, hi), _stream_seconds(hb, hs, lo, hi)
+    per: dict[str, Any] = {}
+    for m in sorted(st_all):
+        st, hist = st_all[m], hi_all.get(m, {})
+        secs = sorted(st)
+        dropped = [x for x in hist if x not in st]
+        changed = sum(1 for x in dropped
+                      if not _same_board(hist[x], st.get(max((y for y in secs if y < x), default=-1))))
+        gaps = [b - a for a, b in zip(secs, secs[1:])]
+        per[m] = {"history_seconds": len(hist), "stream_seconds": len(st),
+                  "dropped_seconds": len(dropped), "drop_rate": round(len(dropped) / len(hist), 4) if hist else None,
+                  "dropped_changed": changed,
+                  "same_second_identical": sum(1 for x in st if x in hist and _same_board(st[x], hist[x])),
+                  "stream_only_seconds": sum(1 for x in st if x not in hist),
+                  "longest_stream_gap_s": max(gaps, default=0)}
+        env.echo(f"  {m}: drop rate {per[m]['drop_rate']:.1%} ({len(dropped)} of {len(hist)} s, {changed} changed), "
+                 f"longest stream gap {per[m]['longest_stream_gap_s']} s")
+    report = {"session": session.isoformat(), "recording": folder.name,
+              "window": [start.isoformat(), end.isoformat()],
+              "window_choice": "the session's worst quarter-hour (most stream gaps)" if chosen else "given",
+              "maps": per}
+    write_report(env, f"stream_drops_{session.isoformat()}", report)
     return report
 
 

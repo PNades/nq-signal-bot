@@ -107,6 +107,8 @@ skylit_max_expirations: 1    # decided (§3.1 Expirations), history and stream a
 skylit_max_strikes: "all"    # step 7 (owner 2026-10-06): whole 0DTE chain; API maxStrikes is not "N nearest spot" (200 cut NDXP nodes, §3.1)
 strike_edge_margin: 5
 skylit_stale_sec: 45
+skylit_map_stale_sec: 5      # owner 2026-10-14 (§9, §13 Q-mapstale): a map whose newest board is older blocks new entries on
+                             # its zones; past skylit_stale_sec the feed-failure rule applies to it (live only)
 skylit_credit_warn: 10000
 map_latency_sec: 0.59         # step 7 (owner 2026-10-09): stream delay p99.9 0.585 s (14:59 recording 10-07), parity confirmed
 skylit_reach_margin_min: 30  # §3.1 Backfill: a window is pulled only if it starts after now - 365 days + this margin

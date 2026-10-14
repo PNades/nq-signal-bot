@@ -555,6 +555,11 @@ def test_stream_session_writes_parts_until_the_end(env, monkeypatch):
     assert boards["as_of"].to_pylist() == sorted(set(boards["as_of"].to_pylist()))  # each board once, in order
     # owner 2026-10-10: the last line says how the session ended and the boards per map
     assert rep["boards_per_map"] == {"NDXP": rep["boards"]}
+    # owner 2026-10-14 (§13 Q-mapstale): the per-map freshness blocks are counted in the recording report
+    fresh = rep["map_stale_blocks"]
+    assert fresh["skylit_map_stale_sec"] == 5 and set(fresh["per_map"]) == {"NDXP"}
+    assert fresh["per_map"]["NDXP"]["blocks"] == 0  # a board every second: never stale
+    assert any(line.startswith("  map stale blocks") for line in env.lines)
     assert env.lines[-1].startswith("session ended ") and f"NDXP {rep['boards']:,} boards" in env.lines[-1]
 
 
@@ -882,3 +887,17 @@ def test_compare_sigma_flags_a_mismatch():
     bad = {"levels": [{"name": "day", "em1_pct": 0.9, "hi1": 605.4, "lo1": 594.6, "hi2": 610.8, "lo2": 589.2}]}
     assert step7.compare_sigma(row, bad)["ok"] is False
     assert step7.compare_sigma(row, {"levels": []})["ok"] is None
+
+
+def test_stream_drops_refusals_and_board_comparison(env):
+    """Owner 2026-10-14 (§13 Q-mapstale c): history is pulled from the next session's pre-open, for a recorded session."""
+    env.now.t = datetime(2026, 10, 12, 16, 30, tzinfo=ET)
+    with pytest.raises(step7.CheckRefused, match="pre-open"):
+        step7.check_stream_drops(env, date(2026, 10, 12))
+    env.now.t = datetime(2026, 10, 13, 9, 0, tzinfo=ET)
+    with pytest.raises(step7.CheckRefused, match="no session recording"):
+        step7.check_stream_drops(env, date(2026, 10, 12))
+    a = (31000.0, {31000.0: 1e6, 31010.0: -2e5})
+    assert step7._same_board(a, (31000.0, {31000.0: 1e6, 31010.0: -2e5}))
+    assert not step7._same_board(a, (31000.0, {31000.0: 1.01e6, 31010.0: -2e5}))  # a strike changed
+    assert not step7._same_board(a, (31000.5, a[1])) and not step7._same_board(a, None)

@@ -15,6 +15,7 @@
 #   nqbot late-prints 10-15     Thu 10-15 08:40   (late-print morning #5)
 #   nqbot recording 10-15       Thu 10-15 09:27   (stream-session NDXP,QQQ,SPY --fallback-local; the only recording task)
 #   nqbot sigma check           09:05 and 12:00 on 10-16, 10-19, 10-20 (moved off the 10-15 recording day)
+#   nqbot stream-drops 10-15    Fri 10-16 08:50   (one history window vs the 10-15 recording, 25 credits; §13 Q-mapstale)
 # Every task: wake the computer, start when available if missed, run on battery, one instance at a time.
 param([string]$Repo = "C:\Users\premn\code\nq-signal-bot", [string]$LogDir = "D:\nqbot\logs",
       [string]$Uv = "C:\Users\premn\.local\bin\uv.exe")
@@ -27,7 +28,7 @@ if (-not (Test-Path $Uv)) { throw "uv not found at $Uv (pass -Uv <path>)" }
 
 $old = "nqbot NDXP session recording", "nqbot late-prints-morning 10-12", "nqbot tempest-finality 10-12",
        "nqbot dp-start re-probe reminder", "nqbot sigma check",
-       "nqbot preflight", "nqbot late-prints 10-15", "nqbot recording 10-15"
+       "nqbot preflight", "nqbot late-prints 10-15", "nqbot recording 10-15", "nqbot stream-drops 10-15"
 foreach ($n in $old) {
     if (Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue) {
         Unregister-ScheduledTask -TaskName $n -Confirm:$false
@@ -60,6 +61,8 @@ Add-NqbotTask "nqbot recording 10-15" "stream_session" "step7 stream-session --m
 $sigma = foreach ($d in "2026-10-16", "2026-10-19", "2026-10-20") {
     New-ScheduledTaskTrigger -Once -At "$d 09:05"; New-ScheduledTaskTrigger -Once -At "$d 12:00" }
 Add-NqbotTask "nqbot sigma check" "sigma_check" "step7 sigma-check" $sigma 1
+Add-NqbotTask "nqbot stream-drops 10-15" "stream_drops" "step7 stream-drops --session 2026-10-15" `
+    (New-ScheduledTaskTrigger -Once -At "2026-10-16 08:50") 1
 
 "--- recording tasks firing on 2026-10-15 (must be exactly one):"
 Get-ScheduledTask | Where-Object { $_.TaskName -like "nqbot*" -and $_.Actions.Arguments -match "stream-session" } |
