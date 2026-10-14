@@ -11,9 +11,13 @@ One day at a time; each day's events are saved under `<reports_dir>/step8b/dislo
 run resumes. The summary is `<reports_dir>/step8b/dislocations.md` (and a timestamped json).
 
 The mapping-dislocation guard (owner 2026-10-14, F1.8, `features/disloc_guard.py`): every day also records the guard's
-fires (trigger, size) and blocks per chain; the summary counts them and the possible false fires (blocks in which only
-the per-board trigger fired: the bot's R never moved `disl_guard_pct`), per week, against about one a week (revisit
-above it). Run on the development months (default) or, with `--months walk-forward`, on months 7-9 (automated counts
+fires (trigger, size) and blocks per chain; the summary counts them, the blocks in which only the per-board trigger
+fired (a column, not a verdict) and the **false fires** per week, warning above about one a week (owner 2026-10-14). A
+false fire = a block during which the levels mapped with the bot's R stayed within the chain's tolerance of the levels
+mapped with a hindsight R (the centred median of the per-board R over +-60 s; report only, never a feature), at every
+relevant node of every board in the block: trading would have been safe without the block. Tolerance: QQQ its
+`stop_buffer_floor` (4.0 NQ); SPY/SPX have none, so the closest existing setting, `atlas_match_tol` ES (0.78 ES, the
+frozen SPY crossing p95). Run on the development months (default) or, with `--months walk-forward`, on months 7-9 (automated counts
 only, §7 rule 2b; their files under `dislocations/walk_forward/`, summary `dislocations_walk_forward.md`). The top-up
 and demo months join when they exist (steps 18/20 and 24).
 """
@@ -43,11 +47,30 @@ THRESHOLDS = (0.0005, 0.001, 0.002)  # owner 2026-10-09: 0.05%, 0.1%, 0.2%
 DETAIL_THRESHOLD = 0.001  # owner: time of day, news blackout and first minutes for the 0.1% events
 FIRST_MINUTES = 15  # "the first minutes after the open"
 MIN_FREE_MB = 2500  # owner 2026-10-10: stop before a day when less memory than this is free
-DAY_VERSION = 3  # 2 (owner 2026-10-10): both R series, the median range and the day's futures range per day;
-# 3 (owner 2026-10-14): the dislocation guard's fires and blocks per chain (F1.8)
+DAY_VERSION = 4  # 2 (owner 2026-10-10): both R series, the median range and the day's futures range per day;
+# 3 (owner 2026-10-14): the dislocation guard's fires and blocks per chain (F1.8); 4: false fires (hindsight R)
 MONTH_SETS = {"development": months_mod.DEVELOPMENT, "walk-forward": months_mod.WALK_FORWARD}
 FALSE_FIRES_PER_WEEK_MAX = 1.0  # owner 2026-10-14 (§13 Q-dislguard): revisit the guard above about one a week
 TRADING_DAYS_PER_WEEK = 5
+HINDSIGHT_HALF_WINDOW_S = 60  # owner 2026-10-14: hindsight R = centred median of the per-board R over +-60 s
+
+
+def false_fire_tolerance(env: s8.Env, chain: str) -> tuple[float, str]:
+    """The chain's tolerance for a false fire and where it comes from (owner 2026-10-14): its `stop_buffer_floor`,
+    else (SPY/SPX, no NQ stop floor) `atlas_match_tol` of its futures, the closest existing setting."""
+    floor = (env.settings.get("stop_buffer_floor") or {}).get(chain)
+    if floor is not None:
+        return float(floor), f"stop_buffer_floor[{chain}]"
+    root = s8.CHAIN_ROOT[chain]
+    return float(env.features["mapping"]["atlas_match_tol"][root]), f"atlas_match_tol[{root}]"
+
+
+def hindsight_ratio(t_ns: np.ndarray, r: np.ndarray, idx: np.ndarray,
+                    half_s: float = HINDSIGHT_HALF_WINDOW_S) -> np.ndarray:
+    """Report only, never a feature: the median of the per-board r over [t - half, t + half] at the boards idx."""
+    lo = np.searchsorted(t_ns, t_ns[idx] - int(half_s * mp.NS), side="left")
+    hi = np.searchsorted(t_ns, t_ns[idx] + int(half_s * mp.NS), side="right")
+    return np.array([np.median(r[a:b]) for a, b in zip(lo, hi)])
 SERIES = ("board", "in_force")  # the per-board R, and the R the bot uses (F1.7) at its apply time
 
 
@@ -102,8 +125,11 @@ def _mean_minute_range(fut: s8.Futures, start_ns: int, end_ns: int) -> float | N
 
 
 def _guard_day(chain: str, params: dg.GuardParams, t_apply: np.ndarray, r: np.ndarray, r_in: np.ndarray,
-               open_ns: int, spans: list[tuple[int, int]]) -> dict[str, Any]:
-    """The guard's fires and blocks for one chain and session (the same ChainGuard labels and live use)."""
+               open_ns: int, spans: list[tuple[int, int]], top_strike: np.ndarray | None = None,
+               tol: float | None = None) -> dict[str, Any]:
+    """The guard's fires and blocks for one chain and session (the same ChainGuard labels and live use).
+    top_strike: per board, the largest relevant strike (nan: none); with tol, each block gets its largest level gap
+    between the bot's R and the hindsight R (futures points) and whether it was a false fire (gap <= tol)."""
     fires = dg.run_session(chain, params, t_apply, r, r_in)
 
     def where(t0: int) -> dict[str, Any]:
@@ -113,9 +139,16 @@ def _guard_day(chain: str, params: dg.GuardParams, t_apply: np.ndarray, r: np.nd
     for a, b in dg.block_spans(fires):
         inside = [f for f in fires if a <= f.start_ns <= b]
         trig = sorted({f.trigger for f in inside})
+        gap = None
+        if top_strike is not None:
+            k = np.flatnonzero((t_apply >= a) & (t_apply <= b) & np.isfinite(r_in) & np.isfinite(top_strike))
+            if len(k):
+                gap = float(np.max(top_strike[k] * np.abs(r_in[k] - hindsight_ratio(t_apply, r, k))))
         blocks.append({"start_et": _et(a), "end_et": _et(b), "s": round((b - a) / 1e9, 1), "triggers": trig,
                        "peak_pct": round(max(f.peak for f in inside) * 100, 3),
-                       "possible_false": trig == [dg.TRIGGER_BOARD], **where(a)})
+                       "per_board_only": trig == [dg.TRIGGER_BOARD],
+                       "max_level_gap": None if gap is None else round(gap, 3),
+                       "false_fire": bool(tol is not None and gap is not None and gap <= tol), **where(a)})
     return {"fires": [{"trigger": f.trigger, "start_et": _et(f.start_ns), "end_et": _et(f.end_ns),
                        "size_pct": round(f.size * 100, 3), "peak_pct": round(f.peak * 100, 3), **where(f.start_ns)}
                       for f in fires], "blocks": blocks}
@@ -168,7 +201,12 @@ def day_dislocations(env: s8.Env, d: date, front: dict[str, dict[str, str]], cal
                      "first_minutes": bool(t0 - open_ns < FIRST_MINUTES * 60 * mp.NS),
                      "in_news_blackout": any(a <= t0 < b for a, b in spans)} for t0, t1, p in events(t_s, rng, thr)]
         if m in cfg["disl_guard_maps"]:
-            chain["guard"] = _guard_day(m, gparams, t_apply, r, r_in, open_ns, spans)
+            rel = s8.node_relevance(env, md)[0]
+            top = np.full(len(md.as_of), np.nan)
+            np.fmax.at(top, md.s_board[rel], md.s_strike[rel])
+            tol, src = false_fire_tolerance(env, m)
+            chain["guard"] = _guard_day(m, gparams, t_apply, r, r_in, open_ns, spans, top[A][ok], tol)
+            chain["guard"]["tolerance"] = {"value": tol, "setting": src}
         out["chains"][m] = chain
     atomic_write_json(path, out)
     del maps, futs
@@ -265,8 +303,9 @@ def check_dislocations(env: s8.Env, dates: list[date] | None = None, isolate: bo
     md = s8.reports_dir(env.paths) / f"{_report_name(month_set)}.md"
     atomic_write_text(md, to_markdown(report))
     g = report["guard"]
-    env.echo("guard: " + ", ".join(f"{m} {c['blocks']} blocks ({c['possible_false']} possible false, "
-                                    f"{c['possible_false_per_week']}/week)" for m, c in g["chains"].items())
+    env.echo("guard: " + ", ".join(f"{m} {c['blocks']} blocks ({c['per_board_only']} per-board only, "
+                                    f"{c['false_fires']} false, {c['false_fires_per_week']}/week)"
+                                    for m, c in g["chains"].items())
              + (" -- ABOVE about one a week: revisit (owner)" if g["over_limit"] else ""))
     env.echo(f"summary: {md}")
     return report
@@ -287,8 +326,8 @@ def summarize(per_day: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _guard_summary(used: list[dict[str, Any]]) -> dict[str, Any]:
-    """Fires per trigger, blocks, minutes blocked and the possible false fires (blocks where only the per-board trigger
-    fired) per chain, with the weekly rate against about one a week (owner 2026-10-14)."""
+    """Fires per trigger, blocks, minutes blocked, the blocks where only the per-board trigger fired (a column) and the
+    false fires per chain, with the false fires' weekly rate against about one a week (owner 2026-10-14)."""
     weeks = len(used) / TRADING_DAYS_PER_WEEK
     chains: dict[str, Any] = {}
     for m in DISLOC_MAPS:
@@ -296,14 +335,16 @@ def _guard_summary(used: list[dict[str, Any]]) -> dict[str, Any]:
         if not g:
             continue
         blocks = [{"date": d, **b} for d, gd in g for b in gd["blocks"]]
-        false = sum(b["possible_false"] for b in blocks)
+        false = sum(b["false_fire"] for b in blocks)
         chains[m] = {"fires": {t: sum(f["trigger"] == t for _, gd in g for f in gd["fires"]) for t in dg.TRIGGERS},
                      "blocks": len(blocks), "days_affected": len({b["date"] for b in blocks}),
-                     "minutes_blocked": round(sum(b["s"] for b in blocks) / 60, 1), "possible_false": false,
-                     "possible_false_per_week": round(false / weeks, 3) if weeks else None, "list": blocks}
-    total_false = sum(c["possible_false"] for c in chains.values())
+                     "minutes_blocked": round(sum(b["s"] for b in blocks) / 60, 1),
+                     "per_board_only": sum(b["per_board_only"] for b in blocks), "false_fires": false,
+                     "false_fires_per_week": round(false / weeks, 3) if weeks else None,
+                     "tolerance": g[0][1].get("tolerance"), "list": blocks}
+    total_false = sum(c["false_fires"] for c in chains.values())
     per_week = round(total_false / weeks, 3) if weeks else None
-    return {"chains": chains, "possible_false_per_week_all": per_week,
+    return {"chains": chains, "false_fires_per_week_all": per_week,
             "over_limit": bool(per_week is not None and per_week > FALSE_FIRES_PER_WEEK_MAX)}
 
 
@@ -355,24 +396,30 @@ def to_markdown(rep: dict[str, Any]) -> str:
     g = rep.get("guard", {"chains": {}})
     lines += ["", "## Dislocation guard (owner 2026-10-14, F1.8)", "",
               "Blocks start on either trigger (per-board R with both ends held by two boards within 10 s, or the bot's "
-              "R), each lasting until 60 s after its last flagged board. A possible false fire = a block in which only "
-              "the per-board trigger fired (the bot's R never moved 0.2%). Revisit if they exceed about one a week: "
-              f"{g.get('possible_false_per_week_all')} a week over all chains"
+              "R), each lasting until 60 s after its last flagged board, extended by any later flag. Per-board only = a "
+              "block in which only the per-board trigger fired (not a verdict). False fire = a block during which the "
+              "levels mapped with the bot's R stayed within the chain's tolerance of the levels mapped with a hindsight "
+              "R (centred median of the per-board R over +-60 s, report only) at every relevant node: trading would "
+              "have been safe without it. Revisit if false fires exceed about one a week: "
+              f"{g.get('false_fires_per_week_all')} a week over all chains"
               f"{' -- ABOVE: revisit' if g.get('over_limit') else ''}.", "",
-              "| Chain | Fires per-board / bot's R | Blocks | Days | Minutes blocked | Possible false (per week) |",
-              "|---|---|---:|---:|---:|---|"]
+              "| Chain | Fires per-board / bot's R | Blocks | Days | Minutes blocked | Per-board only | False fires "
+              "(per week) | Tolerance |", "|---|---|---:|---:|---:|---:|---|---|"]
     for m, c in g["chains"].items():
+        tol = c.get("tolerance") or {}
         lines.append(f"| {m} | {c['fires'][dg.TRIGGER_BOARD]} / {c['fires'][dg.TRIGGER_BOT]} | {c['blocks']} | "
-                     f"{c['days_affected']} | {c['minutes_blocked']} | {c['possible_false']} "
-                     f"({c['possible_false_per_week']}) |")
+                     f"{c['days_affected']} | {c['minutes_blocked']} | {c['per_board_only']} | {c['false_fires']} "
+                     f"({c['false_fires_per_week']}) | {tol.get('value')} ({tol.get('setting')}) |")
     blocks = [(m, b) for m, c in g["chains"].items() for b in c["list"]]
     if blocks:
-        lines += ["", "| Date | Chain | Block ET | Seconds | Triggers | Peak range | Min after open | News blackout | "
-                      "Possible false |", "|---|---|---|---:|---|---:|---:|---|---|"]
+        lines += ["", "| Date | Chain | Block ET | Seconds | Triggers | Peak range | Largest level gap (pts) | "
+                      "Min after open | News blackout | Per-board only | False fire |",
+                  "|---|---|---|---:|---|---:|---:|---:|---|---|---|"]
         for m, b in sorted(blocks, key=lambda x: (x[1]["date"], x[1]["start_et"], x[0])):
             lines.append(f"| {b['date']} | {m} | {b['start_et']}-{b['end_et']} | {b['s']} | {' + '.join(b['triggers'])} "
-                         f"| {b['peak_pct']}% | {b['min_after_open']} | {'yes' if b['in_news_blackout'] else ''} | "
-                         f"{'yes' if b['possible_false'] else ''} |")
+                         f"| {b['peak_pct']}% | {b['max_level_gap']} | {b['min_after_open']} | "
+                         f"{'yes' if b['in_news_blackout'] else ''} | {'yes' if b['per_board_only'] else ''} | "
+                         f"{'yes' if b['false_fire'] else ''} |")
     lines += ["", "## Per day", "",
               "| Date | Era | NQ / ES mean 1-min range | " + " | ".join(
                   f"{m} events 0.05/0.1/0.2% (board → bot's R)" for m in DISLOC_MAPS) + " | SPX median 2-min range bps (board / bot's R) |",
@@ -384,3 +431,38 @@ def to_markdown(rep: dict[str, Any]) -> str:
         lines.append(f"| {p_['date']} | {p_['era'].replace('_stamp_change', '')} | {fr.get('NQ')} / {fr.get('ES')} | "
                      + " | ".join(cells) + f" | {p_['SPX_board']['median_range_bps']} / {p_['SPX_in_force']['median_range_bps']} |")
     return "\n".join(lines) + "\n"
+
+
+class DislocationsJob:
+    """`nqbot run step8b_dislocations --until HH:MM` (owner 2026-10-14): the months 1-6 dislocation count as a resumable
+    job, one trading day per chunk, each day in its own process after the free-memory check (a day without enough
+    memory stops the run cleanly; it re-runs next time). Reads stored data only; holds the Databento lock so no pull
+    writes the trades it reads. The summary (`dislocations.md`) is rewritten after every day."""
+
+    name = "step8b_dislocations"
+
+    def __init__(self, month_set: str = "development"):
+        from nqbot.jobs.lock import DATABENTO
+
+        self.month_set = month_set
+        self.locks = (DATABENTO,)
+
+    def _env(self, ctx: Any) -> s8.Env:
+        from nqbot.config import load_features
+
+        return s8.Env(settings=ctx.settings, features=load_features(), paths=ctx.paths, log=ctx.log, echo=ctx.log.info)
+
+    def chunks(self, ctx: Any) -> list[str]:
+        env = self._env(ctx)
+        return [d.isoformat() for d in development_days(env, env.cal or cal_mod.load(), self.month_set)]
+
+    def run_chunk(self, chunk_id: str, ctx: Any) -> None:
+        from nqbot.jobs.runner import StopChunk
+
+        d = date.fromisoformat(chunk_id)
+        if _day_done(self._env(ctx), d, self.month_set):
+            return
+        mb = free_mb()
+        if mb is not None and mb < MIN_FREE_MB:
+            raise StopChunk(f"{mb} MB free (< {MIN_FREE_MB}) before {d}")
+        _run_day_in_child(d, self.month_set)

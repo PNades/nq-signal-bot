@@ -348,3 +348,33 @@ def test_recorded_day_leaves_out_boards_near_an_uncovered_gap(env):
     # by content time (fitted NDXP offset -500 ms here): boards with asOf 09:59:59 ... 10:01:00
     assert gaps["boards_left_out"] == 62
     assert rep["ndxp"]["methods"]["QQQ x k (N=5)"]["n"] == rep["ndxp"]["methods"]["basis+carry"]["n"]
+
+
+def test_recorded_day_never_carries_a_board_across_a_gap(env):
+    """Owner 2026-10-14 (live stream drops): NDXP is scored only where its boards arrived. A 20-s hole in the QQQ boards
+    leaves the NDXP boards in it without a QQQ R (QQQ x k not scored there), and a 20-s hole in the NDXP boards
+    creates no crossing inside it (no NDXP board is carried across it)."""
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+
+    _recording(env)
+    fake = FakeDatabento(datetime(2026, 3, 6, tzinfo=timezone.utc))
+    full = step8b_recorded.check_recorded_day(env, REC, with_prev=True, client_factory=lambda: fake, fetch=_fetch)
+    folder = env.sky.stream_dir(REC) / "session_092700"
+    t = pq.read_table(folder / "part_000_boards.parquet")
+    a = int(datetime.combine(REC, time(10, 0), tzinfo=ET).timestamp()) * 1000
+    hole = pc.and_(pc.greater_equal(pc.cast(t["as_of"], pa.int64()), a),
+                   pc.less(pc.cast(t["as_of"], pa.int64()), a + 20_000))
+    for m in ("QQQ", "NDXP"):
+        drop = pc.and_(hole, pc.equal(t["symbol"], m))
+        write_parquet(folder / "part_000_boards.parquet", t.filter(pc.invert(drop)), {})
+        rep = step8b_recorded.check_recorded_day(env, REC, with_prev=True, client_factory=lambda: fake, fetch=_fetch)
+        m_ = rep["ndxp"]["methods"]
+        assert rep["ndxp"]["boards"]["no_carry_s"] == 5.0
+        if m == "QQQ":  # NDXP boards whose QQQ board is more than 5 s old: about 15 of the 20
+            assert m_["basis+carry"]["n"] - m_["QQQ x k (N=5)"]["n"] == pytest.approx(15, abs=2)
+            assert rep["ndxp"]["boards"]["scored"]["QQQ x k (N=5)"] == m_["QQQ x k (N=5)"]["n"]
+        else:
+            assert rep["ndxp"]["boards"]["recorded"] == full["ndxp"]["boards"]["recorded"] - 20
+            assert rep["ndxp"]["crossings"]["n"] < full["ndxp"]["crossings"]["n"]
+        write_parquet(folder / "part_000_boards.parquet", t, {})

@@ -104,16 +104,56 @@ def test_the_report_counts_the_guards_fires_and_possible_false_fires(env):
         m: {"board": {"events": {}, "median_range_bps": 0}, "in_force": {"events": {}, "median_range_bps": 0},
             "guard": {"fires": [{"trigger": t} for b in chain_blocks.get(m, []) for t in b["triggers"]],
                       "blocks": chain_blocks.get(m, [])}} for m in step8b_disloc.DISLOC_MAPS}}
-    blk = lambda trig: {"start_et": "10:00:00", "end_et": "10:02:00", "s": 120.0, "triggers": trig, "peak_pct": 0.25,
-                        "possible_false": trig == ["per_board"], "min_after_open": 30, "in_news_blackout": False}
+    blk = lambda trig, false=False: {"start_et": "10:00:00", "end_et": "10:02:00", "s": 120.0, "triggers": trig,
+                                     "peak_pct": 0.25, "per_board_only": trig == ["per_board"], "false_fire": false,
+                                     "max_level_gap": 1.0, "min_after_open": 30, "in_news_blackout": False}
     used = [day(f"2026-01-0{i}", {}) for i in range(1, 5)]
-    used.append(day("2026-01-05", {"QQQ": [blk(["per_board"]), blk(["bot_r", "per_board"])], "SPY": [blk(["per_board"])]}))
+    used.append(day("2026-01-05", {"QQQ": [blk(["per_board"], True), blk(["bot_r", "per_board"])],
+                                   "SPY": [blk(["per_board"]), blk(["bot_r"], True)]}))
     g = step8b_disloc._guard_summary(used)  # 5 days = one week
-    assert g["chains"]["QQQ"]["blocks"] == 2 and g["chains"]["QQQ"]["possible_false"] == 1
-    assert g["chains"]["QQQ"]["fires"] == {"per_board": 2, "bot_r": 1}
-    assert g["possible_false_per_week_all"] == 2.0 and g["over_limit"]
-    used[-1] = day("2026-01-05", {"QQQ": [blk(["per_board"])]})
-    assert not step8b_disloc._guard_summary(used)["over_limit"]  # exactly one a week: not above
+    q = g["chains"]["QQQ"]
+    assert q["blocks"] == 2 and q["per_board_only"] == 1 and q["false_fires"] == 1
+    assert q["fires"] == {"per_board": 2, "bot_r": 1}
+    assert g["chains"]["SPY"]["per_board_only"] == 1 and g["chains"]["SPY"]["false_fires"] == 1  # independent columns
+    assert g["false_fires_per_week_all"] == 2.0 and g["over_limit"]
+    used[-1] = day("2026-01-05", {"QQQ": [blk(["per_board"], True), blk(["per_board"])]})
+    assert not step8b_disloc._guard_summary(used)["over_limit"]  # exactly one false fire a week: not above
+
+
+def test_false_fire_tolerance_and_hindsight_ratio(env):
+    """QQQ uses its stop_buffer_floor; SPY/SPX have none and use atlas_match_tol ES (owner 2026-10-14)."""
+    assert step8b_disloc.false_fire_tolerance(env, "QQQ") == (4.0, "stop_buffer_floor[QQQ]")
+    assert step8b_disloc.false_fire_tolerance(env, "SPY") == (0.78, "atlas_match_tol[ES]")
+    assert step8b_disloc.false_fire_tolerance(env, "SPX") == (0.78, "atlas_match_tol[ES]")
+    t = np.arange(300, dtype=np.int64) * NS
+    r = np.full(300, 41.0)
+    r[150:] = 42.0
+    h = step8b_disloc.hindsight_ratio(t, r, np.array([100, 140, 160, 200]))
+    assert h.tolist() == [41.0, 41.0, 42.0, 42.0]  # centred: board 140 sees 90..200 (61 old, 51 new)
+
+
+def test_a_block_is_a_false_fire_only_when_the_bots_levels_stayed_within_tolerance():
+    """Hand-built: per-board R jumps 25 bps for good (a real shift): the bot's 60-s median lags the hindsight R, so
+    the levels differ by more than 4 NQ at strike 600 -> not false. A two-way stale episode around a flat true R
+    leaves the bot's R on the hindsight R -> false fire."""
+    from nqbot.config import load_features
+    from nqbot.features import disloc_guard as dg
+
+    params = dg.GuardParams.from_features(load_features())
+    t = np.arange(400, dtype=np.int64) * NS
+    top = np.full(400, 600.0)
+    r = np.full(400, 41.0)
+    r[150:] = 41.0 * 1.0025
+    r_in = mp.ratio_in_force(t, r, 60, 10, 3, 3)
+    g = step8b_disloc._guard_day("QQQ", params, t, r, r_in, 0, [], top, 4.0)
+    assert len(g["blocks"]) == 1 and g["blocks"][0]["max_level_gap"] > 4.0 and not g["blocks"][0]["false_fire"]
+    r = np.full(400, 41.0)
+    r[150:154] = 41.0 * 1.0011
+    r[190:194] = 41.0 * 0.9989
+    r_in = mp.ratio_in_force(t, r, 60, 10, 3, 3)
+    g = step8b_disloc._guard_day("QQQ", params, t, r, r_in, 0, [], top, 4.0)
+    assert len(g["blocks"]) == 1 and g["blocks"][0]["per_board_only"]
+    assert g["blocks"][0]["max_level_gap"] <= 4.0 and g["blocks"][0]["false_fire"]
 
 
 def test_walk_forward_months_only_take_walk_forward_dates(env):
@@ -124,3 +164,34 @@ def test_walk_forward_months_only_take_walk_forward_dates(env):
         step8b_disloc.check_dislocations(env, [DAY], month_set="walk-forward")  # DAY is a development day
     with pytest.raises(step8b.CheckRefused, match="top-up and demo"):
         step8b_disloc.check_dislocations(env, [DAY], month_set="sealed")
+
+
+def test_the_job_runs_one_day_per_chunk_and_stops_on_low_memory(env, monkeypatch):
+    """`nqbot run step8b_dislocations` (owner 2026-10-14): a day per chunk in its own process, a clean stop when
+    memory is short (the day re-runs next time), saved days skipped."""
+    import logging
+    from types import SimpleNamespace
+
+    import pytest
+
+    from nqbot.jobs.lock import DATABENTO
+    from nqbot.jobs.registry import get_job
+    from nqbot.jobs.runner import StopChunk
+
+    _setup(env, noise=1e-6)
+    job = get_job("step8b_dislocations")
+    assert job.locks == (DATABENTO,)
+    ctx = SimpleNamespace(settings=env.settings, paths=env.paths, log=logging.getLogger("t"))
+    monkeypatch.setattr(step8b_disloc, "development_days", lambda e, c, m="development": [DAY, date(2026, 3, 6)])
+    assert job.chunks(ctx) == [DAY.isoformat(), "2026-03-06"]
+    ran = []
+    monkeypatch.setattr(step8b_disloc, "_run_day_in_child", lambda d, m="development": ran.append((d, m)))
+    monkeypatch.setattr(step8b_disloc, "free_mb", lambda: 1000)
+    with pytest.raises(StopChunk, match="1000 MB free"):
+        job.run_chunk(DAY.isoformat(), ctx)
+    monkeypatch.setattr(step8b_disloc, "free_mb", lambda: 8000)
+    job.run_chunk(DAY.isoformat(), ctx)
+    assert ran == [(DAY, "development")]
+    step8b_disloc.check_dislocations(env, [DAY])  # now saved
+    job.run_chunk(DAY.isoformat(), ctx)
+    assert ran == [(DAY, "development")]  # a saved day is not run again

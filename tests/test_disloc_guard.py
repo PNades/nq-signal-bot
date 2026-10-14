@@ -121,3 +121,30 @@ def test_a_gap_resets_both_windows(params):
     r[50:] = R0 + 25 * BP  # the shift happens across the 21-s gap
     r_in = r.copy()
     assert _run(params, t, r, r_in) == []
+
+
+def _online_blocked(params, r_in):
+    g = dg.ChainGuard("QQQ", params)
+    out = []
+    for k, ri in enumerate(r_in):
+        g.on_board(k * NS, R0, float(ri))
+        out.append(g.blocked(k * NS))
+    return g, np.array(out)
+
+
+def test_a_flag_during_the_hold_extends_the_block_forward_and_nothing_is_merged_afterwards(params):
+    """Owner 2026-10-14: the block is causal. The bot's R steps 0.25% at board 100 (flagged 100-218, held to 278)."""
+    # a second step at 330 (112 s after the last flag, past the hold): two blocks, unblocked 279-329, never filled in
+    r_in = np.full(500, R0)
+    r_in[100:330] = R0 * 1.0025
+    g, live = _online_blocked(params, r_in)
+    spans = dg.block_spans(g.fires)
+    assert spans == [(100 * NS, 278 * NS), (330 * NS, 508 * NS)]
+    assert live[278] and not live[279] and not live[329] and live[330]
+    assert (dg.in_block(spans, np.arange(500) * NS) == live).all()  # the spans are exactly what live saw
+    # a second step at 250, inside the hold: the block runs on from it (its flags to 368, held to 428), one block
+    r_in = np.full(500, R0)
+    r_in[100:250] = R0 * 1.0025
+    g, live = _online_blocked(params, r_in)
+    assert dg.block_spans(g.fires) == [(100 * NS, 428 * NS)]
+    assert live[100:429].all() and not live[429] and not live[99]

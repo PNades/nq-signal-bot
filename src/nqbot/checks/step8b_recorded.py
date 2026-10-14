@@ -225,16 +225,24 @@ def ndxp_crossings(env: s8.Env, d: date, a_n: np.ndarray, spot: np.ndarray, arri
                    ) -> tuple[np.ndarray, np.ndarray]:
     """NDXP's relevant-node crossings in a recording (report only, owner 2026-10-11): F2.4 over the session's NDXP
     boards, the gate's crossing rule on the board in force (applied at max(arrival, floor(asOf) + 1 s +
-    map_latency_sec)). Returns (t*, strike)."""
+    map_latency_sec)). Returns (t*, strike). Owner 2026-10-14 (live stream drops): a crossing is interpolated only
+    between two NDXP boards no more than `skylit_map_stale_sec` apart (a board is never carried across a gap)."""
     cfg = env.features["mapping"]
     bi, k, v = recording_strikes(env, d, "NDXP", a_n)
     pct = mp.pct_of_king(bi, v, len(a_n))
     rel, _ = nodes.relevance(bi, k, pct, np.ones(len(a_n), dtype=bool), env.features["min_node_pct_of_king"],
                              env.features["node_drop_pct"])
     t_apply = mp.apply_times_ns(a_n, "1s", env.settings.get("map_latency_sec"), arrival)
-    t, strike, _ = gate.event_crossings(c_n, spot, mp.gap_segments(c_n, cfg["ratio_gap_reset_sec"]), t_apply,
-                                        bi[rel], k[rel])
+    t, strike, _ = gate.event_crossings(c_n, spot, mp.gap_segments(c_n, _no_carry_s(env)), t_apply, bi[rel], k[rel])
     return t, strike
+
+
+def _no_carry_s(env: s8.Env) -> float:
+    """The longest a board is used after it applied in the recorded-day scores (owner 2026-10-14): the live per-map
+    freshness limit `skylit_map_stale_sec` (a map older than that blocks entries live), never more than the R reset."""
+    gap = float(env.features["mapping"]["ratio_gap_reset_sec"])
+    stale = env.settings.get("skylit_map_stale_sec")
+    return min(gap, float(stale)) if stale is not None else gap
 
 
 # --- leave-one-day-out choice (owner 2026-10-08) --------------------------------------------------------
@@ -406,12 +414,14 @@ def check_recorded_day(env: s8.Env, d: date, *, with_prev: bool = False,
             # the QQQ R the bot had at the NDXP board's content time: the last QQQ board applied by then,
             # max(arrival, floor(asOf) + 1 s + map_latency_sec) (F0.1, owner 2026-10-09: same rule as the gate)
             t_apply_q = mp.apply_times_ns(aq, "1s", env.settings.get("map_latency_sec"), arr_q)
-            i = mp.in_force_index(t_apply_q, c_n)
-            r_at = np.where(i >= 0, r_in[np.clip(i, 0, None)], np.nan)
+            no_carry_ns = int(_no_carry_s(env) * mp.NS)
 
-            def qqq_r_at(t: np.ndarray) -> np.ndarray:  # the QQQ R in force at t
+            def qqq_r_at(t: np.ndarray) -> np.ndarray:  # the QQQ R in force at t; none once its board is too old
                 j = mp.in_force_index(t_apply_q, t)
-                return np.where(j >= 0, r_in[np.clip(j, 0, None)], np.nan)
+                jj = np.clip(j, 0, None)
+                ok = (j >= 0) & (np.asarray(t, dtype=np.int64) - t_apply_q[jj] <= no_carry_ns)
+                return np.where(ok, r_in[jj], np.nan)
+            r_at = qqq_r_at(c_n)
             for n in QQQ_K_SESSIONS:
                 k = ndxp.qqq_k(d, closes["ndx"], closes["qqq"], closes["div"], n)
                 key = qqq_key(n)
@@ -430,6 +440,8 @@ def check_recorded_day(env: s8.Env, d: date, *, with_prev: bool = False,
         for c, e in cross_err.items():
             methods[c]["crossings"] = _err_stats(e)
         ndxp_out["crossings"] = {"n": int(len(t_x)), "left_out_near_gaps": int((~keep_x).sum()), "report_only": True}
+        ndxp_out["boards"] = {"recorded": int(len(an)), "no_carry_s": _no_carry_s(env),
+                              "scored": {c: int(np.isfinite(e).sum()) for c, e in errors.items()}}
         ndxp_out["methods"] = methods
         for name, v in methods.items():
             x = v.get("crossings", {})
