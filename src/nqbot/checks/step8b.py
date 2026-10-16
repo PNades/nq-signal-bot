@@ -227,6 +227,25 @@ def _day_inputs(env: Env, d: date, front: dict[str, dict[str, str]]) -> tuple[di
     return {m: map_day(env, d, m, boards, strikes, futs[CHAIN_ROOT[m]]) for m in MAPS}, futs
 
 
+def day_futures(env: Env, d: date, front: dict[str, dict[str, str]]) -> dict[str, Futures]:
+    """The session's NQ and ES trades, after checking boards are stored (the same refusals as `_day_inputs`)."""
+    if not env.sky.stored_windows(d, skylit_base(env, d)):
+        raise CheckRefused(f"no Skylit boards stored for {d}")
+    return {root: load_futures(env, root, d, front) for root in sorted(set(CHAIN_ROOT.values()))}
+
+
+def iter_day_maps(env: Env, d: date, names: list[str] | tuple[str, ...], futs: dict[str, Futures]):
+    """Low memory (§11): one map's boards and strikes read and built at a time; the caller drops each before the next.
+    The same MapDay as `_day_inputs` (map_day filters on the symbol either way)."""
+    base = skylit_base(env, d)
+    for m in names:
+        boards, strikes = env.sky.read_range(d, base, symbols=[m])
+        md = map_day(env, d, m, boards, strikes, futs[CHAIN_ROOT[m]])
+        del boards, strikes
+        yield m, md
+        del md
+
+
 def _session_ns(env: Env, d: date) -> tuple[int, int]:
     return (int(datetime.combine(d, RTH_OPEN, tzinfo=ET).timestamp()) * mp.NS,
             int(datetime.combine(d, env.close_of(d), tzinfo=ET).timestamp()) * mp.NS)

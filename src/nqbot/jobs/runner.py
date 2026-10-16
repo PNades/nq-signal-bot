@@ -259,9 +259,14 @@ def run_job(
                 break
             t0 = now()
             try:
-                job.run_chunk(chunk, ctx)
+                out = job.run_chunk(chunk, ctx)
                 sec = (now() - t0).total_seconds()
-                done[chunk] = {"sec": sec, "finished": now().isoformat(), "peak_gb": _peak_gb()}
+                # a chunk run in its own process reports that process's peak (it is not this process's)
+                child = out.get("peak_gb") if isinstance(out, dict) else None
+                peaks_now = [p for p in (_peak_gb(), child) if p]
+                done[chunk] = {"sec": sec, "finished": now().isoformat(), "peak_gb": max(peaks_now, default=None)}
+                if child:
+                    done[chunk]["child_peak_gb"] = child
                 run["chunks"].append(chunk)
                 run["end"] = now().isoformat()
                 atomic_write_json(spath, state)

@@ -162,7 +162,7 @@ def day_dislocations(env: s8.Env, d: date, front: dict[str, dict[str, str]], cal
         if "skip" in old or old.get("v") == DAY_VERSION:
             return old  # an older day file is recomputed (it has the per-board series only)
     try:
-        maps, futs = s8._day_inputs(env, d, front)
+        futs = s8.day_futures(env, d, front)
     except s8.CheckRefused as e:
         out = {"date": d.isoformat(), "skip": str(e)}
         atomic_write_json(path, out)
@@ -179,8 +179,8 @@ def day_dislocations(env: s8.Env, d: date, front: dict[str, dict[str, str]], cal
                                                        for root, f in futs.items()}}
     gap = cfg["ratio_gap_reset_sec"]
     gparams = dg.GuardParams.from_features(env.features)
-    for m in DISLOC_MAPS:
-        md, fut = maps[m], futs[s8.CHAIN_ROOT[m]]
+    for m, md in s8.iter_day_maps(env, d, DISLOC_MAPS, futs):  # low memory: one chain in memory at a time (§11)
+        fut = futs[s8.CHAIN_ROOT[m]]
         A = np.flatnonzero(md.applied)
         tc = mp.content_time_ns(md.as_of[A], mp.content_offset_ms(cfg, m, era))
         t_apply = mp.apply_times_ns(md.as_of[A], np.array(md.resolution, dtype=object)[A], st.get("map_latency_sec"))
@@ -208,8 +208,10 @@ def day_dislocations(env: s8.Env, d: date, front: dict[str, dict[str, str]], cal
             chain["guard"] = _guard_day(m, gparams, t_apply, r, r_in, open_ns, spans, top[A][ok], tol)
             chain["guard"]["tolerance"] = {"value": tol, "setting": src}
         out["chains"][m] = chain
+        del md
+        gc.collect()
     atomic_write_json(path, out)
-    del maps, futs
+    del futs
     gc.collect()
     return out
 
@@ -247,14 +249,28 @@ def _day_done(env: s8.Env, d: date, month_set: str = "development") -> bool:
     return "skip" in x or x.get("v") == DAY_VERSION
 
 
-def _run_day_in_child(d: date, month_set: str = "development") -> None:
-    """One day in a fresh Python process (owner 2026-10-10: a long run in one process ran the laptop out of memory)."""
-    code = "import sys; from nqbot.cli import main; sys.exit(main(sys.argv[1:]))"
+PEAK_TAG = "CHILD_PEAK_GB"
+
+
+def _run_day_in_child(d: date, month_set: str = "development") -> float | None:
+    """One day in a fresh Python process (owner 2026-10-10: a long run in one process ran the laptop out of memory),
+    so nothing stays in memory between days. Returns the day process's own peak memory (GB; the job records it,
+    owner 2026-10-16: the parent's 0.1 GB hid the 2.5 GB a day used)."""
+    code = ("import sys, psutil; from nqbot.cli import main; rc = main(sys.argv[1:]); i = psutil.Process().memory_info(); "
+            f"print('{PEAK_TAG}', getattr(i, 'peak_wset', 0) / 2**30 or i.rss / 2**30); sys.exit(rc)")
     r = subprocess.run([sys.executable, "-c", code, "step8b", "dislocations", "--dates", d.isoformat(),
                         "--months", month_set],
                        capture_output=True, text=True)
     if r.returncode != 0:
         raise s8.CheckRefused(f"{d}: the day's process failed ({r.returncode}): {(r.stderr or r.stdout)[-400:]}")
+    return child_peak_gb(r.stdout)
+
+
+def child_peak_gb(stdout: str) -> float | None:
+    for line in reversed((stdout or "").splitlines()):
+        if line.startswith(PEAK_TAG):
+            return round(float(line.split()[1]), 3)
+    return None
 
 
 def check_dislocations(env: s8.Env, dates: list[date] | None = None, isolate: bool = False,
@@ -456,13 +472,15 @@ class DislocationsJob:
         env = self._env(ctx)
         return [d.isoformat() for d in development_days(env, env.cal or cal_mod.load(), self.month_set)]
 
-    def run_chunk(self, chunk_id: str, ctx: Any) -> None:
+    def run_chunk(self, chunk_id: str, ctx: Any) -> dict[str, Any] | None:
         from nqbot.jobs.runner import StopChunk
 
         d = date.fromisoformat(chunk_id)
         if _day_done(self._env(ctx), d, self.month_set):
-            return
+            return None
         mb = free_mb()
         if mb is not None and mb < MIN_FREE_MB:
             raise StopChunk(f"{mb} MB free (< {MIN_FREE_MB}) before {d}")
-        _run_day_in_child(d, self.month_set)
+        peak = _run_day_in_child(d, self.month_set)
+        ctx.log.info("%s: %s day process peak %s GB, %s MB free before it", self.name, d, peak, mb)
+        return {"peak_gb": peak}

@@ -378,3 +378,18 @@ def test_recorded_day_never_carries_a_board_across_a_gap(env):
             assert rep["ndxp"]["boards"]["recorded"] == full["ndxp"]["boards"]["recorded"] - 20
             assert rep["ndxp"]["crossings"]["n"] < full["ndxp"]["crossings"]["n"]
         write_parquet(folder / "part_000_boards.parquet", t, {})
+
+
+def test_one_chain_at_a_time_builds_the_same_maps(env):
+    """Low memory (§11, owner 2026-10-16): reading one map's rows at a time gives the same MapDay as the whole day."""
+    _setup(env, noise=1e-6)
+    front = step8b.front_symbols(env)
+    maps, futs = step8b._day_inputs(env, DAY, front)
+    names = []
+    for m, md in step8b.iter_day_maps(env, DAY, list(maps), step8b.day_futures(env, DAY, front)):
+        names.append(m)
+        ref = maps[m]
+        for f in ("as_of", "spot", "applied", "s_board", "s_strike", "s_value", "s_pct"):
+            assert np.array_equal(getattr(md, f), getattr(ref, f), equal_nan=f in ("spot", "s_pct")), (m, f)
+        assert np.array_equal(md.r, ref.r, equal_nan=True) and md.resolution == ref.resolution
+    assert names == list(maps)

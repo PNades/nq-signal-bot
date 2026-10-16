@@ -206,3 +206,22 @@ def test_empty_locks_means_both(settings, paths, log, clock):
     lock_path(paths.root, SKYLIT).write_text(json.dumps({"host": "home-pc", "pid": 1, "job": "skylit_backfill"}))
     with pytest.raises(LockHeld):
         run(NoLocks(1, 1), settings, paths, log, clock)
+
+
+def test_a_chunk_run_in_its_own_process_records_that_peak(settings, paths, log, clock):
+    """Owner 2026-10-16: the dislocation job's day processes used 2.5 GB while the job showed its own 0.1 GB."""
+    class Child(DummyJob):
+        def run_chunk(self, chunk_id, ctx):
+            super().run_chunk(chunk_id, ctx)
+            return {"peak_gb": 99.0}
+
+    run(Child(2, 1), settings, paths, log, clock)
+    done = json.loads(state_path(paths, "dummy").read_text())["done"]
+    assert all(d["peak_gb"] == 99.0 and d["child_peak_gb"] == 99.0 for d in done.values())
+
+
+def test_child_peak_line_is_parsed():
+    from nqbot.checks.step8b_disloc import PEAK_TAG, child_peak_gb
+
+    assert child_peak_gb(f"report: x\n{PEAK_TAG} 1.23456\n") == 1.235
+    assert child_peak_gb("no tag here") is None

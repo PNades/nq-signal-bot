@@ -336,12 +336,17 @@ class SkylitStore:
         write_parquet(bpath, boards, meta)  # boards last: both exist only once both are complete
         return bpath, spath
 
-    def read_range(self, day: date, base: Path | None = None) -> tuple[pa.Table, pa.Table]:
+    def read_range(self, day: date, base: Path | None = None,
+                   symbols: list[str] | None = None) -> tuple[pa.Table, pa.Table]:
+        """symbols: read only these maps' rows (low memory, §11: one chain at a time)."""
         folder = (base or self.root) / "range" / day.isoformat()
         boards = sorted(folder.glob("*_boards.parquet"))
         strikes = sorted(folder.glob("*_strikes.parquet"))
-        bt = pa.concat_tables([pq.read_table(p) for p in boards]) if boards else BOARD_SCHEMA.empty_table()
-        st = pa.concat_tables([pq.read_table(p) for p in strikes]) if strikes else STRIKE_SCHEMA.empty_table()
+        flt = [("symbol", "in", list(symbols))] if symbols else None
+        bt = (pa.concat_tables([pq.read_table(p, filters=flt) for p in boards]) if boards
+              else BOARD_SCHEMA.empty_table())
+        st = (pa.concat_tables([pq.read_table(p, filters=flt) for p in strikes]) if strikes
+              else STRIKE_SCHEMA.empty_table())
         return bt.replace_schema_metadata(None), st.replace_schema_metadata(None)
 
     def stored_windows(self, day: date, base: Path | None = None) -> list[str]:
