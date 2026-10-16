@@ -31,10 +31,43 @@ def _until(text: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from nqbot.console import resilient_console
     from nqbot.power import keep_awake
 
-    with keep_awake():  # owner 2026-10-11: every command, so a screen-off Modern Standby can't drop the SSD mid-run
+    # owner 2026-10-16: a task's console log lives on the SSD; a pulled SSD must not crash the run on its next print
+    with resilient_console(), keep_awake():  # owner 2026-10-11: every command, so Modern Standby can't drop the SSD
         return _main(argv)
+
+
+def _resolve_paths(settings: dict):
+    """resolve_paths; under a scheduled task (nqbot_task.ps1 sets NQBOT_TASK_LOG) a missing SSD is waited for up to
+    SSD_DROP_WAIT_SEC first (owner 2026-10-16: on 10-15 the 08:40 task started during a 4-s drop and refused)."""
+    import os
+    from pathlib import Path
+
+    from nqbot import storage
+    from nqbot.console import TASK_LOG_ENV
+
+    try:
+        return resolve_paths(settings)
+    except SSDNotFound as e:
+        if not os.environ.get(TASK_LOG_ENV):
+            raise
+        first = e
+    where = Path(str((settings.get("paths") or {}).get("root") or "."))
+    storage.log_ssd_event("task start", where, f"SSD not found ({first}); waiting up to {storage.SSD_DROP_WAIT_SEC:.0f} s")
+    waited = 0.0
+    while waited < storage.SSD_DROP_WAIT_SEC:
+        storage._sleep(storage.SSD_DROP_POLL_SEC)
+        waited += storage.SSD_DROP_POLL_SEC
+        try:
+            paths = resolve_paths(settings)
+        except SSDNotFound:
+            continue
+        storage.log_ssd_event("task start", paths.root, f"SSD found after {waited:.1f} s")
+        return paths
+    storage.log_ssd_event("task start", where, f"SSD still not found after {storage.SSD_DROP_WAIT_SEC:.0f} s")
+    raise first
 
 
 def _main(argv: list[str] | None = None) -> int:
@@ -103,7 +136,7 @@ def _main(argv: list[str] | None = None) -> int:
     recording_fallback = (args.command == "step7" and getattr(args, "check", None) == "stream-session"
                           and args.fallback_local)
     try:
-        paths = resolve_paths(settings)
+        paths = _resolve_paths(settings)
     except SSDNotFound as e:
         if not recording_fallback:
             print(f"SSD not found: {e}", file=sys.stderr)

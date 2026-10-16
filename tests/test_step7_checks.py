@@ -1,3 +1,4 @@
+import io
 import json
 from pathlib import Path
 from datetime import date, datetime, time, timedelta, timezone
@@ -843,6 +844,125 @@ def test_stream_session_switches_to_the_internal_drive_when_the_ssd_drops(env, m
     fallback.move_fallback(local, env.paths, echo=lambda s: None)
     moved = sorted(Path(rep["folder"]).glob("part_*_boards.parquet"))
     assert len(moved) == 1 + len(local_parts) and sum(pq.read_table(p).num_rows for p in moved) == n
+
+
+def test_stream_session_survives_the_ssd_pulled_for_longer_than_the_wait(env, monkeypatch, tmp_path):
+    """Owner 2026-10-16 (the 10-15 recording): the SSD, which also holds the task's console log, is pulled after part
+    0 and stays out for 45 s, past the 30-s storage wait. The real write path waits, gives up, switches to the
+    internal drive, the console carries on in the fallback log, and the session records to the end: every board
+    kept once, the 'session ended' line written."""
+    import errno
+    import sys
+
+    import pyarrow.parquet as pq
+
+    from nqbot import console, storage
+    from nqbot.storage import Paths
+
+    monkeypatch.setattr(storage, "SSD_EVENT_LOG", tmp_path / "events.log")
+    t0 = datetime(2026, 10, 15, 18, 40, tzinfo=UTC)
+    snap = {"symbol": "NDXP", "spot": 31000.0, "previousClose": 30990.0, "priceChange": 10.0,
+            "priceChangePercent": 0.03, "expirations": ["2026-10-15"], "lagged": False,
+            "strikes": [{"strike": 31000, "value": 1e6, "nodeType": "king"}]}
+    body = sse(("connected", {"creditsRemaining": 1000}, None),
+               *[("snapshot", {**snap, "asOf": z(t0 + timedelta(seconds=i))}, f"NDXP:{i}") for i in range(15)])
+    replies = [body]
+
+    def handler(request):
+        return httpx.Response(200, content=replies.pop(0) if replies else sse(("ping", None, None)),
+                              headers={"Content-Type": "text/event-stream"})
+
+    ticks = iter(range(10**6))
+    clock = lambda: int((t0.timestamp() + next(ticks)) * 1e9)  # noqa: E731
+
+    async def nosleep(s):
+        pass
+
+    monkeypatch.setattr(step7, "SESSION_PART_MIN", 3 / 60)
+    env.stream_factory = lambda: SkylitStream(Secret(KEY), symbols_map=SYMBOLS_MAP, maps=["NDXP"], metric="gamma",
+                                              max_expirations=1, max_strikes="all", sleep=nosleep, clock_ns=clock,
+                                              transport=httpx.MockTransport(handler))
+    ssd_root = Path(env.paths.root)
+    plug = {"out_at": None, "now": 0.0, "out_for": 45.0}  # seconds of fake storage-wait time
+
+    def unplugged() -> bool:
+        return plug["out_at"] is not None and plug["now"] - plug["out_at"] < plug["out_for"]
+
+    def under_ssd(p) -> bool:
+        try:
+            return Path(p).resolve().is_relative_to(ssd_root.resolve())
+        except OSError:
+            return False
+
+    gone = lambda p: FileNotFoundError(errno.ENOENT, "The system cannot find the path specified", str(p))  # noqa: E731
+    real_mkdir, real_write_bytes = Path.mkdir, Path.write_bytes
+    real_anchor, real_probe = storage._anchor_ok, storage._probe
+
+    def mkdir(self, *a, **k):
+        if unplugged() and under_ssd(self):
+            raise gone(self)
+        return real_mkdir(self, *a, **k)
+
+    def write_bytes(self, data):
+        if unplugged() and under_ssd(self):
+            raise gone(self)
+        return real_write_bytes(self, data)
+
+    monkeypatch.setattr(Path, "mkdir", mkdir)
+    monkeypatch.setattr(Path, "write_bytes", write_bytes)
+    monkeypatch.setattr(storage, "_anchor_ok", lambda p: False if unplugged() and under_ssd(p) else real_anchor(p))
+    monkeypatch.setattr(storage, "_probe", lambda p: False if unplugged() and under_ssd(p) else real_probe(p))
+    monkeypatch.setattr(storage, "_sleep", lambda s: plug.update(now=plug["now"] + s))
+
+    task_log = _VanishingConsole(unplugged)  # the task's console log lives on the SSD too
+    real_write_part = step7.write_parquet
+
+    def write_parquet(path, table, meta):  # pull the SSD as part 1 is about to be written
+        if meta["part"] == 1 and plug["out_at"] is None:
+            plug["out_at"] = plug["now"]
+        real_write_part(path, table, meta)
+
+    monkeypatch.setattr(step7, "write_parquet", write_parquet)
+    monkeypatch.setattr(sys, "stdout", task_log)
+    monkeypatch.setattr(sys, "stderr", task_log)
+    monkeypatch.setenv(console.TASK_LOG_ENV, str(ssd_root / "logs" / "stream_session_20261015.txt"))
+    env.echo = print
+    local = Paths.under(tmp_path / "internal", "nqbot")
+    env.now.t = datetime(2026, 10, 15, 14, 39, tzinfo=ET)
+    with console.resilient_console(log_dir=tmp_path / "fb_logs"):
+        rep = step7.check_stream_session(env, ["NDXP"], end=t0 + timedelta(seconds=14), fallback=local)
+    assert plug["now"] - plug["out_at"] > storage.SSD_DROP_WAIT_SEC  # the wait ran out: a real >30-s unplug
+    events = (tmp_path / "events.log").read_text(encoding="utf-8")
+    assert "drive not back after 30 s: giving up" in events and "recording to" in events
+    assert rep["fallback"]["from_part"] == 1
+    ssd_parts = sorted(Path(rep["folder"]).glob("part_*_boards.parquet"))
+    local_parts = sorted(Path(rep["fallback"]["folder"]).glob("part_*_boards.parquet"))
+    assert [p.name for p in ssd_parts] == ["part_000_boards.parquet"] and len(local_parts) >= 2
+    as_of = sorted(t for p in ssd_parts + local_parts for t in pq.read_table(p)["as_of"].cast("int64").to_pylist())
+    n = len(as_of)
+    assert n == rep["boards"] == rep["boards_per_map"]["NDXP"] >= 10 and rep["resent_boards_dropped"] == 0
+    assert as_of == [int((t0 + timedelta(seconds=i)).timestamp() * 1000) for i in range(n)]  # none lost, none twice
+    # the console: the SSD log stops at the drop, the rest (the switch line to 'session ended') is in the fallback log
+    assert "SSD write failed" not in task_log.getvalue()
+    fb = (tmp_path / "fb_logs" / "stream_session_20261015.txt").read_text(encoding="utf-8")
+    assert "SSD write failed" in fb and "session ended" in fb.splitlines()[-1] and f"NDXP {n} boards" in fb
+
+
+class _VanishingConsole(io.StringIO):
+    """A console log file on the SSD: every write fails while `unplugged()` (like the 10-15 task log)."""
+
+    def __init__(self, unplugged):
+        super().__init__()
+        self._unplugged = unplugged
+
+    def write(self, s):
+        if self._unplugged():
+            raise OSError(9, "Bad file descriptor")
+        return super().write(s)
+
+    def flush(self):
+        if self._unplugged():
+            raise OSError(9, "Bad file descriptor")
 
 
 def test_sigma_check_against_the_stored_row(env):

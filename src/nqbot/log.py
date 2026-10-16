@@ -16,6 +16,32 @@ FORMAT = "%(asctime)s.%(msecs)03dZ [%(process)d] %(levelname)s %(name)s: %(messa
 DATEFMT = "%Y-%m-%dT%H:%M:%S"
 
 
+class ReopeningFileHandler(logging.FileHandler):
+    """A FileHandler whose file is opened again after a failed write (owner 2026-10-16: an SSD re-mount kills the
+    open handle; on 2026-10-15 the daily log stayed empty after the first one). A record that still can't be written
+    is dropped here (the console handler has it)."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        for attempt in range(2):
+            try:
+                if self.stream is None:
+                    self.stream = self._open()
+                msg = self.format(record)
+                self.stream.write(msg + self.terminator)
+                self.flush()
+                return
+            except OSError:
+                try:
+                    if self.stream is not None:
+                        self.stream.close()
+                except OSError:
+                    pass
+                self.stream = None  # type: ignore[assignment]
+            except Exception:
+                self.handleError(record)
+                return
+
+
 def setup_logging(log_dir: Path | None = None, level: int = logging.INFO) -> logging.Logger:
     logger = logging.getLogger("nqbot")
     logger.setLevel(level)
@@ -30,7 +56,7 @@ def setup_logging(log_dir: Path | None = None, level: int = logging.INFO) -> log
     if log_dir is not None:
         log_dir.mkdir(parents=True, exist_ok=True)
         day = datetime.now(timezone.utc).strftime("%Y%m%d")
-        file = logging.FileHandler(log_dir / f"nqbot_{day}.log", encoding="utf-8")
+        file = ReopeningFileHandler(log_dir / f"nqbot_{day}.log", encoding="utf-8")
         file.setFormatter(formatter)
         logger.addHandler(file)
     logger.propagate = False
