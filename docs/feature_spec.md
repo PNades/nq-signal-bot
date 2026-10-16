@@ -7,7 +7,7 @@
 
 **Precedence.** SPEC.md is the source of truth for definitions; this file refines §5 and supplies what §5.2 defers. Where this file conflicts with a SPEC rule, the conflict goes to SPEC §13. Owner notes win over the Skylit docs. If owner notes and SPEC disagree, the conflict goes to §13 and SPEC is followed until the owner answers (none found; see F14).
 
-**Values.** F0–F12 name parameters without valuing them; the proposed start values are all in one table, F15 (part 2). Exceptions valued in place: the owner's fixed definitional constants (25% of King, the 70% value area, 1σ/2σ, 30-minute TPO periods, `ib_fib_start_minute` 20, `ib_lock_minute` 30, `session.flat_by` 15:59, `min_minutes_before_flat` 14) and SPEC-fixed method constants. The golden-zone fib levels (0.5/0.618/0.705/0.79; upper fib 0.79, owner 2026-10-14) are the named owner-rule parameters `golden_fib_levels` and `golden_zone_upper_fib` in features.yaml (never tuned). Parameters marked **NEW** were not in SPEC §11 before part 1. Their start values (F15) were approved by the owner at step 6 (2026-10-05) and are in `config/`.
+**Values.** F0–F12 name parameters without valuing them; the proposed start values are all in one table, F15 (part 2). Exceptions valued in place: the owner's fixed definitional constants (25% of King, the 70% value area, 1σ/2σ, 30-minute TPO periods, `ib_fib_start_minute` 15 (owner 2026-10-16, was 20), `ib_lock_minute` 30, `ib_redraw_minute` 60 (owner 2026-10-16), `session.flat_by` 15:59, `min_minutes_before_flat` 14) and SPEC-fixed method constants. The golden-zone fib levels (0.5/0.618/0.705/0.79; upper fib 0.79, owner 2026-10-14) are the named owner-rule parameters `golden_fib_levels` and `golden_zone_upper_fib` in features.yaml (never tuned). Parameters marked **NEW** were not in SPEC §11 before part 1. Their start values (F15) were approved by the owner at step 6 (2026-10-05) and are in `config/`.
 
 **Open questions** are numbered `FQ-nn` and collected in F13. Each one offered options for the owner; all were answered at step 6 (2026-10-05, F13), and the answers are written into the definitions.
 
@@ -404,8 +404,9 @@
 
 ### F3.6 Opening range and IB high/low
 - *Definition:* see F10 for the running range and the lock at 10:00 (`ib_lock_minute`). From the lock, **IB high** and **IB low** are registry levels (§5.3) and sweep-eligible. Before a break the IB high is a ceiling and the IB low a floor. Breaks, sweeps and flips follow F3.9 and F2.6 step 3 (a settled 5-minute bar beyond = flipped: a broken low acts as a ceiling, a broken high as a floor).
-- *Known at:* 10:00:00 (the levels exist from the lock).
-- *Test:* H 20,200 at 09:58, a new high of 20,210 at 10:00:05 → IB high stays 20,200.
+- **10:30 move (owner 2026-10-16):** at 09:30 + `ib_redraw_minute` (10:30:00), if a trade in [10:00, 10:30) exceeded the 10:00 IB high (low), that level is removed and the 09:30–10:30 high (low) becomes the IB high (low), a fresh level with no break history (role by the approach rule); a side not exceeded keeps its level and state. Same redraw as F10.
+- *Known at:* 10:00:00 (the levels exist from the lock); 10:30:00 (the move).
+- *Test:* H 20,200 at 09:58, a new high of 20,210 at 10:00:05 → IB high stays 20,200 until 10:30:00, then moves to the 09:30–10:30 high (≥ 20,210) as a fresh level; the IB low stays.
 
 ### F3.7 Overnight and prior-period extremes
 - *Definitions:*
@@ -645,7 +646,8 @@ Computed at the touch and at `decision_ts`:
 - **ES reacting there:** dropped (owner 2026-10-05, FQ-15: Trinity alignment and `es_at_level` already cover ES at the level; the focus is NQ).
 - **NQ/ES divergence (SMT):** at t, NQ's high (low) over the last `smt_lookback_min` is a new high (low) versus its prior `smt_lookback_min` window while ES's is not, or the reverse. Feature: `smt_div` ∈ {none, nq_only, es_only}, per side.
 - **Relative delta** (owner 2026-10-05, FQ-16: keep, the model learns its relevance): over the last `rel_delta_sec`, `rel_delta` = (NQ delta ÷ NQ volume) − (ES delta ÷ ES volume) (each in [−1, 1], so the two markets' sizes don't matter), and `delta_sign_agree` = the two deltas have the same sign. Known at each second.
-- *Params:* `smt_lookback_min`, `rel_delta_sec` (both **NEW**).
+- **NQ vs ES relative strength (owner 2026-10-16, B5):** for k ∈ {5, 15} minutes, `rs_nq_es_k` = (NQ(t) ÷ NQ(t − k) − 1) − (ES(t) ÷ ES(t − k) − 1), in %, where each price is the last trade at or before that time on the front contract of the session; signed so that + = NQ stronger in the trade direction (shorts: negated). Computed at the touch (structure model) and at `decision_ts` (pair scorer). Null if either window would mix two contracts (§5.1 Same contract) or has no trade. Ablation group 2 (cross-market). Every one of them is in the step-11 no-lookahead shift test (owner 2026-10-16).
+- *Params:* `smt_lookback_min`, `rel_delta_sec` (both **NEW**); the B5 windows {5, 15} min are fixed (owner 2026-10-16).
 - *Test:* NQ makes a new 15-minute high while ES stays 2 pts below its prior high → `smt_div` = nq_only (high side). NQ buy 600 / sell 400, ES buy 300 / sell 500 → `rel_delta` = 0.2 − (−0.25) = 0.45, `delta_sign_agree` false.
 
 ### F5.17 Taps between map updates, and ties
@@ -655,6 +657,15 @@ Computed at the touch and at `decision_ts`:
   - entry + target → filled, target not yet reached;
   - stop + target → stopped.
 - *Test:* each of the three single-print cases.
+
+### F5.18 Approach (structure model; owner 2026-10-16, B4)
+- *Definition:* at the touch t, with prices = the last NQ trade at or before each time (pre-09:30 Globex trades count, so a 09:45 touch has full values; front contract of the CME day, never two contracts: null if a window would mix them, §5.1), ATR = the F0.8 value known at the touch, and + = moving toward the zone (approach from below: rising; from above: falling):
+  - `approach_move_k` = the price change over (t − k, t] in the approach direction ÷ ATR, for k ∈ {1, 15} minutes;
+  - `approach_range_k` = (max − min trade over (t − k, t]) ÷ ATR, for k ∈ {1, 15} minutes;
+  - `approach_straightness_15` = |p(t) − p(t − 15 min)| ÷ Σ|p(t − 15 + i) − p(t − 16 + i)| over the 15 one-minute steps i = 1…15 (prices sampled at each whole minute back from t; null if the sum is 0).
+- 5 columns, structure-model inputs (the pair scorer gets them through the structure model's probability). Ablation group 9 (approach). Every one of them is in the step-11 no-lookahead shift test (owner 2026-10-16).
+- *Known at:* the touch.
+- *Test:* a short touched at 20,100 after price rose from 20,040 in 15 minutes in steady 4-point steps, ATR 200 → `approach_move_15` 0.3, `approach_straightness_15` 1.0; the same net rise with a 20-point dip and recovery inside → straightness 60 ÷ 100 = 0.6.
 
 ---
 
@@ -707,7 +718,7 @@ These values are measured after the touch: `swept`, `sweep_depth`, `sweep_second
 
 **Time-to-live and removal.** These are the only removal reasons:
 - `entry_ttl_sec` expiry;
-- zone crossed (golden zone: settled past 0.79; gameplan zone: traded past its far edge, F5.9);
+- zone crossed (golden zone: settled past 0.79, which also flips it; gameplan zone: traded past its far edge, F5.9); golden zone redrawn at 10:30 (F10);
 - zone vanished, or moved more than `entry_reprice_tol` from the entry price;
 - start of a news blackout;
 - data outage;
@@ -817,6 +828,16 @@ Each removal takes effect `order_latency_sec` after it occurs; a fill before the
 - `seconds_since_touch` = `decision_ts` (or the firing second) − the event's touch time; for area events, since the event's first firing.
 - `aggressive_no_progress` = aggressive volume in the trade's counter-direction over the last `abs_seconds` ÷ (1 + the ticks price progressed in that aggressor's direction over the same window) (the "aggressive volume vs no-progress" input). Known at each second s.
 - *Test:* 300 buy-aggressor contracts with a 1-tick rise over the window → 150.
+- **Sequence inputs (owner 2026-10-16, B2; ablation group 8, order-flow extras):** at a trigger row at second s, within the event since its touch (area events: since its first firing), each null when it never happened:
+  - `secs_since_absorption`, `secs_since_imbalance`, `secs_since_exhaustion`, `secs_since_divergence` = s − the last second at which that detector's condition held in the trade direction (F9.4–F9.7; absorption: an absorption range existed, F9.5), so a detector firing now gives 0 for itself;
+  - `secs_since_big_trade` = s − the known time of the last big trade (F9.2, known at its first print + `big_trade_agg_ms`), and `big_trade_side_rel` ∈ {with, against} the trade direction;
+  - `distinct_detectors_fired` = how many of absorption, imbalance, exhaustion and divergence have fired in this event up to s (this firing included);
+  - `abs_then_imb` = an imbalance in the trade direction fired within `seq_window_sec` (30 s, fixed, never tuned; owner 2026-10-16) after an absorption range was detected in this event, at or before s.
+  - Not built (owner 2026-10-16): the first detector's type and the full order of events.
+- **Short-term range (owner 2026-10-16, B3; group 8):** `range_5m_ticks` = (max − min NQ trade over (s − 300 s, s]) ÷ tick size; `range_5m_vs_session` = `range_5m_ticks` ÷ the median range of today's completed 5-minute bars from 09:30 (09:30–09:35, 09:35–09:40, …; null before 09:40). Same contract only (null if a window would mix two, §5.1).
+- Every one of them is in the step-11 no-lookahead shift test (owner 2026-10-16).
+- *Params:* `seq_window_sec` (features.yaml, fixed).
+- *Test:* absorption detected at 10:00:00, a buy-side imbalance (for a long) at 10:00:20 → `abs_then_imb` true; at 10:00:40 → false; at the 10:00:20 firing `secs_since_absorption` 20 (if the range last existed at 10:00:00), `distinct_detectors_fired` 2. A 5-minute high–low of 20,110–20,080 → `range_5m_ticks` 120.
 
 ---
 
@@ -824,22 +845,26 @@ Each removal takes effect `order_latency_sec` after it occurs; a fill before the
 
 - *Definition:*
   - **Running range** from 09:30:00: H and L = the max/min RTH trade so far; t_H and t_L = their first-occurrence times.
-  - **Established** at 09:30 + `ib_fib_start_minute` (09:50:00).
-  - **Locked** at 09:30 + `ib_lock_minute` (10:00:00). Trades in [09:50, 10:00) that make a new extreme redraw the fib; trades from 10:00 on don't.
+  - **Established** at 09:30 + `ib_fib_start_minute` (09:45:00; owner 2026-10-16, was 09:50).
+  - **Locked** at 09:30 + `ib_lock_minute` (10:00:00). Trades in [09:45, 10:00) that make a new extreme redraw the fib (orientation re-evaluated); from 10:00 the fib is static, even if price leaves the range.
+  - **10:30 redraw (owner 2026-10-16)** at 09:30 + `ib_redraw_minute` (10:30:00): if a trade in [10:00, 10:30) exceeded the 10:00 H or L, the fib is redrawn once on the 09:30–10:30 range (H, L, t_H, t_L of [09:30, 10:30)), orientation by the rule below; else it stays. It resets the anchors (earlier flips no longer apply) and moves the IB high/low (F3.6). The redrawn zone is a new zone (`zone_id`): an open event on the old drawing ends at 10:30:00 and its pending entries are removed (F7). No other redraw after 10:30.
   - **Orientation (owner):**
     - t_L < t_H (low first, then high): the leg is up, anchored low → high. Fib level x sits at H − x·(H − L) and the zone is a **long** pullback zone.
     - t_H < t_L (high first): the leg is down. Level x sits at L + x·(H − L) and the zone is a **short** pullback zone.
-    - It is re-evaluated at every redraw and fixed for the rest of the day at the lock.
+    - It is re-evaluated at every redraw before the lock and at the 10:30 redraw; from the lock it changes only by a flip.
+  - **Orientation flip (owner 2026-10-16):** at the close of a 1-minute bar that settles past the zone's 0.79 level on the side away from the zone (the invalidation below, F0.5), the fib is redrawn the other way on the same H and L: up leg (zone at H − x·(H − L), long) ↔ down leg (zone at L + x·(H − L), short). From 09:45, all day; a new extreme before 10:00 and the 10:30 redraw set the orientation by the rule above instead. Each flip makes a new golden zone (`zone_id`), armed by F5.6 (a zone created away from price arms once price is outside its re-arm band, approach side as at that re-arm).
   - **Golden zone** = between the 0.5 and 0.79 levels (a container), with fib levels 0.5, 0.618, 0.705 and 0.79 (`golden_fib_levels`; the far edge is `golden_zone_upper_fib`, 0.79 since owner 2026-10-14, was 0.786).
     - Level 0 = the range extreme in the trade direction (a target candidate).
     - Level 1.0 = the opposite extreme (stop candidate 6).
     - Extensions at −0.272 and −0.618 are target candidates.
   - **Invalidation:** a 1-minute bar settles beyond the 0.79 level, on the side away from the zone (F0.5).
-  - **Re-arm:** once price is back on the original side of 0.79 and ≥ `rearm_dist` away from the zone (plus the normal F5.6 rule). Every return is a new event, and there is no limit on tests.
-- *Known at:* each trade (the range); 10:00:00 (the lock).
+  - **Re-arm:** the zone in force re-arms by the F5.6 rule (an invalidation flips it, so the invalidated zone does not re-arm). Every return is a new event, and there is no limit on tests.
+- *Known at:* each trade (the range); 10:00:00 (the lock); 10:30:00 (the redraw); each 1-minute bar close (a flip).
 - *Outputs:*
   - `in_golden_zone`; `fib_level_reached` (the deepest of 0.5/0.618/0.705/0.79 reached by `decision_ts`; a pair column);
-  - minutes after 09:30 when the range was established (20 unless redrawn), and the number of redraws;
+  - minutes after 09:30 when the range was established (15 unless redrawn), and the number of redraws before the lock;
+  - `fib_drawing` ∈ {running, locked_1000, redrawn_1030} (the drawing the event's zone came from); `fib_redrawn_1030` (bool; null before 10:30:00); `range_pts_1000` and `range_pts_1030` (pts, ATR, EM; the 10:30 value null before 10:30:00, equal to the 10:00 one when no redraw);
+  - `fib_orientation` ∈ {long, short}; `fib_flips` (flips of the current drawing so far) and `minutes_since_flip` (null if none), both restarting when the anchors change (a new extreme before 10:00, the 10:30 redraw; owner 2026-10-16);
   - range size (pts, ATR, EM) and the range ÷ its `ib_avg_sessions` average; `range_broke_on` (H > ON high or L < ON low);
   - touch history: today's touch number; earlier touches' outcomes and how far they ran, if resolved (pending otherwise); minutes since the last touch; minutes since the lock; `left_ib_since_lock`;
   - nodes inside:
@@ -850,7 +875,10 @@ Each removal takes effect `order_latency_sec` after it occurs; a fill before the
 - *Test:*
   - L 20,000 at 09:35, H 20,200 at 09:45 → up leg, zone [20,042, 20,100], long.
   - A new high of 20,300 at 09:55 → redraw.
-  - In a separate case keeping the 09:45 drawing (0.79 at 20,042): a bar at 10:05 that opens at 20,040 and closes at 20,030 → invalidated.
+  - In a separate case keeping the 09:45 drawing (0.79 at 20,042): a bar at 10:05 that opens at 20,040 and closes at 20,030 → invalidated, and the fib flips: short zone [20,100, 20,158] (L + 0.5·200 to L + 0.79·200), `fib_flips` 1.
+  - Flip (owner's example): L 20,000 first, H 20,100 → long zone [20,021, 20,050]; a bar settling below 20,021 → short zone [20,050, 20,079]; a later bar settling above 20,079 → long zone [20,021, 20,050] again, `fib_flips` 2.
+  - 09:45 start: L 20,000 at 09:32, H 20,100 at 09:40 → established at 09:45:00 (15 minutes), a touch of 20,050 at 09:46 is a tradeable golden-zone event.
+  - 10:30 redraw: 10:00 range [20,000, 20,100] (low first); a new low of 19,950 at 10:12 → at 10:30:00 redrawn on [19,950, 20,100], high first → short, `fib_redrawn_1030` true, `fib_flips` 0, the IB low moves to 19,950 (F3.6); with no new extreme in [10:00, 10:30) → unchanged, `fib_redrawn_1030` false.
 
 ---
 
@@ -935,7 +963,8 @@ Start values are in F15 (part 2); grids are in F16 (part 3). "SPEC" = the SPEC a
 | `tpo_tick_pts`, `sp_min_ticks` | features | SPEC | F3.5 |
 | `retest_tol_ticks`, `retest_lookback_sessions` | features | SPEC | F3.8 |
 | `sweep_max_depth`, `sweep_reclaim_bars` | features | tuned-13 | F3.9, F6.2 |
-| `ib_fib_start_minute`, `ib_lock_minute` | features | owner (20 / 30) | F10 |
+| `ib_fib_start_minute`, `ib_lock_minute`, `ib_redraw_minute` | features | owner (15 / 30 / 60; 2026-10-16) | F10, F3.6 |
+| `seq_window_sec` | features | owner (30, fixed; 2026-10-16) | F9.9 |
 | `ib_avg_sessions`, `rotation_min_pts` | features | SPEC | F3.10, F10 |
 | `dp_top_n`, `dp_lookback_days`, `dp_band`, `dp_lag_sessions` | features | SPEC / owner step 13 / measured | F4 |
 | `confluence_tol`, `max_zone_width` | features | tuned-13 / SPEC | F5.3 |
@@ -1324,15 +1353,17 @@ Both passes start from the same start-value rebuild (every detector is computed 
 | # | Group | What is removed |
 |---|---|---|
 | 1 | Trigger model | the pair scorer's trigger-probability inputs (own firing, max and latest); styles (a)/(b) still fire on their detectors |
-| 2 | Trinity (cross-market) | every feature read from ES, SPY or SPX: F2.19 Trinity, the F2.20 S&P path features, F5.16 (`es_at_level`, SMT, relative delta) and the S&P maps in the golden-zone node features. S&P path nodes still count as obstacles in target selection (F11.2). |
+| 2 | Trinity (cross-market) | every feature read from ES, SPY or SPX: F2.19 Trinity, the F2.20 S&P path features, F5.16 (`es_at_level`, SMT, relative delta, NQ vs ES relative strength) and the S&P maps in the golden-zone node features. S&P path nodes still count as obstacles in target selection (F11.2). |
 | 3 | Confluence features | the F5.13 zone makeup beyond the zone's primary member: `stack_count`, per-type counts, member spread and per-type distances from the centre, container makeup, confluence at target. Kept: the primary member's type, node size, node type and freshness; zone width; distances |
 | 4 | Day-type input | P(trend) in the structure model and pair scorer, and `yesterday_day_type` |
 | 5 | Area events | VAH/VAL area events and their pairs (the VAH/VAL context features stay) |
 | 6 | Stop candidate 5 | the absorption stop |
 | 7 | **Map shape (owner-approved 2026-10-05, Q30)** | the six concepts approved 2026-10-04: beach ball (F2.7), magnets (F2.10), air pockets (F2.15), King dominance and migration (F2.16), rainbow road (F2.17), whipsaw (F2.18) |
+| 8 | **Order-flow extras (owner 2026-10-16)** | the trigger-model additions: the F9.9 sequence inputs (B2) and the 5-minute range (B3); the multi-window order flow (B1) joins once approved |
+| 9 | **Approach (owner 2026-10-16)** | the F5.18 approach features (B4) |
 
 - **Why a 7th group:** these concepts are new, untested and many (≈ 40 columns). Folding them into "confluence features" would make that cut mean two different things. Rug, pika, rolling and regime stay in the base system (§7.1 lists them as structure-model inputs).
-- **Size:** 7 groups (SPEC §7 rule 5 updated 2026-10-05).
+- **Size:** 9 groups (SPEC §7 rule 5 updated 2026-10-05; groups 8 and 9 added by the owner 2026-10-16, each about +1–2 nights per round).
 - **Cost:**
   - Each arm runs the full per-fold pipeline for folds 7–9 with cached grid points: ≈ 1–2 nights.
   - Round 1 = 7 arms ≈ 7–14 nights. Each cut adds a round over the remaining groups.

@@ -228,6 +228,8 @@ ablation_groups:               # §7 rule 5; memberships in feature_spec F16.8; 
   - area_events
   - stop_candidate_5
   - map_shape
+  - order_flow_extras           # owner 2026-10-16 (B2, B3; B1 once approved)
+  - approach                    # owner 2026-10-16 (B4)
 bootstrap_paths: 500
 default_max_three_loss_rate: 0.15
 gate_account:                # §6.5b: account-independent choices and gates 16/20
