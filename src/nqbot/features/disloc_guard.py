@@ -13,8 +13,10 @@ either one starts a block:
 - **the bot's R (backstop):** the R in force (F1.7) at each apply time; flagged when its trailing-window range
   ((max − min) ÷ median, the `step8b dislocations` definition) exceeds `disl_guard_pct`.
 
-Both windows reset after a gap between boards longer than `ratio_gap_reset_sec`, and at each session start (a new
-`ChainGuard`). The chain is blocked from a flagged board until `disl_guard_hold_sec` after the latest flagged board of
+Both windows reset only at the session start (a new `ChainGuard`; owner 2026-10-17, §13 Q-dislguard-2 (b)(i)): a
+board gap does not reset them (`ratio_gap_reset_sec` resets F1.7's R, not the guard). The 2-minute window runs by time
+across a gap, so a move made inside a gap is compared with the levels before it and fires on the second board after it
+(per board; the bot's R from its first board, which F1.7 restarts at the gap). The chain is blocked from a flagged board until `disl_guard_hold_sec` after the latest flagged board of
 either trigger (trailing only: a block ends `hold` after the last flag, never filled in afterwards). One code path: the
 history check, labels, both simulators and live feed boards to `ChainGuard.on_board` in apply-time order (rule 4).
 """
@@ -39,14 +41,12 @@ class GuardParams:
     window_s: float
     confirm_s: float
     hold_s: float
-    gap_s: float
 
     @classmethod
     def from_features(cls, features: dict[str, Any]) -> GuardParams:
         m = features["mapping"]
         return cls(pct=float(m["disl_guard_pct"]), window_s=float(m["disl_guard_window_sec"]),
-                   confirm_s=float(m["disl_guard_confirm_sec"]), hold_s=float(m["disl_guard_hold_sec"]),
-                   gap_s=float(m["ratio_gap_reset_sec"]))
+                   confirm_s=float(m["disl_guard_confirm_sec"]), hold_s=float(m["disl_guard_hold_sec"]))
 
 
 @dataclass
@@ -80,19 +80,11 @@ class ChainGuard:
         self.p = params
         self._board: deque[tuple[int, float, float, float]] = deque()  # (t, r, held_high, held_low)
         self._bot: deque[tuple[int, float]] = deque()
-        self._last_t: dict[str, int | None] = {TRIGGER_BOARD: None, TRIGGER_BOT: None}
         self._open: dict[str, Fire | None] = {TRIGGER_BOARD: None, TRIGGER_BOT: None}
         self.fires: list[Fire] = []
         self.blocked_until_ns: int | None = None
 
-    def _gap(self, which: str, t: int) -> bool:
-        last = self._last_t[which]
-        return last is not None and t - last > self.p.gap_s * NS
-
     def board_range(self, t: int, r: float) -> float:
-        if self._gap(TRIGGER_BOARD, t):
-            self._board.clear()
-        self._last_t[TRIGGER_BOARD] = t
         c0 = t - int(self.p.confirm_s * NS)
         prev = [x[1] for x in self._board if x[0] >= c0]
         hh, hl = (min(r, max(prev)), max(r, min(prev))) if prev else (np.nan, np.nan)
@@ -107,9 +99,6 @@ class ChainGuard:
         return (max(highs) - min(lows)) / float(np.median([x[1] for x in self._board]))
 
     def bot_range(self, t: int, r_in: float) -> float:
-        if self._gap(TRIGGER_BOT, t):
-            self._bot.clear()
-        self._last_t[TRIGGER_BOT] = t
         self._bot.append((t, r_in))
         w0 = t - int(self.p.window_s * NS)
         while self._bot and self._bot[0][0] <= w0:

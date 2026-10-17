@@ -2,7 +2,7 @@
 # Values are the SPEC's start values and the docs/feature_spec.md F15 start values the owner approved at
 # step 6 (2026-10-05); the step-13/19 grids are tune_grids_13 / tune_grids_19 (F16). Frozen execution parameters are added here at step 13/19,
 # marked `frozen_from: months 1-4` (§7.1).
-features_version: 4               # 1: golden-zone upper fib 0.786 -> 0.79; 2: expected-move (sigma) levels F3.11; 3: mapping-dislocation guard F1.8 (owner 2026-10-14); 4: opening-range fib 09:45 start, 10:30 redraw, flips, and feature additions B2-B5 (owner 2026-10-16); nothing was built under 0-3
+features_version: 5               # 1: golden-zone upper fib 0.786 -> 0.79; 2: expected-move (sigma) levels F3.11; 3: mapping-dislocation guard F1.8 (owner 2026-10-14); 4: opening-range fib 09:45 start, 10:30 redraw, flips, and feature additions B2-B5 (owner 2026-10-16); 5: features during a dislocation block, guard windows reset at the session start only, B1 volume baselines and relative detector thresholds (owner 2026-10-17); nothing was built under 0-4
 
 # --- Structure (§5.2-§5.4b) -----------------------------------------------------------------------
 zone_proximity: 5                 # NQ pts; tuned at step 13 (F16.4); approved 2026-10-05 (feature_spec F15)
@@ -117,6 +117,9 @@ abs_stop_window_sec: 120
 big_trade_agg_ms: 50
 big_trade_min_contracts: null   # start: 99th percentile of combined trade size (measured)
 big_trade_lookback_sessions: 20
+big_trade_slot_min: 30          # owner 2026-10-17 (B1, F9.2): the threshold per 30-minute RTH slot (time of day only, not
+big_trade_slot_floor: 0.5       # today's volume), clipped to [floor, cap] x the whole-session 99th percentile; fixed
+big_trade_slot_cap: 2.0
 imb_ratio: 3.0                    # tuned at step 19; approved 2026-10-05 (feature_spec F15)
 imb_min_volume: 20                # contracts; tuned at step 19; approved 2026-10-05 (feature_spec F15)
 imb_stack_min: 3                  # tuned at step 19 (grid includes 1); approved 2026-10-05 (feature_spec F15)
@@ -130,6 +133,13 @@ div_min_pts: 2                    # NQ pts; tuned at step 19; approved 2026-10-0
 trig_min_gap_sec: 5
 area_rearm_sec: 300
 seq_window_sec: 30                # owner 2026-10-16, fixed (never tuned): absorption then imbalance within this many seconds (F9.9, B2)
+# volume baselines and relative thresholds (owner 2026-10-17, B1, SPEC §5.7, feature_spec F9.10); fixed owner rules, never tuned
+vol_baseline_sessions: 20         # N(m) = median volume per ET RTH minute over this many prior full, undamaged sessions
+rvol_clip_mult: 5                 # rvol_today: each minute clipped at this multiple of its normal before it is added
+of_scale_floor: 0.5               # detector scale = tod_norm_w x clip(rvol_today, floor, cap): today's part only, the
+of_scale_cap: 2.0                 # time-of-day part never capped (abs_volume, imb_min_volume)
+of_context_windows_sec: [5, 60]   # multi-window order-flow inputs; a column whose window equals a tuned or fixed window
+                                  # of the same quantity is not built
 
 # --- Stops (§6.2) ---------------------------------------------------------------------------------
 min_stop_pts: null              # owner: no stop guardrails

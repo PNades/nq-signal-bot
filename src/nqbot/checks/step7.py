@@ -696,10 +696,12 @@ def check_stream_session(env: Env, maps: list[str], approved: int | None = None,
     fresh = blocks_from_arrivals(arrivals, maps, float(env.settings["skylit_map_stale_sec"]),
                                  float(env.settings["skylit_stale_sec"]), int(now.timestamp() * 1e9),
                                  int(end.timestamp() * 1e9) if ended == "close"
-                                 else max((t for _, t in arrivals), default=int(now.timestamp() * 1e9)))
+                                 else max((t for _, t in arrivals), default=int(now.timestamp() * 1e9)),
+                                 float(env.features["mapping"]["disl_guard_confirm_sec"]))
     report = {"folder": str(folder), "fallback": switched or None, "maps": maps, "parts": parts,
               "boards": counts["boards"], "boards_per_map": per_map,
               "map_stale_blocks": {"skylit_map_stale_sec": env.settings["skylit_map_stale_sec"],
+                                   "disl_guard_confirm_sec": env.features["mapping"]["disl_guard_confirm_sec"],
                                    "per_map": fresh.summary()},
               "resent_boards_dropped": counts["dropped"], "ended": ended,
               "complete": ended == "close", "lagged": stream.lagged_count, "events_summary": summary}
@@ -714,8 +716,9 @@ def check_stream_session(env: Env, maps: list[str], approved: int | None = None,
         atomic_write_json(path, {"check": "stream_session", "written": env.now().isoformat(), **report})
         env.echo(f"report (SSD unreachable, kept on the internal drive): {path}")
     env.echo("  map stale blocks (newest board older than "
-             f"{env.settings['skylit_map_stale_sec']} s): "
-             + ", ".join(f"{m} {v['blocks']} ({v['total_s']:.0f} s, longest {v['longest_s']:.0f} s)"
+             f"{env.settings['skylit_map_stale_sec']} s, until a second board confirms): "
+             + ", ".join(f"{m} {v['blocks']} ({v['total_s']:.0f} s, longest {v['longest_s']:.0f} s, "
+                         f"{v['confirm_wait_s']:.0f} s waiting for confirmation)"
                          for m, v in fresh.summary().items()))
     # owner 2026-10-10: the last line of the task log says how the session ended and what each map recorded
     env.echo(f"session ended {env.now():%Y-%m-%d %H:%M:%S} ET ({ended}, {'complete' if report['complete'] else 'INCOMPLETE'}): "

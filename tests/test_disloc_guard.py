@@ -26,7 +26,7 @@ def _run(params, t, r, r_in=None):
 
 
 def test_params_are_the_owners(params):
-    assert (params.pct, params.window_s, params.confirm_s, params.hold_s, params.gap_s) == (0.002, 120, 10, 60, 10)
+    assert (params.pct, params.window_s, params.confirm_s, params.hold_s) == (0.002, 120, 10, 60)
 
 
 def test_a_lone_spike_never_fires(params):
@@ -114,13 +114,23 @@ def test_either_trigger_starts_a_block_and_overlapping_fires_merge(params):
     assert "QQQ" in fires[0].note() and "per-board" in fires[0].note() and "bot's R" in fires[1].note()
 
 
-def test_a_gap_resets_both_windows(params):
-    """Boards before a gap longer than ratio_gap_reset_sec never pair with boards after it."""
+def test_a_board_gap_does_not_reset_the_windows(params):
+    """Owner 2026-10-17 (§13 Q-dislguard-2 (b)(i)): only the session start resets the windows. A 0.25% shift made inside
+    a 21-s gap is compared with the levels before it: the per-board trigger fires on the second board after the gap
+    (one board alone never makes a held level), the bot's R (F1.7 restarts at the gap) on the first."""
     t = np.concatenate([np.arange(50), 70 + np.arange(50)]).astype(np.int64) * NS
     r = np.full(100, R0)
-    r[50:] = R0 + 25 * BP  # the shift happens across the 21-s gap
-    r_in = r.copy()
-    assert _run(params, t, r, r_in) == []
+    r[50:] = R0 + 25 * BP
+    fires = _run(params, t, r)  # the bot's R flat: the per-board trigger alone
+    assert [(f.trigger, f.start_ns) for f in fires] == [(dg.TRIGGER_BOARD, 71 * NS)]
+    fires = _run(params, t, r, r.copy())  # the bot's R = the first board's own ratio after the gap
+    assert [(f.trigger, f.start_ns) for f in fires] == [(dg.TRIGGER_BOT, 70 * NS), (dg.TRIGGER_BOARD, 71 * NS)]
+
+
+def test_a_new_session_starts_with_empty_windows(params):
+    """The session start is the only reset: the same shift between two sessions (two ChainGuards) never fires."""
+    t, r = _boards(60)
+    assert _run(params, t, r) == [] and _run(params, t + 3600 * NS, r + 25 * BP) == []
 
 
 def _online_blocked(params, r_in):

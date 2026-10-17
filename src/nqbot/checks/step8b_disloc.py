@@ -47,8 +47,10 @@ THRESHOLDS = (0.0005, 0.001, 0.002)  # owner 2026-10-09: 0.05%, 0.1%, 0.2%
 DETAIL_THRESHOLD = 0.001  # owner: time of day, news blackout and first minutes for the 0.1% events
 FIRST_MINUTES = 15  # "the first minutes after the open"
 MIN_FREE_MB = 2500  # owner 2026-10-10: stop before a day when less memory than this is free
-DAY_VERSION = 4  # 2 (owner 2026-10-10): both R series, the median range and the day's futures range per day;
-# 3 (owner 2026-10-14): the dislocation guard's fires and blocks per chain (F1.8); 4: false fires (hindsight R)
+DAY_VERSION = 5  # 2 (owner 2026-10-10): both R series, the median range and the day's futures range per day;
+# 3 (owner 2026-10-14): the dislocation guard's fires and blocks per chain (F1.8); 4: false fires (hindsight R);
+# 5 (owner 2026-10-17, §13 Q-dislguard-2 (b)(i)): the guard's windows reset only at the session start (re-run at the
+# next gate run)
 MONTH_SETS = {"development": months_mod.DEVELOPMENT, "walk-forward": months_mod.WALK_FORWARD}
 FALSE_FIRES_PER_WEEK_MAX = 1.0  # owner 2026-10-14 (§13 Q-dislguard): revisit the guard above about one a week
 TRADING_DAYS_PER_WEEK = 5
