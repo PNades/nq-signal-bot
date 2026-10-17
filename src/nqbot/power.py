@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import subprocess
+import threading
 from contextlib import contextmanager
 from typing import Callable, Iterator
 
@@ -47,11 +48,15 @@ HEX_LINE = re.compile(r":\s*0x([0-9a-fA-F]+)\s*$", re.MULTILINE)
 def _set_state(flags: int) -> None:
     import ctypes
 
-    if not ctypes.windll.kernel32.SetThreadExecutionState(ctypes.c_uint(flags)):
+    fn = ctypes.windll.kernel32.SetThreadExecutionState
+    fn.argtypes, fn.restype = [ctypes.c_uint], ctypes.c_uint
+    if not fn(flags):
         logging.getLogger("nqbot.power").warning("SetThreadExecutionState failed: Windows may sleep during the job")
 
 
-_depth = 0  # keep_awake nests (every nqbot command holds it, and `nqbot run` / step7 hold it again inside)
+# keep_awake nests (every nqbot command holds it, and `nqbot run` / step7 hold it again inside). Windows keeps the
+# state per thread, so the count is per thread too: a thread that holds it sets and clears its own.
+_held = threading.local()
 
 
 @contextmanager
@@ -60,19 +65,25 @@ def keep_awake() -> Iterator[None]:
 
     Owner 2026-10-11: held by every nqbot command, not only `nqbot run`. With the screen off a command that didn't
     hold it let the laptop enter Modern Standby, which powers down the Type-C controller, and the SSD dropped off the
-    bus 1-2 minutes later (System log 2026-10-08..11: every drop followed a standby entry; none under `nqbot run`)."""
-    global _depth
+    bus 1-2 minutes later (System log 2026-10-08..11: every drop followed a standby entry; none under `nqbot run`).
+
+    Owner 2026-10-17: so recordings, jobs and (later) live trading can't be put to sleep by an idle timeout, whatever
+    the power plan says by then. Released when the block ends, also on an exception, Ctrl-C or `nqbot stop`; a
+    process that is killed (Task Scheduler's End, a crash of Python itself) loses it with its threads, which is how
+    Windows ties the state. It doesn't stop a sleep someone asks for (lid, power button, Start > Sleep) or an update
+    restart: those are the lid setting and the update pause (`nqbot preflight`)."""
     if os.name != "nt":
         yield
         return
-    if _depth == 0:
+    depth = getattr(_held, "depth", 0)
+    if depth == 0:
         _set_state(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
-    _depth += 1
+    _held.depth = depth + 1
     try:
         yield
     finally:
-        _depth -= 1
-        if _depth == 0:
+        _held.depth -= 1
+        if _held.depth == 0:
             _set_state(ES_CONTINUOUS)
 
 
