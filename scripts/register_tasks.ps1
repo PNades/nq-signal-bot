@@ -12,12 +12,12 @@
 #
 # What it does: removes the finished one-off nqbot tasks, then registers
 #   nqbot preflight             Mon-Fri 08:20 ET  (restart pending / update pause / SSD / AC; exit 5 = warnings)
-#   nqbot late-prints 10-16     Fri 10-16 08:40   (late-print morning #5; 10-15's refused: SSD missing at the start)
-#   nqbot recording 10-16       Fri 10-16 09:27   (stream-session NDXP,QQQ,SPY --fallback-local; the only recording task;
-#                                                  replaces 10-15's, which stopped at 14:54 when the SSD was pulled)
-#   nqbot sigma check           09:05 and 12:00 on 10-19, 10-20, 10-21 (sessions with no recording; 10-16 moved to 10-21)
+#   nqbot recording 10-19       Mon 10-19 09:27   (stream-session NDXP,QQQ,SPY --fallback-local; the only recording task;
+#                                                  replaces 10-16's, which stopped at 13:55 when the Wi-Fi went out)
+#   nqbot sigma check           09:05 and 12:00 on 10-20, 10-21, 10-22 (sessions with no recording; 10-19 moved to 10-22)
 #   nqbot stream-drops 10-16    Mon 10-19 08:50   (one history window vs the 10-16 recording, 25 credits; §13 Q-mapstale)
-# Owner 2026-10-16: replaces the 10-15 tasks (late-prints, recording, stream-drops 10-15) and the 10-16 sigma runs.
+#   nqbot stream-drops 10-19    Tue 10-20 08:50   (the same for the 10-19 recording)
+# Owner 2026-10-17: replaces the 10-16 tasks (late-prints, recording) and the 10-19 sigma runs.
 # Every task: wake the computer, start when available if missed, run on battery, one instance at a time.
 param([string]$Repo = "C:\Users\premn\code\nq-signal-bot", [string]$LogDir = "D:\nqbot\logs",
       [string]$Uv = "C:\Users\premn\.local\bin\uv.exe")
@@ -31,7 +31,8 @@ if (-not (Test-Path $Uv)) { throw "uv not found at $Uv (pass -Uv <path>)" }
 $old = "nqbot NDXP session recording", "nqbot late-prints-morning 10-12", "nqbot tempest-finality 10-12",
        "nqbot dp-start re-probe reminder", "nqbot sigma check",
        "nqbot preflight", "nqbot late-prints 10-15", "nqbot recording 10-15", "nqbot stream-drops 10-15",
-       "nqbot late-prints 10-16", "nqbot recording 10-16", "nqbot stream-drops 10-16"
+       "nqbot late-prints 10-16", "nqbot recording 10-16", "nqbot stream-drops 10-16",
+       "nqbot recording 10-19", "nqbot stream-drops 10-19"
 foreach ($n in $old) {
     if (Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue) {
         Unregister-ScheduledTask -TaskName $n -Confirm:$false
@@ -57,19 +58,19 @@ function Add-NqbotTask([string]$Name, [string]$LogName, [string]$NqbotArgs, $Tri
 
 $weekdays = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday -At "08:20"
 Add-NqbotTask "nqbot preflight" "preflight" "preflight" $weekdays 1
-Add-NqbotTask "nqbot late-prints 10-16" "late_prints_morning" "step7 late-prints-morning" `
-    (New-ScheduledTaskTrigger -Once -At "2026-10-16 08:40") 1
-Add-NqbotTask "nqbot recording 10-16" "stream_session" "step7 stream-session --maps NDXP,QQQ,SPY --fallback-local" `
-    (New-ScheduledTaskTrigger -Once -At "2026-10-16 09:27") 8
-$sigma = foreach ($d in "2026-10-19", "2026-10-20", "2026-10-21") {
+Add-NqbotTask "nqbot recording 10-19" "stream_session" "step7 stream-session --maps NDXP,QQQ,SPY --fallback-local" `
+    (New-ScheduledTaskTrigger -Once -At "2026-10-19 09:27") 8
+$sigma = foreach ($d in "2026-10-20", "2026-10-21", "2026-10-22") {
     New-ScheduledTaskTrigger -Once -At "$d 09:05"; New-ScheduledTaskTrigger -Once -At "$d 12:00" }
 Add-NqbotTask "nqbot sigma check" "sigma_check" "step7 sigma-check" $sigma 1
 Add-NqbotTask "nqbot stream-drops 10-16" "stream_drops" "step7 stream-drops --session 2026-10-16" `
     (New-ScheduledTaskTrigger -Once -At "2026-10-19 08:50") 1
+Add-NqbotTask "nqbot stream-drops 10-19" "stream_drops" "step7 stream-drops --session 2026-10-19" `
+    (New-ScheduledTaskTrigger -Once -At "2026-10-20 08:50") 1
 
-"--- recording tasks firing on 2026-10-16 (must be exactly one):"
+"--- recording tasks firing on 2026-10-19 (must be exactly one):"
 Get-ScheduledTask | Where-Object { $_.TaskName -like "nqbot*" -and $_.Actions.Arguments -match "stream-session" } |
-    ForEach-Object { $n = $_.TaskName; $_.Triggers | Where-Object { $_.StartBoundary -like "2026-10-16*" } |
+    ForEach-Object { $n = $_.TaskName; $_.Triggers | Where-Object { $_.StartBoundary -like "2026-10-19*" } |
         ForEach-Object { "  $n at $($_.StartBoundary)" } }
 "--- sigma check runs (none on a recording day):"
 (Get-ScheduledTask -TaskName "nqbot sigma check").Triggers | ForEach-Object { "  $($_.StartBoundary)" }

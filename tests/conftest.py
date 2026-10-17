@@ -81,6 +81,86 @@ def no_network(monkeypatch):
     monkeypatch.setattr(httpx2.AsyncHTTPTransport, "handle_async_request", refuse)
 
 
+# --- Tests never touch the real data (owner 2026-10-17: a test once appended to the real 10-15 task log) ---------
+# Every test runs on a temporary root: the real SSD (the drive holding the marker) is never found, the internal-drive
+# fallback, the console fallback logs and the SSD event log point into a temporary folder, and the task-log variable
+# of a scheduled run is cleared. On top, an audit hook fails any test that opens, creates, removes, renames or
+# changes a path under the real paths.root (on any drive letter, so an unplugged SSD is covered too) or the real
+# %LOCALAPPDATA%\nqbot, even if the code under test swallowed the refusal.
+_GUARD_EVENTS = frozenset({"open", "os.mkdir", "os.remove", "os.rmdir", "os.rename", "os.chmod", "os.truncate",
+                           "os.utime", "os.link", "os.symlink", "shutil.copyfile", "shutil.copytree", "shutil.move",
+                           "shutil.rmtree"})
+_guard = {"on": False, "roots": (), "hits": []}
+
+
+def _real_roots() -> tuple[str, ...]:
+    import os
+    import string
+
+    rel = str((load_settings().get("paths") or {}).get("root") or "nqbot").strip("/\\")
+    roots = [f"{letter}:\\{rel}" for letter in string.ascii_uppercase]
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        roots.append(os.path.join(local, "nqbot"))
+    return tuple(os.path.normcase(os.path.abspath(r)) for r in roots)
+
+
+def _under_real_root(path) -> str | None:
+    import os
+
+    if isinstance(path, int) or path is None:
+        return None
+    try:
+        p = os.fsdecode(path) if isinstance(path, (bytes, os.PathLike)) else str(path)
+        p = os.path.normcase(os.path.abspath(p))
+    except (TypeError, ValueError):
+        return None
+    for root in _guard["roots"]:
+        if p == root or p.startswith(root + os.sep):
+            return p
+    return None
+
+
+def _audit(event: str, args: tuple) -> None:
+    if not _guard["on"] or event not in _GUARD_EVENTS:
+        return
+    for a in args[:2]:  # the path(s): open(path, ...), rename(src, dst), copyfile(src, dst), ...
+        hit = _under_real_root(a)
+        if hit:
+            _guard["hits"].append(f"{event} {hit}")
+            raise PermissionError(f"a test touched the real data folder: {event} {hit} (tests/conftest.py guard)")
+
+
+def pytest_configure(config):
+    import sys
+
+    _guard["roots"] = _real_roots()
+    sys.addaudithook(_audit)  # can't be removed; it does nothing outside a test (`on` is False)
+
+
+@pytest.fixture(autouse=True)
+def temporary_root(tmp_path_factory, monkeypatch):
+    from nqbot import console, fallback
+
+    real_drives = storage.candidate_drives
+    # the drives are still listed (tests of the scan itself), but never the one carrying the SSD marker
+    monkeypatch.setattr(storage, "candidate_drives", lambda: [d for d in real_drives() if not (d / storage.MARKER).exists()])
+    from nqbot import setup_ssd
+
+    monkeypatch.setattr(setup_ssd, "candidate_drives", storage.candidate_drives)  # imported by name there
+    local = tmp_path_factory.mktemp("internal_drive")
+    monkeypatch.setattr(fallback, "FALLBACK_DRIVE", local / "nqbot" / "fallback")
+    monkeypatch.setattr(console, "fallback_log_dir", lambda: local / "nqbot" / "fallback" / "nqbot" / "logs")
+    monkeypatch.delenv(console.TASK_LOG_ENV, raising=False)
+    _guard["hits"] = []
+    _guard["on"] = True
+    yield
+    _guard["on"] = False
+    hits, _guard["hits"] = _guard["hits"], []
+    if hits:
+        pytest.fail("test touched the real data folder:\n  " + "\n  ".join(hits), pytrace=False)
+
+
 @pytest.fixture(autouse=True)
 def ssd_event_log(tmp_path_factory, monkeypatch):
     """Tests never write the real SSD drop log on the internal drive (owner 2026-10-11)."""
