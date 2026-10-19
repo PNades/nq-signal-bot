@@ -55,6 +55,7 @@ STREAM_MAX_RECONNECTS = 3  # the forced one plus two spare; each costs 4 opens +
 STREAM_GRACE_SEC = 60  # hard wall-clock end: minutes + this, even if no event ever arrives (presd_fixes 15)
 SESSION_PART_MIN = 15  # stream-session (owner 2026-10-08): a part file every 15 minutes, so memory stays small
 SESSION_MAX_RECONNECTS = 12  # Skylit ends every connection after an hour (6-7 a session) plus spares
+SESSION_END_SLACK_S = 60  # owner 2026-10-19: last board more than this before the close = "incomplete (ended N s early)"
 SESSION_EARLIEST_START_MIN = 10  # refuse a start more than this long before 09:30 (minutes charged for nothing)
 LATE_PRINT_MORNINGS = 5  # §12 step 7: >= 5 mornings
 LATE_PRINT_WAIT_SESSIONS = 5  # re-pulled >= 5 trading days later; also how long a date's prints count as provisional
@@ -100,6 +101,7 @@ class Env:
     echo: Callable[[str], None] = print
     cal: dict[str, Any] | None = None
     clock_offset_ms: Callable[[], float | None] | None = None
+    power_status: Callable[[], tuple[bool | None, int | None]] | None = None  # (on AC, battery %); None: Windows'
     ledger_name: str = "ledger.jsonl"  # a check running alongside the backfill logs to its own file (decision 2)
     _store: SkylitStore | None = field(default=None, repr=False)
     _client: SkylitClient | None = field(default=None, repr=False)
@@ -536,7 +538,8 @@ def check_stream_record(env: Env, minutes: float = STREAM_MINUTES, approved: int
                                             max_reconnects=STREAM_MAX_RECONNECTS)
     else:
         stream = env.stream_factory()
-    snaps, events, ended = asyncio.run(_record(stream, minutes))
+    with _power_watch(env) as watch:
+        snaps, events, ended = asyncio.run(_record(stream, minutes))
     # A resume re-sends each symbol's latest board even if it was already received: keep its first arrival.
     seen: set[tuple[str, str]] = set()
     unique = []
@@ -565,13 +568,24 @@ def check_stream_record(env: Env, minutes: float = STREAM_MINUTES, approved: int
               "stream_shape": an.stream_shape(boards, strikes),
               "requested_max_strikes": stream.params["maxStrikes"],
               "skylit_stale_sec": stale,
-              "ping_gap_within_stale": summary["ping_gap_max"] is not None and summary["ping_gap_max"] < stale}
+              "ping_gap_within_stale": summary["ping_gap_max"] is not None and summary["ping_gap_max"] < stale,
+              "power": watch.summary()}
     env.echo(f"  {boards.num_rows} boards, proposed map_latency_sec (99.9th pct) "
              f"{report['latency']['proposed_map_latency_sec']}, clock offset {offset} ms, "
              f"credits used {summary['credits_used']}, max ping gap {summary['ping_gap_max']} s"
              + ("" if report["complete"] else f"; INCOMPLETE ({ended}): record again"))
     write_report(env, "stream_record", report)
     return report
+
+
+def _power_watch(env: Env) -> Any:
+    """The power-source watch for a recording (owner 2026-10-19, §13 Q-power; settings power_poll_sec,
+    battery_warn_step_pct, battery_entry_floor_pct)."""
+    from nqbot.power import PowerWatch, system_power_status
+
+    s = env.settings
+    return PowerWatch(env.power_status or system_power_status, poll_s=float(s["power_poll_sec"]),
+                      warn_step_pct=int(s["battery_warn_step_pct"]), floor_pct=int(s["battery_entry_floor_pct"]))
 
 
 async def _record_session(stream: SkylitStream, end_ns: int, write_part: Callable[[list, list], None],
@@ -691,7 +705,8 @@ def check_stream_session(env: Env, maps: list[str], approved: int | None = None,
         all_events.extend(events)
         parts.append({"part": n, "boards": len(unique), "events": len(events)})
 
-    ended = asyncio.run(_record_session(stream, int(end.timestamp() * 1e9), write_part, stream.clock_ns))
+    with _power_watch(env) as watch:
+        ended = asyncio.run(_record_session(stream, int(end.timestamp() * 1e9), write_part, stream.clock_ns))
     summary = an.event_report(all_events)
     fresh = blocks_from_arrivals(arrivals, maps, float(env.settings["skylit_map_stale_sec"]),
                                  float(env.settings["skylit_stale_sec"]), int(now.timestamp() * 1e9),
@@ -704,9 +719,21 @@ def check_stream_session(env: Env, maps: list[str], approved: int | None = None,
                                    "disl_guard_confirm_sec": env.features["mapping"]["disl_guard_confirm_sec"],
                                    "per_map": fresh.summary()},
               "resent_boards_dropped": counts["dropped"], "ended": ended,
-              "complete": ended == "close", "lagged": stream.lagged_count, "events_summary": summary}
+              "complete": ended == "close", "lagged": stream.lagged_count, "events_summary": summary,
+              "power": watch.summary()}  # owner 2026-10-19 (§13 Q-power): each battery stretch
+    # owner 2026-10-19 (10-19: no board after 15:45:16, yet "close, complete"): a session that ran to the close but
+    # whose last board came more than SESSION_END_SLACK_S before it is incomplete
+    end_ns = int(end.timestamp() * 1e9)
+    last_ns = max((t for _, t in arrivals), default=None)
+    early_s = None if last_ns is None else max(0.0, (end_ns - last_ns) / 1e9)
+    if ended == "close" and (early_s is None or early_s > SESSION_END_SLACK_S):
+        report["complete"] = False
+        report["ended_early_s"] = None if early_s is None else round(early_s)
+    label = ("complete" if report["complete"] else
+             f"incomplete (ended {report['ended_early_s']} s early)" if report.get("ended_early_s") is not None
+             else "INCOMPLETE")
     env.echo(f"  {counts['boards']} boards in {len(parts)} parts ({ended}); credits used {summary['credits_used']}"
-             + ("" if report["complete"] else "; INCOMPLETE"))
+             + ("" if report["complete"] else f"; {label}"))
     try:
         write_report(env, "stream_session", report)
     except OSError as e:
@@ -721,7 +748,7 @@ def check_stream_session(env: Env, maps: list[str], approved: int | None = None,
                          f"{v['confirm_wait_s']:.0f} s waiting for confirmation)"
                          for m, v in fresh.summary().items()))
     # owner 2026-10-10: the last line of the task log says how the session ended and what each map recorded
-    env.echo(f"session ended {env.now():%Y-%m-%d %H:%M:%S} ET ({ended}, {'complete' if report['complete'] else 'INCOMPLETE'}): "
+    env.echo(f"session ended {env.now():%Y-%m-%d %H:%M:%S} ET ({ended}, {label}): "
              + ", ".join(f"{m} {n:,}" for m, n in per_map.items()) + f" boards (total {counts['boards']:,})")
     return report
 

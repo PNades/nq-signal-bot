@@ -155,7 +155,7 @@ def test_atlas_side_by_side(env):
     king = next(n for n in nodes if n["pct_of_king"] == 1.0)
     assert king["band"][0] < king["level"] < king["band"][1]
     assert rep["crossings"] == rep["gated_crossings"] > 0 and rep["owner_check"] == "pending"
-    assert rep["share_within_tol"]["SPY"] >= 0.9 and rep["tolerance"] == {"NQ": 4.0, "ES": 0.78}
+    assert rep["share_within_tol"]["SPY"] >= 0.9 and rep["tolerance"] == {"NQ": 4.05, "ES": 0.80}
     assert rep["within_tol_counts"]["SPY"][1] > 0
     md = (step8b.reports_dir(env.paths) / f"atlas_{DAY.isoformat()}.md").read_text(encoding="utf-8")
     assert "| Strike | % of King | Mapped NQ |" in md and "## SPY -> ES" in md
@@ -220,7 +220,7 @@ def test_gate_report_and_cli(env, settings, drive, monkeypatch, capsys):
     text = (step8b.reports_dir(env.paths) / "mapping_gate.md").read_text(encoding="utf-8")
     assert "pooled over every sample day" in text and "REGRESSION ALERT" not in text and "not passed yet" in text and "owner's check in Atlas replay" in text
     floors = next(line for line in text.splitlines() if line.startswith("- Stop floors per level source"))
-    assert all(x in floors for x in ("QQQ 4.0", "NDXP pending", "chart 0"))
+    assert all(x in floors for x in ("QQQ 4.25", "NDXP 6.25", "chart 0"))
     assert "diagnostic, not a gate condition" in text and "(a) bias" in text and "**pending**" in text  # Q8b-4
 
 

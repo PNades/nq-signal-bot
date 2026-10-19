@@ -3,7 +3,8 @@ restarted the laptop at 04:50 ET, Windows sat at the sign-in screen and the 09:2
 
 Warns (exit EXIT_WARN, Discord from step 22) if a restart is pending, Windows Update isn't paused through the end of
 today's session (or the pause ends within PAUSE_WARN_DAYS), the SSD isn't reachable and writable, the laptop is on
-battery, or the SSD logged a drop since the last check. Reads only (the registry, the SSD probe); writes its report to
+battery, closing the lid on battery would sleep (owner 2026-10-19, §13 Q-power), or the SSD logged a drop since the
+last check. Reads only (the registry, the SSD probe); writes its report to
 <reports_dir>/preflight/ (or the internal-drive fallback when the SSD is gone)."""
 
 from __future__ import annotations
@@ -75,7 +76,8 @@ def pause_until(read: Callable[[str, str], Any]) -> datetime | None:
 
 def run_checks(now: datetime, *, key_exists: Callable[[str], bool], read: Callable[[str, str], Any],
                on_ac: Callable[[], bool | None], ssd_ok: Callable[[], tuple[bool, str]],
-               drops_since: Callable[[datetime], int], last_check: datetime | None) -> dict[str, Any]:
+               drops_since: Callable[[datetime], int], last_check: datetime | None,
+               lid_warning: Callable[[], str | None] = lambda: None) -> dict[str, Any]:
     warn: list[str] = []
     ok: list[str] = []
     pending = [k for k in REBOOT_KEYS if key_exists(k)]
@@ -98,6 +100,8 @@ def run_checks(now: datetime, *, key_exists: Callable[[str], bool], read: Callab
         ok.append(f"Windows Update paused until {end.astimezone(ET):%Y-%m-%d %H:%M} ET")
     ac = on_ac()
     (ok if ac else warn).append("on AC power" if ac else f"not on AC power ({'battery' if ac is False else 'unknown'})")
+    lid = lid_warning()  # owner 2026-10-19 (§13 Q-power): the lid on battery = Do nothing
+    (warn if lid else ok).append(lid or "closing the lid on battery: Do nothing")
     good, why = ssd_ok()
     (ok if good else warn).append("SSD reachable and writable" if good else f"SSD not usable: {why}")
     n = drops_since(last_check or now - timedelta(days=1))
@@ -122,6 +126,7 @@ def drops_since(log: Path, since: datetime) -> int:
 
 def preflight(settings: dict[str, Any], echo: Callable[[str], None] = print) -> dict[str, Any]:
     from nqbot.fallback import fallback_paths, ssd_writable
+    from nqbot.power import lid_on_battery_warning
     from nqbot.storage import SSD_EVENT_LOG, SSDNotFound, atomic_write_json, resolve_paths
 
     now = datetime.now(timezone.utc)
@@ -137,7 +142,8 @@ def preflight(settings: dict[str, Any], echo: Callable[[str], None] = print) -> 
     except (OSError, ValueError):
         last = None
     rep = run_checks(now, key_exists=_hklm_key_exists, read=_hklm_value, on_ac=_on_ac, ssd_ok=ssd_ok,
-                     drops_since=lambda since: drops_since(SSD_EVENT_LOG, since), last_check=last)
+                     drops_since=lambda since: drops_since(SSD_EVENT_LOG, since), last_check=last,
+                     lid_warning=lid_on_battery_warning)
     for line in rep["warnings"]:
         echo(f"WARN {line}")
     for line in rep["ok"]:

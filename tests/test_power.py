@@ -96,6 +96,10 @@ with power.keep_awake():
         seen["held"] = peek()
     seen["inner_ended"] = peek()
 seen["after"] = peek()
+with power.keep_awake():
+    with power.keep_awake(display=True):
+        seen["display"] = peek()
+    seen["display_ended"] = peek()
 for name, exc in (("crash", RuntimeError), ("ctrl_c", KeyboardInterrupt), ("exit", SystemExit)):
     try:
         with power.keep_awake():
@@ -125,6 +129,7 @@ def test_the_real_windows_state_is_held_and_cleared_however_the_block_ends():
     assert {k: seen[k] for k in ("before", "after", "crash", "ctrl_c", "exit")} == dict.fromkeys(
         ("before", "after", "crash", "ctrl_c", "exit"), cleared)
     assert seen["other_thread"] == cleared  # Windows keeps it per thread
+    assert seen["display"] == held | power.ES_DISPLAY_REQUIRED and seen["display_ended"] == held  # owner 2026-10-19
 
 
 def test_each_thread_holds_and_clears_its_own(monkeypatch, no_power_calls):
@@ -164,8 +169,10 @@ def test_a_recording_holds_it_while_it_runs_and_a_crash_clears_it(settings, driv
     monkeypatch.setattr(cli, "_step7_check", recording)
     with pytest.raises(RuntimeError, match="crashed"):
         cli.main(["step7", "stream-session", "--maps", "QQQ"])
-    assert during == [[power.ES_CONTINUOUS | power.ES_SYSTEM_REQUIRED]]
-    assert no_power_calls == [power.ES_CONTINUOUS | power.ES_SYSTEM_REQUIRED, power.ES_CONTINUOUS]
+    held = power.ES_CONTINUOUS | power.ES_SYSTEM_REQUIRED
+    # owner 2026-10-19 (§13 Q-power): the recording also keeps the display on, dropped when it ends
+    assert during == [[held, held | power.ES_DISPLAY_REQUIRED]]
+    assert no_power_calls == [held, held | power.ES_DISPLAY_REQUIRED, held, power.ES_CONTINUOUS]
 
 
 class _StopsOrCrashes:
@@ -201,4 +208,77 @@ def test_a_job_stopped_or_crashed_clears_it(how, settings, paths, log, clock, mo
             go()
     else:
         assert go().status == "stopped"
-    assert no_power_calls == [power.ES_CONTINUOUS | power.ES_SYSTEM_REQUIRED, power.ES_CONTINUOUS]
+    # owner 2026-10-19 (§13 Q-power): a job keeps the display on too
+    assert no_power_calls == [power.ES_CONTINUOUS | power.ES_SYSTEM_REQUIRED | power.ES_DISPLAY_REQUIRED,
+                              power.ES_CONTINUOUS]
+
+
+# --- owner 2026-10-19 (§13 Q-power): recordings and jobs keep the display on; the power-source watch -------------
+
+def test_display_required_is_added_and_dropped_with_its_block(monkeypatch, no_power_calls):
+    monkeypatch.setattr(power.os, "name", "nt")
+    held = power.ES_CONTINUOUS | power.ES_SYSTEM_REQUIRED
+    with power.keep_awake():  # every command
+        with power.keep_awake(display=True):  # a recording or a job inside it
+            with power.keep_awake():  # nested plain hold: no change
+                pass
+        assert no_power_calls == [held, held | power.ES_DISPLAY_REQUIRED, held]
+    assert no_power_calls[-1] == power.ES_CONTINUOUS and len(no_power_calls) == 4
+
+
+def test_jobs_and_recordings_ask_for_the_display():
+    import inspect
+
+    from nqbot import cli
+    from nqbot.jobs import runner
+
+    assert "keep_awake(display=True)" in inspect.getsource(runner)
+    assert 'keep_awake(display=args.check in ("stream-session", "stream-record"))' in inspect.getsource(cli)
+
+
+def _watch(states):
+    """A PowerWatch fed (ac, pct) states, one per poll, a second apart; returns it and its events."""
+    seq, events, t = iter(states), [], iter(range(10**6))
+    w = power.PowerWatch(lambda: next(seq), poll_s=5, warn_step_pct=10, floor_pct=30, event=events.append,
+                         clock=lambda: 1_760_900_000.0 + next(t))
+    return w, events
+
+
+def test_power_watch_logs_the_switch_each_10_points_the_floor_and_ac_back():
+    w, ev = _watch([(True, 100), (False, 78), (False, 70), (False, 68), (False, 49), (False, 30), (False, 29),
+                    (True, 29), (True, 35)])
+    for _ in range(9):
+        w.poll()
+    assert ev == ["on battery now (AC unplugged) (78%)", "battery down to 68% (on battery since 2025-10-19T18:53:21+00:00)",
+                  "battery down to 49% (on battery since 2025-10-19T18:53:21+00:00)",
+                  "battery down to 30% (on battery since 2025-10-19T18:53:21+00:00)",
+                  "battery at 30%, at or below the 30% line (live: no new entries)",
+                  "AC back (29%) after 6 s on battery"]
+    s = w.summary()
+    assert s["on_battery_s"] == 6 and len(s["battery_stretches"]) == 1
+    b = s["battery_stretches"][0]
+    assert (b["pct_from"], b["pct_min"], b["pct_to"], b["seconds"]) == (78, 29, 29, 6)
+
+
+def test_power_watch_on_battery_at_the_start_and_still_at_the_end():
+    w, ev = _watch([(False, 90), (False, 89), (None, None)])
+    for _ in range(3):
+        w.poll()
+    assert ev == ["on battery at the start of the session (90%)"]
+    s = w.summary()
+    assert s["battery_stretches"][0]["to"] is None and s["on_battery_s"] == 3
+
+
+def test_power_watch_runs_in_its_own_thread_and_writes_the_event_log(tmp_path, monkeypatch):
+    from nqbot import storage
+
+    log = tmp_path / "events.log"
+    monkeypatch.setattr(storage, "SSD_EVENT_LOG", log)
+    power.log_power_event("on battery now (AC unplugged) (78%)")
+    assert log.read_text(encoding="utf-8").strip().endswith("power: on battery now (AC unplugged) (78%)")
+    seq = iter([(False, 50)] + [(True, 50)] * 1000)
+    with power.PowerWatch(lambda: next(seq), poll_s=0.01, warn_step_pct=10, floor_pct=30, event=lambda m: None) as w:
+        import time
+
+        time.sleep(0.2)
+    assert len(w.summary()["battery_stretches"]) == 1 and w.summary()["battery_stretches"][0]["to"] is not None

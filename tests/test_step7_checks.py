@@ -244,7 +244,8 @@ def env(paths, settings, log):
 
     lines: list[str] = []
     e = step7.Env(settings=settings, features=_features(), paths=paths, log=log, client_factory=factory,
-                  now=Now(datetime(2026, 10, 6, 20, 0, tzinfo=ET)), echo=lines.append)
+                  now=Now(datetime(2026, 10, 6, 20, 0, tzinfo=ET)), echo=lines.append,
+                  power_status=lambda: (True, 100))  # on AC, whatever the test machine is on
     e.fake, e.lines = fake, lines
     return e
 
@@ -566,6 +567,39 @@ def test_stream_session_writes_parts_until_the_end(env, monkeypatch):
     assert fresh["per_map"]["NDXP"]["blocks"] == 0  # a board every second: never stale
     assert any(line.startswith("  map stale blocks") for line in env.lines)
     assert env.lines[-1].startswith("session ended ") and f"NDXP {rep['boards']:,} boards" in env.lines[-1]
+
+
+def test_stream_session_silent_before_the_close_is_incomplete(env, monkeypatch):
+    """Owner 2026-10-19 (10-19: no board after 15:45:16, logged "close, complete"): a session that runs to the close
+    but whose last board came more than 60 s before it is "incomplete (ended N s early)"."""
+    t0 = datetime(2026, 10, 9, 14, 0, tzinfo=UTC)
+    snap = {"symbol": "NDXP", "spot": 31000.0, "previousClose": 30990.0, "priceChange": 10.0,
+            "priceChangePercent": 0.03, "expirations": ["2026-10-09"], "lagged": False,
+            "strikes": [{"strike": 31000, "value": 1e6, "nodeType": "king"}]}
+    first = sse(("connected", {"creditsRemaining": 1000}, None),
+                *[("snapshot", {**snap, "asOf": z(t0 + timedelta(seconds=i))}, f"NDXP:{i}") for i in range(5)],
+                *[("ping", None, None)] * 200)
+    replies = [first]
+
+    def handler(request):
+        return httpx.Response(200, content=replies.pop(0) if replies else sse(*[("ping", None, None)] * 200),
+                              headers={"Content-Type": "text/event-stream"})
+
+    ticks = iter(range(10**6))
+    clock = lambda: int((t0.timestamp() + next(ticks)) * 1e9)  # noqa: E731  one event per second
+
+    async def nosleep(s):
+        pass
+
+    monkeypatch.setattr(step7, "SESSION_PART_MIN", 1)
+    env.stream_factory = lambda: SkylitStream(Secret(KEY), symbols_map=SYMBOLS_MAP, maps=["NDXP"], metric="gamma",
+                                              max_expirations=1, max_strikes="all", sleep=nosleep, clock_ns=clock,
+                                              transport=httpx.MockTransport(handler))
+    env.now.t = datetime(2026, 10, 9, 10, 0, tzinfo=ET)
+    rep = step7.check_stream_session(env, ["NDXP"], end=t0 + timedelta(seconds=150))
+    assert rep["ended"] == "close" and rep["complete"] is False
+    assert 140 <= rep["ended_early_s"] <= 150
+    assert f"(close, incomplete (ended {rep['ended_early_s']} s early))" in env.lines[-1]
 
 
 def test_stream_session_refusals_and_estimate(env):

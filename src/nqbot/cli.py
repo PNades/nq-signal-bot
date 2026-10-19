@@ -459,7 +459,9 @@ def _run_step7(args: argparse.Namespace, settings: dict, paths, log) -> int:
 
     try:
         with ExitStack() as stack:
-            stack.enter_context(keep_awake())  # stream-record and tempest-poll run for a long time
+            # stream-record and tempest-poll run for a long time; a recording keeps the display on too (owner
+            # 2026-10-19, §13 Q-power: screen off = Modern Standby, which cut 10-19's network)
+            stack.enter_context(keep_awake(display=args.check in ("stream-session", "stream-record")))
             if lock is not None:
                 stack.enter_context(lock)
             return _step7_check(args, settings, paths, log, env, approve)
@@ -572,7 +574,7 @@ def _add_step8b(sub: argparse._SubParsersAction) -> None:
                         ("estimator", "gate (b): the chosen R estimator's crossing p95 vs the best possible R"),
                         ("alignment", "gate: fitted content time per map never after floor(asOf) + 1 s"),
                         ("gate-day", "the gate's per-day work only (crossings, alignment fit), cached; the step8b_gate job"),
-                        ("dislocations", "count fast moves of the mapping ratio (0.05/0.1/0.2% in 2 min) and the guard's fires")):
+                        ("dislocations", "count fast moves of the mapping ratio (0.05/0.1/0.2%% in 2 min) and the guard's fires")):
         p = s8.add_parser(name, help=help_)
         p.add_argument("--dates", type=_dates, default=None,
                        help="comma-separated development-month dates (default: the step-7 sample days)")

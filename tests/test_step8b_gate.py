@@ -427,6 +427,30 @@ def test_recorded_day_leaves_out_a_connection_stretch_and_lists_every_reconnect(
     assert rep["reconnects"][1]["reason"] == "max_duration" and rep["reconnects"][2]["gap_covered"] is True
 
 
+def test_a_silent_end_is_a_stretch_only_when_the_recording_ran_to_the_close(env):
+    """Owner 2026-10-19 (10-19: the connection went quiet at 15:45 and never came back): a recording that ran to the
+    close (its log's `session ended ... (close`) has a stretch from its last arrival to the close; one that stopped
+    early ends at its last board."""
+    open_ns = int(datetime.combine(REC, time(9, 30), tzinfo=ET).timestamp()) * NS
+    close_ns = int(datetime.combine(REC, time(16, 0), tzinfo=ET).timestamp()) * NS
+    arr = [open_ns + s * NS for s in range(0, 600)]  # boards every second to 09:39:59, then nothing
+    boards = pa.table({"arrival": pa.array(arr, pa.timestamp("ns", "UTC"))})
+    assert step8b_recorded.connection_stretches(boards, open_ns, close_ns, 5.0) == []
+    assert step8b_recorded.connection_stretches(boards, open_ns, close_ns, 5.0, to_close=True) == [
+        {"from_ns": arr[-1], "to_ns": close_ns}]
+    near = pa.table({"arrival": pa.array(arr + [close_ns - 2 * NS], pa.timestamp("ns", "UTC"))})
+    assert step8b_recorded.connection_stretches(near, open_ns, close_ns, 5.0, to_close=True) == [
+        {"from_ns": arr[-1], "to_ns": close_ns - 2 * NS}]  # boards up to 2 s before the close: no end stretch
+    env.paths.log_dir.mkdir(parents=True, exist_ok=True)
+    log = env.paths.log_dir / f"stream_session_{REC:%Y%m%d}.txt"
+    assert not step8b_recorded.ran_to_close(env, REC)
+    log.write_text("session ended 2026-03-05 13:55:47 ET (stopped: stream reconnected 12 times: the cap is 12, "
+                   "INCOMPLETE): NDXP 1\n", encoding="utf-8")
+    assert not step8b_recorded.ran_to_close(env, REC)
+    log.write_text("x\nsession ended 2026-03-05 16:01:40 ET (close, complete): NDXP 1\n", encoding="utf-8")
+    assert step8b_recorded.ran_to_close(env, REC)
+
+
 def test_recorded_day_saves_the_board_times_with_the_errors(env):
     _recording(env)
     fake = FakeDatabento(datetime(2026, 3, 6, tzinfo=timezone.utc))

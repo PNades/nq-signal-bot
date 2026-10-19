@@ -47,3 +47,26 @@ def test_drops_counted_from_the_event_log(tmp_path):
                    "2026-10-15T01:00:00+00:00 pid 2 append D:\\y: device dropped (OSError)\n", encoding="utf-8")
     assert pf.drops_since(log, datetime(2026, 10, 14, tzinfo=timezone.utc)) == 1
     assert pf.drops_since(log, datetime(2026, 10, 1, tzinfo=timezone.utc)) == 2
+
+
+def test_lid_on_battery_must_be_do_nothing():
+    """Owner 2026-10-19 (§13 Q-power): ES_DISPLAY_REQUIRED doesn't stop a lid close, so preflight checks it."""
+    from nqbot import power
+
+    def query(dc):
+        return lambda sub, setting: (f"    Current AC Power Setting Index: 0x00000000\n"
+                                     f"    Current DC Power Setting Index: 0x{dc:08x}\n")
+
+    assert power.lid_on_battery_warning(query(0)) is None
+    w = power.lid_on_battery_warning(query(1))
+    assert "closing the lid on battery would put the laptop to sleep (value 1)" in w and "On battery = Do nothing" in w
+    assert "couldn't read" in power.lid_on_battery_warning(lambda sub, setting: None)
+    values = {}
+    rep = pf.run_checks(NOW, key_exists=lambda k: False, read=lambda k, n: values.get((k, n)), on_ac=lambda: True,
+                        ssd_ok=lambda: (True, ""), drops_since=lambda since: 0, last_check=None,
+                        lid_warning=lambda: power.lid_on_battery_warning(query(1)))
+    assert any("closing the lid on battery would" in x for x in rep["warnings"])
+    rep = pf.run_checks(NOW, key_exists=lambda k: False, read=lambda k, n: values.get((k, n)), on_ac=lambda: True,
+                        ssd_ok=lambda: (True, ""), drops_since=lambda since: 0, last_check=None,
+                        lid_warning=lambda: None)
+    assert "closing the lid on battery: Do nothing" in rep["ok"]

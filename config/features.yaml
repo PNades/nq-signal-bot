@@ -86,20 +86,25 @@ mapping:
   ratio_reaccept_n: 3
   ratio_open_skip_sec: 120
   mapping_p95_max: {QQQ: 1.0, NDXP: 0.5, SPY: 0.25, SPX: 0.25}   # NQ pts for QQQ/NDXP, ES pts for SPY/SPX
-  atlas_match_tol: {NQ: 4.0, ES: 0.78}   # owner 2026-10-08 (Q8b-5): frozen at the crossing p95 (QQQ, SPY);
+  atlas_match_tol: {NQ: 4.05, ES: 0.80}  # FROZEN (owner 2026-10-19, §13 Q8b-frozen; step 8b, recordings 10-09 to 10-19,
+                                         # findings R15/R16): the gate's crossing p95 QQQ 4.046 / SPY 0.795 rounded up
+                                         # to 0.01 (was 4.0 / 0.78, owner 2026-10-08, Q8b-5);
                                          # a regression check, information only (the owner's replay is the gate)
   atlas_regression_min_share: 0.90       # alert if fewer crossings than this, pooled over the sample days, fall within it
   # step 8b, owner 2026-10-08 (§5.1, F1.1, F1.7); NDXP: QQQ x k (owner 2026-10-19, §13 Q8b-1), no ratio of its own
   ratio_window_sec: {QQQ: 60, SPY: 60, SPX: 0, NDXP: null}   # trailing median of R over this many seconds; 0 = per board
-  ndxp_r_method: qqq_k             # owner 2026-10-19 (ndxp-select, findings R15): R_NDXP = R_QQQ in force / k
-  ndxp_k_sessions: 20              # k = NDX close / QQQ close averaged over the previous 20 sessions (dividend-adjusted)
+  ndxp_r_method: qqq_k             # FROZEN (owner 2026-10-19, §13 Q8b-frozen; ndxp-select, recordings 10-09 to 10-19,
+                                   # findings R15/R16): R_NDXP = R_QQQ in force / k
+  ndxp_k_sessions: 20              # FROZEN (same): k = NDX close / QQQ close averaged over the previous 20 sessions
+                                   # (dividend-adjusted)
   ratio_gap_reset_sec: 10          # a board gap longer than this resets the trailing window
   skylit_stamp_change_date: 2026-03-17   # Skylit asOf convention changed (before: whole seconds, content later in the second)
   board_content_offset_ms:         # board content time = floor(asOf) + this; F is read there (median measured, findings R4)
     before_stamp_change: {QQQ: 740, SPY: 840, SPX: -80, NDXP: null}
     from_stamp_change: {QQQ: -60, SPY: -60, SPX: -80, NDXP: null}
-    live: {QQQ: -60, SPY: -60, SPX: -80, NDXP: null}   # live boards = post-03-17 history (parity 10-07); owner 2026-10-19:
-                                                       # QQQ and SPY -60 (fits 10-09/12/15/16 scatter +-0.4 s, findings R15)
+    live: {QQQ: -60, SPY: -60, SPX: -80, NDXP: null}   # live boards = post-03-17 history (parity 10-07); QQQ and SPY -60
+                                                       # FROZEN (owner 2026-10-19, §13 Q8b-frozen; recordings 10-09 to 10-19
+                                                       # scatter about +-0.4 s around it, findings R15/R16)
   # mapping-dislocation guard (owner 2026-10-14, SPEC §5.1/§9, §13 Q-dislguard, feature_spec F1.8): a data-quality guard,
   # fixed from data quality, never tuned on trade results
   disl_guard_pct: 0.002            # 0.2% of R

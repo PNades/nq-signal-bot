@@ -424,18 +424,34 @@ def gap_mask(t_ns: np.ndarray, gaps: list[dict[str, Any]], post_s: float) -> np.
     return keep
 
 
-def connection_stretches(boards: pa.Table, open_ns: int, close_ns: int, stale_s: float) -> list[dict[str, int]]:
+def connection_stretches(boards: pa.Table, open_ns: int, close_ns: int, stale_s: float,
+                         to_close: bool = False) -> list[dict[str, int]]:
     """Owner 2026-10-18 (10-16: the owner's Wi-Fi went out): stretches in the session when no recorded map's board
     arrived for more than `skylit_map_stale_sec`, i.e. the connection, not one map, went quiet. Each runs from the
-    last arrival before it to the first after it. A single map's drops (Q-mapstale) are not stretches."""
+    last arrival before it to the first after it. A single map's drops (Q-mapstale) are not stretches.
+    to_close (owner 2026-10-19: 10-19's connection went quiet at 15:45 and never came back before the close): the
+    recording ran to the close, so silence from the last arrival to the close is a stretch too (a recording that
+    stopped early ends at its last board instead)."""
     if "arrival" not in boards.column_names:
         return []
     arr = pc.cast(pc.fill_null(boards["arrival"], pa.scalar(0, pa.timestamp("ns", "UTC"))), pa.int64()).to_numpy()
     arr = np.unique(arr[(arr >= open_ns) & (arr < close_ns)])
-    if len(arr) < 2:
+    if len(arr) == 0:
         return []
     i = np.where(np.diff(arr) > int(stale_s * mp.NS))[0]
-    return [{"from_ns": int(arr[j]), "to_ns": int(arr[j + 1])} for j in i]
+    out = [{"from_ns": int(arr[j]), "to_ns": int(arr[j + 1])} for j in i]
+    if to_close and close_ns - int(arr[-1]) > int(stale_s * mp.NS):
+        out.append({"from_ns": int(arr[-1]), "to_ns": int(close_ns)})
+    return out
+
+
+def ran_to_close(env: s8.Env, d: date) -> bool:
+    """True if the session log says the recording ended at the close (`session ended ... (close, ...)`)."""
+    log = env.paths.log_dir / f"stream_session_{d:%Y%m%d}.txt"
+    if not log.exists():
+        return False
+    return any(line.startswith("session ended ") and "(close" in line
+               for line in log.read_text(encoding="utf-8", errors="replace").splitlines())
 
 
 def stretch_mask(t_ns: np.ndarray, stretches: list[dict[str, int]], post_s: float) -> np.ndarray:
@@ -524,7 +540,8 @@ def check_recorded_day(env: s8.Env, d: date, *, with_prev: bool = False,
         post_s = max(v for v in cfg["ratio_window_sec"].values() if v is not None)
         keep_gap = gap_mask(c_n, gaps, post_s)
         # owner 2026-10-18: the connection's silent stretches (Wi-Fi) are left out the same way
-        stretches = connection_stretches(boards, open_ns, close_ns, float(env.settings["skylit_map_stale_sec"]))
+        stretches = connection_stretches(boards, open_ns, close_ns, float(env.settings["skylit_map_stale_sec"]),
+                                         to_close=ran_to_close(env, d))
         keep_str = stretch_mask(c_n, stretches, post_s)
         keep = keep_gap & keep_str
         f_n = np.where(keep, f_n, np.nan)

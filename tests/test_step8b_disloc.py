@@ -122,9 +122,9 @@ def test_the_report_counts_the_guards_fires_and_possible_false_fires(env):
 
 def test_false_fire_tolerance_and_hindsight_ratio(env):
     """QQQ uses its stop_buffer_floor; SPY/SPX have none and use atlas_match_tol ES (owner 2026-10-14)."""
-    assert step8b_disloc.false_fire_tolerance(env, "QQQ") == (4.0, "stop_buffer_floor[QQQ]")
-    assert step8b_disloc.false_fire_tolerance(env, "SPY") == (0.78, "atlas_match_tol[ES]")
-    assert step8b_disloc.false_fire_tolerance(env, "SPX") == (0.78, "atlas_match_tol[ES]")
+    assert step8b_disloc.false_fire_tolerance(env, "QQQ") == (4.25, "stop_buffer_floor[QQQ]")
+    assert step8b_disloc.false_fire_tolerance(env, "SPY") == (0.80, "atlas_match_tol[ES]")
+    assert step8b_disloc.false_fire_tolerance(env, "SPX") == (0.80, "atlas_match_tol[ES]")
     t = np.arange(300, dtype=np.int64) * NS
     r = np.full(300, 41.0)
     r[150:] = 42.0

@@ -195,7 +195,9 @@ def test_run_job_keeps_windows_awake(settings, paths, log, clock, monkeypatch, n
 
     monkeypatch.setattr(power.os, "name", "nt")
     run(DummyJob(1, 1), settings, paths, log, clock)
-    assert no_power_calls == [power.ES_CONTINUOUS | power.ES_SYSTEM_REQUIRED, power.ES_CONTINUOUS]
+    # owner 2026-10-19 (§13 Q-power): a job also keeps the display on
+    assert no_power_calls == [power.ES_CONTINUOUS | power.ES_SYSTEM_REQUIRED | power.ES_DISPLAY_REQUIRED,
+                              power.ES_CONTINUOUS]
 
 
 def test_empty_locks_means_both(settings, paths, log, clock):

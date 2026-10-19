@@ -58,9 +58,11 @@ unknown_alert_min: 5
 webhook_timeout_sec: 5
 entry_ttl_sec: {a: 5, b: 5, c: 60, d: 60}   # per entry style; start values approved 2026-10-05, frozen on months 1-4 (step 13/19)
 stop_buffer: 5                    # NQ pts start; frozen at step 13 (F16.4); approved 2026-10-05 (feature_spec F15)
-stop_buffer_floor: {QQQ: 4.0, NDXP: null, chart: 0}   # NQ pts, per source of the level a stop sits beyond (§6.2, F7);
-                                  # owner 2026-10-08 (step 8b): QQQ = the crossing p95; NDXP method QQQ x k N=20 (owner
-                                  # 2026-10-19), its floor proposed after the gate re-run; chart levels no mapping floor
+stop_buffer_floor: {QQQ: 4.25, NDXP: 6.25, chart: 0}  # NQ pts, per source of the level a stop sits beyond (§6.2, F7);
+                                  # FROZEN (owner 2026-10-19, §13 Q8b-frozen; step 8b, recordings 10-09 to 10-19, findings
+                                  # R15/R16): QQQ = the gate's crossing p95 4.046 rounded up to a tick; NDXP (QQQ x k N=20)
+                                  # = the larger of its five-day p95s (every board 5.61, crossings 6.18) rounded up to a
+                                  # tick; chart levels no mapping floor
 entry_order_type:            # start values per entry style (§5.5b); frozen on months 1-4
   a: marketable_limit
   b: marketable_limit
@@ -108,11 +110,16 @@ skylit_max_expirations: 1    # decided (§3.1 Expirations), history and stream a
 skylit_max_strikes: "all"    # step 7 (owner 2026-10-06): whole 0DTE chain; API maxStrikes is not "N nearest spot" (200 cut NDXP nodes, §3.1)
 strike_edge_margin: 5
 skylit_stale_sec: 45
+power_poll_sec: 5            # owner 2026-10-19 (§9, §13 Q-power): how often recordings (live: step 22) read the power source
+battery_warn_step_pct: 10     # on battery: a warning at each further drop of this many points below the level at the switch
+battery_entry_floor_pct: 30   # on battery at or below this %: live allows no new entries (step 22); warnings only above it
 skylit_map_stale_sec: 5      # owner 2026-10-14 (§9, §13 Q-mapstale): a map whose newest board is older blocks new entries on
                              # its zones; past skylit_stale_sec the feed-failure rule applies to it (live only)
 skylit_credit_warn: 10000
-map_latency_sec: 1.16         # owner 2026-10-19 (findings R15): p99.9 of arrival - tau (tau = floor(asOf) + 1 s) over the
-                             # synced-clock recordings 10-12/10-15/10-16, connection stretches left out (was 0.59 from 10-07)
+map_latency_sec: 1.16         # FROZEN (owner 2026-10-19, §13 Q8b-frozen; step 8b, recordings 10-09 to 10-19, findings
+                             # R15/R16): p99.9 of arrival - tau (tau = floor(asOf) + 1 s) over the synced-clock recordings
+                             # 10-12/10-15/10-16, connection stretches left out (10-19 before its standby: 0.76 s);
+                             # live may raise it only by the §3.1 Ingest rule (was 0.59 from 10-07)
 skylit_reach_margin_min: 30  # §3.1 Backfill: a window is pulled only if it starts after now - 365 days + this margin
 skylit_max_failures_in_row: 5   # §3.1 Backfill (decision 4, 2026-10-06): a failing window/date is recorded and skipped;
                                 # this many in a row stop the backfill cleanly (status failures)
