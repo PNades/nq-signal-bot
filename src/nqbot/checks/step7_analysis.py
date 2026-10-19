@@ -270,6 +270,7 @@ def latency_report(stream_boards: pa.Table) -> dict[str, Any]:
     rows = sorted(stream_boards.to_pylist(), key=lambda r: (r["symbol"], r["arrival"]))
     seen: set[tuple[str, int]] = set()
     delays: dict[str, list[float]] = {}
+    after_tau: list[float] = []  # owner 2026-10-19: arrival - tau, tau = floor(asOf) + 1 s (§3.1 Ingest's apply rule)
     gaps: dict[str, list[float]] = {}
     last: dict[str, Any] = {}
     for r in rows:
@@ -280,6 +281,8 @@ def latency_report(stream_boards: pa.Table) -> dict[str, Any]:
         last[sym] = r["as_of"]
         if key in seen:
             delays.setdefault(sym, []).append((r["arrival"] - r["as_of"]).total_seconds())
+            tau = r["as_of"].replace(microsecond=0) + timedelta(seconds=1)
+            after_tau.append((r["arrival"] - tau).total_seconds())
         seen.add(key)
     every = [d for v in delays.values() for d in v]
 
@@ -287,14 +290,15 @@ def latency_report(stream_boards: pa.Table) -> dict[str, Any]:
         return {"n": len(v), "p50": quantile(v, 0.5), "p99": quantile(v, 0.99), "p999": quantile(v, LATENCY_Q),
                 "max": max(v) if v else None}
 
-    p999 = quantile(every, LATENCY_Q)
+    p999 = quantile(after_tau, LATENCY_Q)  # map_latency_sec is added to tau (owner 2026-10-19), so it covers this
     return {
         "delay_sec": {s: stats(v) for s, v in sorted(delays.items())},
         "delay_all": stats(every),
+        "delay_after_tau": stats(after_tau),
         "gap_sec": {s: {"n": len(v), "p50": quantile(v, 0.5), "p90": quantile(v, 0.9), "max": max(v) if v else None}
                     for s, v in sorted(gaps.items())},
         "lagged": int(sum(1 for r in rows if r["lagged"])),
-        "proposed_map_latency_sec": None if p999 is None else math.ceil(p999 * 100) / 100,
+        "proposed_map_latency_sec": None if p999 is None else max(0.0, math.ceil(p999 * 100) / 100),
     }
 
 

@@ -258,13 +258,17 @@ def _run_day_in_child(d: date, month_set: str = "development") -> float | None:
     """One day in a fresh Python process (owner 2026-10-10: a long run in one process ran the laptop out of memory),
     so nothing stays in memory between days. Returns the day process's own peak memory (GB; the job records it,
     owner 2026-10-16: the parent's 0.1 GB hid the 2.5 GB a day used)."""
+    return run_cli_in_child(["step8b", "dislocations", "--dates", d.isoformat(), "--months", month_set])
+
+
+def run_cli_in_child(argv: list[str]) -> float | None:
+    """`nqbot <argv>` in a fresh Python process; returns its peak memory (GB). Shared by the step-8b jobs."""
     code = ("import sys, psutil; from nqbot.cli import main; rc = main(sys.argv[1:]); i = psutil.Process().memory_info(); "
             f"print('{PEAK_TAG}', getattr(i, 'peak_wset', 0) / 2**30 or i.rss / 2**30); sys.exit(rc)")
-    r = subprocess.run([sys.executable, "-c", code, "step8b", "dislocations", "--dates", d.isoformat(),
-                        "--months", month_set],
-                       capture_output=True, text=True)
+    r = subprocess.run([sys.executable, "-c", code, *argv], capture_output=True, text=True)
     if r.returncode != 0:
-        raise s8.CheckRefused(f"{d}: the day's process failed ({r.returncode}): {(r.stderr or r.stdout)[-400:]}")
+        raise s8.CheckRefused(f"{' '.join(argv)}: the day's process failed ({r.returncode}): "
+                              f"{(r.stderr or r.stdout)[-400:]}")
     return child_peak_gb(r.stdout)
 
 
@@ -471,13 +475,15 @@ class DislocationsJob:
         return s8.Env(settings=ctx.settings, features=load_features(), paths=ctx.paths, log=ctx.log, echo=ctx.log.info)
 
     def chunks(self, ctx: Any) -> list[str]:
+        """One chunk per day, named with the day-file version (owner 2026-10-19: a new version is a new chunk, so the
+        runner, which remembers finished chunks, re-runs every day after a version change)."""
         env = self._env(ctx)
-        return [d.isoformat() for d in development_days(env, env.cal or cal_mod.load(), self.month_set)]
+        return [f"{d.isoformat()}:v{DAY_VERSION}" for d in development_days(env, env.cal or cal_mod.load(), self.month_set)]
 
     def run_chunk(self, chunk_id: str, ctx: Any) -> dict[str, Any] | None:
         from nqbot.jobs.runner import StopChunk
 
-        d = date.fromisoformat(chunk_id)
+        d = date.fromisoformat(chunk_id.split(":")[0])
         if _day_done(self._env(ctx), d, self.month_set):
             return None
         mb = free_mb()

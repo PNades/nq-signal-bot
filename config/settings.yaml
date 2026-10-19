@@ -59,7 +59,8 @@ webhook_timeout_sec: 5
 entry_ttl_sec: {a: 5, b: 5, c: 60, d: 60}   # per entry style; start values approved 2026-10-05, frozen on months 1-4 (step 13/19)
 stop_buffer: 5                    # NQ pts start; frozen at step 13 (F16.4); approved 2026-10-05 (feature_spec F15)
 stop_buffer_floor: {QQQ: 4.0, NDXP: null, chart: 0}   # NQ pts, per source of the level a stop sits beyond (§6.2, F7);
-                                  # owner 2026-10-08 (step 8b): QQQ = the crossing p95; NDXP pending its method; chart levels no mapping floor
+                                  # owner 2026-10-08 (step 8b): QQQ = the crossing p95; NDXP method QQQ x k N=20 (owner
+                                  # 2026-10-19), its floor proposed after the gate re-run; chart levels no mapping floor
 entry_order_type:            # start values per entry style (§5.5b); frozen on months 1-4
   a: marketable_limit
   b: marketable_limit
@@ -110,7 +111,8 @@ skylit_stale_sec: 45
 skylit_map_stale_sec: 5      # owner 2026-10-14 (§9, §13 Q-mapstale): a map whose newest board is older blocks new entries on
                              # its zones; past skylit_stale_sec the feed-failure rule applies to it (live only)
 skylit_credit_warn: 10000
-map_latency_sec: 0.59         # step 7 (owner 2026-10-09): stream delay p99.9 0.585 s (14:59 recording 10-07), parity confirmed
+map_latency_sec: 1.16         # owner 2026-10-19 (findings R15): p99.9 of arrival - tau (tau = floor(asOf) + 1 s) over the
+                             # synced-clock recordings 10-12/10-15/10-16, connection stretches left out (was 0.59 from 10-07)
 skylit_reach_margin_min: 30  # §3.1 Backfill: a window is pulled only if it starts after now - 365 days + this margin
 skylit_max_failures_in_row: 5   # §3.1 Backfill (decision 4, 2026-10-06): a failing window/date is recorded and skipped;
                                 # this many in a row stop the backfill cleanly (status failures)

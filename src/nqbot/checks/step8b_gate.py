@@ -43,6 +43,11 @@ ALIGN_SEARCH_MS = 3000  # alignment: offsets searched from -3 s to +3 s around f
 ALIGN_STEP_MS = 20
 ALIGN_MAX_MS = 1000  # F0.1: content never after floor(asOf) + 1 s (τ)
 ALIGN_MIN_PAIRS = 10  # fewer board-to-board changes than this: no fit
+GATE_DAYS = tuple(date.fromisoformat(x) for x in (  # findings R1/R11: the 22 development days, 11 per stamping era
+    "2025-10-15", "2025-10-29", "2025-11-12", "2025-11-25", "2025-12-10", "2026-01-08", "2026-01-22", "2026-02-05",
+    "2026-02-24", "2026-03-06", "2026-03-11", "2026-03-17", "2026-03-18", "2026-03-19", "2026-03-20", "2026-03-23",
+    "2026-03-24", "2026-03-25", "2026-03-26", "2026-03-27", "2026-03-30", "2026-03-31"))
+REPORT_CHUNK = "report"
 CACHE_VERSION = 3  # bump when the crossing maths change (2: the board in force at t* by apply time, 2026-10-09;
 # 3: F2.4 relevance with the 20% hold, owner 2026-10-11)
 
@@ -265,19 +270,40 @@ def fit_content_offset(as_of_ns: np.ndarray, spot: np.ndarray, fut_ts: np.ndarra
             "at_search_edge": edge, "pass": off is not None and off <= ALIGN_MAX_MS and not edge}
 
 
+def day_alignment(env: s8.Env, d: date, front: dict[str, dict[str, str]]) -> dict[str, Any]:
+    """One session's fitted content offsets per map, cached on disk per config (the gate job fills it per day)."""
+    path = s8.reports_dir(env.paths) / "gate_days" / f"{d.isoformat()}_align_{_cfg_key(env)}.json"
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+    cfg = env.features["mapping"]
+    maps, futs = s8._day_inputs(env, d, front)
+    era = mp.board_era(d, cfg["skylit_stamp_change_date"])
+    out = {}
+    for m in GATE_MAPS:
+        md, fut = maps[m], futs[s8.CHAIN_ROOT[m]]
+        fit = fit_content_offset(md.as_of[md.applied], md.spot[md.applied], fut.ts, fut.px)
+        out[m] = {**fit, "configured_ms": mp.content_offset_ms(cfg, m, era), "era": era}
+    atomic_write_bytes(path, json.dumps(out).encode("utf-8"))
+    return out
+
+
+def check_gate_days(env: s8.Env, dates: list[date] | None = None) -> None:
+    """The gate's per-day work (crossings and the alignment fit), cached; no report (`nqbot step8b gate-day`)."""
+    days = s8.days_to_check(env, dates)
+    front = s8.front_symbols(env)
+    for d in days:
+        out = day_crossings(env, d, front)
+        day_alignment(env, d, front)
+        env.echo(f"  {d}: " + (f"skipped ({out['skip']})" if "skip" in out else
+                               ", ".join(f"{m} {len(out[m]['chosen'])}" for m in GATE_MAPS) + " event crossings"))
+
+
 def check_alignment(env: s8.Env, dates: list[date] | None = None) -> dict[str, Any]:
     days = s8.days_to_check(env, dates)
     front = s8.front_symbols(env)
-    cfg = env.features["mapping"]
     per_day: dict[str, Any] = {}
     for d in days:
-        maps, futs = s8._day_inputs(env, d, front)
-        era = mp.board_era(d, cfg["skylit_stamp_change_date"])
-        out = {}
-        for m in GATE_MAPS:
-            md, fut = maps[m], futs[s8.CHAIN_ROOT[m]]
-            fit = fit_content_offset(md.as_of[md.applied], md.spot[md.applied], fut.ts, fut.px)
-            out[m] = {**fit, "configured_ms": mp.content_offset_ms(cfg, m, era), "era": era}
+        out = day_alignment(env, d, front)
         per_day[d.isoformat()] = out
         env.echo(f"  {d}: " + ", ".join(f"{m} {o['offset_ms']} ms{'' if o['pass'] else ' ALERT'}" for m, o in out.items()))
     per_chain = {}
@@ -297,3 +323,45 @@ def check_alignment(env: s8.Env, dates: list[date] | None = None) -> dict[str, A
 
 def _r(x: float | None, nd: int = 4) -> float | None:
     return None if x is None or not np.isfinite(x) else round(float(x), nd)
+
+
+class GateJob:
+    """`nqbot run step8b_gate --until HH:MM` (owner 2026-10-19): the gate conditions (bias, estimator, alignment) on
+    the 22 development days as a resumable job: one day per chunk, each in its own process (crossings and the
+    alignment fit, cached per config), then one chunk writing the three reports from the cache. Reads stored data
+    only; holds the Databento lock so no pull writes the trades it reads."""
+
+    name = "step8b_gate"
+
+    def __init__(self) -> None:
+        from nqbot.jobs.lock import DATABENTO
+
+        self.locks = (DATABENTO,)
+
+    def _env(self, ctx: Any) -> s8.Env:
+        from nqbot.config import load_features
+
+        return s8.Env(settings=ctx.settings, features=load_features(), paths=ctx.paths, log=ctx.log, echo=ctx.log.info)
+
+    def chunks(self, ctx: Any) -> list[str]:
+        """Named with the config key, so a changed setting (e.g. map_latency_sec) is a new run of every day."""
+        key = _cfg_key(self._env(ctx))
+        return [f"{d.isoformat()}:{key}" for d in GATE_DAYS] + [f"{REPORT_CHUNK}:{key}"]
+
+    def run_chunk(self, chunk_id: str, ctx: Any) -> dict[str, Any] | None:
+        from nqbot.checks.step8b_disloc import MIN_FREE_MB, free_mb, run_cli_in_child
+        from nqbot.jobs.runner import StopChunk
+
+        env = self._env(ctx)
+        chunk_id = chunk_id.split(":")[0]
+        if chunk_id == REPORT_CHUNK:
+            days = list(GATE_DAYS)
+            for check in (check_bias, check_estimator, check_alignment):
+                check(env, days)
+            return None
+        mb = free_mb()
+        if mb is not None and mb < MIN_FREE_MB:
+            raise StopChunk(f"{mb} MB free (< {MIN_FREE_MB}) before {chunk_id}")
+        peak = run_cli_in_child(["step8b", "gate-day", "--dates", chunk_id])
+        ctx.log.info("%s: %s day process peak %s GB, %s MB free before it", self.name, chunk_id, peak, mb)
+        return {"peak_gb": peak}

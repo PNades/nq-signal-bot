@@ -437,3 +437,44 @@ def test_recorded_day_saves_the_board_times_with_the_errors(env):
     assert t is not None and len(t) == len(e["basis+carry"]) and np.all(np.diff(t) > 0)
     assert len(step8b_recorded._load_times(path, crossings=True)) == len(
         step8b_recorded._load_errors(path, crossings=True)["basis+carry"])
+
+
+def test_gate_days_fill_the_cache_the_checks_read(env):
+    """Owner 2026-10-19 (the step8b_gate job): the per-day work is cached; the checks then read the same numbers."""
+    _setup(env, noise=1e-6, lag_s=-2)
+    step8b_gate.check_gate_days(env)
+    folder = step8b.reports_dir(env.paths) / "gate_days"
+    assert len(list(folder.glob("*_align_*.json"))) == 1 and len(list(folder.glob("*.npz"))) == 1
+    al = step8b_gate.check_alignment(env)
+    assert al["per_day"][DAY.isoformat()]["QQQ"]["offset_ms"] == 2000 and not al["pass"]
+    env.settings["map_latency_sec"] = env.settings["map_latency_sec"] + 0.5  # a new config: a new cache entry
+    step8b_gate.check_gate_days(env)
+    assert len(list(folder.glob("*_align_*.json"))) == 2
+
+
+def test_the_gate_job_runs_each_day_in_its_own_process_then_the_reports(env, monkeypatch):
+    from types import SimpleNamespace
+
+    from nqbot.checks import step8b_disloc
+    from nqbot.jobs.registry import get_job
+
+    job = get_job("step8b_gate")
+    ctx = SimpleNamespace(settings=env.settings, paths=env.paths, log=env.log)
+    chunks = job.chunks(ctx)
+    key = step8b_gate._cfg_key(env)  # owner 2026-10-19: a changed setting renames every chunk, so all re-run
+    assert len(chunks) == 23 and chunks[-1] == f"report:{key}" and chunks[0] == f"2025-10-15:{key}"
+    assert chunks[-2] == f"2026-03-31:{key}"
+    ran = []
+    monkeypatch.setattr(step8b_disloc, "free_mb", lambda: 8000)
+    monkeypatch.setattr(step8b_disloc, "run_cli_in_child", lambda argv: ran.append(argv) or 1.2)
+    assert job.run_chunk("2025-10-15", ctx) == {"peak_gb": 1.2}
+    assert ran == [["step8b", "gate-day", "--dates", "2025-10-15"]]
+    called = []
+    for name in ("check_bias", "check_estimator", "check_alignment"):
+        monkeypatch.setattr(step8b_gate, name, lambda e, days, n=name: called.append((n, len(days))))
+    assert job.run_chunk("report", ctx) is None
+    assert called == [("check_bias", 22), ("check_estimator", 22), ("check_alignment", 22)]
+    monkeypatch.setattr(step8b_disloc, "free_mb", lambda: 100)
+    from nqbot.jobs.runner import StopChunk
+    with pytest.raises(StopChunk):
+        job.run_chunk("2025-10-29", ctx)

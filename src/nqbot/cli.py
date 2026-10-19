@@ -571,6 +571,7 @@ def _add_step8b(sub: argparse._SubParsersAction) -> None:
                         ("bias", "gate (a): median signed crossing error per chain, day-block bootstrap interval"),
                         ("estimator", "gate (b): the chosen R estimator's crossing p95 vs the best possible R"),
                         ("alignment", "gate: fitted content time per map never after floor(asOf) + 1 s"),
+                        ("gate-day", "the gate's per-day work only (crossings, alignment fit), cached; the step8b_gate job"),
                         ("dislocations", "count fast moves of the mapping ratio (0.05/0.1/0.2% in 2 min) and the guard's fires")):
         p = s8.add_parser(name, help=help_)
         p.add_argument("--dates", type=_dates, default=None,
@@ -608,6 +609,8 @@ def _run_step8b(args: argparse.Namespace, settings, paths, log) -> int:
                 step8b_gate.check_estimator(env, args.dates)
             case "alignment":
                 step8b_gate.check_alignment(env, args.dates)
+            case "gate-day":
+                step8b_gate.check_gate_days(env, args.dates)
             case "dislocations":
                 from nqbot.checks import step8b_disloc
 

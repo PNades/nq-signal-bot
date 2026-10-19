@@ -162,7 +162,11 @@ def test_latency_report_skips_connect_snapshots():
                          "connection": c, "lagged": i == 4 and c == 1})
     rep = an.latency_report(_boards(rows))
     assert rep["delay_all"]["n"] == 8 and rep["delay_all"]["max"] == pytest.approx(0.5)
-    assert rep["proposed_map_latency_sec"] == 0.5 and rep["lagged"] == 1
+    # owner 2026-10-19: the proposal covers the delay after tau = floor(asOf) + 1 s (here 0.2-0.5 s after asOf: none)
+    assert rep["delay_after_tau"]["max"] == pytest.approx(-0.5) and rep["proposed_map_latency_sec"] == 0.0
+    assert rep["lagged"] == 1
+    late = [dict(r, arrival=r["arrival"] + timedelta(seconds=1.25)) for r in rows]
+    assert an.latency_report(_boards(late))["proposed_map_latency_sec"] == 0.75
     assert rep["gap_sec"]["QQQ"]["max"] == pytest.approx(6.0)
 
 

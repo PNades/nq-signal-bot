@@ -6,6 +6,7 @@ from typing import Callable
 
 from nqbot.backup import SkylitBackupJob
 from nqbot.checks.step8b_disloc import DislocationsJob
+from nqbot.checks.step8b_gate import GateJob
 from nqbot.clients.databento_pull import DatabentoPullJob
 from nqbot.clients.skylit_backfill import SkylitBackfillJob
 from nqbot.clients.skylit_pull import SkylitPullJob
@@ -21,6 +22,7 @@ JOBS: dict[str, Callable[[], Job]] = {
     "databento_backfill": DatabentoPullJob,  # step 8 (plan first: nqbot databento plan)
     "skylit_backup": SkylitBackupJob,  # §11 Storage: Skylit history to Google Drive (also: nqbot backup)
     "step8b_dislocations": DislocationsJob,  # step 8b: months 1-6 dislocation count and guard fires, a day per chunk
+    "step8b_gate": GateJob,  # step 8b: bias, estimator, alignment on the 22 development days, a day per chunk
 }
 
 

@@ -127,7 +127,8 @@ def test_step8b_mapping_values():
     assert str(m["skylit_stamp_change_date"]) == "2026-03-17"
     assert m["board_content_offset_ms"]["before_stamp_change"] == {"QQQ": 740, "SPY": 840, "SPX": -80, "NDXP": None}
     assert m["board_content_offset_ms"]["from_stamp_change"] == {"QQQ": -60, "SPY": -60, "SPX": -80, "NDXP": None}
-    assert m["board_content_offset_ms"]["live"] == {"QQQ": -60, "SPY": None, "SPX": -80, "NDXP": None}
+    assert m["board_content_offset_ms"]["live"] == {"QQQ": -60, "SPY": -60, "SPX": -80, "NDXP": None}  # owner 2026-10-19
+    assert (m["ndxp_r_method"], m["ndxp_k_sessions"]) == ("qqq_k", 20)  # owner 2026-10-19 (ndxp-select)
     assert s["stop_buffer_floor"] == {"QQQ": 4.0, "NDXP": None, "chart": 0}
 
 
@@ -139,7 +140,7 @@ def test_step7_measured_values_and_tempest_pre_open():
     from nqbot.clients.skylit_store import TEMPEST_FINAL_FROM_ET
 
     s, f = load_settings(), load_features()
-    assert s["map_latency_sec"] == 0.59
+    assert s["map_latency_sec"] == 1.16  # owner 2026-10-19 (arrival - tau p99.9)
     assert f["tempest_lag_sessions"] == 1  # step 7 decided 2026-10-12
     assert f["dp_lag_sessions"] == 1  # start value until late-prints-compare
     assert time.fromisoformat(s["preopen_start"]) == TEMPEST_FINAL_FROM_ET

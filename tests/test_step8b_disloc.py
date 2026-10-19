@@ -183,7 +183,8 @@ def test_the_job_runs_one_day_per_chunk_and_stops_on_low_memory(env, monkeypatch
     assert job.locks == (DATABENTO,)
     ctx = SimpleNamespace(settings=env.settings, paths=env.paths, log=logging.getLogger("t"))
     monkeypatch.setattr(step8b_disloc, "development_days", lambda e, c, m="development": [DAY, date(2026, 3, 6)])
-    assert job.chunks(ctx) == [DAY.isoformat(), "2026-03-06"]
+    v = step8b_disloc.DAY_VERSION  # owner 2026-10-19: the version is in the name, a new version re-runs every day
+    assert job.chunks(ctx) == [f"{DAY.isoformat()}:v{v}", f"2026-03-06:v{v}"]
     ran = []
     monkeypatch.setattr(step8b_disloc, "_run_day_in_child", lambda d, m="development": ran.append((d, m)))
     monkeypatch.setattr(step8b_disloc, "free_mb", lambda: 1000)
