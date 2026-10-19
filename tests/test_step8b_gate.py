@@ -393,3 +393,47 @@ def test_one_chain_at_a_time_builds_the_same_maps(env):
             assert np.array_equal(getattr(md, f), getattr(ref, f), equal_nan=f in ("spot", "s_pct")), (m, f)
         assert np.array_equal(md.r, ref.r, equal_nan=True) and md.resolution == ref.resolution
     assert names == list(maps)
+
+
+def test_recorded_day_leaves_out_a_connection_stretch_and_lists_every_reconnect(env):
+    """Owner 2026-10-18 (10-16, the owner's Wi-Fi): when no map's board arrives for more than skylit_map_stale_sec,
+    the boards from 2 s before that stretch to 60 s after it are left out like an uncovered gap; a single map's drop
+    is not a stretch. Every reconnect is listed, the failed connection attempts from the session log too."""
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+
+    _recording(env, qqq_arrival_delay_s=0.4)
+    folder = env.sky.stream_dir(REC) / "session_092700"
+    t = pq.read_table(folder / "part_000_boards.parquet")
+    a = int(datetime.combine(REC, time(10, 0), tzinfo=ET).timestamp()) * 1000
+    ms = pc.cast(t["as_of"], pa.int64())
+    hole = pc.and_(pc.greater_equal(ms, a), pc.less(ms, a + 20_000))  # every map silent 20 s
+    one = pc.and_(pc.and_(pc.greater_equal(ms, a + 600_000), pc.less(ms, a + 620_000)), pc.equal(t["symbol"], "SPY"))
+    write_parquet(folder / "part_000_boards.parquet", t.filter(pc.invert(pc.or_(hole, one))), {})
+    write_parquet(folder / "part_001_boards.parquet", t.slice(0, 0), {})
+    events = [{"kind": "reconnect", "arrival_ns": a * 1_000_000 + 1800 * NS, "data": {"reason": "max_duration"}},
+              {"kind": "resumed", "arrival_ns": a * 1_000_000 + 1801 * NS, "data": {"gapCovered": True, "symbols": []}}]
+    (folder / "part_000_events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events), encoding="utf-8")
+    env.paths.log_dir.mkdir(parents=True, exist_ok=True)
+    (env.paths.log_dir / f"stream_session_{REC:%Y%m%d}.txt").write_text(
+        "2026-03-05T15:20:00.500Z [1] WARNING nqbot: stream connection 4 failed: ConnectError\n", encoding="utf-8")
+    fake = FakeDatabento(datetime(2026, 3, 6, tzinfo=timezone.utc))
+    rep = step8b_recorded.check_recorded_day(env, REC, with_prev=True, client_factory=lambda: fake, fetch=_fetch)
+    cs = rep["ndxp"]["connection_stretches"]
+    assert [(s["from_et"], s["to_et"], s["length_s"]) for s in cs["stretches"]] == [("09:59:59", "10:00:20", 21.0)]
+    assert cs["window_s"] == [-2, 60] and cs["boards_left_out"] == pytest.approx(63, abs=3)
+    assert [e["kind"] for e in rep["reconnects"]] == ["failed", "reconnect", "resumed"]  # in time order
+    assert rep["reconnects"][0] == {"at_et": "10:20:00", "kind": "failed", "connection": 4, "error": "ConnectError"}
+    assert rep["reconnects"][1]["reason"] == "max_duration" and rep["reconnects"][2]["gap_covered"] is True
+
+
+def test_recorded_day_saves_the_board_times_with_the_errors(env):
+    _recording(env)
+    fake = FakeDatabento(datetime(2026, 3, 6, tzinfo=timezone.utc))
+    step8b_recorded.check_recorded_day(env, REC, with_prev=True, client_factory=lambda: fake, fetch=_fetch)
+    path = step8b.reports_dir(env.paths) / "recorded_days" / f"{REC}.npz"
+    t = step8b_recorded._load_times(path)
+    e = step8b_recorded._load_errors(path)
+    assert t is not None and len(t) == len(e["basis+carry"]) and np.all(np.diff(t) > 0)
+    assert len(step8b_recorded._load_times(path, crossings=True)) == len(
+        step8b_recorded._load_errors(path, crossings=True)["basis+carry"])

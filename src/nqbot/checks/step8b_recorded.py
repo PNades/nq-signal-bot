@@ -180,13 +180,21 @@ def _errors_dir(env: s8.Env) -> Path:
 CROSS_PREFIX = "x__"  # crossing errors in the same file (report only, owner 2026-10-11)
 
 
+TIMES_KEY = "t_ns"  # content time of each scored board (owner 2026-10-18: errors by time of day)
+
+
 def _save_errors(env: s8.Env, d: date, errors: dict[str, np.ndarray],
-                 crossings: dict[str, np.ndarray] | None = None) -> None:
+                 crossings: dict[str, np.ndarray] | None = None, t_ns: np.ndarray | None = None,
+                 x_t_ns: np.ndarray | None = None) -> None:
     import io
 
     buf = io.BytesIO()
     arrays = {k.replace(" ", "_"): v for k, v in errors.items()}
     arrays.update({CROSS_PREFIX + k.replace(" ", "_"): v for k, v in (crossings or {}).items()})
+    if t_ns is not None:
+        arrays[TIMES_KEY] = np.asarray(t_ns, dtype=np.int64)
+    if x_t_ns is not None:
+        arrays[CROSS_PREFIX + TIMES_KEY] = np.asarray(x_t_ns, dtype=np.int64)
     np.savez_compressed(buf, **arrays)
     atomic_write_bytes(_errors_dir(env) / f"{d.isoformat()}.npz", buf.getvalue())
 
@@ -196,6 +204,13 @@ def _load_errors(path: Path, crossings: bool = False) -> dict[str, np.ndarray]:
     z = np.load(path, allow_pickle=False)
     names = {(CROSS_PREFIX if crossings else "") + c.replace(" ", "_"): c for c in candidates()}
     return {names[k]: z[k] for k in z.files if k in names}
+
+
+def _load_times(path: Path, crossings: bool = False) -> np.ndarray | None:
+    """The content times saved with the errors (same order), or None for a file saved before 2026-10-18."""
+    z = np.load(path, allow_pickle=False)
+    key = (CROSS_PREFIX if crossings else "") + TIMES_KEY
+    return z[key] if key in z.files else None
 
 
 def recording_strikes(env: s8.Env, d: date, name: str, as_of_ns: np.ndarray
@@ -277,6 +292,7 @@ def check_ndxp_select(env: s8.Env) -> dict[str, Any]:
         e = np.concatenate([days[d][c] for d in sorted(days)])
         e = e[np.isfinite(e)]
         per_candidate[c] = {"held_out_p95": _r(_p95([e])), "held_out_median": _r(float(np.median(e))),
+                            "held_out_abs_median": _r(float(np.median(np.abs(e)))),
                             "per_day_p95": {str(d): _r(_p95([days[d][c]])) for d in sorted(days)},
                             "picked_in_rotations": sum(r["picked"] == c for r in rotations)}
     # report only (owner 2026-10-11): each candidate's p95 at relevant-node crossings, pooled over the days
@@ -285,6 +301,9 @@ def check_ndxp_select(env: s8.Env) -> dict[str, Any]:
     for c in candidates():
         e = [cross[d][c] for d in sorted(days) if c in cross.get(d, {})]
         per_candidate[c]["crossing_p95"] = None if no_cross else _r(_p95(e))
+        xe = np.abs(np.concatenate(e)) if e else np.zeros(0)
+        xe = xe[np.isfinite(xe)]
+        per_candidate[c]["crossing_abs_median"] = None if no_cross or not len(xe) else _r(float(np.median(xe)))
         per_candidate[c]["crossings_n"] = int(sum(np.isfinite(x).sum() for x in e))
     winner = min(per_candidate, key=lambda c: per_candidate[c]["held_out_p95"])
     procedure = _p95([days[date.fromisoformat(r["held_out"])][r["picked"]] for r in rotations])
@@ -332,6 +351,56 @@ def gap_mask(t_ns: np.ndarray, gaps: list[dict[str, Any]], post_s: float) -> np.
     for g in gaps:
         keep &= ~((t_ns >= g["arrival_ns"] - UNCOVERED_GAP_PRE_S * mp.NS) & (t_ns <= g["arrival_ns"] + int(post_s * mp.NS)))
     return keep
+
+
+def connection_stretches(boards: pa.Table, open_ns: int, close_ns: int, stale_s: float) -> list[dict[str, int]]:
+    """Owner 2026-10-18 (10-16: the owner's Wi-Fi went out): stretches in the session when no recorded map's board
+    arrived for more than `skylit_map_stale_sec`, i.e. the connection, not one map, went quiet. Each runs from the
+    last arrival before it to the first after it. A single map's drops (Q-mapstale) are not stretches."""
+    if "arrival" not in boards.column_names:
+        return []
+    arr = pc.cast(pc.fill_null(boards["arrival"], pa.scalar(0, pa.timestamp("ns", "UTC"))), pa.int64()).to_numpy()
+    arr = np.unique(arr[(arr >= open_ns) & (arr < close_ns)])
+    if len(arr) < 2:
+        return []
+    i = np.where(np.diff(arr) > int(stale_s * mp.NS))[0]
+    return [{"from_ns": int(arr[j]), "to_ns": int(arr[j + 1])} for j in i]
+
+
+def stretch_mask(t_ns: np.ndarray, stretches: list[dict[str, int]], post_s: float) -> np.ndarray:
+    """True for boards to keep: outside [stretch start - UNCOVERED_GAP_PRE_S, stretch end + post_s] of every
+    connection stretch, the uncovered-gap window around the whole stretch (owner 2026-10-18)."""
+    keep = np.ones(len(t_ns), dtype=bool)
+    for g in stretches:
+        keep &= ~((t_ns >= g["from_ns"] - UNCOVERED_GAP_PRE_S * mp.NS) & (t_ns <= g["to_ns"] + int(post_s * mp.NS)))
+    return keep
+
+
+def reconnects(env: s8.Env, d: date) -> list[dict[str, Any]]:
+    """Every reconnect of the recording (owner 2026-10-18): Skylit's `reconnect` / `resumed` events, and the
+    connection attempts that failed (from the session log, `stream connection N failed: ...`)."""
+    out = []
+    for f in sorted(Path(env.sky.stream_dir(d)).rglob("*_events.jsonl")):
+        for line in f.read_text(encoding="utf-8").splitlines():
+            e = json.loads(line)
+            data = e.get("data") if isinstance(e.get("data"), dict) else {}
+            if e.get("kind") == "reconnect":
+                out.append({"at_et": _et_ns(int(e["arrival_ns"])), "kind": "reconnect", "reason": data.get("reason")})
+            elif e.get("kind") == "resumed":
+                out.append({"at_et": _et_ns(int(e["arrival_ns"])), "kind": "resumed",
+                            "gap_covered": data.get("gapCovered")})
+    log = env.paths.log_dir / f"stream_session_{d:%Y%m%d}.txt"
+    if log.exists():
+        import re
+
+        pat = re.compile(r"^(\S+Z) .*stream connection (\d+) failed: (.*)$")
+        for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+            m = pat.match(line)
+            if m:
+                t = datetime.fromisoformat(m.group(1).replace("Z", "+00:00"))
+                out.append({"at_et": t.astimezone(s8.ET).strftime("%H:%M:%S"), "kind": "failed",
+                            "connection": int(m.group(2)), "error": m.group(3).strip()})
+    return sorted(out, key=lambda x: x["at_et"])
 
 
 # --- the command ----------------------------------------------------------------------------------------
@@ -382,10 +451,18 @@ def check_recorded_day(env: s8.Env, d: date, *, with_prev: bool = False,
         # longest trailing R window after it (a missed board would sit in QQQ's 60-s median that long)
         gaps = uncovered_gaps(env, d)
         post_s = max(v for v in cfg["ratio_window_sec"].values() if v is not None)
-        keep = gap_mask(c_n, gaps, post_s)
+        keep_gap = gap_mask(c_n, gaps, post_s)
+        # owner 2026-10-18: the connection's silent stretches (Wi-Fi) are left out the same way
+        stretches = connection_stretches(boards, open_ns, close_ns, float(env.settings["skylit_map_stale_sec"]))
+        keep_str = stretch_mask(c_n, stretches, post_s)
+        keep = keep_gap & keep_str
         f_n = np.where(keep, f_n, np.nan)
         ndxp_out["uncovered_gaps"] = {"resumes": [{"at_et": _et_ns(g["arrival_ns"]), "advanced": g["advanced"]} for g in gaps],
-                                      "window_s": [-UNCOVERED_GAP_PRE_S, post_s], "boards_left_out": int((~keep).sum())}
+                                      "window_s": [-UNCOVERED_GAP_PRE_S, post_s], "boards_left_out": int((~keep_gap).sum())}
+        ndxp_out["connection_stretches"] = {
+            "stretches": [{"from_et": _et_ns(g["from_ns"]), "to_et": _et_ns(g["to_ns"]),
+                           "length_s": round((g["to_ns"] - g["from_ns"]) / mp.NS, 1)} for g in stretches],
+            "window_s": [-UNCOVERED_GAP_PRE_S, post_s], "boards_left_out": int((keep_gap & ~keep_str).sum())}
         methods: dict[str, Any] = {}
         errors: dict[str, np.ndarray] = {}
         ratio_at: dict[str, Callable[[np.ndarray], np.ndarray]] = {}  # each method's NQ/NDX ratio at any instant
@@ -433,7 +510,7 @@ def check_recorded_day(env: s8.Env, d: date, *, with_prev: bool = False,
                     methods[key] = {**_err_stats(errors[key]), "k": round(k, 6)}
         # report only (owner 2026-10-11): the same methods at relevant-node crossings
         t_x, k_x = ndxp_crossings(env, d, an, nx, arr_n, c_n)
-        keep_x = gap_mask(t_x, gaps, post_s)
+        keep_x = gap_mask(t_x, gaps, post_s) & stretch_mask(t_x, stretches, post_s)
         t_x, k_x = t_x[keep_x], k_x[keep_x]
         f_x = mp.last_price_at_or_before(nq[0], nq[1], t_x)
         cross_err = {c: k_x * fn(t_x) - f_x for c, fn in ratio_at.items()}
@@ -449,8 +526,13 @@ def check_recorded_day(env: s8.Env, d: date, *, with_prev: bool = False,
                                           f"p95 {v['abs_p95']} NQ pts, median {v['signed_median']:+} (n {v['n']}); "
                                           f"at relevant-node crossings p95 {x.get('abs_p95')} (n {x.get('n', 0)}, "
                                           "report only)"))
-        _save_errors(env, d, errors, cross_err)
-    report = {"date": d.isoformat(), "databento": pulled, "alignment": align, "ndxp": ndxp_out,
+        _save_errors(env, d, errors, cross_err, c_n, t_x)
+    events = reconnects(env, d)
+    for e in events:
+        env.echo("  reconnect log: " + ", ".join(f"{k} {v}" for k, v in e.items()))
+    for g in ndxp_out.get("connection_stretches", {}).get("stretches", []):
+        env.echo(f"  connection stretch left out: {g['from_et']} -> {g['to_et']} ({g['length_s']} s)")
+    report = {"date": d.isoformat(), "databento": pulled, "alignment": align, "ndxp": ndxp_out, "reconnects": events,
               "alerts": [m for m, v in align.items() if v.get("pass") is False],
               "spy_live_offset_ms": align.get("SPY", {}).get("offset_ms")}
     s8.write_report(env, f"recorded_day_{d.isoformat()}", report)
