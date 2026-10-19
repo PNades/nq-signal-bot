@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 
 from datetime import date, datetime, timedelta, timezone
+from datetime import time as time_cls
 from pathlib import Path
 from typing import Any, Callable
 
@@ -329,6 +330,76 @@ def check_ndxp_select(env: s8.Env) -> dict[str, Any]:
 
 def _r(x: float | None) -> float | None:
     return None if x is None else round(float(x), 3)
+
+
+ATLAS_RECORDED_MINUTES = 10  # owner 2026-10-19: about 10 times per map per day, spread across the recorded session
+ATLAS_RECORDED_EDGE_MIN = 10  # the first time 10 minutes after the open, the last 10 before the close or the end
+
+
+def atlas_minutes(start: datetime, end: datetime, n: int = ATLAS_RECORDED_MINUTES) -> list[time_cls]:
+    """n whole minutes spread evenly from start + 10 min to end - 10 min (fixed by the clock only, never chosen from
+    prices: §7 rule 2b's step-8b exception, owner 2026-10-19)."""
+    a = start + timedelta(minutes=ATLAS_RECORDED_EDGE_MIN)
+    b = end - timedelta(minutes=ATLAS_RECORDED_EDGE_MIN)
+    step = (b - a) / (n - 1)
+    return [(a + step * i).replace(second=0, microsecond=0).timetz().replace(tzinfo=None) for i in range(n)]
+
+
+def check_atlas_recorded(env: s8.Env, d: date, minutes: list[time_cls] | None = None) -> dict[str, Any]:
+    """The Atlas tables (QQQ, SPY) on a recorded session day (owner 2026-10-19, §7 rule 2b's step-8b exception,
+    §13 Q-atlas-oct): the recorded boards with their arrival times and the live content offsets, the futures from
+    `recorded-day`'s $0 trades. Levels, times and mapping errors only. Default: 10 minutes spread over the recorded
+    part of the session. Written as `atlas_recorded_<date>.md` / report `atlas_recorded_<date>`, apart from the
+    sample days' regression check."""
+    reports = sorted(s8.reports_dir(env.paths).glob(f"recorded_day_{d.isoformat()}_*.json"))
+    if not reports:
+        raise s8.CheckRefused(f"run `step8b recorded-day {d}` first (it pulls the day's trades and fits the offsets)")
+    front = json.loads(reports[-1].read_text(encoding="utf-8"))["databento"]["front"]
+    open_ns, close_ns = s8._session_ns(env, d)
+    boards = recording_boards(env, d)
+    arr_all = pc.cast(pc.fill_null(boards["arrival"], pa.scalar(0, pa.timestamp("ns", "UTC"))), pa.int64()).to_numpy()
+    last = int(arr_all[(arr_all > 0) & (arr_all < close_ns)].max()) if (arr_all > 0).any() else close_ns
+    if minutes is None:
+        tz = s8.ET
+        minutes = atlas_minutes(datetime.fromtimestamp(open_ns / 1e9, tz), datetime.fromtimestamp(min(last, close_ns) / 1e9, tz))
+    boards = boards.append_column("resolution", pa.array(["1s"] * boards.num_rows))
+    maps, futs, arrivals = {}, {}, {}
+    for m in s8.ATLAS_MAPS:
+        root = s8.CHAIN_ROOT[m]
+        tr = _trades(env, front[root], d)
+        if tr is None:
+            raise s8.CheckRefused(f"{root} trades for {d} missing: run `step8b recorded-day {d}`")
+        futs[root] = s8.Futures(tr[0], tr[1], front[root])
+        a, k, v = _recording_strike_rows(env, d, m)
+        strikes = pa.table({"as_of": pa.array(a // 1_000_000, pa.timestamp("ms", "UTC")), "symbol": [m] * len(a),
+                            "strike": pa.array(k, pa.float32()), "value": pa.array(v, pa.float32())})
+        maps[m] = s8.map_day(env, d, m, boards, strikes, futs[root])
+        x = boards.filter(pc.equal(boards["symbol"], m))
+        o = np.argsort(s8._ns(x["as_of"]), kind="stable")
+        arrivals[m] = pc.cast(pc.fill_null(x["arrival"], pa.scalar(0, pa.timestamp("ns", "UTC"))), pa.int64()).to_numpy()[o]
+    note = (f"**Recorded session (owner 2026-10-19, §7 rule 2b step-8b exception):** the live stream's boards as "
+            f"recorded (applied at max(arrival, floor(asOf) + 1 s + map_latency_sec)), the live content offsets, the "
+            f"day's Databento futures; the recording ends {_et_ns(last)} ET. Minutes fixed by the clock, not by prices.")
+    path = s8.reports_dir(env.paths) / f"atlas_recorded_{d.isoformat()}.md"
+    return s8.atlas_tables(env, d, minutes, maps, futs, era=mp.ERA_LIVE, arrivals=arrivals,
+                           name=f"atlas_recorded_{d.isoformat()}", md_path=path, note=note)
+
+
+def _recording_strike_rows(env: s8.Env, d: date, name: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """One map's recorded strike rows (asOf ns, strike, value), each (asOf, strike) once."""
+    a_l, k_l, v_l = [], [], []
+    for f in sorted(Path(env.sky.stream_dir(d)).rglob("*_strikes.parquet")):
+        x = pq.read_table(f, columns=["as_of", "symbol", "strike", "value"], filters=[("symbol", "=", name)])
+        a_l.append(s8._ns(x["as_of"]))
+        k_l.append(x["strike"].to_numpy().astype(np.float64))
+        v_l.append(x["value"].to_numpy().astype(np.float64))
+    if not a_l:
+        return np.zeros(0, dtype=np.int64), np.zeros(0), np.zeros(0)
+    a, k, v = np.concatenate(a_l), np.concatenate(k_l), np.concatenate(v_l)
+    o = np.lexsort((k, a))
+    a, k, v = a[o], k[o], v[o]
+    first = np.concatenate([[True], (a[1:] != a[:-1]) | (k[1:] != k[:-1])]) if len(a) else np.zeros(0, dtype=bool)
+    return a[first], k[first], v[first]
 
 
 def uncovered_gaps(env: s8.Env, d: date) -> list[dict[str, Any]]:

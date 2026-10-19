@@ -583,6 +583,8 @@ def _add_step8b(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--date", type=_date, required=True, help="a sample day (YYYY-MM-DD)")
     p.add_argument("--minutes", type=lambda t: [_hhmm(x.strip()) for x in t.split(",") if x.strip()], required=True,
                    help="comma-separated ET minutes the owner picks (HH:MM,HH:MM)")
+    p = s8.add_parser("atlas-recorded", help="the QQQ/SPY Atlas tables on a recorded session day (after recorded-day)")
+    p.add_argument("date", type=_date, help="the recorded session (YYYY-MM-DD)")
     p = s8.add_parser("recorded-day", help="after a session recording: $0 NQ/ES trades, alignment, both NDXP methods")
     p.add_argument("date", type=_date, help="the recorded session (YYYY-MM-DD)")
     p.add_argument("--with-prev", action="store_true",
@@ -621,6 +623,10 @@ def _run_step8b(args: argparse.Namespace, settings, paths, log) -> int:
                 from nqbot.checks import step8b_recorded
 
                 step8b_recorded.check_recorded_day(env, args.date, with_prev=args.with_prev)
+            case "atlas-recorded":
+                from nqbot.checks import step8b_recorded
+
+                step8b_recorded.check_atlas_recorded(env, args.date)
             case "ndxp-select":
                 from nqbot.checks import step8b_recorded
 

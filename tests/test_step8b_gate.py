@@ -478,3 +478,28 @@ def test_the_gate_job_runs_each_day_in_its_own_process_then_the_reports(env, mon
     from nqbot.jobs.runner import StopChunk
     with pytest.raises(StopChunk):
         job.run_chunk("2025-10-29", ctx)
+
+
+def test_atlas_tables_on_a_recorded_day(env):
+    """Owner 2026-10-19 (§7 rule 2b step-8b exception, §13 Q-atlas-oct): the Atlas tables on a recorded session use the
+    recorded boards (applied at max(arrival, tau + latency)), the live offsets and recorded-day's trades; the minutes
+    are fixed by the clock; the reports stay out of the sample days' regression check."""
+    _recording(env, qqq_arrival_delay_s=0.4)
+    fake = FakeDatabento(datetime(2026, 3, 6, tzinfo=timezone.utc))
+    with pytest.raises(step8b.CheckRefused, match="recorded-day"):
+        step8b_recorded.check_atlas_recorded(env, REC)
+    step8b_recorded.check_recorded_day(env, REC, with_prev=True, client_factory=lambda: fake, fetch=_fetch)
+    rep = step8b_recorded.check_atlas_recorded(env, REC)
+    # the recording runs 09:30-10:30: 10 minutes from 09:40 to 10:20 (each board arrives 0.4 s after asOf)
+    assert rep["minutes"][0] == "09:40" and rep["minutes"][-1] == "10:19" and len(rep["minutes"]) == 10
+    assert set(rep["maps"]) == {"QQQ", "SPY"} and rep["maps"]["QQQ"][0]["board"] is not None
+    assert (step8b.reports_dir(env.paths) / f"atlas_recorded_{REC}.md").exists()
+    assert step8b.latest_atlas_by_date(env.paths) == {}  # never in the sample days' regression check
+
+
+def test_atlas_minutes_are_spread_by_the_clock():
+    tz = step8b.ET
+    mins = step8b_recorded.atlas_minutes(datetime(2026, 10, 9, 9, 30, tzinfo=tz), datetime(2026, 10, 9, 16, 0, tzinfo=tz))
+    # 09:40 to 15:50 in 9 equal steps of 41 min 6.7 s, each cut to its whole minute
+    assert [m.strftime("%H:%M") for m in mins] == ["09:40", "10:21", "11:02", "11:43", "12:24", "13:05", "13:46",
+                                                    "14:27", "15:08", "15:50"]

@@ -366,17 +366,19 @@ def check_spot_lag(env: Env, dates: list[date] | None = None) -> dict[str, Any]:
 
 # --- Atlas side by side ---------------------------------------------------------------------------------
 
-def map_ratio_in_force(env: Env, d: date, md: MapDay, fut: Futures) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def map_ratio_in_force(env: Env, d: date, md: MapDay, fut: Futures, era: str | None = None,
+                       arrival_ns: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """The approved rule (owner 2026-10-08, §5.1, F0.1, F1.1, F1.7) for one map and session: each board's content
-    time, its apply time floor(asOf) + 1 s + map_latency_sec (0 until set), and the R in force after it (NaN where
-    not applied)."""
+    time, its apply time floor(asOf) + 1 s + map_latency_sec (0 until set; a recording: max(arrival, that)), and the
+    R in force after it (NaN where not applied). era: the history era of d unless given (a recording: live)."""
     cfg = env.features["mapping"]
-    era = mp.board_era(d, cfg["skylit_stamp_change_date"])
+    era = era or mp.board_era(d, cfg["skylit_stamp_change_date"])
     off, window = mp.content_offset_ms(cfg, md.name, era), cfg["ratio_window_sec"][md.name]
     if off is None or window is None:
         raise CheckRefused(f"{md.name}: board_content_offset_ms[{era}] or ratio_window_sec not set (pending)")
     tc = mp.content_time_ns(md.as_of, off)
-    t_apply = mp.apply_times_ns(md.as_of, np.array(md.resolution, dtype=object), env.settings.get("map_latency_sec"))
+    t_apply = mp.apply_times_ns(md.as_of, np.array(md.resolution, dtype=object), env.settings.get("map_latency_sec"),
+                                arrival_ns)
     A = np.flatnonzero(md.applied)
     with np.errstate(divide="ignore", invalid="ignore"):
         r = mp.last_price_at_or_before(fut.ts, fut.px, tc[A]) / md.spot[A]
@@ -390,6 +392,13 @@ def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
     days_to_check(env, [d])
     front = front_symbols(env)
     maps, futs = _day_inputs(env, d, front)
+    return atlas_tables(env, d, minutes, maps, futs)
+
+
+def atlas_tables(env: Env, d: date, minutes: list[time], maps: dict[str, MapDay], futs: dict[str, Futures], *,
+                 era: str | None = None, arrivals: dict[str, np.ndarray] | None = None, name: str = "atlas",
+                 md_path: Path | None = None, note: str = "") -> dict[str, Any]:
+    """The Atlas side-by-side tables for one day (history sample days, or a recorded day: era live, arrivals)."""
     min_pct, drop_pct = env.features["min_node_pct_of_king"], env.features["node_drop_pct"]
     tol = env.features["mapping"]["atlas_match_tol"]
     bands = env.features["node_band"]
@@ -401,7 +410,7 @@ def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
              f"each strike in the next {ATLAS_CROSS_WINDOW_MIN} minutes with the futures price then (a crossing counts "
              "only while the node is still relevant on the board in force then). Check in Atlas replay that the same "
              f"strikes show as nodes of similar size. **held** = listed only because of the {drop_pct:.0%} hold (now "
-             f"under {min_pct:.0%} of King).", ""]
+             f"under {min_pct:.0%} of King).", ""] + ([note, ""] if note else [])
     latency = env.settings.get("map_latency_sec")
     lines += [f"Approved ingest rule and R estimators (owner 2026-10-08, §5.1, F1.7): a board's futures price is read at "
               "its content time, the board applies at floor(asOf) + 1 s + map_latency_sec "
@@ -410,7 +419,7 @@ def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
               "R the bot had then (the last board applied before it).", ""]
     for m in ATLAS_MAPS:
         md, fut, root = maps[m], futs[CHAIN_ROOT[m]], CHAIN_ROOT[m]
-        tc, t_apply, r_in = map_ratio_in_force(env, d, md, fut)
+        tc, t_apply, r_in = map_ratio_in_force(env, d, md, fut, era, (arrivals or {}).get(m))
         A = np.flatnonzero(md.applied)
         rel_rows, held_rows = node_relevance(env, md)
         ro = np.flatnonzero(rel_rows)
@@ -497,13 +506,13 @@ def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
     report = {"date": d.isoformat(), "minutes": [t.strftime("%H:%M") for t in minutes], "maps": out,
               "crossings": len(crossings), "gated_crossings": len(gated), "tolerance": dict(tol),
               "within_tol_counts": counts, "share_within_tol": share, "owner_check": "pending"}
-    md_path = reports_dir(env.paths) / f"atlas_{d.isoformat()}.md"
+    md_path = md_path or reports_dir(env.paths) / f"atlas_{d.isoformat()}.md"
     atomic_write_text(md_path, "\n".join(lines) + "\n")
     env.echo(f"  {len(crossings)} crossings; share within atlas_match_tol (information; the regression check pools "
              "every sample day in `step8b report`) "
              + ", ".join(f"{m} {v:.1%}" if v is not None else f"{m} n/a" for m, v in share.items())
              + f"; table: {md_path}")
-    write_report(env, "atlas", report)
+    write_report(env, name, report)
     return report
 
 
@@ -531,6 +540,8 @@ def latest_atlas_by_date(paths: Paths) -> dict[str, dict[str, Any]]:
     """The latest atlas report of each date (a later run of the same date replaces the earlier one)."""
     out: dict[str, dict[str, Any]] = {}
     for f in sorted(reports_dir(paths).glob("atlas_*.json")):
+        if f.name.startswith("atlas_recorded_"):  # recorded days (owner 2026-10-19) never enter the regression check
+            continue
         rep = json.loads(f.read_text(encoding="utf-8"))
         out[rep["date"]] = rep
     return out
