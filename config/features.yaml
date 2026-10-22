@@ -54,7 +54,7 @@ sp_min_ticks: 8
 dp_top_n: 3
 dp_lookback_days: 45
 dp_band: 0.5                    # QQQ $; owner confirms at step 13
-dp_lag_sessions: 1              # step 7 late-print check may raise it
+dp_lag_sessions: 1              # measured (step 7 late-print check 2026-10-22: 5 of 5 mornings, no print or top-3 list changed)
 dp_tickers: [QQQ, SPY]          # §3.1: QQQ prints are NQ levels, SPY prints ES cross-market features
 dp_history_start: "2026-04-01" # first trade date Skylit's Flowseeker serves (step 7, 2026-10-06; QQQ and SPY each checked):
                                 # earlier dates answer an empty, charged 200, so they are never pulled or cached (§3.1)

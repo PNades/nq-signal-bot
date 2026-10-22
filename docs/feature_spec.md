@@ -478,7 +478,7 @@ All are computed on RTH from 09:30 and known at t:
   - Chart-level state machine (F5.2): crossed only on a settled 1-minute candle.
 - *Known at:* the session start (pre-open).
 - *Outputs:* level, `dp_notional_rank`, `dp_age_days`, `dp_pct_avg_vol` (the print's `pctAvgVol`).
-- *Params:* `dp_top_n`, `dp_lookback_days`, `dp_band` (owner confirms at step 13), `dp_lag_sessions` (*measured*, step 7).
+- *Params:* `dp_top_n`, `dp_lookback_days`, `dp_band` (owner confirms at step 13), `dp_lag_sessions` (*measured*, step 7: 1, late-print check 2026-10-22, no print or top-3 list changed on 5 mornings).
 - *Test:* a print timestamped 16:00:01 on T − 1 is excluded at `dp_lag_sessions` = 1; a print 46 days old is excluded.
 
 ---

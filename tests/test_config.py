@@ -143,5 +143,5 @@ def test_step7_measured_values_and_tempest_pre_open():
     s, f = load_settings(), load_features()
     assert s["map_latency_sec"] == 1.16  # owner 2026-10-19 (arrival - tau p99.9)
     assert f["tempest_lag_sessions"] == 1  # step 7 decided 2026-10-12
-    assert f["dp_lag_sessions"] == 1  # start value until late-prints-compare
+    assert f["dp_lag_sessions"] == 1  # measured: late-prints-compare 2026-10-22, no top-3 list changed
     assert time.fromisoformat(s["preopen_start"]) == TEMPEST_FINAL_FROM_ET
