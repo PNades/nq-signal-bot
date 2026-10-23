@@ -220,7 +220,7 @@ def test_gate_report_and_cli(env, settings, drive, monkeypatch, capsys):
     text = (step8b.reports_dir(env.paths) / "mapping_gate.md").read_text(encoding="utf-8")
     assert "pooled over every sample day" in text and "REGRESSION ALERT" not in text and "not passed yet" in text and "owner's check in Atlas replay" in text
     floors = next(line for line in text.splitlines() if line.startswith("- Stop floors per level source"))
-    assert all(x in floors for x in ("QQQ 4.25", "NDXP 6.25", "chart 0"))
+    assert all(x in floors for x in ("QQQ 4.25", "NDXP 6.5", "chart 0"))
     assert "diagnostic, not a gate condition" in text and "(a) bias" in text and "**pending**" in text  # Q8b-4
 
 

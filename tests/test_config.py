@@ -129,7 +129,7 @@ def test_step8b_mapping_values():
     assert m["board_content_offset_ms"]["from_stamp_change"] == {"QQQ": -60, "SPY": -60, "SPX": -80, "NDXP": None}
     assert m["board_content_offset_ms"]["live"] == {"QQQ": -60, "SPY": -60, "SPX": -80, "NDXP": None}  # owner 2026-10-19
     assert (m["ndxp_r_method"], m["ndxp_k_sessions"]) == ("qqq_k", 20)  # owner 2026-10-19 (ndxp-select)
-    assert s["stop_buffer_floor"] == {"QQQ": 4.25, "NDXP": 6.25, "chart": 0}  # frozen, owner 2026-10-19 (Q8b-frozen)
+    assert s["stop_buffer_floor"] == {"QQQ": 4.25, "NDXP": 6.50, "chart": 0}  # frozen, owner 2026-10-19/23 (Q8b-frozen)
     assert load_features()["mapping"]["atlas_match_tol"] == {"NQ": 4.05, "ES": 0.80}  # frozen, owner 2026-10-19
 
 
