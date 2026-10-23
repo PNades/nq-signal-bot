@@ -39,6 +39,8 @@ ops:
   job_lock_window: "08:30-16:15"   # ET, trading days: no nqbot run job inside it (from step 22)
   job_lock_window_enforced: false  # step 22 sets true (§11: the ban starts once live trading starts)
 preopen_start: "08:30"
+tempest_draft_cutoff_et: "09:25"  # §3.1 Tempest (owner 2026-10-22): a pre-open row still a draft is re-pulled
+tempest_draft_retry_min: 5        # every N minutes until the cutoff, then used and flagged (step 22)
 archive_time: "17:05"
 heartbeat_min: 15
 inactivity_alert_days: 5

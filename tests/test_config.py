@@ -145,3 +145,6 @@ def test_step7_measured_values_and_tempest_pre_open():
     assert f["tempest_lag_sessions"] == 1  # step 7 decided 2026-10-12
     assert f["dp_lag_sessions"] == 1  # measured: late-prints-compare 2026-10-22, no top-3 list changed
     assert time.fromisoformat(s["preopen_start"]) == TEMPEST_FINAL_FROM_ET
+    # Tempest drafts (owner 2026-10-22): re-pull a draft pre-open row until the cutoff, after the pre-open start
+    assert s["tempest_draft_cutoff_et"] == "09:25" and s["tempest_draft_retry_min"] == 5
+    assert time.fromisoformat(s["tempest_draft_cutoff_et"]) > TEMPEST_FINAL_FROM_ET
