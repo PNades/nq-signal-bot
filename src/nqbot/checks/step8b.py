@@ -397,8 +397,10 @@ def check_atlas(env: Env, d: date, minutes: list[time]) -> dict[str, Any]:
 
 def atlas_tables(env: Env, d: date, minutes: list[time], maps: dict[str, MapDay], futs: dict[str, Futures], *,
                  era: str | None = None, arrivals: dict[str, np.ndarray] | None = None, name: str = "atlas",
-                 md_path: Path | None = None, note: str = "") -> dict[str, Any]:
-    """The Atlas side-by-side tables for one day (history sample days, or a recorded day: era live, arrivals)."""
+                 md_path: Path | None = None, note: str = "", extra_lines: list[str] | None = None,
+                 extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The Atlas side-by-side tables for one day (history sample days, or a recorded day: era live, arrivals).
+    extra_lines / extra: further sections appended to the table and the report (the recorded days' spot checks)."""
     min_pct, drop_pct = env.features["min_node_pct_of_king"], env.features["node_drop_pct"]
     tol = env.features["mapping"]["atlas_match_tol"]
     bands = env.features["node_band"]
@@ -505,9 +507,9 @@ def atlas_tables(env: Env, d: date, minutes: list[time], maps: dict[str, MapDay]
         share[m] = round(counts[m][0] / len(g), 4) if g else None  # information only (judged pooled, owner Q8b-5)
     report = {"date": d.isoformat(), "minutes": [t.strftime("%H:%M") for t in minutes], "maps": out,
               "crossings": len(crossings), "gated_crossings": len(gated), "tolerance": dict(tol),
-              "within_tol_counts": counts, "share_within_tol": share, "owner_check": "pending"}
+              "within_tol_counts": counts, "share_within_tol": share, "owner_check": "pending", **(extra or {})}
     md_path = md_path or reports_dir(env.paths) / f"atlas_{d.isoformat()}.md"
-    atomic_write_text(md_path, "\n".join(lines) + "\n")
+    atomic_write_text(md_path, "\n".join(lines + list(extra_lines or [])) + "\n")
     env.echo(f"  {len(crossings)} crossings; share within atlas_match_tol (information; the regression check pools "
              "every sample day in `step8b report`) "
              + ", ".join(f"{m} {v:.1%}" if v is not None else f"{m} n/a" for m, v in share.items())

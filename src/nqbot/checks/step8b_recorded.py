@@ -380,9 +380,152 @@ def check_atlas_recorded(env: s8.Env, d: date, minutes: list[time_cls] | None = 
     note = (f"**Recorded session (owner 2026-10-19, §7 rule 2b step-8b exception):** the live stream's boards as "
             f"recorded (applied at max(arrival, floor(asOf) + 1 s + map_latency_sec)), the live content offsets, the "
             f"day's Databento futures; the recording ends {_et_ns(last)} ET. Minutes fixed by the clock, not by prices.")
+    # owner 2026-10-22: NDXP and SPX as a light spot check, levels and times only
+    tz = s8.ET
+    spot_minutes = atlas_minutes(datetime.fromtimestamp(open_ns / 1e9, tz),
+                                 datetime.fromtimestamp(min(last, close_ns) / 1e9, tz), ATLAS_SPOT_MINUTES)
+    ndxp_rows = ndxp_spot_rows(env, d, boards, futs["NQ"], maps["QQQ"], arrivals["QQQ"], spot_minutes)
+    spx_rows, spx_source = spx_spot_rows(env, d, boards, futs["ES"], spot_minutes)
+    spot = {"NDXP": ndxp_rows, "SPX": spx_rows}
+    extra_lines = spot_check_lines(env, spot, spx_source)
     path = s8.reports_dir(env.paths) / f"atlas_recorded_{d.isoformat()}.md"
     return s8.atlas_tables(env, d, minutes, maps, futs, era=mp.ERA_LIVE, arrivals=arrivals,
-                           name=f"atlas_recorded_{d.isoformat()}", md_path=path, note=note)
+                           name=f"atlas_recorded_{d.isoformat()}", md_path=path, note=note,
+                           extra_lines=extra_lines, extra={"spot_checks": spot, "spx_source": spx_source})
+
+
+ATLAS_SPOT_MINUTES = 3  # owner 2026-10-22: NDXP and SPX spot checks at the open, midday and near the end
+
+
+def _spot_nodes(env: s8.Env, md: s8.MapDay, i: int, r: float) -> list[dict[str, Any]]:
+    """Board i's relevant nodes (F2.4) with their mapped level and band at R r (levels only, no crossings)."""
+    rel_rows, held_rows = s8.node_relevance(env, md)
+    rel = (md.s_board == i) & rel_rows
+    band = env.features["node_band"][md.name]
+    out = []
+    for k, pct, held in sorted(zip(md.s_strike[rel], md.s_pct[rel], held_rows[rel])):
+        pct_r = float(np.floor(pct * 1e4) / 1e4) if held else round(float(pct), 4)
+        out.append({"strike": float(k), "pct_of_king": pct_r, "held": bool(held), "level": round(k * r, 2),
+                    "band": [round((k - band) * r, 2), round((k + band) * r, 2)]})
+    return out
+
+
+def _at_ns(d: date, minute: time_cls) -> int:
+    return int(datetime.combine(d, minute, tzinfo=s8.ET).timestamp()) * mp.NS
+
+
+def _last_applied(t_apply: np.ndarray, applied: np.ndarray, at: int) -> int | None:
+    A = np.flatnonzero(applied)
+    p = int(np.searchsorted(t_apply[A], at, side="right")) - 1
+    return None if p < 0 else int(A[p])
+
+
+def ndxp_spot_rows(env: s8.Env, d: date, boards: pa.Table, fut: s8.Futures, qqq: s8.MapDay, qqq_arrival: np.ndarray,
+                   minutes: list[time_cls]) -> list[dict[str, Any]]:
+    """NDXP at each minute: the recorded board in force and its relevant nodes mapped with the frozen method
+    (QQQ x k, §13 Q8b-frozen): R_NDXP = the QQQ R in force then / k, k from `recorded-day`'s report."""
+    cfg = env.features["mapping"]
+    n = cfg["ndxp_k_sessions"]
+    rep = json.loads(sorted(s8.reports_dir(env.paths).glob(f"recorded_day_{d.isoformat()}_*.json"))[-1]
+                     .read_text(encoding="utf-8"))
+    k = rep.get("ndxp", {}).get("methods", {}).get(qqq_key(n), {}).get("k")
+    if k is None:
+        return [{"minute": m.strftime("%H:%M"), "board": None, "why": f"no k (N = {n}) in recorded-day's report"}
+                for m in minutes]
+    a, kk, v = _recording_strike_rows(env, d, "NDXP")
+    strikes = pa.table({"as_of": pa.array(a // 1_000_000, pa.timestamp("ms", "UTC")), "symbol": ["NDXP"] * len(a),
+                        "strike": pa.array(kk, pa.float32()), "value": pa.array(v, pa.float32())})
+    md = s8.map_day(env, d, "NDXP", boards, strikes, fut)
+    x = boards.filter(pc.equal(boards["symbol"], "NDXP"))
+    o = np.argsort(s8._ns(x["as_of"]), kind="stable")
+    arr = pc.cast(pc.fill_null(x["arrival"], pa.scalar(0, pa.timestamp("ns", "UTC"))), pa.int64()).to_numpy()[o]
+    latency = env.settings.get("map_latency_sec")
+    t_apply = mp.apply_times_ns(md.as_of, np.array(md.resolution, dtype=object), latency, arr)
+    _, q_apply, q_r = s8.map_ratio_in_force(env, d, qqq, fut, mp.ERA_LIVE, qqq_arrival)
+    no_carry = int(_no_carry_s(env) * mp.NS)
+    rows = []
+    for m in minutes:
+        at = _at_ns(d, m)
+        i, j = _last_applied(t_apply, md.applied, at), _last_applied(q_apply, qqq.applied, at)
+        if i is None or j is None or at - t_apply[i] > no_carry or at - q_apply[j] > no_carry:
+            rows.append({"minute": m.strftime("%H:%M"), "board": None,
+                         "why": "no NDXP or QQQ board applied in the last "
+                                f"{_no_carry_s(env):g} s (a connection stretch)"})
+            continue
+        r = float(q_r[j]) / k
+        rows.append({"minute": m.strftime("%H:%M"), "board": s8._et(md.as_of[i]), "spot": float(md.spot[i]),
+                     "r": round(r, 6), "r_basis": f"QQQ board {s8._et(qqq.as_of[j])} R {q_r[j]:.6f} / k {k}",
+                     "nodes": _spot_nodes(env, md, i, r)})
+    return rows
+
+
+def spx_spot_rows(env: s8.Env, d: date, boards: pa.Table, fut: s8.Futures, minutes: list[time_cls]
+                  ) -> tuple[list[dict[str, Any]], str]:
+    """SPX at each minute (per-board R, F1.2). The session recordings carry NDXP, QQQ and SPY only, so SPX comes
+    from the recording if it has SPX boards, else from the day's stored history windows (the step-7 parity /
+    stream-drops pulls, 15 minutes each): one minute per window, 10 minutes into it (fixed by the clock)."""
+    if pc.any(pc.equal(boards["symbol"], "SPX")).as_py():
+        a, kk, v = _recording_strike_rows(env, d, "SPX")
+        strikes = pa.table({"as_of": pa.array(a // 1_000_000, pa.timestamp("ms", "UTC")), "symbol": ["SPX"] * len(a),
+                            "strike": pa.array(kk, pa.float32()), "value": pa.array(v, pa.float32())})
+        x = boards.filter(pc.equal(boards["symbol"], "SPX"))
+        o = np.argsort(s8._ns(x["as_of"]), kind="stable")
+        arr = pc.cast(pc.fill_null(x["arrival"], pa.scalar(0, pa.timestamp("ns", "UTC"))), pa.int64()).to_numpy()[o]
+        sets = [(boards, strikes, mp.ERA_LIVE, arr, minutes)]
+        source = "the session recording"
+    else:
+        sets = []
+        for base in sorted((env.sky.root / "repull" / "parity").glob(f"{d.isoformat()}_*")):
+            b, s = env.sky.read_range(d, base, symbols=["SPX"])
+            if b.num_rows == 0:
+                continue
+            first = datetime.fromtimestamp(int(s8._ns(b["as_of"]).min()) / 1e9, s8.ET).replace(second=0, microsecond=0)
+            m = (first + timedelta(minutes=ATLAS_RECORDED_EDGE_MIN)).time()
+            sets.append((b, s, None, None, [m]))
+        source = ("the day's stored history windows (step-7 parity / stream-drops pulls; SPX is not in the "
+                  "recordings)" if sets else "none: SPX is not in the recordings and no history window is stored")
+    rows = []
+    for b, s, era, arr, mins in sets:
+        md = s8.map_day(env, d, "SPX", b, s, fut)
+        _, t_apply, r_in = s8.map_ratio_in_force(env, d, md, fut, era, arr)
+        no_carry = int(_no_carry_s(env) * mp.NS)
+        for m in mins:
+            at = _at_ns(d, m)
+            i = _last_applied(t_apply, md.applied, at)
+            if i is None or at - t_apply[i] > no_carry or not np.isfinite(r_in[i]):
+                rows.append({"minute": m.strftime("%H:%M"), "board": None,
+                             "why": f"no SPX board applied in the last {_no_carry_s(env):g} s"})
+                continue
+            rows.append({"minute": m.strftime("%H:%M"), "board": s8._et(md.as_of[i]), "spot": float(md.spot[i]),
+                         "r": round(float(r_in[i]), 6), "nodes": _spot_nodes(env, md, i, float(r_in[i]))})
+    return rows, source
+
+
+def spot_check_lines(env: s8.Env, spot: dict[str, list[dict[str, Any]]], spx_source: str) -> list[str]:
+    lines = ["## Spot checks: NDXP and SPX (owner 2026-10-22; levels and times only)", "",
+             "A few minutes per map to compare in Atlas: the board in force, its relevant nodes (F2.4) and their "
+             "mapped futures level and band. No crossings and no tolerance: these maps are not scored here. NDXP: "
+             "the recorded boards, R = the QQQ R in force / k (QQQ x k, N = "
+             f"{env.features['mapping']['ndxp_k_sessions']}, frozen); SPX: per-board R (F1.2), from {spx_source}.", ""]
+    for m, rows in spot.items():
+        root = s8.CHAIN_ROOT[m]
+        lines += [f"## {m} -> {root} (spot check)", ""]
+        if not rows:
+            lines += ["No minute available.", ""]
+        for row in rows:
+            if row["board"] is None:
+                lines += [f"### {row['minute']}: {row['why']}", ""]
+                continue
+            lines += [f"### {row['minute']} (board {row['board']}, spot {row['spot']}, R {row['r']})", ""]
+            if row.get("r_basis"):
+                lines += [f"R from the {row['r_basis']}.", ""]
+            lines += [f"| Strike | % of King | Mapped {root} | Band |", "|---:|---:|---:|---|"]
+            for n in row["nodes"]:
+                pct_txt = (f"{np.floor(n['pct_of_king'] * 1000) / 10:.1f}% held" if n["held"]
+                           else f"{n['pct_of_king']:.0%}")
+                lines.append(f"| {n['strike']:g} | {pct_txt} | {n['level']:.2f} | {n['band'][0]:.2f}-{n['band'][1]:.2f} |")
+            lines.append("")
+    return lines
 
 
 def _recording_strike_rows(env: s8.Env, d: date, name: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

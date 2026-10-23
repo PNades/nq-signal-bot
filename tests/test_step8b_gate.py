@@ -142,9 +142,10 @@ class FakeDatabento:
         return path.stat().st_size
 
 
-def _recording(env, qqq_arrival_delay_s=None):
+def _recording(env, qqq_arrival_delay_s=None, without=()):
     """1-second boards 09:30-10:30 whose spots hold the futures price 60 ms before asOf (the live content time).
-    With qqq_arrival_delay_s, an arrival column: QQQ boards arrive that late, the others 0.4 s after asOf."""
+    With qqq_arrival_delay_s, an arrival column: QQQ boards arrive that late, the others 0.4 s after asOf.
+    without: maps left out of the recording (the real recordings carry no SPX)."""
     nq_ts, nq = _walk(REC, 1, 24_000.0)
     es_ts, es = _walk(REC, 2, 6_000.0)
     as_of = np.arange(int(datetime.combine(REC, time(9, 30), tzinfo=ET).timestamp()) * NS,
@@ -152,6 +153,7 @@ def _recording(env, qqq_arrival_delay_s=None):
     f_nq = mp.last_price_at_or_before(nq_ts, nq, as_of - 60_000_000)
     f_es = mp.last_price_at_or_before(es_ts, es, as_of - 60_000_000)
     spots = {"NDXP": f_nq / RHO, "QQQ": f_nq / (RHO * K), "SPY": f_es / 10.0, "SPX": f_es / 1.001}
+    spots = {m: sp for m, sp in spots.items() if m not in without}
     rows = {"as_of": [], "symbol": [], "spot": []}
     for m, sp in spots.items():
         rows["as_of"] += [int(t // 1_000_000) for t in as_of]
@@ -519,6 +521,45 @@ def test_atlas_tables_on_a_recorded_day(env):
     assert set(rep["maps"]) == {"QQQ", "SPY"} and rep["maps"]["QQQ"][0]["board"] is not None
     assert (step8b.reports_dir(env.paths) / f"atlas_recorded_{REC}.md").exists()
     assert step8b.latest_atlas_by_date(env.paths) == {}  # never in the sample days' regression check
+    # owner 2026-10-22: NDXP and SPX spot checks, 3 clock minutes, levels and times only
+    ndxp_rows = rep["spot_checks"]["NDXP"]
+    assert [r["minute"] for r in ndxp_rows] == ["09:40", "09:59", "10:19"]  # the last board is 10:29:59
+    for r in ndxp_rows:  # R_NDXP = the QQQ R in force / k = (RHO x K) / K
+        assert abs(r["r"] - RHO) < 1e-3, r
+        assert [n["strike"] for n in r["nodes"]] == sorted(n["strike"] for n in r["nodes"]) and len(r["nodes"]) >= 3
+        assert all(n["level"] == round(n["strike"] * r["r"], 2) and "crossings" not in n for n in r["nodes"])
+    assert rep["spx_source"] == "the session recording" and len(rep["spot_checks"]["SPX"]) == 3
+    text = (step8b.reports_dir(env.paths) / f"atlas_recorded_{REC}.md").read_text(encoding="utf-8")
+    assert "## NDXP -> NQ (spot check)" in text and "## SPX -> ES (spot check)" in text
+
+
+def test_spx_spot_check_reads_the_stored_history_windows(env):
+    """The recordings carry no SPX: its spot check reads the day's stored history windows (parity / stream-drops),
+    one minute per window, 10 minutes into it."""
+    _recording(env, qqq_arrival_delay_s=0.4, without=("SPX",))
+    fake = FakeDatabento(datetime(2026, 3, 6, tzinfo=timezone.utc))
+    step8b_recorded.check_recorded_day(env, REC, with_prev=True, client_factory=lambda: fake, fetch=_fetch)
+    rep = step8b_recorded.check_atlas_recorded(env, REC)
+    assert rep["spot_checks"]["SPX"] == [] and rep["spx_source"].startswith("none")
+    es_ts, es = _walk(REC, 2, 6_000.0)
+    as_of = np.arange(int(datetime.combine(REC, time(9, 45), tzinfo=ET).timestamp()) * NS,
+                      int(datetime.combine(REC, time(10, 0), tzinfo=ET).timestamp()) * NS, NS, dtype=np.int64)
+    spot = mp.last_price_at_or_before(es_ts, es, as_of - 80_000_000) / 1.001  # SPX history content: asOf - 80 ms
+    folder = env.sky.root / "repull" / "parity" / f"{REC}_session_092700_0945" / "range" / REC.isoformat()
+    b = pa.table({"as_of": pa.array(as_of // 1_000_000, pa.timestamp("ms", "UTC")), "symbol": ["SPX"] * len(as_of),
+                  "spot": spot, "resolution": ["1s"] * len(as_of)})
+    write_parquet(folder / "0945_boards.parquet", b, {})
+    mids = np.round(spot / 5) * 5
+    s = pa.table({"as_of": pa.array(np.repeat(as_of // 1_000_000, 2), pa.timestamp("ms", "UTC")),
+                  "symbol": ["SPX"] * (2 * len(as_of)),
+                  "strike": pa.array(np.ravel(np.column_stack([mids, mids + 5])), pa.float32()),
+                  "value": pa.array(np.tile([1e6, 5e5], len(as_of)), pa.float32())})
+    write_parquet(folder / "0945_strikes.parquet", s, {})
+    rep = step8b_recorded.check_atlas_recorded(env, REC)
+    rows = rep["spot_checks"]["SPX"]
+    assert rep["spx_source"].startswith("the day's stored history windows")
+    assert [r["minute"] for r in rows] == ["09:55"] and abs(rows[0]["r"] - 1.001) < 1e-3
+    assert len(rows[0]["nodes"]) == 2
 
 
 def test_atlas_minutes_are_spread_by_the_clock():
