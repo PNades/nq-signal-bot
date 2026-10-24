@@ -153,15 +153,30 @@
 - *Definition:* per relevant node, on its own instrument (F0.9), with band B(t) from the latest accepted R:
   1. **Armed / role.** When a node becomes relevant (or after any state reset) it has no role until price is ≥ `rearm_dist` outside B. The role is *ceiling* if price is below B, *floor* if above.
   2. **Crossed** (setup invalid): the first trade **beyond** B relative to the role (ceiling: price > upper edge; floor: price < lower edge). Known at that trade.
-  3. **Flipped:** while crossed, a `flip_bar_minutes` bar settles beyond B on the crossed side by ≥ `flip_margin` (F0.5). The role reverses, `flip_count` += 1 and the node is armed in the new role once price is `rearm_dist` away on the new side. Flips repeat both ways.
+  3. **Flipped:** while crossed, a `flip_bar_minutes` bar settles beyond B on the crossed side by ≥ `flip_margin` (F0.5). The provisional new role (step 5) is confirmed: `flip_count` += 1 and `provisional_role` false; the node is armed in that role once price is `rearm_dist` away on the new side. After a flip, a cross back is a new cross (step 2) of the new role. Flips repeat both ways.
   4. **Reclaimed:** while crossed (not yet flipped), price trades back through B to the original side and reaches ≥ `rearm_dist` beyond the original-side edge. The node returns to its original role, `reclaimed` = true and the event re-arms (§5.2).
-  5. While crossed, the node creates no events, and re-entering B from the crossed side is not a touch.
+  5. **Provisional new role (post-cross retests; owner 2026-10-23, SPEC §5.2).** From the cross until a flip or a reclaim the node holds the opposite role provisionally (`role` reversed, `provisional_role` true). It arms in that role once price is ≥ `rearm_dist` beyond B on the crossed side (the F5.6 rule), and a touch from the crossed side is an event in that role, a **post-cross retest**, carrying the F2.6b cross features. A cross back toward the original side by the node's own rule (here: the first trade beyond B on the original side) ends the provisional role, which is that event's break (F11.4); the node then creates no events until it is reclaimed (step 4) or price trades beyond B on the crossed side again, which resumes the same cross episode (its features keep counting from the first cross). While a break is unresolved (F3.9 sweep window, F5.2 no settled 1-minute bar) there is no event. If the step-15 test fails (F5.15), this step reverts to: while crossed, the node creates no events, and re-entering B from the crossed side is not a touch.
   6. **During a mapping-dislocation block of the node's chain** (F1.8; owner 2026-10-17): no transition; at the block end the state is judged at once against the band then in force (a node price is beyond is crossed at the block end time). The node's outputs are null inside the block.
 - *Known at:* each trade (cross, reclaim) and each flip-bar close.
-- *Outputs (per node and copied to zone members):* `role`, `crossed`, `flip_count`, `minutes_since_flip`, `minutes_since_cross`, `reclaimed`, freshness per role (F5.11).
+- *Outputs (per node and copied to zone members):* `role`, `crossed`, `provisional_role`, `flip_count`, `minutes_since_flip`, `minutes_since_cross`, `reclaimed`, freshness per role (F5.11), and the F2.6b cross features.
 - *Params:* `rearm_dist` (SPEC start; one global value), `flip_margin` (per level type; *tuned-13*), `flip_bar_minutes` (owner, 5).
 - *Node arming vs zone arming:* the node-level arming in step 1 (≥ `rearm_dist` outside the node's own band) only sets the node's role and state. Touches and event direction always come from the zone rule F5.6 (`zone_proximity` + `rearm_dist`).
-- *Test:* a ceiling band [100, 101]; trade 101.25 → crossed; 5-minute bar open 101.5, close 102 → flipped to floor, `flip_count` 1; separately, cross then a trade at 100 − `rearm_dist` (≥ `rearm_dist` below the original-side edge 100) → reclaimed; a trade at 100.25 − `rearm_dist` → not yet.
+- *Test:* a ceiling band [100, 101]; trade 101.25 → crossed; 5-minute bar open 101.5, close 102 → flipped to floor, `flip_count` 1; separately, cross then a trade at 100 − `rearm_dist` (≥ `rearm_dist` below the original-side edge 100) → reclaimed; a trade at 100.25 − `rearm_dist` → not yet. Post-cross retest: the same ceiling; trade 101.25 → crossed, provisional floor; a trade at 101 + `rearm_dist` → armed as a floor; a trade back inside the touch band → an event, direction long, `flip_count` 0, `provisional_role` true; then a trade at 99.75 → that event's zone is crossed (broke) and no event follows until the reclaim at 100 − `rearm_dist`; with a trade at 101.25 instead, the cross episode resumes.
+
+### F2.6b Cross features (owner 2026-10-23; every level type)
+- *Source:* owner 2026-10-23 (SPEC §5.2 Post-cross retests, §13 Q-flipretest).
+- *Definition:* per level and per **cross episode** (from the cross by the level's own rule (F2.6 step 2, F5.2, F3.9's break, a gameplan zone's far edge, F5.9) until a reclaim, or until the next cross after a flip), from trades ≤ t on the level's own instrument (F0.9), with band B(t):
+  - **Distance:** `xb_depth` = the deepest price beyond B's crossed-side edge since the cross, in points, ATR and EM (F0.8).
+  - **Volume:** `xb_vol_rel` = volume traded beyond B since the cross ÷ the time-of-day normal over the same seconds (F9.10's N(m), prior 20 full sessions; partial minutes pro rata); `xb_delta_rel` = buy − sell volume traded beyond B, same scale, positive in the cross direction.
+  - **Time:** `xb_sec_beyond` = seconds price spent beyond B since the cross (from each trade beyond to the next trade); `xb_settled_5m` = settled `flip_bar_minutes` bars (F0.5) beyond B by ≥ `flip_margin` since the cross (≥ 1 is the F2.6 step-3 flip, the old rule as a feature).
+  - **Reclaim:** `xb_reentries` = times price came back inside B during the episode without a reclaim; `cross_count_today`.
+  - **Age:** `minutes_since_cross` (F2.6).
+  - **Skylit nodes only:** `xb_node_pctking_chg` = pct_of_king at t − at the cross; `xb_node_sign_flipped` = the node's sign at t differs from its sign at the cross (both from boards applied ≤ t). Null for every other type.
+  - **Gameplan zones:** B = the zone; `flip_margin` 0 (containers have no flip-margin key).
+- *Outputs:* per member, on events of a level in a post-cross role (provisional or flipped) from that episode; null for a level in its original role with no open episode and during a mapping-dislocation block of the node's chain (F2.6 step 6). Zone features: the primary member's values and `members_post_cross` (the number of members in a post-cross role).
+- *Known at:* each trade; `xb_settled_5m` at each flip-bar close; the node change at each board's `t_apply`.
+- *Params:* none new (`rearm_dist`, `flip_margin`, `flip_bar_minutes`, F9.10's normals).
+- *Test:* a ceiling [100, 101]; trades 101.5 and 103 → `xb_depth` 2.0 pts; back to 100.5 → `xb_reentries` 1; 300 contracts traded beyond against a normal of 150 over the same seconds → `xb_vol_rel` 2.0; a 5-minute bar opening 102 and closing 102.5 → `xb_settled_5m` 1. Causal test: every value at t is unchanged when the data after t is removed.
 
 ### F2.7 Beach ball (overshoot), owner-approved 2026-10-04
 - *Source:* `pattern-beach-ball-overshoot.md` ("price overshoots a node, moving beyond it, then reacts after punching through… overshoot → reaction → potential reversion; not a breakout").
@@ -432,7 +447,7 @@
 - *Definition:* for a sweep-eligible level with band B and role ρ, from the first trade beyond B (the start of an **unresolved break**):
   - **Break (crossed)** at once if price trades > `sweep_max_depth` beyond B; or, if no reclaim happened by the close of the `sweep_reclaim_bars`-th 1-minute bar (owner 2026-10-05, FQ-14: bar 1 is the first full 1-minute bar after the bar in which price first traded beyond; that break bar's own close can already reclaim), at that bar's close.
   - **Swept (held)** when a 1-minute bar inside the sweep window **closes not beyond B** (inside B or on the range side) before a break.
-  - After a break, F2.6 steps 3–4 apply (flip on a settled 5-minute bar; reclaim).
+  - After a break, F2.6 steps 3–5 apply (flip on a settled 5-minute bar; reclaim; post-cross retests, F2.6b); the cross back of a provisional role is again judged by this sweep rule.
   - While the break is unresolved, the far side neither re-arms the zone nor changes its approach side (§5.4 Touch and re-arm).
 - *Outputs (pair columns as of `decision_ts`, F6.5):* `swept`, `sweep_depth` (pts, ATR), `sweep_seconds_beyond`, the sweep extreme (stop candidate 1/F11.1); later also the order flow during the sweep (F9).
 - *Params:* `sweep_max_depth`, `sweep_reclaim_bars` (*tuned-13*).
@@ -511,12 +526,12 @@ All are computed on RTH from 09:30 and known at t:
 - *Definition:* as F2.6, with one difference (owner, §5.4): a level is **crossed** when a 1-minute bar settles beyond its band (F0.5). Trading beyond the band without settling is not a break, and an audit or touch in progress stays valid.
 - Applies to VWAP lines and bands, POC, LVNs and dark pools.
 - Single prints are judged against the band frozen at the touch and end when filled. Highs/lows apply F3.9 first.
-- Flip and reclaim work as in F2.6.
+- Flip, reclaim and the post-cross retests work as in F2.6 steps 3–5, with the cross features of F2.6b; a chart level's cross back is a settled 1-minute bar beyond B on the original side.
 - *Test:* VWAP ceiling band [100, 101]. Trades reach 101.5 but the bar closes at 100.75 → not crossed. The next bar opens at 101.25 and closes at 101.5 → crossed at that bar's close.
 
 ### F5.3 Zone merge
 - *Source:* §5.4 Zone object → Merge.
-- *Definition:* containers (golden zone, gameplan zones) never merge. All other **active** (not crossed) NQ levels merge into zones as follows.
+- *Definition:* containers (golden zone, gameplan zones) never merge. All other **active** NQ levels (not crossed, or crossed and armed in their provisional new role, F2.6 step 5) merge into zones as follows.
   1. Two levels **qualify** to merge when their bands overlap (touching counts) or their centres are ≤ `confluence_tol` apart.
   2. **Recompute** on every batch of updates sharing one timestamp (a board, a profile instant, a VWAP tick, a level created, ended or crossed):
      - (a) existing zones keep their still-valid members;
@@ -533,7 +548,7 @@ All are computed on RTH from 09:30 and known at t:
 ### F5.4 Zone edges, per-member invalidation and end states
 - *Definition:*
   - **Edges** = the union of the active members' bands [min lo, max hi] at t.
-  - When a member is crossed by its own rule (F2.6, F5.2, F3.9), it leaves the active members and the zone carries on with the rest.
+  - When a member is crossed by its own rule (F2.6, F5.2, F3.9), it leaves the active members and the zone carries on with the rest. Once armed in its provisional new role (F2.6 step 5) it is active again on the new side and merges by F5.3 like any other level.
   - **Zone crossed** = every **current** member is crossed by its own rule (§5.4): the moment the zone's last active member is crossed, counting members that joined after the touch; members that ended without crossing (e.g. dropped below `node_drop_pct`) leave without counting as crossed. This is "broke" in the structure label (F11.4).
   - A zone that loses all its members without any crossing (e.g. its nodes fall below `node_drop_pct`) ends; for an open event that is a structure-label timeout.
 - *Test:* zone {QQQ node, PDH}. Price trades past the node band (the node is crossed) but is reclaimed within the PDH sweep window → the zone is not crossed, and the node is no longer an active member.
@@ -550,7 +565,7 @@ All are computed on RTH from 09:30 and known at t:
     - a high/low is inside its sweep window and within `sweep_max_depth`;
     - a chart level is beyond its band with no settled 1-minute bar yet;
     - the golden zone is beyond 0.79 with no settled bar yet.
-  - After a cross and a flip, the zone re-arms on the new side; after a reclaim, on the original side.
+  - After a cross, a level in its provisional new role (F2.6 step 5) arms on the crossed side, with or without a flip; after a reclaim, on the original side.
 - *Params:* `zone_proximity`, `rearm_dist`.
 - *Test:* zone [100, 102], `zone_proximity` 2, `rearm_dist` 10. Price 120 (armed, from above) → 104 (touch) → 110 (no re-arm) → 115 (re-armed) → 103.5 (second touch).
 
@@ -561,7 +576,7 @@ All are computed on RTH from 09:30 and known at t:
   - `order_id` = `<event_id>-<style><n>-<account>-<leg>` (§5.4).
   - **Direction:**
     - approach from below → short (ceiling); from above → long (floor);
-    - flipped levels use their current role;
+    - crossed (provisional) and flipped levels use their current role;
     - golden zone: from the fib orientation (F10);
     - gameplan zones: the approach rule, with agreement with the gameplan `side` as a feature (F8).
   - **Event tags:** `in_golden_zone` (the zone is the golden-zone container), `minutes_since_open`, `tradeable` (a pair-level filter on `decision_ts`, §1.2; also false inside a mapping-dislocation block of a chain in the zone, F1.8).
@@ -580,7 +595,7 @@ All are computed on RTH from 09:30 and known at t:
 - *Test:* a firing in the VAH zone with the nearest zone 30 pts away → area event; a firing 2 s later is suppressed by `trig_min_gap_sec`.
 
 ### F5.9 Containers
-The golden zone (F10) and gameplan zones (F8) never merge. Levels whose bands overlap a container are its **confluence members**: counted as features, not merged. A container has its own touch, re-arm, events and invalidation: the golden zone per F10; a gameplan zone when price trades past its far edge (§7.1); its `invalidation` is a feature only (F8, owner 2026-10-07).
+The golden zone (F10) and gameplan zones (F8) never merge. Levels whose bands overlap a container are its **confluence members**: counted as features, not merged. A container has its own touch, re-arm, events and invalidation: the golden zone per F10; a gameplan zone when price trades past its far edge (§7.1); its `invalidation` is a feature only (F8, owner 2026-10-07). After its cross a gameplan zone follows F2.6 step 5 (provisional opposite role, retests from the far side, cross features F2.6b, `flip_margin` 0); its cross back is price trading past its other edge (owner 2026-10-23).
 
 ### F5.10 Touch groups
 - *Definition:* events whose touches happen on the same trade (same `ts_event` and sequence, e.g. a container and a level zone inside it) share a `touch_group_id`.
@@ -641,8 +656,8 @@ Computed as of the touch for events and as of `decision_ts` for pairs:
 - *Params:* `chart_level_half_width`, `chart_level_half_width_cap` (per type), `react_pts`, `react_minutes`, `react_width_q`.
 - *Test:* five hand-built approaches with penetrations {0, 1, 2, 3, 10}, where the last one doesn't react → the quantile is taken over {0, 1, 2, 3}.
 
-### F5.15 Flip behaviour (report only)
-After every flip, record whether the next touch in the new role held (structure label). Reported per level type.
+### F5.15 Flip behaviour (count report at step 13, test at step 15)
+Owner 2026-10-23 (SPEC §12 steps 13 and 15, §13 Q-flipretest). Step 13, count only (events, never outcomes; months 1–4): crosses, reclaims, 5-minute flips and post-cross retests before vs after a flip, with the post-cross bucket sizes per level-type group (GEX nodes, chart lines, highs/lows, gameplan zones), any bucket under 100 flagged. Step 15, pre-declared: the structure model with the F2.6b features against the 5-minute rule alone on the post-cross retests of months 1–6 (SPEC §12 step 15); if it fails, the retests and the cross features are removed (F2.6 step 5 reverts) and nothing else changes.
 
 ### F5.16 Cross-market features (§5.4)
 Computed at the touch and at `decision_ts`:
@@ -745,6 +760,7 @@ Each removal takes effect `order_latency_sec` after it occurs; a fill before the
   - **Gameplan zone:** a container [`zone`[0], `zone`[1]] with its `side`, `stop`, `targets`, `invalidation` and `es_gates` (parser version 2, §5.6). A single-price zone [p, p] is a zero-width band (its touch uses `zone_proximity` like any level). A conditional entry (acceptance / breakout / breakdown, parser v3) has an empty `zone`: it uses the single-price zone [p, p] at `trigger.nq_price` like any other single-price zone, with its own `side`, stop and targets (owner 2026-10-07); with no `trigger.nq_price` either, it creates no zone. `other_conditions` is not read by any feature yet. It is crossed when price trades past its far edge (F5.9); its `invalidation` is a feature only, never a trading rule (owner 2026-10-07, CLAUDE.md rule 6).
   - `in_zone`: the event's touch price, or the price at `decision_ts`, lies inside a gameplan zone.
   - `zone_side_agrees`: that zone's `side` matches the trade direction.
+  - **Stated flips (owner 2026-10-23; from the parser version of the step-20 re-parse):** where the text states a flip (e.g. "lost → becomes resistance"), the parser records it on the zone as written (`stated_flip`: lost / reclaimed, the new role, the timeframe; never inferred). `gp_stated_flip_agrees`: on a post-cross retest of that zone (F5.9), the stated new role matches the event's direction; null if none is stated. Off with the other gameplan inputs until the gameplan check.
   - **Scenario set used (owner 2026-10-07):** the `ny_am` set while `decision_ts` is inside the NY AM window (09:30 to `gameplan_ny_am_end`, start 12:00, the window the gameplans write), the `session` set otherwise; when the gameplan has only one set (`ny_am`, `session` or `unspecified`), that one at any time. If the matching set is missing but the other exists, the features are null.
   - `scenario_agrees`: some scenario in the set used has a `bias` that matches the trade direction (`neutral` and `mixed` never match). Also `scenario_prob_agree` = Σ prob of the agreeing scenarios; null if any scenario in the set has no probability.
   - `es_gate_ok`: every ES gate of the zone holds at `decision_ts`; null if the zone has no gate or any gate is unclear. Direction (owner 2026-10-07): `above`, or wording "holding" / "reclaiming" X → ES above X; `below`, or "losing" / "rejecting" / "failing" X → ES below X; any other wording stays unclear (null, never a guess). A gate given as a range (or two prices) holds when ES is beyond the whole range in its direction, fails when beyond the whole range the other way, and is null inside the range.
@@ -930,6 +946,7 @@ Candidates within `stop_merge_ticks` of each other are merged. Area events use o
 - **Held:** after the touch, price moves ≥ `hold_reaction_pts` in the hold direction from the touch's extreme (the deepest price reached into or past the zone), with a trade-through, before the zone is crossed.
 - **Broke:** the zone is crossed (F5.4).
 - **Timeout:** neither happens within `hold_window_min`, or all members end without a crossing.
+- **Post-cross retest** (F2.6 step 5): held and broke are judged in the level's new role; broke = the zone crossed back toward its members' original side, each by its own rule.
 - A sweep that reclaims counts as held only if the hold reaction follows before a cross or the end of the window.
 - The resolution time (the moment the label is decided) is what F0.1 and F5.11 use.
 - *Params:* `hold_reaction_pts`, `hold_window_min` (*label*).
@@ -1383,9 +1400,10 @@ Both passes start from the same start-value rebuild (every detector is computed 
 | 7 | **Map shape (owner-approved 2026-10-05, Q30)** | the six concepts approved 2026-10-04: beach ball (F2.7), magnets (F2.10), air pockets (F2.15), King dominance and migration (F2.16), rainbow road (F2.17), whipsaw (F2.18) |
 | 8 | **Order-flow extras (owner 2026-10-16)** | the trigger-model additions: the F9.9 sequence inputs (B2) and the 5-minute range (B3); the F9.10 multi-window order flow, `vol_tod_w`, `rvol_today` (in every model that has it), the scaled volumes and the scale, and the trigger model's `minutes_since_open` (B1, owner 2026-10-17); the scaled detector thresholds stay |
 | 9 | **Approach (owner 2026-10-16)** | the F5.18 approach features (B4) |
+| 10 | **Post-cross retests (owner 2026-10-23)** | the post-cross retest events (F2.6 step 5) and their pairs, and the F2.6b cross features; what remains is the 5-minute rule alone |
 
 - **Why a 7th group:** these concepts are new, untested and many (≈ 40 columns). Folding them into "confluence features" would make that cut mean two different things. Rug, pika, rolling and regime stay in the base system (§7.1 lists them as structure-model inputs).
-- **Size:** 9 groups (SPEC §7 rule 5 updated 2026-10-05; groups 8 and 9 added by the owner 2026-10-16, each about +1–2 nights per round).
+- **Size:** 10 groups (SPEC §7 rule 5 updated 2026-10-05; groups 8 and 9 added by the owner 2026-10-16, group 10 on 2026-10-23, each about +1–2 nights per round).
 - **Cost:**
   - Each arm runs the full per-fold pipeline for folds 7–9 with cached grid points: ≈ 1–2 nights.
   - Round 1 = 7 arms ≈ 7–14 nights. Each cut adds a round over the remaining groups.

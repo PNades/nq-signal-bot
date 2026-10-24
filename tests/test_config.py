@@ -28,7 +28,7 @@ def test_features_and_accounts_load():
     # golden zone (§5.8, F10): upper fib 0.79 (owner 2026-10-14), the zone runs 0.5 .. the upper fib
     assert f["golden_fib_levels"] == [0.5, 0.618, 0.705, 0.79]
     assert f["golden_zone_upper_fib"] == 0.79 == max(f["golden_fib_levels"]) and min(f["golden_fib_levels"]) == 0.5
-    assert f["features_version"] == 7
+    assert f["features_version"] == 8
     # mapping-dislocation guard (F1.8, owner 2026-10-14): fixed from data quality, never tuned
     m = f["mapping"]
     assert (m["disl_guard_pct"], m["disl_guard_window_sec"], m["disl_guard_confirm_sec"], m["disl_guard_hold_sec"]) == (
@@ -74,7 +74,7 @@ def test_step6_approved_values_set():
     assert s["tuning_start"]["min_target_prob"] in g["min_target_prob"]
     assert len(s["be_trigger"]) <= 4 and len(s["style_set_grid"]) <= 6
     assert s["recency_halflife_months"]["start"] in s["recency_halflife_months"]["grid"]
-    assert len(s["ablation_groups"]) == 9
+    assert len(s["ablation_groups"]) == 10
     for grids in (f["tune_grids_13"]["detectors"], f["tune_grids_19"]["detectors_a"], f["tune_grids_19"]["detectors_b"]):
         for key, values in grids.items():
             if key != "flip_margin":
