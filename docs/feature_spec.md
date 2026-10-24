@@ -419,9 +419,10 @@ Coarse and few; inputs of the structure model and the pair scorer:
 - `dist_prev_poc_em`, `dist_prev_vah_em`, `dist_prev_val_em`: (price − level) ÷ EM (F0.8) at t, signed.
 - `prev_va_overlap` = the overlap of today's developing daily value area (F3.3) with the previous session's, ÷ the narrower of the two widths ∈ [0, 1]; at each profile instant.
 - `dpoc_drift_em` = (developing daily POC at t − the developing daily POC at the first profile instant ≥ 09:30) ÷ EM.
-- *Day type:* `ib_width_ratio` vs `open_vs_prev_va` swap test (SPEC §7.1 Day type, pre-declared); else `open_vs_prev_va`, `prev_va_overlap` and `dpoc_drift_em` are on the LightGBM challenger list.
+- `poc_migration_em` (owner 2026-10-24, the last addition before the freeze) = (developing daily POC as of t (F3.2, the latest profile instant ≤ t) − the previous session's POC (F3.2b)) ÷ EM, signed to the trade direction like the other directional features (+ = value moving with the trade; shorts: negated). At the touch (structure model) and at `decision_ts` (pair scorer). Ablation group 11.
+- *Day type (owner 2026-10-24):* the 8 inputs stay (`ib_width_ratio` included; no swap test). On the LightGBM challenger list (SPEC §7.1 Retraining): `open_outside_prev_va_em` = the open's distance outside the previous value area ÷ EM, unsigned (max(open − VAH, VAL − open, 0) ÷ EM; 0 inside), `prev_va_overlap`, `dpoc_drift_em` and |`poc_migration_em`| (unsigned: the day-type label has no direction).
 - *Params:* none new.
-- *Test:* previous VA [100, 110]; open 112 → above; price 105 with EM 20 → `dist_prev_poc_em` per the POC; today's VA [106, 116] → overlap 4/10 = 0.4; developing POC 108 at 09:31 and 104 at 11:00 with EM 20 → drift −0.2.
+- *Test:* previous VA [100, 110]; open 112 → above; price 105 with EM 20 → `dist_prev_poc_em` per the POC; today's VA [106, 116] → overlap 4/10 = 0.4; developing POC 108 at 09:31 and 104 at 11:00 with EM 20 → drift −0.2; previous POC 103 → migration (104 − 103) ÷ 20 = +0.05 for a long, −0.05 for a short, 0.05 unsigned; open 112 → `open_outside_prev_va_em` (112 − 110) ÷ 20 = 0.1, an open at 105 → 0.
 
 ### F3.3 Value area, VAH/VAL zones (premium/discount)
 - *Definition:* the value area = the set of prices built from the POC outward until ≥ 70% (owner) of the profile volume is included (owner 2026-10-05, FQ-08: expanded **one tick at a time**: at each step, add whichever of the next price above or the next price below has the larger volume; checked against Deepcharts at step 12. On a tie add both, and once one side reaches the profile edge keep adding the other side: owner-approved 2026-10-05, SPEC §13 Q40); VAH = its highest price, VAL = its lowest. **VAH zone** = [VAH, profile high]; **VAL zone** = [profile low, VAL] (§5.3). They are **not levels**: no event, no break, not stop or target candidates.
@@ -1435,7 +1436,7 @@ Both passes start from the same start-value rebuild (every detector is computed 
 | 8 | **Order-flow extras (owner 2026-10-16)** | the trigger-model additions: the F9.9 sequence inputs (B2) and the 5-minute range (B3); the F9.10 multi-window order flow, `vol_tod_w`, `rvol_today` (in every model that has it), the scaled volumes and the scale, and the trigger model's `minutes_since_open` (B1, owner 2026-10-17); the scaled detector thresholds stay |
 | 9 | **Approach (owner 2026-10-16)** | the F5.18 approach features (B4) |
 | 10 | **Post-cross retests (owner 2026-10-23)** | the post-cross retest events (F2.6 step 5) and their pairs, and the F2.6b cross features; what remains is the 5-minute rule alone |
-| 11 | **AMT previous-session profile (owner 2026-10-24)** | the F3.2b levels (`prev_poc`, `prev_vah`, `prev_val`) with their events and pairs, and the F3.12 context features; `sp_sessions_stacked` (F3.5) |
+| 11 | **AMT previous-session profile (owner 2026-10-24)** | the F3.2b levels (`prev_poc`, `prev_vah`, `prev_val`) with their events and pairs, and the F3.12 context features (`poc_migration_em` included); `sp_sessions_stacked` (F3.5) |
 | 12 | **Multi-expiration context (owner 2026-10-24)** | the F2.23 features |
 
 - **Why a 7th group:** these concepts are new, untested and many (≈ 40 columns). Folding them into "confluence features" would make that cut mean two different things. Rug, pika, rolling and regime stay in the base system (§7.1 lists them as structure-model inputs).
