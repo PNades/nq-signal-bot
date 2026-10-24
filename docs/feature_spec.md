@@ -274,12 +274,12 @@
 - *Test:* ($1 strike step) P = 760 (+, relevant), 759 (−, 0.02 of King), 758 (−), 757 (+), spot 755 → rug with 2 partners (no size rule); spot 761 → no rug; 759 positive → no rug; a listed 759.5 (−) with 759 positive → rug (closer than one step); P at 0.20 of King → no rug; reverse rug: P = 750 (+, relevant), 751 (−), spot 752 → reverse rug.
 
 ### F2.14 Pika cloud
-- *Source:* `pattern-pika-clouds.md`; **owner answer 2026-10-05** (FQ-06: "positive nodes right by each other, like QQQ 749, 750, 751; at least 10% the size of the King, and positive").
-- *Definition:* per map, a **pika cloud** = a maximal run of consecutive strikes (adjacent positions in the board's strike list, F0.10) where every strike is positive with pct_of_king ≥ `pika_cloud_min_pct` (owner: 0.10), and the run has at least `pika_cloud_min_nodes` strikes (owner 2026-10-05: 2). The cloud's band = [lowest member − b, highest member + b] (b = `node_band`), mapped with R. Members need not be relevant (10% < 25%); the cloud is context, not a level, and creates no events.
+- *Source:* `pattern-pika-clouds.md`; **owner answer 2026-10-05** (FQ-06: "positive nodes right by each other, like QQQ 749, 750, 751; at least 10% the size of the King, and positive"; changed by the owner 2026-10-24: each a relevant node, below).
+- *Definition:* per map, a **pika cloud** = a maximal run of consecutive strikes (adjacent positions in the board's strike list, F0.10) where every strike is positive and **relevant** (owner 2026-10-24, was pct_of_king ≥ 0.10): it enters at pct_of_king ≥ `pika_cloud_min_pct` (0.25, the same as `min_node_pct_of_king`) and keeps counting until it drops below `node_drop_pct` (0.20), against the same board's King, with the F2.4 identity and state (reset at each session's first board), so clouds don't flicker; and the run has at least `pika_cloud_min_nodes` strikes (owner 2026-10-05: 2). The cloud's band = [lowest member − b, highest member + b] (b = `node_band`), mapped with R. The cloud is context, not a level, and creates no events. Pika/barney colour (node sign, F2.5) is a separate feature and unchanged.
 - *Outputs:* `in_pika_cloud` (price inside a cloud band), `pika_cloud_overlaps_zone`, member count, Σ and max pct_of_king, cloud width (pts, EM), distance from price to the nearest cloud edge.
 - *Known at:* `t_apply` (the cloud); t (`in_pika_cloud`).
-- *Params:* `pika_cloud_min_pct` (owner: 0.10), `pika_cloud_min_nodes` (owner: 2). `pika_cloud_max_gap_strikes` is **removed**: members must be adjacent strikes (owner).
-- *Test:* ($1 strikes) 749 (+0.12), 750 (+0.40), 751 (+0.15) → one cloud of 3; 750 at +0.08 → no cloud (749 and 751 are single strikes); 749 and 750 alone → a cloud of 2; 750 negative → no cloud.
+- *Params:* `pika_cloud_min_pct` (owner: 0.25 since 2026-10-24, was 0.10; equal to `min_node_pct_of_king`), `node_drop_pct` (F2.4), `pika_cloud_min_nodes` (owner: 2). `pika_cloud_max_gap_strikes` is **removed**: members must be adjacent strikes (owner).
+- *Test (owner 2026-10-24):* two adjacent positive strikes at 0.30 and 0.27 → a cloud of 2; 0.30 and 0.18 → no cloud (0.18 never entered); a strike that entered at 0.26 and is now 0.22 (with its neighbour at 0.30) → still a cloud; the same strike after it falls to 0.19 → no cloud; a strike at 0.30 that is negative → no cloud; a fresh strike at 0.22 → not a member.
 
 ### F2.15 Air pockets, owner-approved 2026-10-04
 - *Source:* `gamma-regime-negative.md` ("air pockets between nodes… get filled aggressively"); **owner answer 2026-10-05** (FQ-07: "a grouping of low-magnitude nodes that price can move through quickly; I look for nodes with less than 5k magnitude, and price usually moves quicker through negative ones").
@@ -1020,7 +1020,7 @@ Start values are in F15 (part 2); grids are in F16 (part 3). "SPEC" = the SPEC a
 | `node_switch_min_sec` | features | **NEW** | F2.11, F2.16 |
 | `regime_band` | features | owner (1%, 2026-10-05) | F2.12 |
 | `rug_gap_strikes` | features | **NEW**, owner (1) | F2.13 |
-| `pika_cloud_min_pct` | features | **NEW**, owner (0.10) | F2.14 |
+| `pika_cloud_min_pct` | features | **NEW**, owner (0.25 since 2026-10-24, with the F2.4 relevance rule; was 0.10) | F2.14 |
 | `pika_cloud_min_nodes` | features | **NEW**, owner (2) | F2.14 |
 | `air_pocket_max_pct` | features | **NEW**, owner (0.10 since 2026-10-24; was 0.02) | F2.15 |
 | `rainbow_min_nodes_per_sign`, `rainbow_max_dominance` | features | **NEW**, owner (2 / 1.5, 2026-10-05) | F2.17 |
@@ -1088,7 +1088,7 @@ Each question lists the options as they were offered; the answers are in the lin
 
 **FQ-05: Rolling.** *Answered 2026-10-05:* the ceiling is the highest-magnitude node above price; a roll-down is when a closer node (still above price) becomes the largest, whether the old one faded, the new one grew, or both (F2.11). Not answered: also measuring the roll across sessions (yesterday's last board vs today's first). Kept intraday only unless the owner asks.
 
-**FQ-06: Pika cloud.** *Answered 2026-10-05:* adjacent positive strikes, each ≥ 10% of the King, at least 2 of them (F2.14, FQ-26).
+**FQ-06: Pika cloud.** *Answered 2026-10-05:* adjacent positive strikes, each ≥ 10% of the King, at least 2 of them (F2.14, FQ-26). **Changed by the owner 2026-10-24: each strike a relevant node (enters at 0.25, stays until below `node_drop_pct` 0.20).**
 
 **FQ-07: Air pockets.** *Answered 2026-10-05:* runs of strikes below 2% of the King (replacing the absolute 5k), quicker through negative ones (F2.15). **Changed by the owner 2026-10-24: below 10% of the King.**
 
