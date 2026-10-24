@@ -168,7 +168,7 @@
 - *Definition:* per level and per **cross episode** (from the cross by the level's own rule (F2.6 step 2, F5.2, F3.9's break, a gameplan zone's far edge, F5.9) until a reclaim, or until the next cross after a flip), from trades ≤ t on the level's own instrument (F0.9), with band B(t):
   - **Distance:** `xb_depth` = the deepest price beyond B's crossed-side edge since the cross, in points, ATR and EM (F0.8).
   - **Volume:** `xb_vol_rel` = volume traded beyond B since the cross ÷ the time-of-day normal over the same seconds (F9.10's N(m), prior 20 full sessions; partial minutes pro rata); `xb_delta_rel` = buy − sell volume traded beyond B, same scale, positive in the cross direction.
-  - **Time:** `xb_sec_beyond` = seconds price spent beyond B since the cross (from each trade beyond to the next trade); `xb_settled_5m` = settled `flip_bar_minutes` bars (F0.5) beyond B by ≥ `flip_margin` since the cross (≥ 1 is the F2.6 step-3 flip, the old rule as a feature).
+  - **Time:** `xb_sec_beyond` = seconds price spent beyond B since the cross (from each trade beyond to the next trade); `xb_settled_1m` = settled 1-minute bars (F0.5, the §5.5 settled bar) beyond B since the cross (owner 2026-10-24: levels can flip quickly); `xb_settled_5m` = settled `flip_bar_minutes` bars (F0.5) beyond B by ≥ `flip_margin` since the cross (≥ 1 is the F2.6 step-3 flip, the old rule as a feature).
   - **Reclaim:** `xb_reentries` = times price came back inside B during the episode without a reclaim; `cross_count_today`.
   - **Age:** `minutes_since_cross` (F2.6).
   - **Skylit nodes only:** `xb_node_pctking_chg` = pct_of_king at t − at the cross; `xb_node_sign_flipped` = the node's sign at t differs from its sign at the cross (both from boards applied ≤ t). Null for every other type.
@@ -176,7 +176,7 @@
 - *Outputs:* per member, on events of a level in a post-cross role (provisional or flipped) from that episode; null for a level in its original role with no open episode and during a mapping-dislocation block of the node's chain (F2.6 step 6). Zone features: the primary member's values and `members_post_cross` (the number of members in a post-cross role).
 - *Known at:* each trade; `xb_settled_5m` at each flip-bar close; the node change at each board's `t_apply`.
 - *Params:* none new (`rearm_dist`, `flip_margin`, `flip_bar_minutes`, F9.10's normals).
-- *Test:* a ceiling [100, 101]; trades 101.5 and 103 → `xb_depth` 2.0 pts; back to 100.5 → `xb_reentries` 1; 300 contracts traded beyond against a normal of 150 over the same seconds → `xb_vol_rel` 2.0; a 5-minute bar opening 102 and closing 102.5 → `xb_settled_5m` 1. Causal test: every value at t is unchanged when the data after t is removed.
+- *Test:* a ceiling [100, 101]; trades 101.5 and 103 → `xb_depth` 2.0 pts; back to 100.5 → `xb_reentries` 1; 300 contracts traded beyond against a normal of 150 over the same seconds → `xb_vol_rel` 2.0; a 5-minute bar opening 102 and closing 102.5 → `xb_settled_5m` 1; 1-minute bars (open, close) (101.5, 102), (102, 100.75), (101.25, 101.5) after the cross → `xb_settled_1m` 2 (the middle bar closes inside B). Causal test: every value at t is unchanged when the data after t is removed.
 
 ### F2.7 Beach ball (overshoot), owner-approved 2026-10-04
 - *Source:* `pattern-beach-ball-overshoot.md` ("price overshoots a node, moving beyond it, then reacts after punching through… overshoot → reaction → potential reversion; not a breakout").
@@ -356,6 +356,21 @@
 - *Params:* `tempest_lag_sessions` (*measured*, step 7: the morning timings and the finality check of the pre-open copies, owner 2026-10-09), `rv_lookback_sessions`. Only Tempest copies pulled at or after the pre-open of a later day are read (the post-close row is a draft, SPEC §3.1 Tempest).
 - *Test:* with T − 1 the row of the previous session is used, never session T's own row. `vix_ref_chg`: closes 20.0 (T−2) and 22.0 (T−1) with `front_min` 10,081 then 8,641 → ln(1.1) = 0.0953; the same closes with `front_min` 1,441 then 40,321 (T−1 a roll session) → null.
 
+### F2.23 Multi-expiration context (owner 2026-10-24, SPEC §5.2, §13 Q-multiexp)
+- *Inputs → known at:* the stored `/v1/historical` matrix snapshots at 09:25 and 10:00 ET (SPEC §3.1 Multi-expiration snapshots); a snapshot is **in force** from its instant + `mx_snapshot_delay_sec` (the live call is made then, with `at` = the instant, so backtest and live read the same answer). Each decision reads the latest snapshot in force: 09:25 until 10:00 + `mx_snapshot_delay_sec`, then 10:00. Flag `mx_snapshot` ∈ {0925, 1000}.
+- *Cleaning:* expirations before the session date are dropped (a previous-close board still lists the expiry that ended that day); a root whose board `asOf` is before the previous session's 15:59 ET is null for that snapshot. Skylit's values differ in unit by root, so roots are compared only through signs and shares, never summed.
+- *Buckets (by calendar days from the session date to the expiration):* **0DTE** = the session date; **1–7 days**; **8–45 days** (`mx_bucket_days` [7, 45]); later expirations are left out. NDX and SPX have no 0DTE (AM-settled monthlies only).
+- *Definition, per side* (Nasdaq: QQQ, NDXP, NDX; S&P: SPY, SPXW, SPX):
+  - per root r: n_r = Σ value over the 1–45-day buckets ÷ Σ |value| over the same cells ∈ [−1, 1]; z_r = the same over the 0DTE bucket (QQQ, NDXP, SPY, SPXW only);
+  - `mx_net_sign_<side>` = sign(mean of n_r over the side's roots) (+1 long gamma, −1 short; 0 if exactly 0);
+  - `mx_0dte_agree_<side>` = the share of the side's 0DTE roots with sign(z_r) = `mx_net_sign_<side>` ∈ {0, 0.5, 1};
+  - `mx_0dte_share_<side>` = mean over the side's 0DTE roots of Σ|0DTE value| ÷ Σ|value| over all three buckets (LightGBM day-type challenger list only);
+  - **walls:** per root and strike k, w_rk = |Σ value over the 1–45-day buckets at k| ÷ Σ |value| over the root's 1–45-day cells; the side's wall above (below) = the strike with the largest w_rk over the side's roots among strikes mapped above (below) price and within `mx_wall_reach_em` EM of it; mapped to NQ (Nasdaq: QQQ with QQQ's R, NDXP and NDX with NDXP's R, F1.7) or ES (S&P: SPY's R; SPXW and SPX with SPX's R) with the R in force at t. `mx_wall_above_dist_em_<side>`, `mx_wall_below_dist_em_<side>` = |mapped wall − price| in EM units at t; null if none within reach. Context only, never registry levels.
+- *Outputs (structure model and pair scorer):* per side `mx_net_sign`, `mx_0dte_agree`, `mx_wall_above_dist_em`, `mx_wall_below_dist_em` (8 features) and `mx_snapshot`; `mx_0dte_share` only on the challenger list. Null during a mapping-dislocation block of the chain that maps the wall (F1.8) for the wall distances only.
+- *Known at:* the snapshot's in-force time (signs, agreement, shares, wall strikes); t (wall distances).
+- *Params:* `mx_bucket_days`, `mx_snapshot_delay_sec`, `mx_wall_reach_em` (owner rule and start values, not tuned).
+- *Test:* a hand-built matrix (QQQ: 0DTE +5 at 100; 1–7 days −3 at 102 and −4 at 98; 8–45 days −2 at 105; a 60-day column +50 at 110) → n = −9/9 = −1, net sign −1, the 60-day column ignored; 0DTE sign +1 → agree 0; wall above = 102 (share 3/9 of the side's 1–45-day mass at that strike), below = 98; at 09:59 the 09:25 snapshot is read, from 10:00 + `mx_snapshot_delay_sec` the 10:00 one; an expired column dated the day before is dropped.
+
 ### F2.22 Flags and calendar context
 - *Source:* §5.2 Flags; §1.2; §9 News blackouts.
 - *Definitions:*
@@ -386,11 +401,27 @@
 - *Test:* three trades (100 × 1, 102 × 1, 104 × 2) → VWAP 102.5, σ = √(42,036 ÷ 4 − 102.5²) = √2.75 ≈ 1.658.
 
 ### F3.2 Volume profile and POC
-- *Definition:* **daily** profile = volume per 0.25 price over trades from 18:00 ET of the CME day; **weekly** = from Sunday 18:00 ET (roll-shifted on the roll day, F0.4). There are no prior-day or prior-week profiles (owner). Both develop and are recomputed at F0.1 profile instants. POC = the price with the largest volume; ties go to the price nearest the midpoint of the profile's high–low range (owner 2026-10-05, FQ-08); if still tied (equal distance above and below), the price nearer the **volume median** (the price with half the profile volume at or below it) wins (owner 2026-10-05); only an exact tie after that falls to the lower price.
+- *Definition:* **daily** profile = volume per 0.25 price over trades from 18:00 ET of the CME day; **weekly** = from Sunday 18:00 ET, one contract only: in a roll week only the new contract's days, from the roll day (owner 2026-10-24; replaced the roll-shift on the roll day). Both are developing profiles; the only completed profile is the previous session's (F3.2b). Both develop and are recomputed at F0.1 profile instants. POC = the price with the largest volume; ties go to the price nearest the midpoint of the profile's high–low range (owner 2026-10-05, FQ-08); if still tied (equal distance above and below), the price nearer the **volume median** (the price with half the profile volume at or below it) wins (owner 2026-10-05); only an exact tie after that falls to the lower price.
 - *Outputs:* daily and weekly POC levels; profile high/low (max/min traded price).
 - *Known at:* each profile instant (F0.1).
 - *Params:* `profile_update_sec`.
-- *Test:* trades at 100.00 ×5, 100.25 ×3 before the 10:01:00 instant and 100.25 ×4 at 10:01:00.5 → POC 100.00 at 10:01:00 (the later trades wait for the next instant).
+- *Test:* trades at 100.00 ×5, 100.25 ×3 before the 10:01:00 instant and 100.25 ×4 at 10:01:00.5 → POC 100.00 at 10:01:00 (the later trades wait for the next instant). A roll on Wednesday → the weekly profile from Wednesday's 18:00 open holds only the new contract's trades.
+
+### F3.2b Previous-session profile (owner 2026-10-24, SPEC §5.3, §13 Q-amt)
+- *Definition:* the completed volume profile of the previous session's CME day [18:00, 17:00) (the previous *session*: a Monday uses Friday's, a closed holiday is skipped), built from that day's own front contract only, with the F3.2 POC and F3.3 value-area rules. Known from that day's 17:00 close; used from the next 18:00.
+- *Levels (registry sub-types):* `prev_poc` (level-type key `poc`), `prev_vah` and `prev_val` (key `va_edge`), each a chart level (F5.2: crossed on a settled 1-minute bar, post-cross retests and cross features F2.6/F2.6b; not sweep-eligible), band = price ± the key's half-width (F5.14). They live for the session. After a roll the previous session's profile is on the old contract: its prices are shifted by the roll spread (F0.4).
+- *Outputs:* the three levels; `prev_poc_naked` = no trade at the POC price since the profile completed (from 17:00; turns false at the first trade there and stays false).
+- *Test:* a previous day with trades 100.00 ×10, 100.25 ×6, 99.75 ×4 → POC 100.00, VA by F3.3; a trade at 100.00 at 09:31 → `prev_poc_naked` false from then; a roll day → the levels shifted by the roll spread, the volume never merged with the new contract's.
+
+### F3.12 Previous-session value context (owner 2026-10-24, SPEC §5.3, §13 Q-amt)
+Coarse and few; inputs of the structure model and the pair scorer:
+- `open_vs_prev_va` ∈ {above, inside, below}: the first RTH trade at 09:30 against the previous session's VAH/VAL (F3.2b); known at 09:30.
+- `dist_prev_poc_em`, `dist_prev_vah_em`, `dist_prev_val_em`: (price − level) ÷ EM (F0.8) at t, signed.
+- `prev_va_overlap` = the overlap of today's developing daily value area (F3.3) with the previous session's, ÷ the narrower of the two widths ∈ [0, 1]; at each profile instant.
+- `dpoc_drift_em` = (developing daily POC at t − the developing daily POC at the first profile instant ≥ 09:30) ÷ EM.
+- *Day type:* `ib_width_ratio` vs `open_vs_prev_va` swap test (SPEC §7.1 Day type, pre-declared); else `open_vs_prev_va`, `prev_va_overlap` and `dpoc_drift_em` are on the LightGBM challenger list.
+- *Params:* none new.
+- *Test:* previous VA [100, 110]; open 112 → above; price 105 with EM 20 → `dist_prev_poc_em` per the POC; today's VA [106, 116] → overlap 4/10 = 0.4; developing POC 108 at 09:31 and 104 at 11:00 with EM 20 → drift −0.2.
 
 ### F3.3 Value area, VAH/VAL zones (premium/discount)
 - *Definition:* the value area = the set of prices built from the POC outward until ≥ 70% (owner) of the profile volume is included (owner 2026-10-05, FQ-08: expanded **one tick at a time**: at each step, add whichever of the next price above or the next price below has the larger volume; checked against Deepcharts at step 12. On a tie add both, and once one side reaches the profile edge keep adding the other side: owner-approved 2026-10-05, SPEC §13 Q40); VAH = its highest price, VAL = its lowest. **VAH zone** = [VAH, profile high]; **VAL zone** = [profile low, VAL] (§5.3). They are **not levels**: no event, no break, not stop or target candidates.
@@ -418,6 +449,7 @@
   - The level ends when every bin of the run has traded (`filled`).
   - Unfilled runs carry over to later sessions (roll-shifted) with `sp_age_sessions`.
 - *Known at:* the period close (formation); each trade (filling).
+- **Stacked single prints (owner 2026-10-24):** zone feature `sp_sessions_stacked` = the number of different formation sessions among unfilled single-print levels whose band overlaps the zone at t (test: today's run and one from two sessions ago both overlapping a zone → 2).
 - *Params:* `tpo_tick_pts`, `sp_min_ticks`.
 - *Test:* a 10-bin up-move printed only in the 10:00 period → one run at 10:30; a trade in the run's middle → two sub-run levels, each with its own `level_id`.
 
@@ -507,7 +539,7 @@ All are computed on RTH from 09:30 and known at t:
   - GEX nodes: relevant QQQ/NDXP nodes (F2.4).
   - Opening range: the golden zone (F10, a container) and IB high/low (F3.6).
   - Session highs/lows: ON, PDH/PDL, prior RTH, prior week, retested extremes (F3.7–F3.8).
-  - Volume profile: daily/weekly POC and LVNs, single prints (F3.2–F3.5).
+  - Volume profile: daily/weekly POC and LVNs, single prints (F3.2–F3.5); the previous session's POC, VAH and VAL (F3.2b).
   - VWAP: the 18:00 and 09:30 lines and bands (F3.1).
   - Expected-move levels: ±1σ and ±2σ around the previous RTH close (F3.11).
   - QQQ dark pools (F4).
@@ -633,7 +665,8 @@ Computed as of the touch for events and as of `decision_ts` for pairs:
 | `vwap` | the 18:00 and 09:30 VWAP lines |
 | `vwap_band` | their ±1σ and ±2σ bands |
 | `em_level` | the ±1σ and ±2σ expected-move lines (F3.11) |
-| `poc` | daily and weekly POC |
+| `poc` | daily and weekly POC; the previous session's POC (`prev_poc`) |
+| `va_edge` | the previous session's VAH and VAL (`prev_vah`, `prev_val`; owner 2026-10-24) |
 | `lvn` | daily and weekly LVNs |
 | `single_print` | single-print sub-runs |
 | `on_extreme` | ON high, ON low |
@@ -1009,6 +1042,7 @@ Start values are in F15 (part 2); grids are in F16 (part 3). "SPEC" = the SPEC a
 | `confluence_tol`, `max_zone_width` | features | tuned-13 / SPEC | F5.3 |
 | `rearm_dist`, `entry_reprice_tol` | features | SPEC (one global value each) | F2.6, F5.6, F7 |
 | `flip_margin` (per type), `flip_bar_minutes` | features | tuned-13 / owner | F2.6, F5.2 |
+| `mx_bucket_days`, `mx_snapshot_delay_sec`, `mx_wall_reach_em` | features | owner (2026-10-24), not tuned | F2.23 |
 | `chart_level_half_width`, `chart_level_half_width_cap` (per type), `react_pts`, `react_minutes`, `react_width_q` | features | frozen at step 13 / label | F5.14 |
 | `area_rearm_sec`, `trig_min_gap_sec` | features | SPEC | F5.8, F9.1 |
 | `smt_lookback_min`, `rel_delta_sec` | features | **NEW** | F5.16 |
@@ -1401,9 +1435,11 @@ Both passes start from the same start-value rebuild (every detector is computed 
 | 8 | **Order-flow extras (owner 2026-10-16)** | the trigger-model additions: the F9.9 sequence inputs (B2) and the 5-minute range (B3); the F9.10 multi-window order flow, `vol_tod_w`, `rvol_today` (in every model that has it), the scaled volumes and the scale, and the trigger model's `minutes_since_open` (B1, owner 2026-10-17); the scaled detector thresholds stay |
 | 9 | **Approach (owner 2026-10-16)** | the F5.18 approach features (B4) |
 | 10 | **Post-cross retests (owner 2026-10-23)** | the post-cross retest events (F2.6 step 5) and their pairs, and the F2.6b cross features; what remains is the 5-minute rule alone |
+| 11 | **AMT previous-session profile (owner 2026-10-24)** | the F3.2b levels (`prev_poc`, `prev_vah`, `prev_val`) with their events and pairs, and the F3.12 context features; `sp_sessions_stacked` (F3.5) |
+| 12 | **Multi-expiration context (owner 2026-10-24)** | the F2.23 features |
 
 - **Why a 7th group:** these concepts are new, untested and many (≈ 40 columns). Folding them into "confluence features" would make that cut mean two different things. Rug, pika, rolling and regime stay in the base system (§7.1 lists them as structure-model inputs).
-- **Size:** 10 groups (SPEC §7 rule 5 updated 2026-10-05; groups 8 and 9 added by the owner 2026-10-16, group 10 on 2026-10-23, each about +1–2 nights per round).
+- **Size:** 12 groups (SPEC §7 rule 5 updated 2026-10-05; groups 8 and 9 added by the owner 2026-10-16, group 10 on 2026-10-23, groups 11 and 12 on 2026-10-24, each about +1–2 nights per round).
 - **Cost:**
   - Each arm runs the full per-fold pipeline for folds 7–9 with cached grid points: ≈ 1–2 nights.
   - Round 1 = 7 arms ≈ 7–14 nights. Each cut adds a round over the remaining groups.

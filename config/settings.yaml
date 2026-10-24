@@ -243,6 +243,8 @@ ablation_groups:               # §7 rule 5; memberships in feature_spec F16.8; 
   - order_flow_extras           # owner 2026-10-16 (B2, B3) and 2026-10-17 (B1)
   - approach                    # owner 2026-10-16 (B4)
   - post_cross_retests          # owner 2026-10-23 (§5.2 post-cross retests, F2.6b)
+  - amt_prev_session            # owner 2026-10-24 (§5.3 previous-session profile, F3.2b, F3.12)
+  - multiexp_context            # owner 2026-10-24 (§5.2 multi-expiration context, F2.23)
 bootstrap_paths: 500
 default_max_three_loss_rate: 0.15
 gate_account:                # §6.5b: account-independent choices and gates 16/20
