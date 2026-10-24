@@ -96,7 +96,7 @@ The rest of this section-by-section summary explains what each measurement means
   - the share of that gamma that is positive (the "yellow vs purple" read).
 - **Rug:** a relevant positive node with a negative node at most one strike below it, price below. **Reverse rug:** the mirror.
 - **Pika cloud:** 2 or more adjacent positive strikes, each at least 10% of the King.
-- **Air pockets:** runs of strikes under 2% of the King, which price travels through quickly. The bot also records how much of each pocket is negative.
+- **Air pockets:** runs of strikes under 2% of the King (owner 2026-10-24: now 10%), which price travels through quickly. The bot also records how much of each pocket is negative.
 - **King dominance and migration:** how much bigger the King is than the second node, how far away it is, and how often (and in which direction) the King has moved today. Stair-stepping is a trend tell.
 - **Rainbow road:** many positive and many negative relevant nodes with no dominant King.
 - **Whipsaw:** the three Trinity maps lean in different directions while the Nasdaq map still has a floor and a ceiling.

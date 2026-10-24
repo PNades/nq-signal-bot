@@ -2,7 +2,7 @@
 # Values are the SPEC's start values and the docs/feature_spec.md F15 start values the owner approved at
 # step 6 (2026-10-05); the step-13/19 grids are tune_grids_13 / tune_grids_19 (F16). Frozen execution parameters are added here at step 13/19,
 # marked `frozen_from: months 1-4` (§7.1).
-features_version: 9               # 1: golden-zone upper fib 0.786 -> 0.79; 2: expected-move (sigma) levels F3.11; 3: mapping-dislocation guard F1.8 (owner 2026-10-14); 4: opening-range fib 09:45 start, 10:30 redraw, flips, and feature additions B2-B5 (owner 2026-10-16); 5: features during a dislocation block, guard windows reset at the session start only, B1 volume baselines and relative detector thresholds (owner 2026-10-17); 6: Skylit's VIX row, its close only as vix_ref_chg (Q-vix, owner 2026-10-20); 7: expected-move unit = Tempest's em_1d_pct as stored (Q-svxwknd, owner 2026-10-22); 8: post-cross retests and cross features F2.6b, gameplan zones break past the far edge (Q-flipretest, owner 2026-10-23); 9: previous-session profile levels and context, single-contract weekly, xb_settled_1m, stacked single prints, multi-expiration context (Q-amt, Q-multiexp, owner 2026-10-24; feature freeze until step 16); nothing was built under 0-8
+features_version: 10               # 1: golden-zone upper fib 0.786 -> 0.79; 2: expected-move (sigma) levels F3.11; 3: mapping-dislocation guard F1.8 (owner 2026-10-14); 4: opening-range fib 09:45 start, 10:30 redraw, flips, and feature additions B2-B5 (owner 2026-10-16); 5: features during a dislocation block, guard windows reset at the session start only, B1 volume baselines and relative detector thresholds (owner 2026-10-17); 6: Skylit's VIX row, its close only as vix_ref_chg (Q-vix, owner 2026-10-20); 7: expected-move unit = Tempest's em_1d_pct as stored (Q-svxwknd, owner 2026-10-22); 8: post-cross retests and cross features F2.6b, gameplan zones break past the far edge (Q-flipretest, owner 2026-10-23); 9: previous-session profile levels and context, single-contract weekly, xb_settled_1m, stacked single prints, multi-expiration context (Q-amt, Q-multiexp, owner 2026-10-24; feature freeze until step 16); 10: air pockets below 10% of the King, was 2% (owner 2026-10-24, a correction of an existing definition); nothing was built under 0-9
 
 # --- Structure (§5.2-§5.4b) -----------------------------------------------------------------------
 zone_proximity: 5                 # NQ pts; tuned at step 13 (F16.4); approved 2026-10-05 (feature_spec F15)
@@ -74,7 +74,7 @@ ib_avg_sessions: 20
 rug_gap_strikes: 1              # owner 2026-10-05: negative node at most 1 strike step from the positive one
 pika_cloud_min_nodes: 2         # owner 2026-10-05
 pika_cloud_min_pct: 0.10        # owner 2026-10-05: members >= 10% of King, adjacent strikes
-air_pocket_max_pct: 0.02        # owner 2026-10-05: air pockets = runs of small nodes (< 2% of King) price travels through easily
+air_pocket_max_pct: 0.10        # owner 2026-10-24 (was 0.02 from 2026-10-05): air pockets = runs of small nodes (< 10% of King) price travels through easily
 magnet_min_dist_em: 0.1           # expected moves; fixed; approved 2026-10-05 (feature_spec F15)
 node_switch_min_sec: 60           # King and ceiling/floor switches; fixed; approved 2026-10-05 (feature_spec F15)
 rainbow_min_nodes_per_sign: 2   # owner 2026-10-05; fixed

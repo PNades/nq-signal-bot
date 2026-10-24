@@ -283,7 +283,7 @@
 
 ### F2.15 Air pockets, owner-approved 2026-10-04
 - *Source:* `gamma-regime-negative.md` ("air pockets between nodes… get filled aggressively"); **owner answer 2026-10-05** (FQ-07: "a grouping of low-magnitude nodes that price can move through quickly; I look for nodes with less than 5k magnitude, and price usually moves quicker through negative ones").
-- *Definition:* per map, an **air pocket** = a maximal run of consecutive strikes (F0.10) each with pct_of_king < `air_pocket_max_pct` (owner 2026-10-05: 2% of the King, on every map, replacing the absolute 5k since values are on different scales per map). These are small nodes that price travels through easily, not missing ones: they keep their values and count for every other feature as usual. Its band = [lowest strike − b, highest strike + b], mapped with R.
+- *Definition:* per map, an **air pocket** = a maximal run of consecutive strikes (F0.10) each with pct_of_king < `air_pocket_max_pct` (owner 2026-10-24: **10%** of the King, on every map; was 2% from 2026-10-05, which replaced the absolute 5k since values are on different scales per map). These are small nodes that price travels through easily, not missing ones: they keep their values and count for every other feature as usual. Its band = [lowest strike − b, highest strike + b], mapped with R.
 - *Outputs:*
   - `price_in_pocket`, and the size of the pocket containing price (strikes, pts, EM);
   - `pocket_ahead_size`: the size of the first pocket in the trade direction that starts within the gap to the next relevant node (0 if none);
@@ -291,8 +291,8 @@
   - `pocket_neg_share` for each of those pockets = Σ|v| of its negative strikes ÷ Σ|v| of all its strikes (owner: price moves quicker through negative ones);
   - per map; Nasdaq maps on NQ against the NQ event, S&P maps on ES against the ES price, "ahead" = the NQ trade direction.
 - *Known at:* `t_apply` (the pockets); t (price vs pocket).
-- *Params:* `air_pocket_max_pct` (owner: 0.02).
-- *Test:* strikes 752–756 all below 2% of the King, three of them negative carrying 80% of the run's |v| → one pocket of 5 strikes, `pocket_neg_share` 0.8; price at 754 → in the pocket.
+- *Params:* `air_pocket_max_pct` (owner: 0.10, since 2026-10-24; was 0.02).
+- *Test:* strikes 752–756 all below 10% of the King (one at 0.08: still in the pocket; a strike at 0.12 would end it), three of them negative carrying 80% of the run's |v| → one pocket of 5 strikes, `pocket_neg_share` 0.8; price at 754 → in the pocket.
 
 ### F2.16 King dominance and King migration, owner-approved 2026-10-04
 - *Source:* `pattern-trend.md` ("a King Node far away from spot… as price trades toward it, it selects the node above it as the new King; trend days stair-step"), `gamma-regime-negative.md` ("a massive King Node that grows rapidly over time").
@@ -1022,7 +1022,7 @@ Start values are in F15 (part 2); grids are in F16 (part 3). "SPEC" = the SPEC a
 | `rug_gap_strikes` | features | **NEW**, owner (1) | F2.13 |
 | `pika_cloud_min_pct` | features | **NEW**, owner (0.10) | F2.14 |
 | `pika_cloud_min_nodes` | features | **NEW**, owner (2) | F2.14 |
-| `air_pocket_max_pct` | features | **NEW**, owner (0.02) | F2.15 |
+| `air_pocket_max_pct` | features | **NEW**, owner (0.10 since 2026-10-24; was 0.02) | F2.15 |
 | `rainbow_min_nodes_per_sign`, `rainbow_max_dominance` | features | **NEW**, owner (2 / 1.5, 2026-10-05) | F2.17 |
 | `bias_deadband` | features | **NEW** | F2.18 |
 | `zone_proximity` | features | tuned-13 (§7.1) | F2.19, F5.6, F9.1 |
@@ -1090,7 +1090,7 @@ Each question lists the options as they were offered; the answers are in the lin
 
 **FQ-06: Pika cloud.** *Answered 2026-10-05:* adjacent positive strikes, each ≥ 10% of the King, at least 2 of them (F2.14, FQ-26).
 
-**FQ-07: Air pockets.** *Answered 2026-10-05:* runs of strikes below 2% of the King (replacing the absolute 5k), quicker through negative ones (F2.15).
+**FQ-07: Air pockets.** *Answered 2026-10-05:* runs of strikes below 2% of the King (replacing the absolute 5k), quicker through negative ones (F2.15). **Changed by the owner 2026-10-24: below 10% of the King.**
 
 **FQ-08: Value area and POC (F3.2–F3.3).** These should match Deepcharts (checked at step 12). Value-area expansion options:
 - (a) one tick at a time, adding the side with the larger next-tick volume;
