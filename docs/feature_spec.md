@@ -331,16 +331,27 @@
 
 ### F2.19 Trinity alignment
 - *Source:* §5.2 Trinity; `trinity-confluence.md`; owner notes ("a QQQ floor or ceiling that SPY and/or SPX are also approaching at the same moment (on ES) makes the level a lot stronger").
-- *Definition:* at time t, for an NQ event with role ρ:
-  - **SPY aligned:** a relevant SPY node with role ρ (its own F2.6 state on ES; a node with no role yet doesn't count) whose band ± `es_zone_proximity` contains the ES price at t.
+- *Definition (overlap rule, owner 2026-10-24):* for an NQ event with role ρ touched at t0, evaluated at t ≥ t0 (the structure model at t = t0, the pair scorer at its `decision_ts`; data ≤ t only, the same code live and in backtest):
+  - **SPY aligned at t:** at some moment τ ∈ [t0, t] (checked at every NQ trade, ES trade and board apply in the interval, with the last trades ≤ τ and the bands and F2.6 states as of τ) the NQ price was inside a relevant QQQ or NDXP node with role ρ (band ± `zone_proximity`) **and** the ES price was inside a relevant SPY node with role ρ (its own F2.6 state on ES; a node with no role yet doesn't count) whose band ± `es_zone_proximity` contained it; **and** that SPY node is not crossed at t by its own rule (F2.6). If several SPY nodes overlapped, one that overlapped and is not crossed at t is enough. Not "once true, stays true": a node crossed after its overlap stops counting.
   - **SPX aligned:** the same on SPX.
-  - **Nasdaq side aligned:** a relevant QQQ **or** NDXP node with role ρ whose band ± `zone_proximity` contains the NQ price.
+  - **Nasdaq side aligned:** at some τ ∈ [t0, t] the NQ price was inside a relevant QQQ **or** NDXP node with role ρ (band ± `zone_proximity`), and that node is not crossed at t.
+  - At t = t0 the window is one instant, so the structure model's values equal the earlier instant check.
+  - Null for a map during a mapping-dislocation block of its chain (F1.8).
   - No King is required and no outcome is used.
   - `es_zone_proximity` defaults to `zone_proximity` × ES ÷ NQ at the session open (the first RTH trades).
-- *Outputs:* `trinity_aligned` (all 3); `trinity_count` (0–3); `maps_with_node_here` (0–4: QQQ, NDXP, SPY, SPX each counted separately); smallest and mean pct_of_king of those nodes; King/Gatekeeper among them; rug or pika structure present among them; per-map `lean`.
-- *Known at:* t (each node's band from its map's last `t_apply`; prices from the last trade of each instrument; roles from F2.6).
+- *Outputs (no new columns):* `trinity_count` (0–3: Nasdaq side + SPY + SPX, each by the overlap rule); `trinity_aligned` = `trinity_count` 3 (each map overlapped NQ at some moment in [t0, t], not necessarily the same moment; owner 2026-10-24, option (a)); `maps_with_node_here` (0–4: QQQ, NDXP, SPY, SPX each counted separately, by the same rule); smallest and mean pct_of_king of the aligned nodes, King/Gatekeeper among them and rug or pika structure among them, each taken from the aligned nodes **at their first overlap moment**; per-map `lean`.
+- *Known at:* t (the overlap search over [t0, t]: each node's band from its map's last `t_apply` ≤ τ, prices from the last trade of each instrument ≤ τ, roles and crossed states from F2.6 as of τ and at t).
 - *Crossed nodes:* a node that is crossed (not yet flipped or reclaimed) does **not** count toward Trinity; once flipped it counts in its new role, once reclaimed in its original role (owner 2026-10-05, FQ-23).
-- *Test:* ES inside a SPY ceiling band, SPX not, NQ inside a QQQ ceiling band → count 2, aligned false.
+- *Test:*
+  - ES inside a SPY ceiling band, SPX not, NQ inside a QQQ ceiling band → count 2, aligned false.
+  - ES reaches the SPY band 8 s after the NQ touch while NQ is still inside its QQQ band → SPY false at the touch (structure model), true at a later `decision_ts` (pair scorer).
+  - ES reaches the SPY band only after NQ has left its QQQ band → false.
+  - ES reaches a SPY node that is already crossed → false.
+  - ES overlaps, then that SPY node is crossed before `decision_ts` → false at `decision_ts`.
+  - Two SPY nodes overlapped, one crossed by `decision_ts` and one not → true.
+  - SPY overlaps at t0 + 5 s and SPX at t0 + 20 s, never both at once → count 3 (with the Nasdaq side), aligned true (option (a)).
+  - Node statistics: an aligned SPY node at 0.40 of its King at the first overlap and 0.30 at `decision_ts` → the size feature uses 0.40.
+  - Causal: every value at t unchanged when the data after t is removed.
 
 ### F2.20 Nasdaq first, S&P obstacles in the path
 - *Source:* §5.2 Nasdaq first; owner notes.
@@ -654,7 +665,7 @@ Computed as of the touch for events and as of `decision_ts` for pairs:
 - Per member: node pct_of_king, node type and freshness. Largest pct_of_king; `king_present`; `gatekeeper_present`.
 - Geometry: zone width; member spread (max − min member centre); each member type's distance from the zone centre; distance from price to the near edge; `distance_to_level_center` (pts, and as a fraction of the zone width, §5.4b); distance (pts, ATR, EM) to the next zone above and below.
 - Container makeup (the levels inside the golden zone or a gameplan zone).
-- Context: VAH/VAL (F3.3), Trinity (F2.19), and the rug, pika and other map patterns (F2.13–F2.18) of the zone's node members.
+- Context: VAH/VAL (F3.3), Trinity (F2.19, by its overlap rule over [touch, t]: at the touch for events, over [touch, `decision_ts`] for pairs; owner 2026-10-24), and the rug, pika and other map patterns (F2.13–F2.18) of the zone's node members.
 - *Test:* a zone with a QQQ King and the weekly POC → `stack_count` 2, `king_present` true, one-hot counts correct.
 
 ### F5.14 Zone widths (chart levels) and reaction distance
@@ -695,7 +706,8 @@ Owner 2026-10-23 (SPEC §12 steps 13 and 15, §13 Q-flipretest). Step 13, count 
 
 ### F5.16 Cross-market features (§5.4)
 Computed at the touch and at `decision_ts`:
-- **ES at its own stacked level:** the ES price is inside an ES zone's touch band, in the same role as the NQ event. ES zones are the ES cross-market levels merged by F5.3, using `es_zone_proximity`. Features: `es_at_level`, `es_stack_count`, ES member types.
+- **ES at its own stacked level (overlap rule, owner 2026-10-24, as F2.19):** `es_at_level` at t = at some moment τ ∈ [t0, t] the NQ price was inside the event's zone touch band and the ES price was inside an ES zone's touch band (± `es_zone_proximity`) in the same role as the NQ event, at the same moment, and that ES zone is not crossed at t (F5.4, its members by their own rules; one overlapped ES zone still not crossed is enough). ES zones are the ES cross-market levels merged by F5.3. Features (no new columns): `es_at_level`, and `es_stack_count` and the ES member types of that ES zone at its first overlap moment. At the touch (structure model) the window is one instant.
+  - *Test:* ES enters an ES PDH zone 10 s after the NQ touch with NQ still in its zone → `es_at_level` false at the touch, true at a later `decision_ts`; the ES PDH crossed (by the sweep rule) before `decision_ts` → false; ES reaches it only after NQ has left its zone → false.
 - **ES reacting there:** dropped (owner 2026-10-05, FQ-15: Trinity alignment and `es_at_level` already cover ES at the level; the focus is NQ).
 - **NQ/ES divergence (SMT):** at t, NQ's high (low) over the last `smt_lookback_min` is a new high (low) versus its prior `smt_lookback_min` window while ES's is not, or the reverse. Feature: `smt_div` ∈ {none, nq_only, es_only}, per side.
 - **Relative delta** (owner 2026-10-05, FQ-16: keep, the model learns its relevance): over the last `rel_delta_sec`, `rel_delta` = (NQ delta ÷ NQ volume) − (ES delta ÷ ES volume) (each in [−1, 1], so the two markets' sizes don't matter), and `delta_sign_agree` = the two deltas have the same sign. Known at each second.
