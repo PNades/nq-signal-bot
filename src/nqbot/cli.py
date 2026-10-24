@@ -650,6 +650,12 @@ def _add_skylit(sub: argparse._SubParsersAction) -> None:
     p = sk.add_parser("plan", help="print the backfill estimate and write the plan for nqbot run skylit_backfill")
     p.add_argument("--approve-credits", type=int, default=None,
                    help="owner-approved credits for the whole backfill (CLAUDE.md rule 2), after the pack purchase")
+    m = sk.add_parser("multiexp-plan", help="multi-expiration snapshots (owner 2026-10-23): print each tier's cost, "
+                      "write the plan for nqbot run skylit_multiexp")
+    m.add_argument("--tiers", required=True, help="comma-separated, of 0925,1000 (pulled in that order)")
+    m.add_argument("--end", required=True, type=date.fromisoformat, help="last session to pull (YYYY-MM-DD)")
+    m.add_argument("--approve-credits", type=int, default=None, help="owner-approved credits (CLAUDE.md rule 2)")
+    sk.add_parser("multiexp-coverage", help="write the multi-expiration coverage report from what is stored")
 
 
 def _run_skylit(args: argparse.Namespace, settings: dict, paths, log) -> int:
@@ -661,6 +667,8 @@ def _run_skylit(args: argparse.Namespace, settings: dict, paths, log) -> int:
     from nqbot.months import LedgerMissing
     from nqbot.secrets import MissingSecret
 
+    if args.action in ("multiexp-plan", "multiexp-coverage"):
+        return _run_multiexp(args, settings, paths, log)
     env = step7.Env(settings=settings, features=load_features(), paths=paths, log=log)
     paths.root.mkdir(parents=True, exist_ok=True)
     try:
@@ -670,6 +678,39 @@ def _run_skylit(args: argparse.Namespace, settings: dict, paths, log) -> int:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_LOCKED
     except (bf.BackfillRefused, CreditRefused, SkylitError, LedgerMissing, MissingSecret, ValueError) as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return EXIT_REFUSED
+    return 0
+
+
+def _run_multiexp(args: argparse.Namespace, settings: dict, paths, log) -> int:
+    import json as _json
+
+    from nqbot.clients import skylit_multiexp as mx
+    from nqbot.clients.skylit import SkylitError
+    from nqbot.clients.skylit_store import SkylitStore
+    from nqbot.config import load_features
+    from nqbot.months import LedgerMissing
+    from nqbot.secrets import MissingSecret
+
+    if args.action == "multiexp-coverage":
+        plan = _json.loads((mx.job_dir(paths) / "plan.json").read_text(encoding="utf-8"))
+        out = paths.reports_dir / "skylit_multiexp" / "coverage.md"
+        from nqbot.storage import atomic_write_text
+
+        atomic_write_text(out, mx.coverage(paths, plan))
+        print(out)
+        return 0
+    paths.root.mkdir(parents=True, exist_ok=True)
+    try:
+        with job_locks(paths.root, (SKYLIT,), "skylit multiexp-plan"):
+            client = mx.make_client(settings, SkylitStore(paths, ledger_name=mx.LEDGER), log)
+            mx.make_plan(paths, settings, load_features(), args.tiers.split(","), args.end, args.approve_credits,
+                         client.credits.remaining)
+    except LockHeld as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return EXIT_LOCKED
+    except (mx.MultiExpRefused, SkylitError, LedgerMissing, MissingSecret, ValueError) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
     return 0
