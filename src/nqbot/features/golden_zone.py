@@ -11,8 +11,11 @@ start, the 10:00 lock and the 10:30 redraw at their exact instants, so a trade a
 - Flip off: the same bar ends the setup only; the drawing, its orientation and `zone_id` stay, and later returns re-arm
   on the original side (§5.4 Containers; the re-arm itself is the caller's F5.6).
 - Redraw off: the 10:00 drawing and the IB high/low locked at 10:00 stay all day (the IB follows the switch, §5.3).
-A new extreme before 10:00 moves the drawing (orientation by the swing rule, flips restart) and keeps its `zone_id`,
-like any zone that moves (F5.5); flips and the 10:30 redraw make new zones (F10).
+A new extreme before 10:00 moves the drawing (orientation by the swing rule, flips restart) and keeps its `zone_id`
+if the orientation stays the same, like any zone that moves (F5.5); if the swing rule reverses the orientation it is a
+new zone, like a flip (owner 2026-10-26: the old zone's open event ends, its pending entries are removed, its touch count
+and freshness don't carry over), reported as a `Redraw`. Flips and the 10:30 redraw make new zones (F10). Prices are the
+session's front-contract NQ trades (F0.4), so the range is the traded high/low (wicks), never bar bodies or closes.
 """
 
 from __future__ import annotations
@@ -54,7 +57,7 @@ class Redraw:
     t: float
     old_zone_id: int        # an open event on it ends, its pending entries are removed (F7)
     new_zone_id: int
-    ib_moved: tuple         # sides whose IB level was replaced: subset of ("high", "low")
+    ib_moved: tuple         # sides whose IB level was replaced: subset of ("high", "low"); () before the 10:00 lock
 
 
 def swing(t_high: float, t_low: float) -> str:
@@ -114,8 +117,11 @@ class GoldenFib:
         if self.l is None or price < self.l:
             self.l, self.t_l = price, t
         if new_extreme and self._marks_done == 1:  # [09:45, 10:00): redraw on the larger range, flips restart
-            self._draw(t, RUNNING, new_zone=False)
+            old = self.drawing
+            self._draw(t, RUNNING, new_zone=swing(self.t_h, self.t_l) != old.orientation)
             self.redraws_before_lock += 1
+            if self.drawing.zone_id != old.zone_id:  # the swing rule reversed the orientation: a new zone
+                out.append(Redraw(t, old.zone_id, self.drawing.zone_id, ()))
         return out
 
     def on_bar(self, t_open: float, t_close: float, bar_open: float, bar_close: float) -> list:

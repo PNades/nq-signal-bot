@@ -37,6 +37,29 @@ def test_up_leg_drawn_at_0945_and_new_extreme_redraws_before_the_lock():
     assert g.drawing.high == 20_300 and g.drawing.source == gz.LOCKED and g.ib_high == 20_300
 
 
+def test_new_extreme_before_1000_reversing_the_orientation_is_a_new_zone():
+    g = fib()
+    g.on_trade(1 * M, 20_000)   # 09:31 low
+    g.on_trade(10 * M, 20_100)  # 09:40 high
+    g.advance(15 * M)
+    z0 = g.drawing.zone_id
+    assert g.drawing.orientation == gz.LONG
+    out = g.on_trade(22 * M, 19_950)  # 09:52 new low: high first now -> short
+    d = g.drawing
+    assert d.orientation == gz.SHORT and d.zone_id != z0 and d.flips == 0
+    assert out == [gz.Redraw(22 * M, z0, d.zone_id, ())]  # the old zone's open event ends, pending entries removed
+
+
+def test_new_extreme_before_1000_keeping_the_orientation_keeps_the_zone_id():
+    g = fib()
+    g.on_trade(1 * M, 20_000)
+    g.on_trade(10 * M, 20_100)
+    g.advance(15 * M)
+    z0 = g.drawing.zone_id
+    assert g.on_trade(22 * M, 20_150) == []  # 09:52 new high: still low first -> long
+    assert (g.drawing.orientation, g.drawing.zone_id, g.drawing.high) == (gz.LONG, z0, 20_150)
+
+
 def test_flip_on_redraws_the_other_way_and_back():
     g = fib()
     owner_range(g)
