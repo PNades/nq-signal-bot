@@ -29,7 +29,7 @@ def test_features_and_accounts_load():
     # golden zone (§5.8, F10): upper fib 0.79 (owner 2026-10-14), the zone runs 0.5 .. the upper fib
     assert f["golden_fib_levels"] == [0.5, 0.618, 0.705, 0.79]
     assert f["golden_zone_upper_fib"] == 0.79 == max(f["golden_fib_levels"]) and min(f["golden_fib_levels"]) == 0.5
-    assert f["features_version"] == 16
+    assert f["features_version"] == 17
     # golden-zone variants (owner 2026-10-26, Q-fibvariants): both start on, the 2 x 2 grid chosen at step 13
     assert f["golden_zone_flip"] is True and f["golden_zone_redraw_1030"] is True
     assert f["tune_grids_13"]["golden_zone_variants"] == {"golden_zone_flip": [True, False],
