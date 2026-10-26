@@ -2,6 +2,7 @@
 The rule is tested here on hand-built data; the area-event builder that feeds it comes at step 19."""
 
 from nqbot.features import area_cross as ac
+from nqbot.features import es_level as el
 from nqbot.features.trinity import CEILING, FLOOR, RoleTrack
 
 M = 60.0  # times are seconds after 09:30:00
@@ -36,7 +37,8 @@ def test_es_in_a_spy_king_floor_band_while_nq_is_in_the_val_area():
     out = ac.area_sp({"SPY": [king]}, RHO, taus(w0, t), t)
     assert out["area_sp_aligned_spy"] is True and out["area_sp_count"] >= 1
     assert (out["area_sp_pct_of_king_spy"], out["area_sp_king_spy"]) == (1.0, True)
-    assert ac.es_at_level([king], RHO, taus(w0, t), t) is True  # the SPY node is an ES level too
+    spy_zone = el.single(king.inside_at, king.track, chain="SPY", member_type="spy_node")  # the SPY node is an ES level too
+    assert el.es_at_level([spy_zone], RHO, taus(w0, t), t)["es_at_level"] is True
 
 
 def test_that_spy_node_crossed_down_before_decision_ts_no_longer_counts():
@@ -63,8 +65,8 @@ def test_node_becoming_relevant_while_es_is_inside_counts_from_that_moment():
 
 
 def test_es_at_its_on_low_with_no_sp_node():
-    on_low = ac.Candidate(inside_at=spans((41 * M, None)), track=RoleTrack(roles=[(0.0, FLOOR)]))
-    assert ac.es_at_level([on_low], RHO, taus(40 * M, 45 * M), 45 * M) is True
+    on_low = el.single(spans((41 * M, None)), RoleTrack(roles=[(0.0, FLOOR)]), member_type="es_on_low")
+    assert el.es_at_level([on_low], RHO, taus(40 * M, 45 * M), 45 * M)["es_at_level"] is True
     assert ac.area_sp({"SPY": [], "SPX": []}, RHO, taus(40 * M, 45 * M), 45 * M)["area_sp_count"] == 0
 
 

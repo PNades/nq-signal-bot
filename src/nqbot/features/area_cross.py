@@ -15,6 +15,8 @@ the structure model's prediction is null for area events). Area events are built
   node counts from ES's entry side).
 - Dislocation block (F1.8), the level-event rule: a blocked map's columns are null, and `area_sp_count` is null while
   either S&P chain is blocked (as `trinity_count` is for level events).
+`es_at_level` (the same column as for level events, with its block rule) is `features/es_level.py`, called with the area
+window's check times.
 """
 
 from __future__ import annotations
@@ -72,11 +74,6 @@ def first_overlap(c: Candidate, rho: str, taus, t: float) -> float | None:
         if c.inside_at(tau) and c.relevant_at(tau) and counts_in_role(c.track, rho, tau, t, c.entered_from):
             return tau
     return None
-
-
-def es_at_level(levels, rho: str, taus, t: float) -> bool:
-    """F5.16 for an area event (same column as for level events): one ES level that still counts is enough."""
-    return any(first_overlap(c, rho, taus, t) is not None for c in levels)
 
 
 def area_sp(nodes: dict, rho: str, taus, t: float, blocked=frozenset()) -> dict:
