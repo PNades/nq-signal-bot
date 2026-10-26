@@ -6,12 +6,15 @@ the structure model's prediction is null for area events). Area events are built
 - Window [w0, t]: w0 = the visit start, the moment NQ last entered the area on this visit; with NQ inside both the daily
   and the weekly area at the first firing, the earliest moment since which NQ has been continuously inside at least one
   of the areas containing it at that firing (`visit_start`).
-- A candidate (an ES level for `es_at_level`, a relevant SPY/SPX node for the `area_sp_*` columns) counts if at some tau
-  in the window ES was inside its band +- `es_zone_proximity` and it counts in rho at t by the Q18 rule (holds rho at t,
-  confirmed or provisional, not crossed against rho since tau; `trinity.counts_in_role`). SPY/SPX nodes also use Q19
-  (an unroled node counts from ES's entry side) and are null during a dislocation block of their chain (F1.8).
-The caller supplies, per candidate, the stretches when ES was inside its band (from the last trades and bands as of each
-tau, data <= t only).
+- A candidate (an ES level for `es_at_level`, a relevant SPY/SPX node for the `area_sp_*` columns) overlaps at tau if ES
+  is inside its band +- `es_zone_proximity` (and, for a node, it is relevant) as of tau. tau is checked at the visit
+  start and at every ES trade, NQ trade and board apply in (w0, t], as the level-event Trinity rule does (F2.19); the
+  caller passes those times and evaluates the candidate as of each (last trades and bands <= tau, data <= t only).
+- It counts if it overlapped at some checked tau and counts in rho at t by the Q18 rule (holds rho at t, confirmed or
+  provisional, not crossed against rho since tau; `trinity.counts_in_role`). SPY/SPX nodes also use Q19 (an unroled
+  node counts from ES's entry side).
+- Dislocation block (F1.8), the level-event rule: a blocked map's columns are null, and `area_sp_count` is null while
+  either S&P chain is blocked (as `trinity_count` is for level events).
 """
 
 from __future__ import annotations
@@ -45,45 +48,49 @@ def visit_start(inside: dict, t_first: float) -> float | None:
     return start if start is not None and start <= t_first <= end else None
 
 
+def _always(_tau: float) -> bool:
+    return True
+
+
 @dataclass
 class Candidate:
-    inside: list                                  # (start, end or None): ES inside the band +- es_zone_proximity
+    inside_at: Callable[[float], bool]            # ES inside the band +- es_zone_proximity as of tau
     track: RoleTrack = field(default_factory=RoleTrack)
+    relevant_at: Callable[[float], bool] = _always  # nodes: relevant as of tau (F2.4); ES chart levels: always
     entered_from: str | None = None               # Q19, nodes only ('below' / 'above'); None for ES chart levels
     stats: Callable[[float], dict] | None = None  # tau -> {'pct_of_king', 'king', 'gatekeeper'} (nodes)
 
 
-def first_overlap(c: Candidate, rho: str, w0: float, t: float) -> float | None:
-    """The first tau in [w0, t] with ES inside c's band from which c still counts in rho at t; None if none."""
-    taus = []
-    for s, e in c.inside:
-        lo, hi = max(s, w0), min(t, math.inf if e is None else e)
-        if lo <= hi:
-            taus.append(lo)
-            taus += [ts for ts, _ in c.track.roles if lo < ts <= hi]  # a role change inside the stretch
-    for tau in sorted(taus):
-        if counts_in_role(c.track, rho, tau, t, c.entered_from):
+def check_times(w0: float, t: float, times) -> list:
+    """The visit start plus every ES trade, NQ trade and board apply time in (w0, t], in order."""
+    return [w0] + sorted({x for x in times if w0 < x <= t})
+
+
+def first_overlap(c: Candidate, rho: str, taus, t: float) -> float | None:
+    """The first checked tau at which c overlaps and from which it still counts in rho at t; None if none."""
+    for tau in taus:
+        if c.inside_at(tau) and c.relevant_at(tau) and counts_in_role(c.track, rho, tau, t, c.entered_from):
             return tau
     return None
 
 
-def es_at_level(levels, rho: str, w0: float, t: float) -> bool:
+def es_at_level(levels, rho: str, taus, t: float) -> bool:
     """F5.16 for an area event (same column as for level events): one ES level that still counts is enough."""
-    return any(first_overlap(c, rho, w0, t) is not None for c in levels)
+    return any(first_overlap(c, rho, taus, t) is not None for c in levels)
 
 
-def area_sp(nodes: dict, rho: str, w0: float, t: float, blocked=frozenset()) -> dict:
-    """The area_sp_* columns. Per map: aligned, and the aligned node's stats at its first overlap (the earliest-overlapping
-    node; ties -> the larger pct_of_king). A blocked map is null; area_sp_count counts aligned maps, null if all null."""
-    out, count, known = {}, 0, 0
+def area_sp(nodes: dict, rho: str, taus, t: float, blocked=frozenset()) -> dict:
+    """The area_sp_* columns. Per map: aligned, and the stats at its first overlap of the node that overlapped first among
+    those still counting at t (a node that overlapped earlier but has since failed is skipped; a tie -> the larger
+    pct_of_king). A blocked map is null; `area_sp_count` (aligned maps) is null while either S&P chain is blocked."""
+    out, count = {}, 0
     for m in SP_MAPS:
         k = m.lower()
         if m in blocked:
             out.update({f"area_sp_aligned_{k}": None, f"area_sp_pct_of_king_{k}": None,
                         f"area_sp_king_{k}": None, f"area_sp_gatekeeper_{k}": None})
             continue
-        known += 1
-        hits = [(tau, c) for c in nodes.get(m, []) if (tau := first_overlap(c, rho, w0, t)) is not None]
+        hits = [(tau, c) for c in nodes.get(m, []) if (tau := first_overlap(c, rho, taus, t)) is not None]
         st = {}
         if hits:
             tau, c = min(hits, key=lambda h: (h[0], -(h[1].stats(h[0])["pct_of_king"] if h[1].stats else 0.0)))
@@ -91,5 +98,5 @@ def area_sp(nodes: dict, rho: str, w0: float, t: float, blocked=frozenset()) -> 
             count += 1
         out.update({f"area_sp_aligned_{k}": bool(hits), f"area_sp_pct_of_king_{k}": st.get("pct_of_king"),
                     f"area_sp_king_{k}": st.get("king"), f"area_sp_gatekeeper_{k}": st.get("gatekeeper")})
-    out["area_sp_count"] = count if known else None
+    out["area_sp_count"] = None if any(m in blocked for m in SP_MAPS) else count
     return out
