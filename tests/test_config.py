@@ -29,7 +29,7 @@ def test_features_and_accounts_load():
     # golden zone (§5.8, F10): upper fib 0.79 (owner 2026-10-14), the zone runs 0.5 .. the upper fib
     assert f["golden_fib_levels"] == [0.5, 0.618, 0.705, 0.79]
     assert f["golden_zone_upper_fib"] == 0.79 == max(f["golden_fib_levels"]) and min(f["golden_fib_levels"]) == 0.5
-    assert f["features_version"] == 13
+    assert f["features_version"] == 14
     # mapping-dislocation guard (F1.8, owner 2026-10-14): fixed from data quality, never tuned
     m = f["mapping"]
     assert (m["disl_guard_pct"], m["disl_guard_window_sec"], m["disl_guard_confirm_sec"], m["disl_guard_hold_sec"]) == (
@@ -41,6 +41,12 @@ def test_features_and_accounts_load():
     assert "em_level" in f["tune_grids_13"]["detectors"]["flip_margin"]["groups"]["chart_lines"]
     assert "va_edge" in f["chart_level_half_width"] and "va_edge" in f["tune_grids_13"]["detectors"]["flip_margin"]["groups"]["chart_lines"]
     assert f["mx_bucket_days"] == [7, 45]
+    # confirmed King / ceiling / floor switches (owner 2026-10-25, Q6/Q29): two windows, tuned at step 13 by log loss
+    assert "node_switch_min_sec" not in f
+    assert f["roll_switch_min_sec"] == f["king_switch_min_sec"] == 60 and f["node_switch_incumbent_max_share"] == 0.25
+    ll = f["tune_grids_13"]["features_logloss"]
+    assert ll == {"roll_switch_min_sec": [30, 60, 120, 300], "king_switch_min_sec": [30, 60, 120, 300]}
+    assert all(f[k] in v for k, v in ll.items())
     assert load_accounts() == []
 
 

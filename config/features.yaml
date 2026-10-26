@@ -2,7 +2,7 @@
 # Values are the SPEC's start values and the docs/feature_spec.md F15 start values the owner approved at
 # step 6 (2026-10-05); the step-13/19 grids are tune_grids_13 / tune_grids_19 (F16). Frozen execution parameters are added here at step 13/19,
 # marked `frozen_from: months 1-4` (§7.1).
-features_version: 13               # 1: golden-zone upper fib 0.786 -> 0.79; 2: expected-move (sigma) levels F3.11; 3: mapping-dislocation guard F1.8 (owner 2026-10-14); 4: opening-range fib 09:45 start, 10:30 redraw, flips, and feature additions B2-B5 (owner 2026-10-16); 5: features during a dislocation block, guard windows reset at the session start only, B1 volume baselines and relative detector thresholds (owner 2026-10-17); 6: Skylit's VIX row, its close only as vix_ref_chg (Q-vix, owner 2026-10-20); 7: expected-move unit = Tempest's em_1d_pct as stored (Q-svxwknd, owner 2026-10-22); 8: post-cross retests and cross features F2.6b, gameplan zones break past the far edge (Q-flipretest, owner 2026-10-23); 9: previous-session profile levels and context, single-contract weekly, xb_settled_1m, stacked single prints, multi-expiration context (Q-amt, Q-multiexp, owner 2026-10-24; feature freeze until step 16); 10: air pockets below 10% of the King, was 2% (owner 2026-10-24, a correction of an existing definition); 11: pika-cloud members are relevant nodes, 0.25 in / node_drop_pct out (owner 2026-10-24, a correction); 12: in_pika_cloud on S&P maps = cloud band +/- es_zone_proximity contains the ES price (owner 2026-10-24); 13: Trinity and es_at_level by the overlap rule over [touch, t], aligned node not crossed at t (owner 2026-10-24); nothing was built under 0-12
+features_version: 14               # 1: golden-zone upper fib 0.786 -> 0.79; 2: expected-move (sigma) levels F3.11; 3: mapping-dislocation guard F1.8 (owner 2026-10-14); 4: opening-range fib 09:45 start, 10:30 redraw, flips, and feature additions B2-B5 (owner 2026-10-16); 5: features during a dislocation block, guard windows reset at the session start only, B1 volume baselines and relative detector thresholds (owner 2026-10-17); 6: Skylit's VIX row, its close only as vix_ref_chg (Q-vix, owner 2026-10-20); 7: expected-move unit = Tempest's em_1d_pct as stored (Q-svxwknd, owner 2026-10-22); 8: post-cross retests and cross features F2.6b, gameplan zones break past the far edge (Q-flipretest, owner 2026-10-23); 9: previous-session profile levels and context, single-contract weekly, xb_settled_1m, stacked single prints, multi-expiration context (Q-amt, Q-multiexp, owner 2026-10-24; feature freeze until step 16); 10: air pockets below 10% of the King, was 2% (owner 2026-10-24, a correction of an existing definition); 11: pika-cloud members are relevant nodes, 0.25 in / node_drop_pct out (owner 2026-10-24, a correction); 12: in_pika_cloud on S&P maps = cloud band +/- es_zone_proximity contains the ES price (owner 2026-10-24); 13: Trinity and es_at_level by the overlap rule over [touch, t], aligned node not crossed at t (owner 2026-10-24); 14: owner answers to the Skylit-understanding questions (2026-10-25): lean = above minus below on magnitude velocity, confirmed King / ceiling / floor by lead time (roll_switch_min_sec, king_switch_min_sec, node_switch_incumbent_max_share), price switches at once from futures vs band, signed roll_steps, Trinity counts provisional roles; nothing was built under 0-13
 
 # --- Structure (§5.2-§5.4b) -----------------------------------------------------------------------
 zone_proximity: 5                 # NQ pts; tuned at step 13 (F16.4); approved 2026-10-05 (feature_spec F15)
@@ -76,7 +76,10 @@ pika_cloud_min_nodes: 2         # owner 2026-10-05
 pika_cloud_min_pct: 0.25        # owner 2026-10-24 (was 0.10): members are relevant nodes (enter at this, stay until < node_drop_pct), adjacent strikes; = min_node_pct_of_king
 air_pocket_max_pct: 0.10        # owner 2026-10-24 (was 0.02 from 2026-10-05): air pockets = runs of small nodes (< 10% of King) price travels through easily
 magnet_min_dist_em: 0.1           # expected moves; fixed; approved 2026-10-05 (feature_spec F15)
-node_switch_min_sec: 60           # King and ceiling/floor switches; fixed; approved 2026-10-05 (feature_spec F15)
+roll_switch_min_sec: 60           # s; window W for confirmed ceiling/floor switches (F2.11, Q6/Q9, owner 2026-10-25); start 60,
+                                  # tuned at step 13 on months 1-4 by structure-model log loss (tune_grids_13.features_logloss)
+king_switch_min_sec: 60           # s; window W for confirmed King switches (F2.16, Q6/Q28, owner 2026-10-25); start 60, tuned the same way
+node_switch_incumbent_max_share: 0.25  # owner rule 2026-10-25, never tuned: a confirmed node switches only if it led less than this share of W
 rainbow_min_nodes_per_sign: 2   # owner 2026-10-05; fixed
 rainbow_max_dominance: 1.5      # owner 2026-10-05; fixed
 bias_deadband: 0.05               # velocity-lean units; fixed; step 12 checks it against the 1-min lean; approved 2026-10-05 (feature_spec F15)
@@ -197,6 +200,12 @@ tune_grids_13:
         chart_lines: [vwap, vwap_band, poc, lvn, single_print, dark_pool, em_level, va_edge]
         highs_lows: [on_extreme, pdh_pdl, prior_rth, prior_week, ib, retested_extreme]
       values: [0, 2, 5]
+  features_logloss:               # owner 2026-10-25 (Q29): feature-only parameters, events and labels unchanged: scored by day-blocked
+                                  # CV log loss of the structure model on months 1-4 on the fixed event set (no rebuild); roll first
+                                  # (king at 60), then king (roll at its winner); a value replaces 60 only if its log loss is lower and
+                                  # the 95% day-block bootstrap interval of the difference excludes 0; under 60 behaves as 60 on 1-minute days
+    roll_switch_min_sec: [30, 60, 120, 300]
+    king_switch_min_sec: [30, 60, 120, 300]
   execution:                      # styles (c) and (d), each on its own single-style policy
     entry_order_type: [limit, marketable_limit, stop_limit]
     entry_ttl_sec: [10, 30, 60, 120, 300]

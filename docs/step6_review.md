@@ -74,9 +74,9 @@ The rest of this section-by-section summary explains what each measurement means
 ## 4. The Skylit map
 
 **Sizes and types (your definitions).**
-- The **King** is the biggest node on a map, by absolute size; it can be negative.
+- The **King** is the biggest node on a map, by absolute size; it can be negative. (Owner 2026-10-25: "who is the King" is now the *confirmed* King, the strike that has led over the last 60 s by the rule under Rolling ceilings below, so a 760/759 tug-of-war doesn't flip it. % of King is still against each board's own biggest node, so it never exceeds 1.)
 - A node is **relevant** once it reaches 25% of the King. It stays relevant until it drops below 20%, so it doesn't flicker on and off.
-- **Gatekeepers** are relevant nodes sitting between price and the King.
+- **Gatekeepers** are relevant nodes sitting between price and the King (owner 2026-10-25: the confirmed King; kept even though Skylit's own examples label differently, because Skylit's "gatekeeper" just means any non-King node ≥ 25%, so it is compared with your Gatekeeper + significant together).
 - **Significant** = any other relevant node. **Normal** = everything smaller.
 - **Colour is separate:** pika (yellow, positive) or barney (purple, negative).
 
@@ -88,19 +88,20 @@ The rest of this section-by-section summary explains what each measurement means
 - **Beach ball:** a cross followed by a reclaim. Its depth and duration are recorded.
 
 **Map patterns (all are model inputs, never trade rules).**
-- **Velocity and lean:** how much each node grew or shrank over the last minute, and whether growth is mostly below price (a pull down) or above (a pull up), averaged over the last minute (your setting: accumulation shifts quickly).
+- **Velocity and lean:** how much each node grew or shrank over the last minute, and whether growth is mostly below price (a pull down) or above (a pull up), averaged over the last minute (your setting: accumulation shifts quickly). (Owner 2026-10-25: the lean uses growth in size, so a negative node going from −1M to −2M counts as building; lean = above minus below, so positive means bias up, everywhere.)
 - **Magnets:** each node pulls with strength = size ÷ distance. The bot sums the pull above and below price.
 - **Rolling ceilings and floors:** the biggest node above price is replaced (for at least 60 s) by a closer one that is still above price, whether the old one faded or the new one grew. Mirror image for floors. Per your answer, a roll stays active (bearish for a ceiling roll-down, bullish for a floor roll-up) until it rolls back to where it started, with no timer. If price trades through the current ceiling's (or floor's) zone, the roll is paused until price comes back fully below the ceiling (above the floor). If, while it's paused, a new ceiling forms above price and that one rolls down, that's a new active roll that replaces the old one. The bot also tracks whether the node mass above and below price is shrinking (since the open and since the roll began).
+  - *Owner 2026-10-25:* a ceiling (and the King) changes only when the current one led less than a quarter of the last 60 s and isn't leading now; it moves to the strike that led longest. So two strikes swapping every 30 s never change it, and a fading one never gets stuck. With 60 s a clean new leader takes over about 46 s after it starts leading. Price moving through the ceiling's zone (on NQ, not the QQQ spot) changes the ceiling at once and is never a roll; a switch counts as a roll only if the new strike sat above price the whole minute. The roll's net strikes can go negative (the ceiling ended up above where the roll started). The 60 s is now two settings, one for rolls and one for the King, each tested at step 13 on months 1–4 against 30, 120 and 300 s, kept at 60 unless another value is clearly better.
 - **Gamma regime:**
   - net gamma within ±1% of spot (your setting), as a share of the King;
   - the share of that gamma that is positive (the "yellow vs purple" read).
-- **Rug:** a relevant positive node with a negative node at most one strike below it, price below. **Reverse rug:** the mirror.
+- **Rug:** a relevant positive node with a negative node at most one strike below it, price below. **Reverse rug:** the mirror. (Owner 2026-10-25: a value of exactly 0 isn't a partner; "directly below" means the next listed strikes.)
 - **Pika cloud:** 2 or more adjacent positive strikes, each at least 10% of the King (owner 2026-10-24: now each a relevant node, entering at 25% and staying until it drops below 20%).
 - **Air pockets:** runs of strikes under 2% of the King (owner 2026-10-24: now 10%), which price travels through quickly. The bot also records how much of each pocket is negative.
 - **King dominance and migration:** how much bigger the King is than the second node, how far away it is, and how often (and in which direction) the King has moved today. Stair-stepping is a trend tell.
 - **Rainbow road:** many positive and many negative relevant nodes with no dominant King.
-- **Whipsaw:** the three Trinity maps lean in different directions while the Nasdaq map still has a floor and a ceiling.
-- **Trinity:** SPY, SPX and the Nasdaq side (QQQ or NDXP) each have a node in the same role right at their own price, at the same moment.
+- **Whipsaw:** the three Trinity maps lean in different directions while the Nasdaq map still has a floor and a ceiling (owner 2026-10-25: once with QQQ, once with NDXP).
+- **Trinity:** SPY, SPX and the Nasdaq side (QQQ or NDXP) each have a node in the same role right at their own price, at the same moment. (Owner 2026-10-25: a crossed node counts in its new, provisional role, so retests after a break aren't marked down; it stops counting if price crosses it back.)
 - **S&P obstacles:** relevant SPY/SPX nodes between ES and the trade's target (converted to ES), counted as obstacles.
 
 **Context.**
