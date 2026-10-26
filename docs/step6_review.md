@@ -201,6 +201,7 @@ The rest of this section-by-section summary explains what each measurement means
 - **Invalidation:** a 1-minute bar settling past 0.79.
 - **Repeat tests:** every return after re-arming is a new event, with no limit.
 - **Trading window:** it is the only setup that can trade 09:50–10:00. Other levels still count as confluence inside it.
+- *Owner 2026-10-26:* the start is now 09:45, with a 10:30 redraw and orientation flips (2026-10-16). The flip and the 10:30 redraw are now tested at step 13 on months 1–4: four versions (flip on/off × redraw on/off), and the current design (both on) stays unless another is clearly better on golden-zone trades (net R per month, its 95% interval above 0). With the flip off, a settle past 0.79 just ends the setup and the zone keeps its direction; with the redraw off, the 10:00 drawing and IB high/low stay all day. A count report splits golden-zone hold rates by flips (0 vs 1+) and by drawing (before 10:00 / at 10:00 / at 10:30).
 
 ## 11. Stops, targets, breakeven and what "success" means
 
