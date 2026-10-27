@@ -72,15 +72,54 @@ def test_two_zones_from_one_drawing():
     assert d.shallow_id != d.deep_id
 
 
+def run(g, depths, start_minute=31):
+    """Feed trades at fib depths x (owner's long drawing: price = 20,100 - 100 x), one a minute from 10:01, through
+    GoldenFib and GoldenTouches (zone_proximity 5, rearm_dist 10, the config values); returns the touches."""
+    touches = gz.GoldenTouches(g, zone_proximity=5, rearm_dist=10)
+    out = []
+    for i, x in enumerate(depths):
+        t = (start_minute + i) * M
+        g.on_trade(t, 20_100 - 100 * x)
+        out += touches.on_trade(t, 20_100 - 100 * x)
+    return out
+
+
 def test_a_pullback_through_05_then_0618_touches_shallow_then_deep():
     g = fib()
     owner_range(g)
-    touched = []  # first entry of each zone_id, in order (the touch rule with zone_proximity 0)
-    for price in (20_080, 20_049, 20_045, 20_037, 20_030):
-        for part, zid in g.zones_touched(price, proximity=0):
-            if zid not in [z for _, z in touched]:
-                touched.append((part, zid))
-    assert touched == [(gz.SHALLOW, g.drawing.shallow_id), (gz.DEEP, g.drawing.deep_id)]
+    touched = run(g, [0.30, 0.49, 0.55, 0.64])
+    assert [(k.part, k.zone_id) for k in touched] == [(gz.SHALLOW, g.drawing.shallow_id), (gz.DEEP, g.drawing.deep_id)]
+
+
+def test_deep_zone_trades_after_a_shallow_trade_is_stopped_past_0618():
+    """Owner test (1), 2026-10-27: a long shallow-zone trade fills at 0.55 and is stopped past 0.618; price then trades
+    to 0.66 -> a deep-zone event with its own touch group, still open (eligible to trade, subject to one trade per
+    account and the direction lock, which the simulators apply). The deep event starts at the first trade past 0.618."""
+    g = fib()
+    owner_range(g)
+    shallow, deep = run(g, [0.30, 0.55, 0.64, 0.66])  # 0.64: the stop trade, also the first trade past 0.618
+    assert (shallow.part, shallow.t, deep.part, deep.t) == (gz.SHALLOW, 32 * M, gz.DEEP, 33 * M)
+    assert deep.touch_group != shallow.touch_group
+    assert deep.zone_id == g.drawing.deep_id  # the shallow trade's stop did not end the deep zone (no settled break)
+
+
+def test_deep_zone_is_touched_only_by_a_trade_past_0618():
+    """Owner test (2), 2026-10-27: within zone_proximity of 0.618 but turning at 0.61 -> no deep touch; a turn at 0.625
+    (just past 0.618) -> a deep touch."""
+    g = fib()
+    owner_range(g)
+    assert [k.part for k in run(g, [0.30, 0.55, 0.61, 0.40])] == [gz.SHALLOW]  # 20,039 is 0.8 pts from 20,038.2
+    g = fib()
+    owner_range(g)
+    assert [k.part for k in run(g, [0.30, 0.55, 0.625, 0.40])] == [gz.SHALLOW, gz.DEEP]
+
+
+def test_deep_zone_rearms_back_on_the_shallow_side_rearm_dist_from_0618():
+    g = fib()
+    owner_range(g)
+    touched = run(g, [0.30, 0.55, 0.64, 0.55, 0.63, 0.50, 0.63])
+    # 0.55 is 6.8 pts above 0.618: not re-armed; 0.50 is 11.8 pts above (>= rearm_dist 10): re-armed
+    assert [(k.part, k.t) for k in touched] == [(gz.SHALLOW, 32 * M), (gz.DEEP, 33 * M), (gz.DEEP, 37 * M)]
 
 
 def test_a_settle_past_0618_breaks_the_shallow_zone_only():

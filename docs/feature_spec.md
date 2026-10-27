@@ -625,14 +625,15 @@ All are computed on RTH from 09:30 and known at t:
   - **Unresolved breaks:** while a member's break is unresolved, trades on the far side neither re-arm the zone nor change its approach side, and coming back inside is the same event. A break is unresolved when:
     - a high/low is inside its sweep window and within `sweep_max_depth`;
     - a chart level is beyond its band with no settled 1-minute bar yet;
-    - the golden zone is beyond 0.79 with no settled bar yet.
+    - a golden zone is beyond its far edge (0.618 for the shallow zone, 0.79 for the deep one) with no settled bar yet.
+  - **Golden zones (owner 2026-10-27, SPEC §13 Q-gzsplit):** the shallow zone uses the touch band on its 0 side only; the deep zone is touched only by a trade past 0.618 (no `zone_proximity`) and re-arms at a trade back on the shallow side at least `rearm_dist` from 0.618 (F10, `features/golden_zone.py` `GoldenTouches`).
   - After a cross, a level in its provisional new role (F2.6 step 5) arms on the crossed side, with or without a flip; after a reclaim, on the original side.
 - *Params:* `zone_proximity`, `rearm_dist`.
 - *Test:* zone [100, 102], `zone_proximity` 2, `rearm_dist` 10. Price 120 (armed, from above) → 104 (touch) → 110 (no re-arm) → 115 (re-armed) → 103.5 (second touch).
 
 ### F5.7 Events, IDs and direction
 - *Definition:*
-  - **Event** = one touch of a zone, at the touch trade's `ts_event`.
+  - **Event** = one touch of a zone, at the touch trade's `ts_event`. A deep-golden-zone touch (a trade past 0.618, F10) is its own event with its own touch group, never grouped with a shallow-zone touch (F5.10; owner 2026-10-27).
   - `event_id` = `<UTC timestamp at second resolution, e.g. 20251119T155200Z>-<zone_id>`.
   - `order_id` = `<event_id>-<style><n>-<account>-<leg>` (§5.4).
   - **Direction:**
@@ -666,7 +667,8 @@ The golden zone (F10) and gameplan zones (F8) never merge. Levels whose bands ov
 ### F5.10 Touch groups
 - *Definition:* events whose touches happen on the same trade (same `ts_event` and sequence, e.g. a container and a level zone inside it) share a `touch_group_id`.
 - Training weights follow §5.4: a pair row gets 1 ÷ (events in the group × filled pair rows of its event); a trigger row gets 1 ÷ firings in the event.
-- *Test:* a golden zone containing a POC zone, touched by one trade → 2 events, 1 group.
+- **Golden zones (owner 2026-10-27, SPEC §13 Q-gzsplit):** a deep-zone touch always starts its own touch group, never shared with a shallow-zone touch, even if one trade touches both (a gap through the shallow zone); other zones touched by the same trade group with whichever golden zone contains them. So after a shallow-zone trade ends (e.g. stopped past 0.618) the deep-zone event can still trade, subject to one trade per account at a time and the direction lock.
+- *Test:* a golden zone containing a POC zone, touched by one trade → 2 events, 1 group. A shallow-zone touch at 0.55 and a deep-zone touch at 0.64 → 2 events, 2 groups.
 
 ### F5.11 Freshness
 - *Source:* §5.4 Freshness; Skylit docs ("tap degradation: fresh nodes matter more").
@@ -951,7 +953,9 @@ Each removal takes effect `order_latency_sec` after it occurs; a fill before the
 
 **Variants (owner 2026-10-26, SPEC §13 Q-fibvariants; `features/golden_zone.py`):** the orientation flip and the 10:30 redraw are pre-declared step-13 tests, switched by `golden_zone_flip` and `golden_zone_redraw_1030` (both start true; the 2 × 2 grid `tune_grids_13.golden_zone_variants`, F16.4). `ib_fib_start_minute` (15), `ib_lock_minute` (30), the fib levels and the swing rule stay owner rules, never tuned. Everything below is the default (both on); the off behaviour is stated in the flip and redraw items.
 
-**Two zones (owner 2026-10-27, SPEC §13 Q-gzsplit; `golden_zone_split_fib` 0.618, owner rule, never tuned):** one drawing, two golden-zone containers: the **shallow zone** 0.5–0.618 and the **deep zone** 0.618–0.79. Both share the drawing's orientation, flips and 10:30 redraw; whenever the drawing changes (a new extreme before 10:00 that reverses the orientation, a flip, the 10:30 redraw) both get new `zone_id`s, and a new extreme that keeps the orientation keeps both. Each has its own `zone_id`, touches (F5 touch rule with `zone_proximity`), re-arm against its own far edge, freshness, touch number, earlier-touch outcomes, structure label, events and confluence (nodes, Trinity and chart levels inside it). The flip and redraw variants are tested on the split drawing. Below, "the zone" means each zone unless one is named.
+**Two zones (owner 2026-10-27, SPEC §13 Q-gzsplit; `golden_zone_split_fib` 0.618, owner rule, never tuned):** one drawing, two golden-zone containers: the **shallow zone** 0.5–0.618 and the **deep zone** 0.618–0.79. Both share the drawing's orientation, flips and 10:30 redraw; whenever the drawing changes (a new extreme before 10:00 that reverses the orientation, a flip, the 10:30 redraw) both get new `zone_id`s, and a new extreme that keeps the orientation keeps both. Each has its own `zone_id`, touches, re-arm against its own far edge, freshness, touch number, earlier-touch outcomes, structure label, events and confluence (nodes, Trinity and chart levels inside it). The flip and redraw variants are tested on the split drawing. Below, "the zone" means each zone unless one is named.
+
+**Touches (owner 2026-10-27, Q-gzsplit answer; `GoldenTouches`):** positions as fib depth x (0 = the range extreme on the target side; larger = deeper). The shallow zone, approached from the 0 side, is armed at a trade at x ≤ 0.5 − (`zone_proximity` + `rearm_dist`) ÷ span and touched at the first armed trade at x ≥ 0.5 − `zone_proximity` ÷ span (F5.6 on that side). The deep zone is only ever reached through the shallow zone: touched at the first armed trade with x > 0.618 (coming within `zone_proximity` of 0.618 is not a touch), armed at a trade back on the shallow side with x ≤ 0.618 − `rearm_dist` ÷ span; each deep touch is a new event with its own touch group (F5.10), so the deep zone can still trade after a shallow-zone trade has ended (one trade per account at a time and the direction lock as always). New `zone_id`s start unarmed and arm by these rules.
 
 - *Definition:*
   - **Running range** from 09:30:00: H and L = the max/min RTH trade so far on the session's front contract (F0.4); t_H and t_L = their first-occurrence times.
@@ -993,7 +997,7 @@ Each removal takes effect `order_latency_sec` after it occurs; a fill before the
   - 10:30 redraw: 10:00 range [20,000, 20,100] (low first); a new low of 19,950 at 10:12 → at 10:30:00 redrawn on [19,950, 20,100], high first → short, `fib_redrawn_1030` true, `fib_flips` 0, the IB low moves to 19,950 (F3.6); with no new extreme in [10:00, 10:30) → unchanged, `fib_redrawn_1030` false.
   - Flip off (owner 2026-10-26): the owner's long zone [20,021, 20,050]; a bar at 10:05 settling below 20,021 → the event ends, the zone stays long [20,021, 20,050] with the same `zone_id`, `fib_flips` 0; a later bar settling above 20,079 changes nothing.
   - Redraw off (owner 2026-10-26): 10:00 range [20,000, 20,100]; a new high of 20,150 at 10:12 → nothing changes at 10:30:00 (drawing, `zone_id`, IB high 20,100 kept), `fib_redrawn_1030` false.
-  - Split (owner 2026-10-27), the owner's long drawing (L 20,000, H 20,100): shallow [20,038.2, 20,050], deep [20,021, 20,038.2]; a pullback 20,080 → 20,049 → 20,037 touches the shallow zone, then the deep zone (separate `zone_id`s); a bar settling at 20,035 → 20,030 breaks the shallow zone only (no flip, same drawing); a bar settling 20,019 → 20,010 breaks both and flips: both get new `zone_id`s, short shallow [20,050, 20,061.8].
+  - Split (owner 2026-10-27), the owner's long drawing (L 20,000, H 20,100; `zone_proximity` 5, `rearm_dist` 10): shallow [20,038.2, 20,050], deep [20,021, 20,038.2]; a pullback 0.30 → 0.49 → 0.55 → 0.64 touches the shallow zone, then the deep zone (separate `zone_id`s and touch groups); owner test (1): a shallow trade filled at 0.55 and stopped past 0.618 (0.64), then 0.66 → the deep-zone event (from 0.64) has its own touch group and is still open; owner test (2): 0.30 → 0.55 → 0.61 → 0.40 (0.61 is 0.8 pts from 0.618) → no deep touch, 0.30 → 0.55 → 0.625 → a deep touch; deep re-arm: after a deep touch, 0.55 (6.8 pts above 0.618) does not re-arm, 0.50 (11.8 pts) does, and the next trade past 0.618 is a new deep touch; a bar settling at 20,035 → 20,030 breaks the shallow zone only (no flip, same drawing); a bar settling 20,019 → 20,010 breaks both and flips: both get new `zone_id`s, short shallow [20,050, 20,061.8].
   - Tests: `tests/test_golden_zone.py`.
 
 ---

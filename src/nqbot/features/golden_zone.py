@@ -8,7 +8,8 @@ Two zones from one drawing (owner 2026-10-27, SPEC §13 Q-gzsplit): the shallow 
 both come from the same drawing (orientation, flips, 10:30 redraw), and whenever the drawing changes both get new
 `zone_id`s. Each breaks on a 1-minute bar settling past its own far edge (F0.5): past 0.618 breaks the shallow zone
 only (no flip, the deep zone is simply the next zone); past 0.79 breaks the deep zone and, with the flip on, flips the
-drawing. Touches, re-arm (against each zone's own far edge) and freshness are the caller's F5.6.
+drawing. Touches and re-arm: `GoldenTouches` (owner 2026-10-27: the deep zone is touched only by a trade past 0.618,
+never by coming within `zone_proximity` of it); freshness and events are the caller's (F5.6, F5.7).
 
 Times are seconds after 09:30:00 ET; trades and 1-minute bars come in time order. Each call first applies the 09:45
 start, the 10:00 lock and the 10:30 redraw at their exact instants, so a trade at 10:00:00 no longer redraws and the
@@ -111,18 +112,6 @@ class GoldenFib:
     def band(self, part: str, d: Drawing | None = None) -> tuple[float, float]:
         return (d or self.drawing).band(*self.fibs(part))
 
-    def zones_touched(self, price: float, proximity: float) -> list:
-        """(part, zone_id) of every zone whose band +- proximity holds price (the normal touch rule's test; the touch
-        count and re-arm are F5.6, the caller's)."""
-        if self.drawing is None:
-            return []
-        out = []
-        for p in PARTS:
-            lo, hi = self.band(p)
-            if lo - proximity <= price <= hi + proximity:
-                out.append((p, self.drawing.zone_id(p)))
-        return out
-
     # --- clock -----------------------------------------------------------------------------------------------------
     def advance(self, t: float) -> list:
         out = []
@@ -210,6 +199,58 @@ class GoldenFib:
     def _drawing_at(self, t: float) -> Drawing | None:
         i = bisect_right([h[0] for h in self._history], t)
         return self._history[i - 1][1] if i else None
+
+
+@dataclass(frozen=True)
+class Touch:
+    t: float
+    part: str
+    zone_id: int
+    touch_group: int        # a deep-zone touch never shares a group with a shallow-zone touch (owner 2026-10-27)
+
+
+class GoldenTouches:
+    """Touch and re-arm of the two golden zones (owner 2026-10-27, SPEC §13 Q-gzsplit; F5.6 otherwise).
+
+    Positions are fib depths x (0 = the range extreme on the trade's target side, larger = a deeper pullback).
+    - Shallow zone, approached from the 0 side: armed at a trade at x <= 0.5 - (zone_proximity + rearm_dist) / span,
+      touched at the first armed trade at x >= 0.5 - zone_proximity / span (F5.6's band on that side).
+    - Deep zone, only ever reached through the shallow zone: touched at the first armed trade past the split fib
+      (x > 0.618; coming within zone_proximity of 0.618 is not a touch); armed at a trade back on the shallow side at
+      x <= 0.618 - rearm_dist / span (the container re-arm against its far edge, §5.4).
+    New zone_ids (flip, reversal before 10:00, 10:30 redraw) start unarmed and arm by the same rules. Each touch gets its
+    own touch group here; the event builder adds the other zones the same trade touches (F5.10), never a shallow-zone
+    touch to a deep-zone one."""
+
+    def __init__(self, fib: GoldenFib, zone_proximity: float, rearm_dist: float):
+        self.fib, self.prox, self.rearm = fib, zone_proximity, rearm_dist
+        self._armed: dict[int, bool] = {}
+        self._next_group = 0
+
+    def depth(self, price: float) -> float:
+        d = self.fib.drawing
+        span = d.high - d.low
+        return (d.high - price) / span if d.orientation == LONG else (price - d.low) / span
+
+    def on_trade(self, t: float, price: float) -> list:
+        """Call after GoldenFib.on_trade for the same trade, so the drawing is the one in force."""
+        d = self.fib.drawing
+        if d is None or d.high == d.low:
+            return []
+        span, x, split = d.high - d.low, self.depth(price), self.fib.split_fib
+        rules = ((SHALLOW, x <= 0.5 - (self.prox + self.rearm) / span, x >= 0.5 - self.prox / span),
+                 (DEEP, x <= split - self.rearm / span, x > split))
+        out = []
+        for part, arm, touch in rules:
+            zid = d.zone_id(part)
+            armed = self._armed.get(zid, False)
+            if armed and touch:
+                self._next_group += 1
+                out.append(Touch(t, part, zid, self._next_group))
+                self._armed[zid] = False
+            elif not armed and arm:
+                self._armed[zid] = True
+        return out
 
 
 def from_config(features: dict) -> GoldenFib:
