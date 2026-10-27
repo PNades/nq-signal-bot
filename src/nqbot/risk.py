@@ -55,6 +55,16 @@ def trade_risk_usd(risk_usd_per_trade: float, profile_multiplier: float, drawdow
     return risk
 
 
+def consistency_cap_usd(consistency_pct: float, profit_target_usd: float, base_usd: float,
+                        lowest_eod_balance_usd: float | None) -> float:
+    """§6.7 daily profit cap in `profit_cap_mode: consistency` (owner 2026-10-26, §13 Q-consistdip):
+    consistency_pct × (profit_target_usd + max(0, base − lowest end-of-day balance so far)). base = the start balance in
+    an evaluation, or the balance the current payout cycle is measured from in a funded stage; None = no end of day yet.
+    A dip below the base raises the cap; a loss that stays above the base does not."""
+    dip = 0.0 if lowest_eod_balance_usd is None else max(0.0, base_usd - lowest_eod_balance_usd)
+    return consistency_pct * (profit_target_usd + dip)
+
+
 def lives(drawdown_remaining_usd: float, risk_usd: float, dust_usd: float) -> int:
     """§6.5b: floor((drawdown_remaining − lives_dust_usd) ÷ risk) + 1; <= 1 is the last life (0: only dust left)."""
     if risk_usd <= 0:

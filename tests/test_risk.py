@@ -22,6 +22,18 @@ def test_risk_follows_the_setting_on_a_1000_drawdown():
     assert risk.default_risk_usd(2000, 3) == 666  # Pro 50k preset
 
 
+def test_consistency_cap_rises_only_with_a_dip_below_the_base():
+    # owner 2026-10-26 (§13 Q-consistdip); Rapid EOD eval: 30% of $1,500, base = start $25,000
+    assert risk.consistency_cap_usd(0.30, 1500, 25_000, None) == pytest.approx(450)
+    assert risk.consistency_cap_usd(0.30, 1500, 25_000, 25_200) == pytest.approx(450)  # loss above the base: no change
+    assert risk.consistency_cap_usd(0.30, 1500, 25_000, 24_500) == pytest.approx(600)  # 30% × $2,000
+    # Builder funded first cycle: 50% of $2,100; a $300 dip below the base → 50% × $2,400
+    assert risk.consistency_cap_usd(0.50, 2100, 25_000, 25_000) == pytest.approx(1050)
+    assert risk.consistency_cap_usd(0.50, 2100, 25_000, 24_700) == pytest.approx(1200)
+    # Pro 50k evaluation, the same formula: 50% of $3,000, lowest EOD $49,600 → 50% × $3,400
+    assert risk.consistency_cap_usd(0.50, 3000, 50_000, 49_600) == pytest.approx(1700)
+
+
 def test_trade_risk_capped_by_fraction_profile_and_daily_allowance():
     # half of the drawdown at most, even if a larger amount was typed
     assert risk.trade_risk_usd(700, 1.0, 1000, 2) == 500
