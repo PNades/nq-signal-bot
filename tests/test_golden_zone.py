@@ -1,4 +1,5 @@
-"""F10 golden zone and the step-13 variant switches (owner 2026-10-16 / 2026-10-26, SPEC §5.8, §13 Q-fibvariants)."""
+"""F10 golden zone and the step-13 variant switches (owner 2026-10-16 / 2026-10-26, SPEC §5.8, §13 Q-fibvariants), split
+into a shallow (0.5-0.618) and a deep (0.618-0.79) zone (owner 2026-10-27, §13 Q-gzsplit)."""
 
 from pytest import approx
 
@@ -9,11 +10,13 @@ M = 60.0  # seconds per minute; times are seconds after 09:30:00
 
 
 def fib(flip=True, redraw=True):
-    return gz.GoldenFib(start_minute=15, lock_minute=30, redraw_minute=60, upper_fib=0.79, flip=flip, redraw_1030=redraw)
+    return gz.GoldenFib(start_minute=15, lock_minute=30, redraw_minute=60, upper_fib=0.79, split_fib=0.618, flip=flip,
+                        redraw_1030=redraw)
 
 
 def owner_range(g):
-    """Low 20,000 first (09:32), then high 20,100 (09:40): long zone [20,021, 20,050] (the owner's flip example)."""
+    """Low 20,000 first (09:32), then high 20,100 (09:40): long zone [20,021, 20,050] (the owner's flip example);
+    shallow [20,038.2, 20,050], deep [20,021, 20,038.2]."""
     g.on_trade(2 * M, 20_000)
     g.on_trade(10 * M, 20_100)
     g.advance(31 * M)  # past the 10:00 lock
@@ -32,7 +35,7 @@ def test_up_leg_drawn_at_0945_and_new_extreme_redraws_before_the_lock():
     assert (d.orientation, d.source) == (gz.LONG, gz.RUNNING)
     assert d.zone(0.79) == (approx(20_042), approx(20_100))
     g.on_trade(25 * M, 20_300)
-    assert g.drawing.high == 20_300 and g.redraws_before_lock == 1 and g.drawing.zone_id == d.zone_id
+    assert g.drawing.high == 20_300 and g.redraws_before_lock == 1 and g.drawing.zone_ids == d.zone_ids
     g.on_trade(30 * M, 20_400)  # 10:00:00: locked, no redraw
     assert g.drawing.high == 20_300 and g.drawing.source == gz.LOCKED and g.ib_high == 20_300
 
@@ -42,12 +45,12 @@ def test_new_extreme_before_1000_reversing_the_orientation_is_a_new_zone():
     g.on_trade(1 * M, 20_000)   # 09:31 low
     g.on_trade(10 * M, 20_100)  # 09:40 high
     g.advance(15 * M)
-    z0 = g.drawing.zone_id
+    z0 = g.drawing.zone_ids
     assert g.drawing.orientation == gz.LONG
     out = g.on_trade(22 * M, 19_950)  # 09:52 new low: high first now -> short
     d = g.drawing
-    assert d.orientation == gz.SHORT and d.zone_id != z0 and d.flips == 0
-    assert out == [gz.Redraw(22 * M, z0, d.zone_id, ())]  # the old zone's open event ends, pending entries removed
+    assert d.orientation == gz.SHORT and set(d.zone_ids).isdisjoint(z0) and d.flips == 0
+    assert out == [gz.Redraw(22 * M, z0, d.zone_ids, ())]  # the old zones' open events end, pending entries removed
 
 
 def test_new_extreme_before_1000_keeping_the_orientation_keeps_the_zone_id():
@@ -55,21 +58,51 @@ def test_new_extreme_before_1000_keeping_the_orientation_keeps_the_zone_id():
     g.on_trade(1 * M, 20_000)
     g.on_trade(10 * M, 20_100)
     g.advance(15 * M)
-    z0 = g.drawing.zone_id
+    z0 = g.drawing.zone_ids
     assert g.on_trade(22 * M, 20_150) == []  # 09:52 new high: still low first -> long
-    assert (g.drawing.orientation, g.drawing.zone_id, g.drawing.high) == (gz.LONG, z0, 20_150)
+    assert (g.drawing.orientation, g.drawing.zone_ids, g.drawing.high) == (gz.LONG, z0, 20_150)
+
+
+def test_two_zones_from_one_drawing():
+    g = fib()
+    owner_range(g)
+    d = g.drawing
+    assert g.band(gz.SHALLOW) == (approx(20_038.2), approx(20_050))
+    assert g.band(gz.DEEP) == (approx(20_021), approx(20_038.2))
+    assert d.shallow_id != d.deep_id
+
+
+def test_a_pullback_through_05_then_0618_touches_shallow_then_deep():
+    g = fib()
+    owner_range(g)
+    touched = []  # first entry of each zone_id, in order (the touch rule with zone_proximity 0)
+    for price in (20_080, 20_049, 20_045, 20_037, 20_030):
+        for part, zid in g.zones_touched(price, proximity=0):
+            if zid not in [z for _, z in touched]:
+                touched.append((part, zid))
+    assert touched == [(gz.SHALLOW, g.drawing.shallow_id), (gz.DEEP, g.drawing.deep_id)]
+
+
+def test_a_settle_past_0618_breaks_the_shallow_zone_only():
+    g = fib()
+    owner_range(g)
+    before = g.drawing
+    out = bar(g, 35, 20_035, 20_030)  # 10:05 settles below 20,038.2, above 20,021
+    assert out == [gz.Break(36 * M, gz.SHALLOW, before.shallow_id, False)]
+    assert g.drawing == before  # no flip: same orientation, zone_ids and flips; the deep zone is the next zone
 
 
 def test_flip_on_redraws_the_other_way_and_back():
     g = fib()
     owner_range(g)
-    z0 = g.drawing.zone_id
+    z0 = g.drawing.zone_ids
     assert g.drawing.zone(0.79) == (approx(20_021), approx(20_050))
-    out = bar(g, 35, 20_019, 20_010)  # 10:05 settles below 20,021
-    assert out == [gz.Invalidation(36 * M, z0, True)]
+    out = bar(g, 35, 20_019, 20_010)  # 10:05 settles below 20,021 (so past 0.618 too)
+    assert out == [gz.Break(36 * M, gz.SHALLOW, z0[0], False), gz.Break(36 * M, gz.DEEP, z0[1], True)]
     d = g.drawing
-    assert d.orientation == gz.SHORT and d.flips == 1 and d.zone_id != z0
+    assert d.orientation == gz.SHORT and d.flips == 1 and set(d.zone_ids).isdisjoint(z0)  # both new zone_ids
     assert d.zone(0.79) == (approx(20_050), approx(20_079))
+    assert g.band(gz.SHALLOW) == (approx(20_050), approx(20_061.8))
     bar(g, 50, 20_085, 20_090)  # settles above 20,079
     assert g.drawing.orientation == gz.LONG and g.drawing.flips == 2
     assert g.drawing.zone(0.79) == (approx(20_021), approx(20_050))
@@ -80,8 +113,9 @@ def test_flip_off_a_settle_past_079_ends_the_event_and_the_zone_keeps_its_orient
     owner_range(g)
     before = g.drawing
     out = bar(g, 35, 20_019, 20_010)
-    assert out == [gz.Invalidation(36 * M, before.zone_id, False)]  # the setup on this zone ends
-    assert g.drawing == before  # same orientation (long), same zone_id, same levels, flips 0
+    assert out == [gz.Break(36 * M, gz.SHALLOW, before.shallow_id, False),
+                   gz.Break(36 * M, gz.DEEP, before.deep_id, False)]  # the setups on both zones end
+    assert g.drawing == before  # same orientation (long), same zone_ids, same levels, flips 0
     assert g.drawing.zone(0.79) == (approx(20_021), approx(20_050))
     assert bar(g, 50, 20_085, 20_090) == [] and g.drawing == before  # above 20,079 is not past a long zone's edge
 
@@ -89,10 +123,10 @@ def test_flip_off_a_settle_past_079_ends_the_event_and_the_zone_keeps_its_orient
 def test_redraw_on_a_new_low_after_1000_redraws_at_1030_and_moves_the_ib_low():
     g = fib()
     owner_range(g)
-    z0 = g.drawing.zone_id
+    z0 = g.drawing.zone_ids
     g.on_trade(42 * M, 19_950)  # 10:12
     out = g.advance(60 * M)
-    assert out == [gz.Redraw(60 * M, z0, g.drawing.zone_id, ("low",))]
+    assert out == [gz.Redraw(60 * M, z0, g.drawing.zone_ids, ("low",))] and set(g.drawing.zone_ids).isdisjoint(z0)
     d = g.drawing
     assert (d.low, d.high, d.orientation, d.source, d.flips) == (19_950, 20_100, gz.SHORT, gz.REDRAWN, 0)
     assert (g.ib_low, g.ib_high, g.redrawn_1030) == (19_950, 20_100, True)
@@ -119,4 +153,4 @@ def test_no_new_extreme_keeps_the_1000_drawing():
 def test_from_config_reads_the_switches():
     g = gz.from_config(load_features())
     assert (g.flip, g.redraw_1030) == (True, True)
-    assert (g.t_start, g.t_lock, g.t_redraw, g.upper_fib) == (15 * M, 30 * M, 60 * M, 0.79)
+    assert (g.t_start, g.t_lock, g.t_redraw, g.upper_fib, g.split_fib) == (15 * M, 30 * M, 60 * M, 0.79, 0.618)

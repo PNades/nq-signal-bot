@@ -3,19 +3,28 @@
 months 1-4 by total net R per month (§7.1 Tuning). The 09:45 start, the 10:00 lock, the fib levels and the swing rule
 are owner rules, never tuned.
 
+Two zones from one drawing (owner 2026-10-27, SPEC §13 Q-gzsplit): the shallow zone 0.5..`golden_zone_split_fib`
+(0.618) and the deep zone 0.618..`golden_zone_upper_fib` (0.79). Each is its own container with its own `zone_id`;
+both come from the same drawing (orientation, flips, 10:30 redraw), and whenever the drawing changes both get new
+`zone_id`s. Each breaks on a 1-minute bar settling past its own far edge (F0.5): past 0.618 breaks the shallow zone
+only (no flip, the deep zone is simply the next zone); past 0.79 breaks the deep zone and, with the flip on, flips the
+drawing. Touches, re-arm (against each zone's own far edge) and freshness are the caller's F5.6.
+
 Times are seconds after 09:30:00 ET; trades and 1-minute bars come in time order. Each call first applies the 09:45
 start, the 10:00 lock and the 10:30 redraw at their exact instants, so a trade at 10:00:00 no longer redraws and the
 10:30 redraw reads the trades in [09:30, 10:30).
-- Flip on: a 1-minute bar settling past the zone's 0.79 level, away from the zone (F0.5, margin 0), ends the setup and
-  redraws the fib the other way on the same H and L (a new `zone_id`, `flips` + 1).
-- Flip off: the same bar ends the setup only; the drawing, its orientation and `zone_id` stay, and later returns re-arm
-  on the original side (§5.4 Containers; the re-arm itself is the caller's F5.6).
+- Flip on: a 1-minute bar settling past the deep zone's 0.79 edge, away from the zone (F0.5, margin 0), breaks the
+  deep zone (and the shallow one: it is past 0.618 too) and redraws the fib the other way on the same H and L (new
+  `zone_id`s, `flips` + 1).
+- Flip off: the same bar breaks both zones only; the drawing, its orientation and `zone_id`s stay, and later returns
+  re-arm on the original side (§5.4 Containers; the re-arm itself is the caller's F5.6).
 - Redraw off: the 10:00 drawing and the IB high/low locked at 10:00 stay all day (the IB follows the switch, §5.3).
-A new extreme before 10:00 moves the drawing (orientation by the swing rule, flips restart) and keeps its `zone_id`
-if the orientation stays the same, like any zone that moves (F5.5); if the swing rule reverses the orientation it is a
-new zone, like a flip (owner 2026-10-26: the old zone's open event ends, its pending entries are removed, its touch count
-and freshness don't carry over), reported as a `Redraw`. Flips and the 10:30 redraw make new zones (F10). Prices are the
-session's front-contract NQ trades (F0.4), so the range is the traded high/low (wicks), never bar bodies or closes.
+A new extreme before 10:00 moves the drawing (orientation by the swing rule, flips restart) and keeps its `zone_id`s
+if the orientation stays the same, like any zone that moves (F5.5); if the swing rule reverses the orientation they
+are new zones, like a flip (owner 2026-10-26: the old zones' open events end, their pending entries are removed, touch
+counts and freshness don't carry over), reported as a `Redraw`. Flips and the 10:30 redraw make new zones (F10). Prices
+are the session's front-contract NQ trades (F0.4), so the range is the traded high/low (wicks), never bar bodies or
+closes.
 """
 
 from __future__ import annotations
@@ -25,6 +34,8 @@ from dataclasses import dataclass, replace
 
 LONG, SHORT = "long", "short"
 RUNNING, LOCKED, REDRAWN = "running", "locked_1000", "redrawn_1030"
+SHALLOW, DEEP = "shallow", "deep"   # golden_zone_part (owner 2026-10-27, Q-gzsplit)
+PARTS = (SHALLOW, DEEP)
 
 
 @dataclass(frozen=True)
@@ -33,30 +44,43 @@ class Drawing:
     low: float
     orientation: str        # long: up leg, levels at H - x(H - L); short: down leg, levels at L + x(H - L)
     source: str             # fib_drawing: running / locked_1000 / redrawn_1030
-    zone_id: int
+    shallow_id: int         # zone_id of the shallow zone (0.5 .. split fib)
+    deep_id: int            # zone_id of the deep zone (split fib .. upper fib)
     flips: int = 0          # flips of this drawing's anchors (restart when the anchors change)
+
+    @property
+    def zone_ids(self) -> tuple[int, int]:
+        return self.shallow_id, self.deep_id
+
+    def zone_id(self, part: str) -> int:
+        return self.shallow_id if part == SHALLOW else self.deep_id
 
     def level(self, x: float) -> float:
         span = self.high - self.low
         return self.high - x * span if self.orientation == LONG else self.low + x * span
 
-    def zone(self, upper_fib: float) -> tuple[float, float]:
-        a, b = self.level(0.5), self.level(upper_fib)
+    def band(self, near_fib: float, far_fib: float) -> tuple[float, float]:
+        a, b = self.level(near_fib), self.level(far_fib)
         return min(a, b), max(a, b)
+
+    def zone(self, upper_fib: float) -> tuple[float, float]:
+        """The whole golden span 0.5 .. upper fib (both zones together)."""
+        return self.band(0.5, upper_fib)
 
 
 @dataclass(frozen=True)
-class Invalidation:
+class Break:
     t: float
-    zone_id: int            # the setup on this zone ends (F10 invalidation)
-    flipped: bool           # True if the drawing was redrawn the other way (flip on)
+    part: str               # shallow / deep
+    zone_id: int            # the zone that broke: its open event ends, it re-arms against its own far edge
+    flipped: bool           # True only for a deep break with the flip on (the drawing was redrawn the other way)
 
 
 @dataclass(frozen=True)
 class Redraw:
     t: float
-    old_zone_id: int        # an open event on it ends, its pending entries are removed (F7)
-    new_zone_id: int
+    old_zone_ids: tuple     # (shallow, deep): open events on them end, their pending entries are removed (F7)
+    new_zone_ids: tuple
     ib_moved: tuple         # sides whose IB level was replaced: subset of ("high", "low"); () before the 10:00 lock
 
 
@@ -67,9 +91,9 @@ def swing(t_high: float, t_low: float) -> str:
 
 class GoldenFib:
     def __init__(self, start_minute: float, lock_minute: float, redraw_minute: float, upper_fib: float,
-                 flip: bool = True, redraw_1030: bool = True):
+                 split_fib: float, flip: bool = True, redraw_1030: bool = True):
         self.t_start, self.t_lock, self.t_redraw = 60.0 * start_minute, 60.0 * lock_minute, 60.0 * redraw_minute
-        self.upper_fib, self.flip, self.redraw_1030 = upper_fib, flip, redraw_1030
+        self.upper_fib, self.split_fib, self.flip, self.redraw_1030 = upper_fib, split_fib, flip, redraw_1030
         self.h = self.l = self.t_h = self.t_l = None      # running range [09:30, 10:30)
         self.lock_h = self.lock_l = None                   # the 10:00 range
         self.ib_high = self.ib_low = None
@@ -79,6 +103,25 @@ class GoldenFib:
         self._history: list = []                           # (t, drawing) in time order, for F0.5's band at the bar open
         self._next_id = 0
         self._marks_done = 0
+
+    def fibs(self, part: str) -> tuple[float, float]:
+        """(near, far) fib of a zone; the far edge is the one a settled bar breaks."""
+        return (0.5, self.split_fib) if part == SHALLOW else (self.split_fib, self.upper_fib)
+
+    def band(self, part: str, d: Drawing | None = None) -> tuple[float, float]:
+        return (d or self.drawing).band(*self.fibs(part))
+
+    def zones_touched(self, price: float, proximity: float) -> list:
+        """(part, zone_id) of every zone whose band +- proximity holds price (the normal touch rule's test; the touch
+        count and re-arm are F5.6, the caller's)."""
+        if self.drawing is None:
+            return []
+        out = []
+        for p in PARTS:
+            lo, hi = self.band(p)
+            if lo - proximity <= price <= hi + proximity:
+                out.append((p, self.drawing.zone_id(p)))
+        return out
 
     # --- clock -----------------------------------------------------------------------------------------------------
     def advance(self, t: float) -> list:
@@ -96,14 +139,14 @@ class GoldenFib:
             self.redrawn_1030 = False
             moved = tuple(s for s, hit in (("high", self.h > self.lock_h), ("low", self.l < self.lock_l)) if hit)
             if self.redraw_1030 and moved:
-                old = self.drawing.zone_id
+                old = self.drawing.zone_ids
                 self._draw(self.t_redraw, REDRAWN, new_zone=True)
                 self.redrawn_1030 = True
                 if "high" in moved:
                     self.ib_high = self.h
                 if "low" in moved:
                     self.ib_low = self.l
-                out.append(Redraw(self.t_redraw, old, self.drawing.zone_id, moved))
+                out.append(Redraw(self.t_redraw, old, self.drawing.zone_ids, moved))
         return out
 
     # --- inputs ----------------------------------------------------------------------------------------------------
@@ -120,30 +163,32 @@ class GoldenFib:
             old = self.drawing
             self._draw(t, RUNNING, new_zone=swing(self.t_h, self.t_l) != old.orientation)
             self.redraws_before_lock += 1
-            if self.drawing.zone_id != old.zone_id:  # the swing rule reversed the orientation: a new zone
-                out.append(Redraw(t, old.zone_id, self.drawing.zone_id, ()))
+            if self.drawing.zone_ids != old.zone_ids:  # the swing rule reversed the orientation: new zones
+                out.append(Redraw(t, old.zone_ids, self.drawing.zone_ids, ()))
         return out
 
     def on_bar(self, t_open: float, t_close: float, bar_open: float, bar_close: float) -> list:
-        """A closed 1-minute bar [t_open, t_close): the F10 invalidation / flip, known at t_close."""
+        """A closed 1-minute bar [t_open, t_close): each zone's break (and the deep zone's flip), known at t_close."""
         out = self.advance(t_close)
         d = self.drawing
         if d is None:
             return out
         at_open = self._drawing_at(t_open)
-        if at_open is None or at_open.zone_id != d.zone_id:
-            return out  # the zone did not exist at the bar's open, so the bar cannot settle beyond it (F0.5)
-        edge_open, edge_close = at_open.level(self.upper_fib), d.level(self.upper_fib)
-        if d.orientation == LONG:   # zone below price; its far (0.79) edge is the lower edge
-            settled = bar_open < edge_open and bar_close < edge_close
-        else:
-            settled = bar_open > edge_open and bar_close > edge_close
-        if not settled:
-            return out
-        if self.flip:
+        if at_open is None or at_open.zone_ids != d.zone_ids:
+            return out  # the zones did not exist at the bar's open, so the bar cannot settle beyond them (F0.5)
+        for part in PARTS:
+            far = self.fibs(part)[1]
+            edge_open, edge_close = at_open.level(far), d.level(far)
+            if d.orientation == LONG:   # zones below price; the far edge is the lower edge
+                settled = bar_open < edge_open and bar_close < edge_close
+            else:
+                settled = bar_open > edge_open and bar_close > edge_close
+            if settled:
+                out.append(Break(t_close, part, d.zone_id(part), part == DEEP and self.flip))
+        if self.flip and any(b.part == DEEP for b in out if isinstance(b, Break)):
             other = SHORT if d.orientation == LONG else LONG
-            self._set(t_close, replace(d, orientation=other, zone_id=self._new_id(), flips=d.flips + 1))
-        out.append(Invalidation(t_close, d.zone_id, self.flip))
+            self._set(t_close, replace(d, orientation=other, shallow_id=self._new_id(), deep_id=self._new_id(),
+                                       flips=d.flips + 1))
         return out
 
     # --- helpers ---------------------------------------------------------------------------------------------------
@@ -152,8 +197,11 @@ class GoldenFib:
         return self._next_id
 
     def _draw(self, t: float, source: str, new_zone: bool) -> None:
-        zid = self._new_id() if new_zone or self.drawing is None else self.drawing.zone_id
-        self._set(t, Drawing(self.h, self.l, swing(self.t_h, self.t_l), source, zid, 0))
+        if new_zone or self.drawing is None:
+            ids = self._new_id(), self._new_id()
+        else:
+            ids = self.drawing.zone_ids
+        self._set(t, Drawing(self.h, self.l, swing(self.t_h, self.t_l), source, *ids, 0))
 
     def _set(self, t: float, d: Drawing) -> None:
         self.drawing = d
@@ -167,4 +215,5 @@ class GoldenFib:
 def from_config(features: dict) -> GoldenFib:
     return GoldenFib(start_minute=features["ib_fib_start_minute"], lock_minute=features["ib_lock_minute"],
                      redraw_minute=features["ib_redraw_minute"], upper_fib=features["golden_zone_upper_fib"],
-                     flip=bool(features["golden_zone_flip"]), redraw_1030=bool(features["golden_zone_redraw_1030"]))
+                     split_fib=features["golden_zone_split_fib"], flip=bool(features["golden_zone_flip"]),
+                     redraw_1030=bool(features["golden_zone_redraw_1030"]))
