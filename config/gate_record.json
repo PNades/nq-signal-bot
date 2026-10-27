@@ -1,0 +1,11 @@
+{
+  "_note": "Gate approvals (owner 2026-10-26, SPEC §9b item 6, §12 step 14, §13 Q-perfpage). One entry per gate, appended in the same commit as the CLAUDE.md Status 'Last gate passed' line. commit = the commit the gate was judged on (the parent of the commit that writes this entry; a commit cannot hold its own hash). The step-14 Performance-page ledger guard reads this file.",
+  "gates": [
+    {
+      "gate": "6",
+      "passed": "2026-10-05",
+      "commit": "07a312e3601287071a0d073d6138adde81673fdc",
+      "what": "feature spec (docs/feature_spec.md) and config/calendar.yaml approved by the owner; recorded in CLAUDE.md Status by 5268b8a"
+    }
+  ]
+}
