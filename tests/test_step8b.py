@@ -1,7 +1,7 @@
 """Step-8b gate (presd_fixes 12): hand-built boards and DBN trades on a temporary SSD; no network."""
 
 import json
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -50,9 +50,10 @@ def _write_futures(env, ts, px):
     plan_path(env.paths).write_text(json.dumps({"front": {r: {DAY.isoformat(): s} for r, s in FRONT.items()}}))
 
 
-def _write_boards(env, ts, px, noise=1e-5, lag_s=0, seed=5):
+def _write_boards(env, ts, px, noise=1e-5, lag_s=0, seed=5, value_of=None):
     """1-second boards 09:30-10:30 for the 4 maps: spot = F(t - lag) / R0 * (1 + noise); five strikes around
-    spot, the middle one the King, the outer two below 25% of King."""
+    spot, the middle one the King, the outer two below 25% of King. value_of(map, as_of ns, strike, default) may
+    replace a strike's value."""
     rng = np.random.default_rng(seed)
     as_of = np.arange(_ns(time(9, 30)), _ns(time(10, 30)), NS, dtype=np.int64)
     b_rows, s_rows = [], []
@@ -66,7 +67,9 @@ def _write_boards(env, ts, px, noise=1e-5, lag_s=0, seed=5):
                            "window_from": t_ms, "window_to": t_ms})
             mid = round(sp / STEP[m]) * STEP[m]
             for k, v in zip((-2, -1, 0, 1, 2), (1e5, 6e5, -1e6, 4e5, 2e5)):
-                s_rows.append({"as_of": t_ms, "symbol": m, "strike": mid + k * STEP[m], "value": v})
+                strike = mid + k * STEP[m]
+                v = value_of(m, int(t), strike, v) if value_of else v
+                s_rows.append({"as_of": t_ms, "symbol": m, "strike": strike, "value": v})
     boards = pa.Table.from_pylist(b_rows, schema=BOARD_SCHEMA)
     strikes = pa.Table.from_pylist(s_rows, schema=STRIKE_SCHEMA)
     b_path, s_path = env.sky.range_paths(DAY, "0930")
@@ -180,6 +183,41 @@ def test_atlas_lists_a_held_node_and_drops_its_crossings_after_it_drops(env):
     assert 601.0 not in by_min["09:57"]  # present at 10% of King: not relevant
     md = (step8b.reports_dir(env.paths) / f"atlas_{DAY.isoformat()}.md").read_text(encoding="utf-8")
     assert "| 601 | 20.0% held |" in md
+
+
+def test_atlas_crossing_row_shows_the_board_in_force_at_the_crossing(env):
+    """Owner 2026-10-28 (the 10-09 QQQ 749 case): strike 601 enters at 30% of King, is 22% (held) at the picked minute
+    09:45 and 31% from 09:50; spot crosses it at 09:55 (600 -> 602). The crossing row shows the board in force then
+    (the last applied by t_apply, the one the Diff uses): its asOf, 31%, held = no; the minute's node keeps 22% held."""
+    ts = np.arange(_ns(time(9, 0)), _ns(time(10, 30)), NS, dtype=np.int64)
+    px = {"NQ": np.where(ts < _ns(time(9, 55)), 24_000.0, 24_080.0), "ES": np.full(len(ts), 6_001.0)}
+    _write_futures(env, ts, px)
+
+    def value_of(m, t, strike, v):
+        if m != "QQQ":
+            return v
+        if strike == 600.0:
+            return -1e6  # the King throughout
+        if strike == 601.0:
+            return 3.0e5 if t < _ns(time(9, 40)) else 2.2e5 if t < _ns(time(9, 50)) else 3.1e5
+        return 1e4
+
+    _write_boards(env, ts, px, noise=0.0, value_of=value_of)
+    env.settings["map_latency_sec"] = 0
+    rep = step8b.check_atlas(env, DAY, [time(9, 45)])
+    n601 = next(n for n in rep["maps"]["QQQ"][0]["nodes"] if n["strike"] == 601.0)
+    assert (n601["pct_of_king"], n601["held"]) == (0.22, True)
+    [c] = n601["crossings"]
+    # the crossing falls between two whole seconds (content time); with map_latency_sec 0 a board applies at
+    # floor(asOf) + 1 s, so the board in force is the one stamped one second before the crossing's second
+    at = datetime.strptime(c["at"], "%H:%M:%S")
+    assert c["at"][:5] == "09:55" or c["at"] == "09:54:59"
+    assert datetime.strptime(c["board"], "%H:%M:%S") == at - timedelta(seconds=1)
+    assert (c["pct_of_king"], c["held"]) == (0.31, False)
+    assert c["band"][0] < c["mapped"] < c["band"][1]
+    md = (step8b.reports_dir(env.paths) / f"atlas_{DAY.isoformat()}.md").read_text(encoding="utf-8")
+    assert "| Board | Crossed at |" in md and "the last applied board whose apply time (t_apply)" in md
+    assert "| 601 | 31% |" in md and f"| {c['board']} | {c['at']} |" in md and "| 601 | 22.0% held |" not in md
 
 
 def test_atlas_counts_an_exact_touch_once(env):

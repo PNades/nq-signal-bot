@@ -418,7 +418,14 @@ def atlas_tables(env: Env, d: date, minutes: list[time], maps: dict[str, MapDay]
               "its content time, the board applies at floor(asOf) + 1 s + map_latency_sec "
               f"({latency if latency is not None else 'not set yet: 0 used'} s), and the R in force is the map's "
               "estimator (QQQ/SPY trailing 60-s median, SPX per board). At each crossing the mapped level uses the "
-              "R the bot had then (the last board applied before it).", ""]
+              "R the bot had then (the last board applied before it).", "",
+              "**Board in force at each crossing (owner 2026-10-28):** every crossing row shows the board in force at "
+              "that crossing: the last applied board whose apply time (t_apply) is at or before the crossing, the same "
+              "board the Diff column's mapped level comes from. Its asOf (to the second) is in the Board column, and the "
+              "row's % of King, held flag, mapped level and band are that board's. A node with no crossing shows the "
+              "picked minute's board. Rebuilt 2026-10-28 from stored data: earlier versions copied the picked minute's "
+              "% of King, level and band onto every crossing row; the Diff values and within-tolerance counts are "
+              "unchanged.", ""]
     for m in ATLAS_MAPS:
         md, fut, root = maps[m], futs[CHAIN_ROOT[m]], CHAIN_ROOT[m]
         tc, t_apply, r_in = map_ratio_in_force(env, d, md, fut, era, (arrivals or {}).get(m))
@@ -428,9 +435,10 @@ def atlas_tables(env: Env, d: date, minutes: list[time], maps: dict[str, MapDay]
         ro = ro[np.lexsort((md.s_strike[ro], md.s_board[ro]))]
         rb_sorted = md.s_board[ro]
 
-        def relevant_on(board: int, k: float) -> bool:  # k is a relevant node on that board (F2.4)
+        def relevant_row(board: int, k: float) -> int | None:  # k's strike row if a relevant node on that board (F2.4)
             lo, hi = np.searchsorted(rb_sorted, board), np.searchsorted(rb_sorted, board, side="right")
-            return bool(np.any(md.s_strike[ro[lo:hi]] == k))
+            hit = ro[lo:hi][md.s_strike[ro[lo:hi]] == k]
+            return int(hit[0]) if len(hit) else None
 
         rows_m = []
         for minute in minutes:
@@ -461,19 +469,25 @@ def atlas_tables(env: Env, d: date, minutes: list[time], maps: dict[str, MapDay]
                     t_k = int(tc[j0] + (a / (a - b)) * (tc[j] - tc[j0])) if a != b else int(tc[j])
                     # the bot's level then: the R in force from the last board applied before t_k
                     pk = int(np.searchsorted(t_apply[A], t_k, side="right")) - 1
-                    if pk < 0 or not relevant_on(int(A[pk]), k):
+                    row_k = relevant_row(int(A[pk]), k) if pk >= 0 else None
+                    if row_k is None:
                         continue  # no map yet, or no longer a relevant node on the map in force (as in the gate)
-                    mapped = k * r_in[A[pk]]
+                    i_k = int(A[pk])
+                    mapped = k * r_in[i_k]
                     f_then = float(mp.last_price_at_or_before(fut.ts, fut.px, np.array([t_k]))[0])
                     if not (np.isfinite(mapped) and np.isfinite(f_then)):
                         continue
                     gated = md.resolution[j] == "1s" and md.resolution[j0] == "1s"  # 1-minute: information only
                     crossings.append({"at": _et(t_k), "futures": round(f_then, 2), "mapped": round(mapped, 2),
                                       "diff": round(abs(f_then - mapped), 2), "gate": gated,
-                                      "within_tol": bool(abs(f_then - mapped) <= tol[root])})
-                # a held node is under 25% of King by definition: its % is rounded down, so 24.999% never reads as 25%
-                pct_r = float(np.floor(pct * 1e4) / 1e4) if held else round(float(pct), 4)
-                nodes.append({"strike": float(k), "pct_of_king": pct_r, "held": bool(held),
+                                      "within_tol": bool(abs(f_then - mapped) <= tol[root]),
+                                      # the board in force at the crossing (the one `mapped` uses), owner 2026-10-28
+                                      "board": _et(md.as_of[i_k]),
+                                      "pct_of_king": _pct_shown(md.s_pct[row_k], held_rows[row_k]),
+                                      "held": bool(held_rows[row_k]),
+                                      "band": [round((k - bands[m]) * r_in[i_k], 2),
+                                               round((k + bands[m]) * r_in[i_k], 2)]})
+                nodes.append({"strike": float(k), "pct_of_king": _pct_shown(pct, held), "held": bool(held),
                               "level": round(level, 2),
                               "band": [round((k - bands[m]) * r_i, 2), round((k + bands[m]) * r_i, 2)],
                               "crossings": crossings})
@@ -486,17 +500,16 @@ def atlas_tables(env: Env, d: date, minutes: list[time], maps: dict[str, MapDay]
                 lines += [f"### {row['minute']}: no accepted board yet", ""]
                 continue
             lines += [f"### {row['minute']} (board {row['board']}, spot {row['spot']}, R {row['r']})", "",
-                      f"| Strike | % of King | Mapped {root} | Band | Crossed at | {root} then | Diff | OK |",
-                      "|---:|---:|---:|---|---|---:|---:|---|"]
+                      f"| Strike | % of King | Mapped {root} | Band | Board | Crossed at | {root} then | Diff | OK |",
+                      "|---:|---:|---:|---|---|---|---:|---:|---|"]
             for n in row["nodes"]:
-                pct_txt = (f"{np.floor(n['pct_of_king'] * 1000) / 10:.1f}% held" if n.get("held")
-                           else f"{n['pct_of_king']:.0%}")
-                head = f"| {n['strike']:g} | {pct_txt} | {n['level']:.2f} | {n['band'][0]:.2f}-{n['band'][1]:.2f}"
-                if not n["crossings"]:
-                    lines.append(head + " | - | - | - | - |")
-                for c in n["crossings"]:
-                    lines.append(head + f" | {c['at']} | {c['futures']:.2f} | {c['diff']:.2f} | "
-                                        f"{'yes' if c['within_tol'] else 'NO'} |")
+                if not n["crossings"]:  # no crossing: the picked minute's board
+                    lines.append(f"| {n['strike']:g} | {_pct_text(n)} | {n['level']:.2f} | "
+                                 f"{n['band'][0]:.2f}-{n['band'][1]:.2f} | {row['board']} | - | - | - | - |")
+                for c in n["crossings"]:  # the board in force at the crossing
+                    lines.append(f"| {n['strike']:g} | {_pct_text(c)} | {c['mapped']:.2f} | "
+                                 f"{c['band'][0]:.2f}-{c['band'][1]:.2f} | {c['board']} | {c['at']} | "
+                                 f"{c['futures']:.2f} | {c['diff']:.2f} | {'yes' if c['within_tol'] else 'NO'} |")
             lines.append("")
     crossings = [c for rows in out.values() for row in rows for n in row.get("nodes", []) for c in n["crossings"]]
     gated = [c for c in crossings if c["gate"]]
@@ -516,6 +529,15 @@ def atlas_tables(env: Env, d: date, minutes: list[time], maps: dict[str, MapDay]
              + f"; table: {md_path}")
     write_report(env, name, report)
     return report
+
+
+def _pct_shown(pct: float, held: bool) -> float:
+    """A held node is under 25% of King by definition: its % is rounded down, so 24.999% never reads as 25%."""
+    return float(np.floor(pct * 1e4) / 1e4) if held else round(float(pct), 4)
+
+
+def _pct_text(x: dict[str, Any]) -> str:
+    return f"{np.floor(x['pct_of_king'] * 1000) / 10:.1f}% held" if x.get("held") else f"{x['pct_of_king']:.0%}"
 
 
 def atlas_pooled_share(reports: list[dict[str, Any]]) -> dict[str, tuple[int, int]]:
