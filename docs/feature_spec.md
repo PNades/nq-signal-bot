@@ -517,8 +517,8 @@ Coarse and few; inputs of the structure model and the pair scorer:
 ### F3.10 Day-type inputs (for the day-type model, §7.1)
 All are computed on RTH from 09:30 and known at t:
 - `ib_width_ratio` = locked IB width ÷ the mean IB width of the last `ib_avg_sessions` sessions (null before 10:00).
-- `vwap_crosses`: the number of 1-minute closes on the opposite side of the 09:30-anchored VWAP from the previous 1-minute close's side.
-- `poc_crosses`: the same vs the developing daily POC (as of each close).
+- `vwap_crosses` (owner 2026-10-27, SPEC §13 Q-dtcross; was 1-minute closes): the number of crosses of the 09:30-anchored VWAP, a cross being a clock-aligned `daytype_cross_bar_minutes` (5) bar that settles (F0.5, margin 0: open beyond the VWAP as of the bar's open, close beyond it as of its close) on the other side from the last settled bar's side. The first settled bar sets the side without counting; a bar that doesn't settle (straddles, or the level isn't defined yet) leaves the side unchanged. Known at each bar's close.
+- `poc_crosses`: the same vs the developing daily POC (judged as of each bar's open and close, like a moving band).
 - `rotations`: a zigzag on trades. Track the current swing extreme in the current swing direction; when price moves ≥ `rotation_min_pts` × ATR against it, count one rotation, reverse the direction and start the new swing from that extreme.
 - `time_above_vwap_frac`: the fraction of RTH seconds with the last price above the 09:30 VWAP.
 - `new_highs`, `new_lows`: the number of 1-minute bars that set a new RTH high/low.
@@ -527,8 +527,8 @@ All are computed on RTH from 09:30 and known at t:
 - **Direction-free forms** (the day-type label has no direction, so the logistic model gets inputs that grow toward "trend" either way; proposed in part 2, F15):
   - `vwap_side_share` = max(`time_above_vwap_frac`, 1 − `time_above_vwap_frac`) ∈ [0.5, 1];
   - `new_extreme_skew` = |`new_highs` − `new_lows`| (many new highs and few new lows, or the reverse, = one-sided).
-- *Params:* `ib_avg_sessions`, `rotation_min_pts`.
-- *Test:* a hand-built price path with 3 known zigzag rotations at ATR 100 and `rotation_min_pts` 0.25; `time_above_vwap_frac` 0.2 → `vwap_side_share` 0.8; 7 new highs and 2 new lows → `new_extreme_skew` 5.
+- *Params:* `ib_avg_sessions`, `rotation_min_pts`, `daytype_cross_bar_minutes` (owner rule, never tuned).
+- *Test:* crosses (owner 2026-10-27, `tests/test_daytype.py`): a trend-day pullback with three 1-minute closes below VWAP but no settled 5-minute bar below → `vwap_crosses` 0 (the old 1-minute rule: 2); 5-minute bars settled above, below, above, straddling, below → 3; a bar opening at 20,001 (VWAP 20,000 at its open) and closing at 19,999 (VWAP 19,998 at its close) settles above. A hand-built price path with 3 known zigzag rotations at ATR 100 and `rotation_min_pts` 0.25; `time_above_vwap_frac` 0.2 → `vwap_side_share` 0.8; 7 new highs and 2 new lows → `new_extreme_skew` 5.
 
 ---
 
@@ -1041,7 +1041,7 @@ Candidates within `stop_merge_ticks` of each other are merged. Area events use o
 - *Test:* a long with ask 100.00 at arrival, fav 8 / adv 6 ticks: a trade at 102.00 before any at 98.50 → positive; 98.50 first → negative; neither within the window → negative.
 
 ### F11.6 Day-type label (§7.1)
-- At EOD, on RTH only (a cross = a 1-minute close on the other side): **trend** if all of these hold; otherwise **range**:
+- At EOD, on RTH only (a cross = a settled clock-aligned 5-minute bar on the other side, F3.10 / F0.5; owner 2026-10-27, SPEC §13 Q-dtcross, was a 1-minute close): **trend** if all of these hold; otherwise **range**:
   - crosses of the 09:30 VWAP ≤ `trend_max_vwap_crosses`;
   - crosses of the developing daily POC ≤ `trend_max_poc_crosses`;
   - the close lies in the outer `trend_close_pct` of the RTH range, on the side of the new highs/lows.
