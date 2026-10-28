@@ -79,6 +79,20 @@ def eod_label(vwap_crosses: int, close: float, rth_high: float, rth_low: float, 
     return RANGE
 
 
+def with_day_direction(direction: int, new_highs: int, new_lows: int) -> int:
+    """F11.7 (owner 2026-10-27, §13 Q-trenddir): trade direction (+1 long, -1 short) x sign(new_highs - new_lows) at t."""
+    d = new_highs - new_lows
+    return direction * ((d > 0) - (d < 0))
+
+
+def vwap_side_vs_trade(direction: int, price: float, vwap: float, half_width: float) -> int:
+    """F11.7: +1 if price is on the trade's side of the 09:30 VWAP (long above, short below), -1 if not, 0 within its
+    band (VWAP +/- chart_level_half_width[vwap], edges included)."""
+    if abs(price - vwap) <= half_width:
+        return 0
+    return direction if price > vwap else -direction
+
+
 def crosses_1m_closes(closes: list[tuple[float, float | None]]) -> int:
     """The old rule, for the step-13 comparison only: (1-minute close, level as of that close) pairs in time order; a
     cross is a close on the opposite side from the previous sided close (a close on the level has no side)."""

@@ -1049,6 +1049,14 @@ Candidates within `stop_merge_ticks` of each other are merged. Area events use o
 - *Params:* *label*; the owner may refine them at step 6.
 - *Test (`tests/test_daytype.py`):* 1 VWAP cross, 3 POC crosses, close in the top 15% of the range on an up day → trend (with the former POC condition, the step-13 comparison only: range); 3 VWAP crosses → range; the close in the middle of the range → range; a down day closing in the bottom 10% → trend; new highs = new lows → range; a V-reversal day (the morning's new lows dominate: 2 new highs, 9 new lows) closing in the top 20% → range; a steady up day (10 new highs, 1 new low, 1 VWAP cross) closing in the top 20% → trend.
 
+### F11.7 The trade's direction against the day (owner 2026-10-27, SPEC §13 Q-trenddir)
+Inputs to the structure model (at the touch) and the pair scorer (at `decision_ts`); ablation group 4 (F16.8). P(trend) has no direction, so these let the models learn "with the trend off retracements on trend days, fade extremes on range days".
+- `with_day_direction` = trade direction (+1 long, −1 short) × sign(`new_highs` − `new_lows`) at t (F3.10, the same counts as `new_extreme_skew` and the F11.6 trend side); 0 when equal.
+- `vwap_side_vs_trade` = +1 if the last price at t is on the trade's side of the 09:30-anchored VWAP (F3.1; long above, short below), −1 if on the other side, 0 if within its band (VWAP ± `chart_level_half_width[vwap]`, F5.2; edges count as within).
+- *Known at:* t (RTH from 09:30; the VWAP updates on every trade).
+- *Params:* none new (`chart_level_half_width[vwap]`).
+- *Test (`tests/test_daytype.py`):* a long pullback on an up day (7 new highs, 2 new lows) with price above VWAP → +1 / +1; a long fade at the low on a down day (1 new high, 6 new lows) below VWAP → −1 / −1; equal counts → 0; a short above VWAP → −1; price within the band → 0.
+
 ---
 
 ## F12. Parameter index
@@ -1487,7 +1495,7 @@ Both passes start from the same start-value rebuild (every detector is computed 
 | 1 | Trigger model | the pair scorer's trigger-probability inputs (own firing, max and latest); styles (a)/(b) still fire on their detectors |
 | 2 | Trinity (cross-market) | every feature read from ES, SPY or SPX: F2.19 Trinity, the F2.20 S&P path features, F5.16 (`es_at_level`, SMT, relative delta, NQ vs ES relative strength), the S&P maps in the golden-zone node features, and for area events `es_at_level` and every `area_sp_*` column (owner 2026-10-26, Q-areasp; cutting group 5 removes the area events themselves). S&P path nodes still count as obstacles in target selection (F11.2). |
 | 3 | Confluence features | the F5.13 zone makeup beyond the zone's primary member: `stack_count`, per-type counts, member spread and per-type distances from the centre, container makeup, confluence at target. Kept: the primary member's type, node size, node type and freshness; zone width; distances |
-| 4 | Day-type input | P(trend) in the structure model and pair scorer, and `yesterday_day_type` |
+| 4 | Day-type input | P(trend) in the structure model and pair scorer, `yesterday_day_type`, and `with_day_direction` / `vwap_side_vs_trade` (F11.7; owner 2026-10-27) |
 | 5 | Area events | VAH/VAL area events and their pairs (the VAH/VAL context features stay) |
 | 6 | Stop candidate 5 | the absorption stop |
 | 7 | **Map shape (owner-approved 2026-10-05, Q30)** | the six concepts approved 2026-10-04: beach ball (F2.7), magnets (F2.10), air pockets (F2.15), King dominance and migration (F2.16), rainbow road (F2.17), whipsaw (F2.18) |

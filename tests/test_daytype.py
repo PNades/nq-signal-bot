@@ -76,6 +76,19 @@ def test_a_steady_up_day_is_trend_up():
     assert label(1, 20_092, new_highs=10, new_lows=1) == dt.TREND
 
 
+def test_trade_direction_against_the_day():
+    """Owner tests 2026-10-27 (Q-trenddir): a long pullback on an up day above VWAP -> +1 / +1; a long fade at the low on
+    a down day below VWAP -> -1 / -1."""
+    hw = load_features()["chart_level_half_width"]["vwap"]
+    long, short = 1, -1
+    assert (dt.with_day_direction(long, 7, 2), dt.vwap_side_vs_trade(long, 20_060, 20_040, hw)) == (1, 1)
+    assert (dt.with_day_direction(long, 1, 6), dt.vwap_side_vs_trade(long, 19_950, 19_990, hw)) == (-1, -1)
+    assert dt.with_day_direction(short, 4, 4) == 0
+    assert dt.with_day_direction(short, 1, 6) == 1
+    assert dt.vwap_side_vs_trade(short, 20_060, 20_040, hw) == -1
+    assert dt.vwap_side_vs_trade(long, 20_040 + hw, 20_040, hw) == 0   # on the band's edge: within
+
+
 def test_config_cross_bar_is_5_minutes_and_no_poc_limit():
     f = load_features()
     assert f["daytype_cross_bar_minutes"] == 5
