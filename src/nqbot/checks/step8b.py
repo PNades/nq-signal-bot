@@ -575,6 +575,20 @@ def _floors_text(floors: dict[str, Any]) -> str:
     return ", ".join(f"{k} {'pending' if v is None else v}" for k, v in floors.items())
 
 
+def _ndxp_text(env: Env) -> str:
+    """NDXP is not scored in the 22-day conditions (its history `spot` is an NQ price, §13 Q8b-1): its method was chosen by
+    `step8b ndxp-select` over the session recordings and frozen (owner 2026-10-19, §13 Q8b-frozen)."""
+    m = env.features["mapping"]
+    method = "QQQ × k" if m.get("ndxp_r_method") == "qqq_k" else m.get("ndxp_r_method")
+    return (f"(NDXP: {method}, N = {m.get('ndxp_k_sessions')}, chosen by `step8b ndxp-select` over the session "
+            f"recordings, stop floor {env.settings['stop_buffer_floor'].get('NDXP')} NQ, frozen; §13 Q8b-1, Q8b-frozen)")
+
+
+def _owner_atlas(env: Env) -> dict[str, Any] | None:
+    """The owner's Atlas replay check (the gate's last condition, Q8b-5), as recorded in features.yaml."""
+    return env.features["mapping"].get("atlas_owner_check")
+
+
 def check_report(env: Env) -> Path:
     prec, lag = (latest_report(env.paths, n) for n in ("precision", "spot_lag"))
     try:  # §12 step 8b: every sample day has its own Atlas table
@@ -595,8 +609,8 @@ def check_report(env: Env) -> Path:
             o = c["overall"]
             lines.append(f"| {m} ({c['unit']}) | {o['p95']} | {c['p95_max']} | {o['median']} | {o['p99']} | {o['max']} | "
                          f"{c['rejected']} / {c['applied']} | {'yes' if c['within_p95_max'] else 'no'} |")
-        lines += ["", f"- Stop floors per level source (`stop_buffer_floor`, NQ pts, §5.1): "
-                      f"{_floors_text(prec['stop_buffer_floor'])} (`stop_buffer` {prec['stop_buffer_setting']})"]
+        lines += ["", f"- Stop floors per level source (`stop_buffer_floor` in settings.yaml, NQ pts, §5.1): "
+                      f"{_floors_text(env.settings['stop_buffer_floor'])} (`stop_buffer` {env.settings['stop_buffer']})"]
     if lag is None:
         lines += ["- Spot lag: **pending** (`nqbot step8b spot-lag`)"]
     else:
@@ -608,8 +622,10 @@ def check_report(env: Env) -> Path:
                                                     for m, o in per.items()))
     tables = bool(atlas_days) and all("within_tol_counts" in atlas_by_date.get(d, {}) for d in atlas_days)
     min_share = env.features["mapping"]["atlas_regression_min_share"]
-    lines += ["- **Atlas (gate condition): the owner's check in Atlas replay: pending** (owner 2026-10-08, Q8b-5: the "
-              "same strikes show as nodes of similar size)"]
+    owner = _owner_atlas(env)
+    owner_text = f"{owner['result']} ({owner['date']})" if owner else "pending"
+    lines += [f"- **Atlas (gate condition): the owner's check in Atlas replay: {owner_text}** (owner 2026-10-08, "
+              "Q8b-5: the same strikes show as nodes of similar size)"]
     if tables:
         pooled = atlas_pooled_share([atlas_by_date[d] for d in atlas_days])
         alert = [m for m, (w, n) in pooled.items() if n and w / n < min_share]
@@ -640,7 +656,7 @@ def check_report(env: Env) -> Path:
             lines.append(f"- {title}: **pending** (`nqbot step8b {cmd} --dates ...`)")
             continue
         lines.append(f"- {title} ({len(rep['days'])} days): **{'PASS' if rep['pass'] else 'FAIL'}** "
-                     "(NDXP pending its method, §13 Q8b-1)")
+                     + _ndxp_text(env))
         for m, c in rep["per_chain"].items():
             if name == "bias":
                 detail = f"median {c['median']} [{c['interval'][0]}, {c['interval'][1]}] {c['unit']}, n {c['n']}"
@@ -650,7 +666,10 @@ def check_report(env: Env) -> Path:
                 detail = f"latest content {c['max_offset_ms']} ms after floor(asOf); alerts {c['alerts'] or 'none'}"
             lines.append(f"  - {m}: {detail}: {'pass' if c['pass'] else 'FAIL'}")
     gate = all(conditions.values()) and tables
-    lines += ["", f"**Gate 8b: {'conditions met; the owner checks Atlas replay' if gate else 'not passed yet'}.** It "
+    owner_ok = bool(owner) and owner.get("result") == "all match"
+    verdict = (f"passed: conditions met and the owner's Atlas check {owner['result']} ({owner['date']})" if gate and owner_ok
+               else "conditions met; the owner checks Atlas replay" if gate else "not passed yet")
+    lines += ["", f"**Gate 8b: {verdict}.** It "
                   "must pass before step 11. If a chain fails, find the cause (stale spot, wrong second, slow map "
                   "cadence) before anything else; never raise a threshold."]
     path = reports_dir(env.paths) / "mapping_gate.md"

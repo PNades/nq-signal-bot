@@ -6,6 +6,12 @@
       "passed": "2026-10-05",
       "commit": "07a312e3601287071a0d073d6138adde81673fdc",
       "what": "feature spec (docs/feature_spec.md) and config/calendar.yaml approved by the owner; recorded in CLAUDE.md Status by 5268b8a"
+    },
+    {
+      "gate": "8b",
+      "passed": "2026-10-28",
+      "commit": "7d7c4775d590485b4c16647dbcd4ea9a997eef76",
+      "what": "level-mapping precision: (a) bias, (b) estimator within 10% of the best R and the alignment check pass for QQQ, SPY and SPX on the 22 development days (step8b_gate re-run 2026-10-19 with the frozen values); NDXP QQQ x k N = 20 by ndxp-select on the recordings, floor 6.50 frozen; the owner's Atlas replay check all match (2026-10-28); report <reports_dir>/step8b/mapping_gate.md"
     }
   ]
 }

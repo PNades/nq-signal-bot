@@ -32,7 +32,7 @@ from nqbot.checks.step7_analysis import quantile
 from nqbot.features import mapping as mp
 from nqbot.storage import atomic_write_bytes
 
-GATE_MAPS = ("QQQ", "SPY", "SPX")  # NDXP pending its method (§13 Q8b-1)
+GATE_MAPS = ("QQQ", "SPY", "SPX")  # NDXP: its history spot is an NQ price; chosen by ndxp-select on the recordings (§13 Q8b-1)
 FUTURES_TICK = 0.25  # F0.3: NQ and ES tick
 BIAS_CONF = 0.95  # §5.1 gate (a): 95% day-block bootstrap interval
 BOOT_RESAMPLES = 2000  # findings R1: day-block bootstrap resamples

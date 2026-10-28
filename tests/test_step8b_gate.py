@@ -65,7 +65,7 @@ def test_gate_checks_pass_on_a_clean_day(env):
     _setup(env, noise=1e-6)
     _whole_second_content(env)
     bias = step8b_gate.check_bias(env)
-    assert set(bias["per_chain"]) == {"QQQ", "SPY", "SPX"}  # NDXP pending its method
+    assert set(bias["per_chain"]) == {"QQQ", "SPY", "SPX"}  # NDXP is chosen by ndxp-select on the recordings
     assert all(c["n"] > 10 for c in bias["per_chain"].values())
     assert bias["pass"], bias["per_chain"]
     est = step8b_gate.check_estimator(env)

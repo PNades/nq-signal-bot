@@ -262,6 +262,18 @@ def test_gate_report_and_cli(env, settings, drive, monkeypatch, capsys):
     assert "diagnostic, not a gate condition" in text and "(a) bias" in text and "**pending**" in text  # Q8b-4
 
 
+def test_gate_report_shows_config_floors_ndxp_method_and_the_owners_atlas_check(env):
+    env.features["mapping"]["atlas_owner_check"] = None
+    text = step8b.check_report(env).read_text(encoding="utf-8")
+    assert "Atlas replay: pending**" in text and "not passed yet" in text
+    env.features["mapping"]["atlas_owner_check"] = {"result": "all match", "date": "2026-10-28"}
+    text = step8b.check_report(env).read_text(encoding="utf-8")
+    assert "Atlas replay: all match (2026-10-28)**" in text
+    assert "not passed yet" in text  # the owner's check alone never passes the gate: the conditions are pending
+    assert "NDXP pending its method" not in text
+    assert step8b._ndxp_text(env).startswith("(NDXP: QQQ × k, N = 20,") and "stop floor 6.5 NQ" in step8b._ndxp_text(env)
+
+
 def test_boards_after_an_early_close_are_left_out(env):
     env.cal = {"holidays": [], "early_closes": [{"date": DAY, "early_close_et": "10:00"}]}
     _setup(env, noise=1e-6)
@@ -290,6 +302,7 @@ def test_atlas_regression_alert(env):
     """Q8b-5 (owner 2026-10-08): the share within the frozen tolerance is information only, with an alert below 90%."""
     _setup(env, noise=1e-6, vol=(0.2, 0.1))
     env.features["mapping"]["atlas_match_tol"] = {"NQ": 0.0, "ES": 0.0}  # nothing within: the regression alert
+    env.features["mapping"]["atlas_owner_check"] = None  # the owner's replay check not recorded yet
     rep = step8b.check_atlas(env, DAY, [time(9, 45)])
     assert rep["share_within_tol"]["SPY"] < 0.9
     text = step8b.check_report(env).read_text(encoding="utf-8")
