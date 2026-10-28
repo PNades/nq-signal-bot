@@ -225,7 +225,10 @@ tune_grids_13:
     roll_switch_min_sec: [30, 60, 120, 300]
     king_switch_min_sec: [30, 60, 120, 300]
   execution:                      # styles (c) and (d), each on its own single-style policy
-    entry_order_type: [limit, marketable_limit, stop_limit]
+    entry_order_type:             # per style; (d) also limit_center = a passive limit at the zone's centre (a single Skylit
+                                  # node: the mapped strike); owner 2026-10-28, SPEC §13 Q-strikeentry
+      c: [limit, marketable_limit, stop_limit]
+      d: [limit, marketable_limit, stop_limit, limit_center]
     entry_ttl_sec: [10, 30, 60, 120, 300]
     stop_buffer: [1, 2.5, 5, 8, 12]   # pooled (c)+(d) trades; stop_buffer_floor applies per stop (F7)
 tune_grids_19:

@@ -98,7 +98,9 @@ def test_step6_approved_values_set():
     ex13, ex19 = f["tune_grids_13"]["execution"], f["tune_grids_19"]["execution"]
     for style in ("c", "d"):
         assert s["entry_ttl_sec"][style] in ex13["entry_ttl_sec"]
-        assert s["entry_order_type"][style] in ex13["entry_order_type"]
+        assert s["entry_order_type"][style] in ex13["entry_order_type"][style]
+    assert ex13["entry_order_type"]["c"] == ["limit", "marketable_limit", "stop_limit"]
+    assert ex13["entry_order_type"]["d"] == ["limit", "marketable_limit", "stop_limit", "limit_center"]
     for style in ("a", "b"):
         assert s["entry_ttl_sec"][style] in ex19["entry_ttl_sec"]
         assert s["entry_order_type"][style] in ex19["entry_order_type"][style]

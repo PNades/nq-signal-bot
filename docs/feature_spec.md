@@ -447,7 +447,7 @@ Coarse and few; inputs of the structure model and the pair scorer:
 - `prev_va_overlap` = the overlap of today's developing daily value area (F3.3) with the previous session's, ÷ the narrower of the two widths ∈ [0, 1]; at each profile instant.
 - `dpoc_drift_em` = (developing daily POC at t − the developing daily POC at the first profile instant ≥ 09:30) ÷ EM.
 - `poc_migration_em` (owner 2026-10-24, the last addition before the freeze) = (developing daily POC as of t (F3.2, the latest profile instant ≤ t) − the previous session's POC (F3.2b)) ÷ EM, signed to the trade direction like the other directional features (+ = value moving with the trade; shorts: negated). At the touch (structure model) and at `decision_ts` (pair scorer). Ablation group 11.
-- *Day type (owner 2026-10-24):* the 8 inputs stay (`ib_width_ratio` included; no swap test). On the LightGBM challenger list (SPEC §7.1 Retraining): `open_outside_prev_va_em` = the open's distance outside the previous value area ÷ EM, unsigned (max(open − VAH, VAL − open, 0) ÷ EM; 0 inside), `prev_va_overlap`, `dpoc_drift_em` and |`poc_migration_em`| (unsigned: the day-type label has no direction).
+- *Day type (owner 2026-10-24):* the 8 inputs stay (`ib_width_ratio` included; no swap test). On the LightGBM challenger list (SPEC §7.1 Retraining): `open_outside_prev_va_em` = the open's distance outside the previous value area ÷ EM, unsigned (max(open − VAH, VAL − open, 0) ÷ EM; 0 inside), `prev_va_overlap`, `dpoc_drift_em` and |`poc_migration_em`| (unsigned: the day-type label has no direction). Added 2026-10-28 (owner, SPEC §13 Q-er): `er_so_far`, `er_<w>` (Kaufman's Efficiency Ratio on 5-minute bars, from the open and over the Q-v2 recent windows) and `vr_prior` (Lo–MacKinlay variance ratio, q = 6, prior 10 full sessions).
 - *Params:* none new.
 - *Test:* previous VA [100, 110]; open 112 → above; price 105 with EM 20 → `dist_prev_poc_em` per the POC; today's VA [106, 116] → overlap 4/10 = 0.4; developing POC 108 at 09:31 and 104 at 11:00 with EM 20 → drift −0.2; previous POC 103 → migration (104 − 103) ÷ 20 = +0.05 for a long, −0.05 for a short, 0.05 unsigned; open 112 → `open_outside_prev_va_em` (112 − 110) ÷ 20 = 0.1, an open at 105 → 0.
 
@@ -1413,7 +1413,7 @@ POC ties: (a) the price closest to the profile's midpoint; (b) the price closest
 
 | Order | Parameter | Grid |
 |---|---|---|
-| 1 (joint, per style) | `entry_order_type` × `entry_ttl_sec` | {limit, marketable_limit, stop_limit} × {10, 30, **60**, 120, 300} s (start types: (c) **stop_limit**, (d) **limit**); style (d) also `limit_center`, a passive limit at the zone's centre (a single Skylit node: the mapped strike; owner 2026-10-28, SPEC §13 Q-strikeentry) |
+| 1 (joint, per style) | `entry_order_type` × `entry_ttl_sec` | {limit, marketable_limit, stop_limit} × {10, 30, **60**, 120, 300} s (start types: (c) **stop_limit**, (d) **limit**); style (d) also `limit_center` (per-style lists in `features.yaml`), a passive limit at the zone's centre (a single Skylit node: the mapped strike; owner 2026-10-28, SPEC §13 Q-strikeentry) |
 | 2 (pooled c + d) | `stop_buffer` (NQ pts) | 1, 2.5, **5**, 8, 12 (none dropped: `stop_buffer_floor` applies per stop by level source, F7) |
 
 - **Size:** 2 styles × 15 + 4 = 34 re-simulations ≈ **≤ 1 night**.
