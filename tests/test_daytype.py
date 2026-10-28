@@ -37,8 +37,48 @@ def test_the_level_is_judged_as_of_the_bar_open_and_close():
     assert dt.settled_side(dt.LevelBar(20_001, 20_005, None, 20_000)) is None
 
 
-def test_config_cross_bar_is_5_minutes_and_thresholds_stay_2():
+def label(vwap_crosses, close, new_highs=7, new_lows=2, **kw):
+    """RTH range 20,000-20,100; the default counts make an up day (new_extreme_skew 5, new highs dominate)."""
+    f = load_features()
+    return dt.eod_label(vwap_crosses, close, 20_100.0, 20_000.0, new_highs, new_lows, f["trend_max_vwap_crosses"],
+                        f["trend_close_pct"], **kw)
+
+
+def test_eod_label_ignores_poc_crosses():
+    """Owner 2026-10-27 (Q-dtcross follow-up): 1 VWAP cross, 3 POC crosses, close in the top 15% on an up day -> trend;
+    with the former POC condition (the step-13 comparison only) -> range."""
+    assert label(1, 20_086) == dt.TREND
+    assert label(1, 20_086, poc_crosses=3, max_poc_crosses=dt.REPORT_MAX_POC_CROSSES) == dt.RANGE
+    assert label(1, 20_086, poc_crosses=2, max_poc_crosses=dt.REPORT_MAX_POC_CROSSES) == dt.TREND
+
+
+def test_eod_label_vwap_crosses_and_close():
+    assert label(3, 20_095) == dt.RANGE              # 3 VWAP crosses
+    assert label(0, 20_050) == dt.RANGE              # close in the middle of the range
+    assert label(2, 20_008, new_highs=1, new_lows=6) == dt.TREND  # down day closing in the bottom 10%
+
+
+def test_trend_side_is_the_sign_of_new_highs_minus_new_lows():
+    """Owner 2026-10-27 (Q-dtside): positive -> up, negative -> down, zero -> no side (range)."""
+    assert (dt.trend_side(7, 2), dt.trend_side(2, 7), dt.trend_side(4, 4)) == (dt.UP, dt.DOWN, None)
+    assert label(0, 20_095, new_highs=4, new_lows=4) == dt.RANGE
+
+
+def test_a_v_reversal_day_closing_high_is_range():
+    """Owner test: the morning's new lows dominate (2 new highs, 9 new lows), then price rallies and closes in the top
+    20% of the range -> the side is down, the close isn't in the bottom 20% -> range."""
+    assert label(1, 20_090, new_highs=2, new_lows=9) == dt.RANGE
+
+
+def test_a_steady_up_day_is_trend_up():
+    """Owner test: new highs all day (10 new highs, 1 new low at the open), 1 VWAP cross, close in the top 20%."""
+    assert dt.trend_side(10, 1) == dt.UP
+    assert label(1, 20_092, new_highs=10, new_lows=1) == dt.TREND
+
+
+def test_config_cross_bar_is_5_minutes_and_no_poc_limit():
     f = load_features()
     assert f["daytype_cross_bar_minutes"] == 5
-    assert (f["trend_max_vwap_crosses"], f["trend_max_poc_crosses"]) == (2, 2)
+    assert f["trend_max_vwap_crosses"] == 2 and f["trend_close_pct"] == 0.20
+    assert "trend_max_poc_crosses" not in f
     assert "vwap_crosses" in f["daytype_inputs"]

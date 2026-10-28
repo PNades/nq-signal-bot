@@ -3,7 +3,8 @@
 A cross is a clock-aligned `daytype_cross_bar_minutes` (5) bar settled on the other side (F0.5, margin 0): its open is
 beyond the level as of the bar's open and its close beyond the level as of its close (the developing VWAP / POC move
 like bands). The first settled bar sets the side without counting; a bar that doesn't settle leaves the side as it is.
-Used by `vwap_crosses` (a day-type input), the EOD day-type label and `poc_crosses` (LightGBM day-type challenger).
+Used by `vwap_crosses` (a day-type input), the EOD day-type label and `poc_crosses` (LightGBM day-type challenger
+candidate only; owner 2026-10-27, §13 Q-dtcross follow-up: POC crosses are not part of the label).
 
 `crosses_1m_closes` is the rule before 2026-10-27 (a 1-minute close on the other side of the previous close's side),
 kept only for the step-13 count report that shows both rules side by side.
@@ -14,6 +15,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 ABOVE, BELOW = "above", "below"
+UP, DOWN = "up", "down"
+TREND, RANGE = "trend", "range"
+# The former `trend_max_poc_crosses`, used only by the step-13 comparison report (SPEC §12 step 13).
+REPORT_MAX_POC_CROSSES = 2
 
 
 @dataclass(frozen=True)
@@ -46,6 +51,32 @@ def crosses(bars: list[LevelBar]) -> int:
             n += 1
         side = s
     return n
+
+
+def trend_side(new_highs: int, new_lows: int) -> str | None:
+    """SPEC §13 Q-dtside (owner 2026-10-27): the side of the new highs/lows at the close = the sign of
+    `new_highs` - `new_lows`, the same F3.10 counts whose absolute value is `new_extreme_skew`; zero = no side."""
+    d = new_highs - new_lows
+    return UP if d > 0 else DOWN if d < 0 else None
+
+
+def eod_label(vwap_crosses: int, close: float, rth_high: float, rth_low: float, new_highs: int, new_lows: int,
+              max_vwap_crosses: int, close_pct: float, poc_crosses: int | None = None,
+              max_poc_crosses: int | None = None) -> str:
+    """F11.6: trend if VWAP crosses <= max_vwap_crosses and the close is in the outer close_pct of the RTH range on the
+    side of the new highs/lows (`trend_side` at the close; no side = range); else range.
+    `poc_crosses` / `max_poc_crosses` add the former POC condition, for the step-13 comparison report only."""
+    if vwap_crosses > max_vwap_crosses:
+        return RANGE
+    if max_poc_crosses is not None and (poc_crosses is None or poc_crosses > max_poc_crosses):
+        return RANGE
+    extreme_side = trend_side(new_highs, new_lows)
+    band = close_pct * (rth_high - rth_low)
+    if extreme_side == UP:
+        return TREND if close >= rth_high - band else RANGE
+    if extreme_side == DOWN:
+        return TREND if close <= rth_low + band else RANGE
+    return RANGE
 
 
 def crosses_1m_closes(closes: list[tuple[float, float | None]]) -> int:

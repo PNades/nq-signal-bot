@@ -518,7 +518,7 @@ Coarse and few; inputs of the structure model and the pair scorer:
 All are computed on RTH from 09:30 and known at t:
 - `ib_width_ratio` = locked IB width ÷ the mean IB width of the last `ib_avg_sessions` sessions (null before 10:00).
 - `vwap_crosses` (owner 2026-10-27, SPEC §13 Q-dtcross; was 1-minute closes): the number of crosses of the 09:30-anchored VWAP, a cross being a clock-aligned `daytype_cross_bar_minutes` (5) bar that settles (F0.5, margin 0: open beyond the VWAP as of the bar's open, close beyond it as of its close) on the other side from the last settled bar's side. The first settled bar sets the side without counting; a bar that doesn't settle (straddles, or the level isn't defined yet) leaves the side unchanged. Known at each bar's close.
-- `poc_crosses`: the same vs the developing daily POC (judged as of each bar's open and close, like a moving band).
+- `poc_crosses`: the same vs the developing daily POC (judged as of each bar's open and close, like a moving band). A LightGBM day-type challenger candidate input only; not part of the EOD label (owner 2026-10-27, SPEC §13 Q-dtcross follow-up).
 - `rotations`: a zigzag on trades. Track the current swing extreme in the current swing direction; when price moves ≥ `rotation_min_pts` × ATR against it, count one rotation, reverse the direction and start the new swing from that extreme.
 - `time_above_vwap_frac`: the fraction of RTH seconds with the last price above the 09:30 VWAP.
 - `new_highs`, `new_lows`: the number of 1-minute bars that set a new RTH high/low.
@@ -1043,11 +1043,11 @@ Candidates within `stop_merge_ticks` of each other are merged. Area events use o
 ### F11.6 Day-type label (§7.1)
 - At EOD, on RTH only (a cross = a settled clock-aligned 5-minute bar on the other side, F3.10 / F0.5; owner 2026-10-27, SPEC §13 Q-dtcross, was a 1-minute close): **trend** if all of these hold; otherwise **range**:
   - crosses of the 09:30 VWAP ≤ `trend_max_vwap_crosses`;
-  - crosses of the developing daily POC ≤ `trend_max_poc_crosses`;
-  - the close lies in the outer `trend_close_pct` of the RTH range, on the side of the new highs/lows.
+  - the close lies in the outer `trend_close_pct` of the RTH range, on the side of the new highs/lows: the sign at the close of `new_highs` − `new_lows` (F3.10, the same counts whose absolute value is `new_extreme_skew`; no separate count): positive → up (the top `trend_close_pct`), negative → down (the bottom), zero → range (owner 2026-10-27, SPEC §13 Q-dtside). `eod_label` works the side out itself.
+- POC crosses are not part of the label (owner 2026-10-27, SPEC §13 Q-dtcross follow-up: the developing POC can jump across price on trend days without price crossing anything); `trend_max_poc_crosses` is removed. The step-13 report also shows the label with the former POC condition (≤ 2) for comparison.
 - Rows: one per `daytype_snapshot_min` from 10:00, with the F3.10 inputs as of each snapshot.
 - *Params:* *label*; the owner may refine them at step 6.
-- *Test:* 1 VWAP cross, 2 POC crosses, close in the top 15% of the range on an up day → trend; 3 VWAP crosses → range.
+- *Test (`tests/test_daytype.py`):* 1 VWAP cross, 3 POC crosses, close in the top 15% of the range on an up day → trend (with the former POC condition, the step-13 comparison only: range); 3 VWAP crosses → range; the close in the middle of the range → range; a down day closing in the bottom 10% → trend; new highs = new lows → range; a V-reversal day (the morning's new lows dominate: 2 new highs, 9 new lows) closing in the top 20% → range; a steady up day (10 new highs, 1 new low, 1 VWAP cross) closing in the top 20% → trend.
 
 ---
 
