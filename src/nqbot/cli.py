@@ -6,6 +6,7 @@ import argparse
 import sys
 from contextlib import ExitStack
 from datetime import date, datetime, time
+from time import monotonic
 
 from nqbot.config import ConfigError, load_settings
 from nqbot.jobs.lock import (ALL_LOCKS, DATABENTO, SKYLIT, LockHeld, force_unlock, holder_alive, job_locks, lock_path,
@@ -109,9 +110,10 @@ def _main(argv: list[str] | None = None) -> int:
                                      "session, SSD writable, AC power, SSD drops (exit 5 on any warning; §9)")
     sub.add_parser("fallback-move", help="move a session recording kept on the internal drive (stream-session "
                                          "--fallback-local) onto the SSD, checked file by file")
-    sub.add_parser("test", help="run the full test suite; the whole output goes to <root>/logs/pytest_<date-time>.txt, "
-                                "ending with 'PYTEST EXIT CODE: N' (owner 2026-10-10: run before every commit); any "
-                                "further arguments go to pytest (the commit check uses none)")
+    sub.add_parser("test", help="run the test suite (parallel, all cores but 2; --serial: one process); the whole "
+                                "output goes to <root>/logs/pytest_<date-time>.txt, ending with 'PYTEST EXIT CODE: N'; "
+                                "any further arguments go to pytest; a full run (no pytest arguments) on a clean commit "
+                                "that passes is recorded, and long jobs run only a recorded commit (CLAUDE.md rule 14)")
     stop = sub.add_parser("stop", help="ask a running job to stop after the call it is in (its answer saved), "
                                        "unlike Ctrl-C (SPEC section 11)")
     stop.add_argument("job", choices=sorted(JOBS))
@@ -216,9 +218,16 @@ def _main(argv: list[str] | None = None) -> int:
         res = move_fallback(fallback_paths(settings["paths"]["root"]), paths)
         return 1 if res.conflicts else 0
     if args.command == "test":
-        from nqbot.testrun import run_tests
+        from nqbot import testpass
+        from nqbot.testrun import pytest_cmd, run_tests
 
-        return run_tests(paths.log_dir, extra)[0]
+        full = pytest_cmd(extra)[1]
+        state = testpass.before_run() if full else None
+        t0 = monotonic()
+        code = run_tests(paths.log_dir, extra)[0]
+        if state is not None:  # owner 2026-10-29: a full-suite pass on a clean commit lets jobs run it (rule 14 (f))
+            print(testpass.record(paths, state, code, monotonic() - t0))
+        return code
     if args.command == "status-push":
         from nqbot.clock import clock_checks
         from nqbot.status_push import push
@@ -229,6 +238,8 @@ def _main(argv: list[str] | None = None) -> int:
         from nqbot.verify import run_verify
 
         until = parse_until(args.until, datetime.now(ET))
+        if not _passed_full_suite(paths, log, "nqbot resume"):
+            return EXIT_REFUSED  # = resume's "waiting for the owner"
         _print_power_warnings()
 
         def verify(since: datetime) -> bool:
@@ -255,6 +266,8 @@ def _main(argv: list[str] | None = None) -> int:
 
     job = get_job("skylit_backup" if args.command == "backup" else args.job)
     until = parse_until(args.until, datetime.now(ET))
+    if not _passed_full_suite(paths, log, job.name):
+        return EXIT_REFUSED
     _print_power_warnings()
     try:
         result = run_job(job, settings, paths, until=until, log=log)
@@ -305,6 +318,17 @@ def _run_for_resume(name: str, settings: dict, paths, until: datetime, log):
         return RunResult("refused", 0, 0, message=f"{type(e).__name__}: {e}")
 
 
+def _passed_full_suite(paths, log, what: str) -> bool:
+    """Owner 2026-10-29 (CLAUDE.md rule 14 (f)): a long job runs only a commit that passed the full suite."""
+    from nqbot import testpass
+
+    def echo(msg: str) -> None:
+        (log.error if msg.startswith("refused") else log.warning)("%s", msg)
+        print(msg, file=sys.stderr)
+
+    return testpass.require(paths, echo, what)
+
+
 def _queue(args: argparse.Namespace, paths, settings: dict) -> int:
     from nqbot.jobs import queue
 
@@ -313,6 +337,11 @@ def _queue(args: argparse.Namespace, paths, settings: dict) -> int:
         if args.job not in JOBS:
             print(f"refused: unknown job {args.job!r}; known jobs: {', '.join(sorted(JOBS))}", file=sys.stderr)
             return EXIT_REFUSED
+        if args.action == "add" and args.job not in names:
+            from nqbot import testpass
+
+            if not testpass.require(paths, lambda m: print(m, file=sys.stderr), f"queue add {args.job}"):
+                return EXIT_REFUSED
         if args.action == "add" and args.job not in names:
             names.append(args.job)
         elif args.action == "remove":

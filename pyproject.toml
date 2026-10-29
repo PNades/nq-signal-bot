@@ -28,7 +28,10 @@ dependencies = [
 nqbot = "nqbot.cli:main"
 
 [dependency-groups]
-dev = ["pytest"]
+dev = [
+    "pytest",
+    "pytest-xdist>=3.8.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]

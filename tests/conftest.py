@@ -170,6 +170,17 @@ def ssd_event_log(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def full_suite_passed(monkeypatch):
+    """CLI job tests never read the real repo's git state (owner 2026-10-29, rule 14 (f)): the full-suite check
+    answers 'passed'. tests/test_testpass.py tests the real check with a fake git."""
+    from nqbot import testpass
+
+    real = testpass.check
+    monkeypatch.setattr(testpass, "check", lambda paths, git=None: testpass.Verdict(True, "stubbed in tests"))
+    return real
+
+
+@pytest.fixture(autouse=True)
 def no_power_calls(monkeypatch):
     """Tests never call powercfg or SetThreadExecutionState: the calls are recorded instead (tests/test_power.py)."""
     from nqbot import power

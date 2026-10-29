@@ -1,10 +1,15 @@
 """`nqbot test` (owner 2026-10-10): run the full pytest suite, save the whole output on the SSD and end with one line
 "PYTEST EXIT CODE: N"; the command returns pytest's own exit code. Every commit runs it first and every report quotes
 that line (CLAUDE.md rule 14), so a failure can never hide behind a pipe such as `| tail`. Just above it, the wall time
-and the peak memory of the pytest process tree (owner 2026-10-28: compared between the laptop and the PC)."""
+and the peak memory of the pytest process tree (owner 2026-10-28: compared between the laptop and the PC).
+
+Owner 2026-10-29: pytest-xdist with `--dist load` and all cores but 2 as workers (`--serial` runs in one process),
+temporary folders under BASETEMP (C:\\nqbot_pytest, excluded from Defender on each machine; pytest empties it at the
+start of every run, so run one `nqbot test` at a time)."""
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import threading
@@ -22,6 +27,22 @@ EXIT_LINE = "PYTEST EXIT CODE: {code}"
 WALL_LINE = "PYTEST WALL TIME: {sec:.0f} s ({hms})"
 PEAK_LINE = "PYTEST PEAK MEMORY: {gb:.2f} GB"
 SAMPLE_SEC = 0.5  # how often the pytest process tree's memory is read
+BASETEMP = r"C:\nqbot_pytest"  # owner 2026-10-29 (name approved); never under a real data root (tests/conftest.py)
+SERIAL_FLAG = "--serial"
+SPARE_CORES = 2  # owner 2026-10-29: workers = all cores but 2
+
+
+def workers(cpus: int | None = None) -> int:
+    return max(1, (cpus if cpus is not None else os.cpu_count() or 1) - SPARE_CORES)
+
+
+def pytest_cmd(extra: list[str] | None = None, cpus: int | None = None) -> tuple[list[str], bool]:
+    """The pytest command for `nqbot test [--serial] [pytest args]`, and whether it is a full-suite run (no pytest
+    arguments; only a full run can record a pass, CLAUDE.md rule 14 (c))."""
+    rest = [a for a in (extra or []) if a != SERIAL_FLAG]
+    serial = len(rest) != len(extra or [])
+    par = [] if serial else ["-n", str(workers(cpus)), "--dist", "load"]
+    return [sys.executable, "-m", "pytest", *par, "--basetemp", BASETEMP, *rest], not rest
 
 
 class MemorySampler:
@@ -83,7 +104,7 @@ def run_tests(log_dir: Path, extra: list[str] | None = None, *, cmd: list[str] |
               now: datetime | None = None, out: BinaryIO | None = None) -> tuple[int, Path]:
     """Run pytest from the repo root, copy its output to the console and to the log as it arrives, append the exit
     line to both. `cmd` replaces the pytest command in tests."""
-    cmd = cmd or [sys.executable, "-m", "pytest", *(extra or [])]
+    cmd = cmd or pytest_cmd(extra)[0]
     out = out or sys.stdout.buffer
     path = log_path(log_dir, now or datetime.now())
     kept = [f"nqbot test {datetime.now():%Y-%m-%d %H:%M:%S}: {' '.join(cmd)}\n".encode()]
