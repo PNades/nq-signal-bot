@@ -3,8 +3,9 @@ restarted the laptop at 04:50 ET, Windows sat at the sign-in screen and the 09:2
 
 Warns (exit EXIT_WARN, Discord from step 22) if a restart is pending, Windows Update isn't paused through the end of
 today's session (or the pause ends within PAUSE_WARN_DAYS), the SSD isn't reachable and writable, the laptop is on
-battery, closing the lid on battery would sleep (owner 2026-10-19, §13 Q-power), or the SSD logged a drop since the
-last check. Reads only (the registry, the SSD probe); writes its report to
+battery, closing the lid on battery would sleep (owner 2026-10-19, §13 Q-power; skipped on a machine with no battery,
+the home PC), the SSD logged a drop since the last check, or (owner 2026-10-28, both machines) the Windows time zone
+isn't Eastern, automatic time sync is off or the clock is off by more than `clock_max_offset_ms`. Reads only (the registry, the SSD probe); writes its report to
 <reports_dir>/preflight/ (or the internal-drive fallback when the SSD is gone)."""
 
 from __future__ import annotations
@@ -61,6 +62,21 @@ def _on_ac() -> bool | None:
     return {0: False, 1: True}.get(s.ACLineStatus)
 
 
+NO_BATTERY_FLAG = 128  # GetSystemPowerStatus BatteryFlag: no system battery (a desktop)
+
+
+def _has_battery() -> bool | None:
+    class SPS(ctypes.Structure):
+        _fields_ = [("ACLineStatus", ctypes.c_byte), ("BatteryFlag", ctypes.c_ubyte), ("BatteryLifePercent", ctypes.c_byte),
+                    ("SystemStatusFlag", ctypes.c_byte), ("BatteryLifeTime", ctypes.c_ulong),
+                    ("BatteryFullLifeTime", ctypes.c_ulong)]
+
+    s = SPS()
+    if not ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(s)):
+        return None
+    return s.BatteryFlag != 255 and not s.BatteryFlag & NO_BATTERY_FLAG  # 255 = unknown: treat as no battery
+
+
 def pause_until(read: Callable[[str, str], Any]) -> datetime | None:
     """When the Windows Update pause ends (the earliest of the pause values set), or None if not paused."""
     ends = []
@@ -77,7 +93,9 @@ def pause_until(read: Callable[[str, str], Any]) -> datetime | None:
 def run_checks(now: datetime, *, key_exists: Callable[[str], bool], read: Callable[[str, str], Any],
                on_ac: Callable[[], bool | None], ssd_ok: Callable[[], tuple[bool, str]],
                drops_since: Callable[[datetime], int], last_check: datetime | None,
-               lid_warning: Callable[[], str | None] = lambda: None) -> dict[str, Any]:
+               lid_warning: Callable[[], str | None] = lambda: None,
+               has_battery: Callable[[], bool | None] = lambda: True,
+               clock: Callable[[], tuple[list[str], list[str]]] = lambda: ([], [])) -> dict[str, Any]:
     warn: list[str] = []
     ok: list[str] = []
     pending = [k for k in REBOOT_KEYS if key_exists(k)]
@@ -100,8 +118,14 @@ def run_checks(now: datetime, *, key_exists: Callable[[str], bool], read: Callab
         ok.append(f"Windows Update paused until {end.astimezone(ET):%Y-%m-%d %H:%M} ET")
     ac = on_ac()
     (ok if ac else warn).append("on AC power" if ac else f"not on AC power ({'battery' if ac is False else 'unknown'})")
-    lid = lid_warning()  # owner 2026-10-19 (§13 Q-power): the lid on battery = Do nothing
-    (warn if lid else ok).append(lid or "closing the lid on battery: Do nothing")
+    if has_battery() is False:  # the home PC (owner 2026-10-28): no lid, no battery
+        ok.append("no battery (desktop): lid check skipped")
+    else:
+        lid = lid_warning()  # owner 2026-10-19 (§13 Q-power): the lid on battery = Do nothing
+        (warn if lid else ok).append(lid or "closing the lid on battery: Do nothing")
+    clock_warn, clock_ok = clock()  # owner 2026-10-28: Eastern time zone, automatic sync, NTP offset
+    warn += clock_warn
+    ok += clock_ok
     good, why = ssd_ok()
     (ok if good else warn).append("SSD reachable and writable" if good else f"SSD not usable: {why}")
     n = drops_since(last_check or now - timedelta(days=1))
@@ -125,6 +149,7 @@ def drops_since(log: Path, since: datetime) -> int:
 
 
 def preflight(settings: dict[str, Any], echo: Callable[[str], None] = print) -> dict[str, Any]:
+    from nqbot.clock import clock_checks
     from nqbot.fallback import fallback_paths, ssd_writable
     from nqbot.power import lid_on_battery_warning
     from nqbot.storage import SSD_EVENT_LOG, SSDNotFound, atomic_write_json, resolve_paths
@@ -143,7 +168,8 @@ def preflight(settings: dict[str, Any], echo: Callable[[str], None] = print) -> 
         last = None
     rep = run_checks(now, key_exists=_hklm_key_exists, read=_hklm_value, on_ac=_on_ac, ssd_ok=ssd_ok,
                      drops_since=lambda since: drops_since(SSD_EVENT_LOG, since), last_check=last,
-                     lid_warning=lid_on_battery_warning)
+                     lid_warning=lid_on_battery_warning, has_battery=_has_battery,
+                     clock=lambda: clock_checks(settings))
     for line in rep["warnings"]:
         echo(f"WARN {line}")
     for line in rep["ok"]:

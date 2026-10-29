@@ -11,11 +11,13 @@ from nqbot.clients.databento_pull import DatabentoPullJob
 from nqbot.clients.skylit_backfill import SkylitBackfillJob
 from nqbot.clients.skylit_multiexp import MultiExpJob
 from nqbot.clients.skylit_pull import SkylitPullJob
+from nqbot.jobs.drill import DrillJob
 from nqbot.jobs.dummy import DummyJob
 from nqbot.jobs.runner import Job
 
 JOBS: dict[str, Callable[[], Job]] = {
     "dummy": DummyJob,
+    "dummy_drill": DrillJob,  # owner 2026-10-28: the resume drill (set up with nqbot drill setup)
     "skylit_sample_days": lambda: SkylitPullJob("skylit_sample_days"),  # step 7 (started by nqbot step7 sample-days)
     # step 7 after skylit_max_strikes was raised (nqbot step7 sample-days --raised; its own state, presd_fixes D4)
     "skylit_sample_days_raise": lambda: SkylitPullJob("skylit_sample_days_raise"),

@@ -1,19 +1,70 @@
 """`nqbot test` (owner 2026-10-10): run the full pytest suite, save the whole output on the SSD and end with one line
 "PYTEST EXIT CODE: N"; the command returns pytest's own exit code. Every commit runs it first and every report quotes
-that line (CLAUDE.md rule 14), so a failure can never hide behind a pipe such as `| tail`."""
+that line (CLAUDE.md rule 14), so a failure can never hide behind a pipe such as `| tail`. Just above it, the wall time
+and the peak memory of the pytest process tree (owner 2026-10-28: compared between the laptop and the PC)."""
 
 from __future__ import annotations
 
 import subprocess
 import sys
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import BinaryIO
 
-from nqbot.storage import atomic_write_bytes
+import psutil
+
+from nqbot.storage import GB, atomic_write_bytes
 
 REPO = Path(__file__).resolve().parents[2]
 EXIT_LINE = "PYTEST EXIT CODE: {code}"
+WALL_LINE = "PYTEST WALL TIME: {sec:.0f} s ({hms})"
+PEAK_LINE = "PYTEST PEAK MEMORY: {gb:.2f} GB"
+SAMPLE_SEC = 0.5  # how often the pytest process tree's memory is read
+
+
+class MemorySampler:
+    """Peak memory of a process and its children while it runs: the largest sum over the tree of each process's
+    peak working set on Windows (rss elsewhere), read every SAMPLE_SEC."""
+
+    def __init__(self, pid: int):
+        self.pid = pid
+        self.peak_gb = 0.0
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def sample(self) -> None:
+        try:
+            root = psutil.Process(self.pid)
+            procs = [root, *root.children(recursive=True)]
+        except psutil.Error:
+            return
+        total = 0
+        for p in procs:
+            try:
+                info = p.memory_info()
+            except psutil.Error:
+                continue
+            total += getattr(info, "peak_wset", None) or info.rss
+        self.peak_gb = max(self.peak_gb, total / GB)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            self.sample()
+            self._stop.wait(SAMPLE_SEC)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join()
+
+
+def _hms(sec: float) -> str:
+    s = int(round(sec))
+    return f"{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}"
 
 
 def _close(f: BinaryIO) -> None:
@@ -45,7 +96,10 @@ def run_tests(log_dir: Path, extra: list[str] | None = None, *, cmd: list[str] |
         f.write(kept[0])
     except OSError:
         f = None
+    t0 = time.monotonic()
     proc = subprocess.Popen(cmd, cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    sampler = MemorySampler(proc.pid)
+    sampler.start()
     assert proc.stdout is not None
     for chunk in iter(lambda: proc.stdout.read1(4096), b""):
         kept.append(chunk)
@@ -57,7 +111,11 @@ def run_tests(log_dir: Path, extra: list[str] | None = None, *, cmd: list[str] |
         out.write(chunk)
         out.flush()
     code = proc.wait()
-    line = ("\n" + EXIT_LINE.format(code=code) + "\n").encode()
+    sampler.stop()
+    wall = time.monotonic() - t0
+    # owner 2026-10-28: wall time and peak memory on each machine (laptop vs PC), just above the exit line
+    line = (f"\n{WALL_LINE.format(sec=wall, hms=_hms(wall))}\n{PEAK_LINE.format(gb=sampler.peak_gb)}\n"
+            + EXIT_LINE.format(code=code) + "\n").encode()
     kept.append(line)
     streamed = False
     if f is not None:

@@ -31,3 +31,57 @@ def ntp_offset_ms(server: str, timeout: float = NTP_TIMEOUT_SEC) -> float:
         raise OSError(f"short NTP answer from {server}")
     t2, t3 = _ntp_time(data, 32), _ntp_time(data, 40)
     return ((t2 - t1) + (t3 - t4)) / 2 * 1000.0
+
+
+# --- machine clock check (owner 2026-10-28: preflight and status on both machines) ---------------------------------
+TZ_KEY = r"SYSTEM\CurrentControlSet\Control\TimeZoneInformation"
+EASTERN_TZ = "Eastern Standard Time"  # Windows' name for America/New_York, summer and winter alike
+W32TIME_KEY = r"SYSTEM\CurrentControlSet\Services\W32Time\Parameters"
+SYNC_OFF = "NoSync"  # W32Time Type when "Set time automatically" is off
+
+
+def _hklm(path: str, name: str):
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as k:
+            return winreg.QueryValueEx(k, name)[0]
+    except OSError:
+        return None
+
+
+def clock_checks(settings: dict, *, offset_ms=None, read=None) -> tuple[list[str], list[str]]:
+    """(warnings, ok lines): the Windows time zone is Eastern, automatic time sync is on, and the clock is within
+    `clock_max_offset_ms` of `ntp_server` (SPEC §9 Clock)."""
+    import os
+
+    read = read or (_hklm if os.name == "nt" else (lambda path, name: None))
+    offset_ms = offset_ms or (lambda: ntp_offset_ms(settings["ntp_server"]))
+    warn: list[str] = []
+    ok: list[str] = []
+    tz = read(TZ_KEY, "TimeZoneKeyName")
+    if tz is None:
+        warn.append("couldn't read the Windows time zone (Settings > Time & language > Date & time)")
+    elif str(tz).strip("\0 ") != EASTERN_TZ:
+        warn.append(f"the Windows time zone is {tz!s}, not {EASTERN_TZ} (Settings > Time & language > Date & time)")
+    else:
+        ok.append(f"time zone {EASTERN_TZ}")
+    sync = read(W32TIME_KEY, "Type")
+    if sync is None:
+        warn.append("couldn't read the automatic time sync setting (Windows Time service)")
+    elif str(sync) == SYNC_OFF:
+        warn.append('automatic time sync is off (Settings > Time & language > Date & time > "Set time automatically")')
+    else:
+        ok.append(f"automatic time sync on ({sync})")
+    limit = float(settings["clock_max_offset_ms"])
+    try:
+        off = offset_ms()
+    except OSError as e:
+        warn.append(f"couldn't reach {settings['ntp_server']} to check the clock ({e})")
+    else:
+        line = f"clock offset {off:+.0f} ms vs {settings['ntp_server']} (limit {limit:.0f} ms)"
+        if abs(off) > limit:
+            warn.append(line + ': sync now (Date & time > "Sync now")')
+        else:
+            ok.append(line)
+    return warn, ok

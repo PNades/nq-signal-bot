@@ -86,7 +86,22 @@ def _main(argv: list[str] | None = None) -> int:
                                            "checksums (SPEC section 11 Storage; = nqbot run skylit_backup)")
     backup.add_argument("--until", default=DEFAULT_UNTIL, type=_until,
                         help="stop before this ET time (HH:MM, default 07:30); the next run resumes")
-    sub.add_parser("status", help="SSD use and job progress")
+    sub.add_parser("status", help="SSD use, job locks and progress, the resume queue and the clock check")
+    res = sub.add_parser("resume", help="run the queued jobs (nqbot queue) from where they stopped; the scheduled "
+                                        "task on the build PC runs it at startup, 07:35 and hourly (SPEC section 11)")
+    res.add_argument("--until", default=DEFAULT_UNTIL, type=_until,
+                     help="stop before this ET time (HH:MM, default 07:30)")
+    q = sub.add_parser("queue", help="the job queue nqbot resume runs: show, add JOB, remove JOB, release [JOB]")
+    q.add_argument("action", choices=["show", "add", "remove", "release"])
+    q.add_argument("job", nargs="?", default=None)
+    dr = sub.add_parser("drill", help="the resume drill job dummy_drill: setup --chunks N --sleep S, or check")
+    dr.add_argument("action", choices=["setup", "check"])
+    dr.add_argument("--chunks", type=int, default=300)
+    dr.add_argument("--sleep", type=float, default=10.0, help="seconds per chunk")
+    sub.add_parser("status-push", help="write nqbot status to <log_dir>/status_<host>.txt and copy it to Google "
+                                       "Drive with rclone (hourly task on the build PC)")
+    sub.add_parser("keys-check", help="one free authenticated call per service (Skylit, Databento, Anthropic, "
+                                      "Discord) to confirm this machine's .env keys work; prints no key")
     v = sub.add_parser("verify", help="read back every file under the root written since a date and list anything "
                                       "damaged (owner 2026-10-11; reads only, report in <reports_dir>/verify/)")
     v.add_argument("--since", type=lambda t: datetime.fromisoformat(t), required=True, help="YYYY-MM-DD (local time)")
@@ -133,6 +148,15 @@ def _main(argv: list[str] | None = None) -> int:
         return EXIT_WARN if preflight(settings)["warnings"] else 0
     if args.command == "setup-ssd":  # before resolve_paths: paths.root and the marker don't exist yet
         return _run_setup_ssd(args, settings)
+    if args.command == "keys-check":  # needs no SSD
+        from nqbot.keys_check import run_checks
+
+        results = run_checks(settings)
+        for r in results:
+            print(f"{'ok  ' if r.ok else 'FAIL' if r.ok is False else '--  '} {r.name}: {r.detail}")
+        failed = [r.name for r in results if r.ok is False]
+        print("all set keys work" if not failed else f"FAILED: {', '.join(failed)}")
+        return 1 if failed else 0
     recording_fallback = (args.command == "step7" and getattr(args, "check", None) == "stream-session"
                           and args.fallback_local)
     try:
@@ -148,8 +172,31 @@ def _main(argv: list[str] | None = None) -> int:
             return 0
 
     if args.command == "status":
-        print("\n".join(status_lines(paths)))
+        from nqbot.clock import clock_checks
+        from nqbot.jobs.queue import queue_lines
+
+        print("\n".join(status_lines(paths) + queue_lines(paths, settings)))
+        warn, ok = clock_checks(settings)  # owner 2026-10-28: the clock on whichever machine holds the SSD
+        print("\n".join([f"clock WARN {w}" for w in warn] + [f"clock ok   {o}" for o in ok]))
         return 0
+
+    if args.command == "queue":
+        return _queue(args, paths, settings)
+
+    if args.command == "drill":
+        from nqbot.jobs import drill
+
+        if args.action == "setup":
+            moved = drill.setup(paths, args.chunks, args.sleep)
+            print(f"dummy_drill set up: {args.chunks} chunks x {args.sleep:g} s"
+                  + (f" (the previous drill moved to {moved})" if moved else "")
+                  + "; queue it with: uv run nqbot queue add dummy_drill")
+            return 0
+        r = drill.check(paths)
+        print(f"dummy_drill: {r['finished']}/{r['total']} chunks finished, finished twice: "
+              f"{r['finished_twice'] or 'none'}, {r['runs']} run(s), {r['processes']} process(es), {r['boots']} "
+              f"boot(s): {'CLEAN' if r['clean'] else 'NOT CLEAN'}")
+        return 0 if r["clean"] else 1
 
     if args.command == "unlock":
         return _unlock(args, paths)
@@ -172,6 +219,24 @@ def _main(argv: list[str] | None = None) -> int:
         from nqbot.testrun import run_tests
 
         return run_tests(paths.log_dir, extra)[0]
+    if args.command == "status-push":
+        from nqbot.clock import clock_checks
+        from nqbot.status_push import push
+
+        return push(paths, settings, clock=lambda: clock_checks(settings))
+    if args.command == "resume":
+        from nqbot.jobs.queue import resume
+        from nqbot.verify import run_verify
+
+        until = parse_until(args.until, datetime.now(ET))
+        _print_power_warnings()
+
+        def verify(since: datetime) -> bool:
+            res, _ = run_verify(paths, since)
+            return not (res.damaged or res.size_mismatch or res.unreadable)
+
+        return resume(paths, settings, run=lambda name: _run_for_resume(name, settings, paths, until, log),
+                      verify=verify)
     if args.command == "step7":
         return _run_step7(args, settings, paths, log)
     if args.command == "step8b":
@@ -221,6 +286,43 @@ def _main(argv: list[str] | None = None) -> int:
     if job.name == "skylit_backup":
         print(f"backup report: {paths.reports_dir / 'backup' / 'backup.md'}")
     return 0 if result.status in ("complete", "until", "stopped") else EXIT_REFUSED
+
+
+def _run_for_resume(name: str, settings: dict, paths, until: datetime, log):
+    """`nqbot run <name>` for nqbot resume: the RunResult; a refusal before the job started becomes status `refused`
+    (resume then waits for the owner); LockHeld goes up (the job is already running)."""
+    from nqbot.backup import BackupRefused
+    from nqbot.clients.skylit import OutOfCredits, SkylitError
+    from nqbot.clients.skylit_backfill import BackfillRefused
+    from nqbot.clients.skylit_credits import CreditRefused
+    from nqbot.jobs.runner import RunResult
+    from nqbot.secrets import MissingSecret
+
+    try:
+        return run_job(get_job(name), settings, paths, until=until, log=log)
+    except (BackfillRefused, BackupRefused, CreditRefused, MissingSecret, OutOfCredits, SkylitError) as e:
+        log.error("%s refused: %s", name, e)
+        return RunResult("refused", 0, 0, message=f"{type(e).__name__}: {e}")
+
+
+def _queue(args: argparse.Namespace, paths, settings: dict) -> int:
+    from nqbot.jobs import queue
+
+    names = queue.read_queue(paths)
+    if args.action in ("add", "remove"):
+        if args.job not in JOBS:
+            print(f"refused: unknown job {args.job!r}; known jobs: {', '.join(sorted(JOBS))}", file=sys.stderr)
+            return EXIT_REFUSED
+        if args.action == "add" and args.job not in names:
+            names.append(args.job)
+        elif args.action == "remove":
+            names = [n for n in names if n != args.job]
+        queue.write_queue(paths, names)
+    elif args.action == "release":
+        cleared = queue.release(paths, args.job)
+        print(f"released: {', '.join(cleared) if cleared else 'nothing was held'}")
+    print("\n".join(queue.queue_lines(paths, settings)))
+    return 0
 
 
 def _stop(args: argparse.Namespace, paths) -> int:

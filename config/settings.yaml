@@ -15,6 +15,7 @@ backup:                 # nqbot backup: data/raw/skylit/ -> Google Drive with rc
   rclone_remote: gdrive         # the owner's rclone Google Drive remote (made once with `rclone config`)
   drive_folder: "NQ bot backup" # folder on that Drive; the copy lands in <drive_folder>/raw/skylit/
   rclone_exe: rclone            # the rclone command (or its full path if it isn't on PATH)
+  status_folder: status         # nqbot status-push (owner 2026-10-28): <drive_folder>/status/status_<host>.txt
 
 # --- Month ledger (§7 rule 2b) ----------------------------------------------------------------
 months: {1: "2025-10", 2: "2025-11", 3: "2025-12", 4: "2026-01", 5: "2026-02", 6: "2026-03", 7: "2026-04", 8: "2026-05", 9: "2026-06", 10: "2026-07", 11: "2026-08", 12: "2026-09"} # set at step 4b (SSD day): development 1-6, walk-forward test 7-9, sealed 10-12 (+ top-up)
@@ -38,6 +39,8 @@ min_minutes_before_flat: 14   # owner's rule, not tuned: last entry 15:45
 ops:
   job_lock_window: "08:30-16:15"   # ET, trading days: no nqbot run job inside it (from step 22)
   job_lock_window_enforced: false  # step 22 sets true (§11: the ban starts once live trading starts)
+  resume_verify_days: 2            # nqbot resume (owner 2026-10-28): after a restart, re-read files written in the last N days first
+  resume_max_crashes: 3            # hold a queued job after N resume attempts in a row died without finishing a chunk
 preopen_start: "08:30"
 tempest_draft_cutoff_et: "09:25"  # §3.1 Tempest (owner 2026-10-22): a pre-open row still a draft is re-pulled
 tempest_draft_retry_min: 5        # every N minutes until the cutoff, then used and flagged (step 22)
