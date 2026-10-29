@@ -101,11 +101,11 @@ def test_every_long_job_entry_refuses_without_a_pass(drive, paths, monkeypatch, 
     assert queue.read_queue(paths) == []
 
 
-def test_pytest_cmd_parallel_by_default_serial_on_request():
+def test_pytest_cmd_serial_by_default_parallel_on_request():
     cmd, full = testrun.pytest_cmd([], cpus=8)
-    assert full and cmd[3:7] == ["-n", "6", "--dist", "load"] and cmd[-2:] == ["--basetemp", testrun.BASETEMP]
-    cmd, full = testrun.pytest_cmd(["--serial"], cpus=8)
-    assert full and "-n" not in cmd and "--basetemp" in cmd
-    cmd, full = testrun.pytest_cmd(["tests/test_config.py", "--serial"], cpus=8)
-    assert not full and cmd[-1] == "tests/test_config.py"
+    assert full and "-n" not in cmd and cmd[-2:] == ["--basetemp", testrun.BASETEMP]
+    cmd, full = testrun.pytest_cmd(["--parallel"], cpus=8)
+    assert full and cmd[3:7] == ["-n", "6", "--dist", "load"] and "--basetemp" in cmd
+    cmd, full = testrun.pytest_cmd(["tests/test_config.py", "--parallel"], cpus=8)
+    assert not full and cmd[-1] == "tests/test_config.py" and "-n" in cmd
     assert testrun.workers(2) == 1 and testrun.workers(1) == 1

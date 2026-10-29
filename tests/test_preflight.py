@@ -70,3 +70,26 @@ def test_lid_on_battery_must_be_do_nothing():
                         ssd_ok=lambda: (True, ""), drops_since=lambda since: 0, last_check=None,
                         lid_warning=lambda: None)
     assert "closing the lid on battery: Do nothing" in rep["ok"]
+
+
+def test_preflight_with_the_ssd_missing_warns_instead_of_crashing(settings, tmp_path, monkeypatch):
+    """Owner 2026-10-29: the SSD-missing branch built `lambda: (False, str(e))` inside the except block; Python unbinds
+    `e` when the block ends, so calling it raised NameError. It must be a warning, and the report goes to the
+    internal-drive fallback (temporary here, tests/conftest.py)."""
+    from nqbot import clock, power, storage
+
+    def missing(settings_):
+        raise storage.SSDNotFound("the SSD marker .nqbot_drive was not found on any drive")
+
+    monkeypatch.setattr(storage, "resolve_paths", missing)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
+    monkeypatch.setattr(pf, "_hklm_key_exists", lambda k: False)
+    monkeypatch.setattr(pf, "_hklm_value", lambda k, n: "2099-01-01T00:00:00Z")
+    monkeypatch.setattr(pf, "_on_ac", lambda: True)
+    monkeypatch.setattr(pf, "_has_battery", lambda: False)
+    monkeypatch.setattr(power, "lid_on_battery_warning", lambda: None)
+    monkeypatch.setattr(clock, "clock_checks", lambda s: ([], ["clock ok"]))
+    out: list[str] = []
+    rep = pf.preflight(settings, echo=out.append)
+    assert any("SSD" in w and ".nqbot_drive was not found" in w for w in rep["warnings"])
+    assert any(line.startswith("report: ") for line in out)

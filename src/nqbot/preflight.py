@@ -160,7 +160,8 @@ def preflight(settings: dict[str, Any], echo: Callable[[str], None] = print) -> 
         ssd_ok = lambda: ssd_writable(paths)  # noqa: E731
     except SSDNotFound as e:
         paths = None
-        ssd_ok = lambda: (False, str(e))  # noqa: E731
+        missing = str(e)  # read now: Python unbinds `e` when the except block ends (the lambda runs later)
+        ssd_ok = lambda: (False, missing)  # noqa: E731
     state = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "nqbot" / "preflight_last.txt"
     try:
         last = datetime.fromisoformat(state.read_text(encoding="utf-8").strip())

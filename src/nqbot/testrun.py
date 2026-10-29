@@ -3,7 +3,8 @@
 that line (CLAUDE.md rule 14), so a failure can never hide behind a pipe such as `| tail`. Just above it, the wall time
 and the peak memory of the pytest process tree (owner 2026-10-28: compared between the laptop and the PC).
 
-Owner 2026-10-29: pytest-xdist with `--dist load` and all cores but 2 as workers (`--serial` runs in one process),
+Owner 2026-10-29: serial by default; `--parallel` uses pytest-xdist with `--dist load` and all cores but 2 as
+workers (opt-in until two full parallel runs pass on the PC),
 temporary folders under BASETEMP (C:\\nqbot_pytest, excluded from Defender on each machine; pytest empties it at the
 start of every run, so run one `nqbot test` at a time)."""
 
@@ -28,7 +29,7 @@ WALL_LINE = "PYTEST WALL TIME: {sec:.0f} s ({hms})"
 PEAK_LINE = "PYTEST PEAK MEMORY: {gb:.2f} GB"
 SAMPLE_SEC = 0.5  # how often the pytest process tree's memory is read
 BASETEMP = r"C:\nqbot_pytest"  # owner 2026-10-29 (name approved); never under a real data root (tests/conftest.py)
-SERIAL_FLAG = "--serial"
+PARALLEL_FLAG = "--parallel"
 SPARE_CORES = 2  # owner 2026-10-29: workers = all cores but 2
 
 
@@ -37,11 +38,11 @@ def workers(cpus: int | None = None) -> int:
 
 
 def pytest_cmd(extra: list[str] | None = None, cpus: int | None = None) -> tuple[list[str], bool]:
-    """The pytest command for `nqbot test [--serial] [pytest args]`, and whether it is a full-suite run (no pytest
+    """The pytest command for `nqbot test [--parallel] [pytest args]`, and whether it is a full-suite run (no pytest
     arguments; only a full run can record a pass, CLAUDE.md rule 14 (c))."""
-    rest = [a for a in (extra or []) if a != SERIAL_FLAG]
-    serial = len(rest) != len(extra or [])
-    par = [] if serial else ["-n", str(workers(cpus)), "--dist", "load"]
+    rest = [a for a in (extra or []) if a != PARALLEL_FLAG]
+    parallel = len(rest) != len(extra or [])
+    par = ["-n", str(workers(cpus)), "--dist", "load"] if parallel else []
     return [sys.executable, "-m", "pytest", *par, "--basetemp", BASETEMP, *rest], not rest
 
 
