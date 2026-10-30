@@ -7,6 +7,7 @@ from __future__ import annotations
 import errno
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -194,6 +195,29 @@ def test_task_wrapper_logs_locally_when_the_log_dir_is_unwritable(tmp_path):
     (log,) = local.glob("stream_session_*.txt")
     lines = log.read_text(encoding="utf-8").splitlines()
     assert "not writable: logging to" in lines[1] and "ran" in lines and lines[-1] == "TASK EXIT CODE: 0"
+
+
+@pytest.mark.skipif(shutil.which("powershell") is None, reason="Windows PowerShell only")
+def test_task_wrapper_runs_a_program_whose_path_has_a_space(tmp_path):
+    """2026-10-30: the PC's uv and venv live under C:\\Users\\Prem Nadesan\\; cmd.exe split the path at the space."""
+    venv = Path(sys.executable).resolve().parents[1]
+    spaced = tmp_path / "venv with space"
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(spaced), str(venv)], check=True, capture_output=True)
+    exe = spaced / Path(sys.executable).resolve().relative_to(venv)
+    script = tmp_path / "code.py"
+    script.write_text("import sys\nprint('ran', sys.argv[1:])\nsys.exit(int(sys.argv[1]))\n", encoding="utf-8")
+    logs = tmp_path / "logs"
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                            str(Path(__file__).resolve().parents[1] / "scripts" / "nqbot_task.ps1"),
+                            "-LogDir", str(logs), "-LogName", "spaced", "-NqbotArgs", "4 --maps A,B",
+                            "-Exe", f"{exe} {script}"], capture_output=True, timeout=120)
+    finally:
+        os.rmdir(spaced)  # the junction only, never the venv behind it
+    assert r.returncode == 4, r.stderr.decode(errors="replace")
+    (log,) = logs.glob("spaced_*.txt")
+    lines = log.read_text(encoding="utf-8").splitlines()
+    assert "ran ['4', '--maps', 'A,B']" in lines and lines[-1] == "TASK EXIT CODE: 4"
 
 
 def test_verify_reads_utf16_task_logs(tmp_path):

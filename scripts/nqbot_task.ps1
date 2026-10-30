@@ -48,8 +48,16 @@ $env:PYTHONUNBUFFERED = "1"  # stdout and stderr lines stay in order in the log
 # same name in FallbackLogDir, and so does the exit-code line below
 $env:NQBOT_TASK_LOG = $log
 [System.IO.File]::AppendAllText($log, ("TASK START {0} ET: {1} {2}`r`n{3}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Exe, $NqbotArgs, $note), $utf8)
-& cmd.exe /d /c "$Exe $NqbotArgs >> $log 2>&1"
-$code = $LASTEXITCODE
+# A program path with a space (the PC's C:\Users\Prem Nadesan\..., 2026-10-30) is quoted for cmd.exe; /s makes cmd
+# strip only the outer pair of quotes, so the quoted path survives. Start-Process passes the line as written
+# (PowerShell 5.1's own native-call quoting mangles embedded quotes).
+$cmdExe = $Exe
+if ($Exe -match '^(?<prog>[^"]+?\.exe)(?<rest>(\s.*)?)$' -and $Matches.prog.Contains(" ")) {
+    $cmdExe = '"' + $Matches.prog + '"' + $Matches.rest
+}
+$proc = Start-Process -FilePath cmd.exe -ArgumentList "/d /s /c `"$cmdExe $NqbotArgs >> $log 2>&1`"" `
+    -NoNewWindow -Wait -PassThru
+$code = $proc.ExitCode
 $line = "TASK EXIT CODE: {0}`r`n" -f $code
 try {
     [System.IO.File]::AppendAllText($log, $line, $utf8)
