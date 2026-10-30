@@ -37,6 +37,49 @@ def test_nqbot_test_saves_the_whole_output_and_returns_pytests_exit_code(tmp_pat
     assert f"PYTEST EXIT CODE: {code}" in out.getvalue().decode()
 
 
+def _marker_stand_in(tmp_path: Path) -> list[str]:
+    """A stand-in that leaves a marker file when it runs (it must not, when the start is refused)."""
+    script = tmp_path / "marker.py"
+    script.write_text(f"open({str(tmp_path / 'ran')!r}, 'w').close()\n", encoding="utf-8")
+    return [sys.executable, str(script)]
+
+
+def test_nqbot_test_stops_at_the_start_when_elevated_or_the_basetemp_is_locked(tmp_path, monkeypatch):
+    """Owner 2026-10-30: an admin run, or a basetemp that exists but can't be written, stops before pytest with one
+    message and a not-run exit line (C:\\nqbot_pytest locked by an admin run made every test error)."""
+    monkeypatch.setattr(testrun, "is_elevated", lambda: True)
+    out = io.BytesIO()
+    got, path = testrun.run_tests(tmp_path / "logs", cmd=_marker_stand_in(tmp_path), now=datetime(2026, 10, 30, 9),
+                                  out=out)
+    text = path.read_text(encoding="utf-8")
+    assert got == testrun.NOT_RUN_CODE != 0 and not (tmp_path / "ran").exists()
+    assert "running elevated (admin)" in text and "PYTEST EXIT CODE: 4 (no test ran)" in out.getvalue().decode()
+
+    monkeypatch.setattr(testrun, "is_elevated", lambda: False)
+    base = tmp_path / "pt"
+    cmd = [*_marker_stand_in(tmp_path), "--basetemp", str(base)]
+    assert testrun.start_problem(cmd) is None  # not there yet: pytest makes it
+    base.mkdir()
+    assert testrun.start_problem(cmd) is None and not (base / testrun.PROBE_NAME).exists()  # writable, probe gone
+    real_scandir = testrun.os.scandir
+
+    def denied(p):
+        if Path(p) == base:
+            raise PermissionError(13, "Access is denied")
+        return real_scandir(p)
+
+    monkeypatch.setattr(testrun.os, "scandir", denied)
+    got, path = testrun.run_tests(tmp_path / "logs", cmd=cmd, now=datetime(2026, 10, 30, 9, 1), out=io.BytesIO())
+    text = path.read_text(encoding="utf-8")
+    assert got == testrun.NOT_RUN_CODE and not (tmp_path / "ran").exists()
+    assert "isn't writable (Access is denied)" in text and "takeown /f" in text and str(base) in text
+    monkeypatch.setattr(testrun.os, "scandir", real_scandir)
+    base.rmdir()
+    base.write_text("")  # a file in the folder's place
+    assert "is not a folder" in testrun.start_problem(cmd)
+    assert testrun.basetemp_of(["pytest", "--basetemp", "a", "--basetemp=b"]) == Path("b")
+
+
 def test_nqbot_test_command_is_wired(monkeypatch):
     from nqbot import cli
 

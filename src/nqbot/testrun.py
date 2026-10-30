@@ -6,7 +6,11 @@ and the peak memory of the pytest process tree (owner 2026-10-28: compared betwe
 Owner 2026-10-29: serial by default; `--parallel` uses pytest-xdist with `--dist load` and all cores but 2 as
 workers (opt-in until two full parallel runs pass on the PC),
 temporary folders under BASETEMP (C:\\nqbot_pytest, excluded from Defender on each machine; pytest empties it at the
-start of every run, so run one `nqbot test` at a time)."""
+start of every run, so run one `nqbot test` at a time).
+
+Owner 2026-10-30: the run stops at the start, before pytest, with one clear message if `nqbot test` runs elevated
+(admin) or the basetemp folder exists but can't be listed and written (an admin run leaves it locked for the
+normal user; before this every test errored)."""
 
 from __future__ import annotations
 
@@ -31,6 +35,9 @@ SAMPLE_SEC = 0.5  # how often the pytest process tree's memory is read
 BASETEMP = r"C:\nqbot_pytest"  # owner 2026-10-29 (name approved); never under a real data root (tests/conftest.py)
 PARALLEL_FLAG = "--parallel"
 SPARE_CORES = 2  # owner 2026-10-29: workers = all cores but 2
+NOT_RUN_CODE = 4  # pytest's own usage-error code: the run stopped before any test (never a recorded pass)
+PROBE_NAME = ".nqbot_write_probe"
+UNLOCK_CMD = (r"takeown /f {p} /r /d y; icacls {p} /reset /t /q; Remove-Item {p} -Recurse -Force; Test-Path {p}")
 
 
 def workers(cpus: int | None = None) -> int:
@@ -44,6 +51,51 @@ def pytest_cmd(extra: list[str] | None = None, cpus: int | None = None) -> tuple
     parallel = len(rest) != len(extra or [])
     par = ["-n", str(workers(cpus)), "--dist", "load"] if parallel else []
     return [sys.executable, "-m", "pytest", *par, "--basetemp", BASETEMP, *rest], not rest
+
+
+def basetemp_of(cmd: list[str]) -> Path | None:
+    """The basetemp pytest will use (the last `--basetemp`), or None."""
+    out = None
+    for i, a in enumerate(cmd):
+        if a == "--basetemp" and i + 1 < len(cmd):
+            out = cmd[i + 1]
+        elif a.startswith("--basetemp="):
+            out = a.split("=", 1)[1]
+    return Path(out) if out else None
+
+
+def is_elevated() -> bool:
+    """True when this process runs as admin (Windows) or root."""
+    if os.name == "nt":
+        import ctypes
+
+        try:
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except (AttributeError, OSError):
+            return False
+    return hasattr(os, "geteuid") and os.geteuid() == 0
+
+
+def start_problem(cmd: list[str]) -> str | None:
+    """Why the run must not start (owner 2026-10-30), or None."""
+    if is_elevated():
+        return ("nqbot test refused: it is running elevated (admin). Run it from a normal terminal: an admin run "
+                "leaves its temporary folders locked for the normal user.")
+    base = basetemp_of(cmd)
+    if base is None or not base.exists():
+        return None
+    fix = f"In an admin PowerShell: {UNLOCK_CMD.format(p=base)} (prints False), then run nqbot test normally."
+    if not base.is_dir():
+        return f"nqbot test refused: the basetemp {base} exists but is not a folder. {fix}"
+    try:
+        with os.scandir(base) as it:
+            next(it, None)
+        probe = base / PROBE_NAME
+        probe.write_bytes(b"")
+        probe.unlink()
+    except OSError as e:
+        return f"nqbot test refused: the basetemp {base} exists but isn't writable ({e.strerror or e}). {fix}"
+    return None
 
 
 class MemorySampler:
@@ -118,6 +170,15 @@ def run_tests(log_dir: Path, extra: list[str] | None = None, *, cmd: list[str] |
         f.write(kept[0])
     except OSError:
         f = None
+    if problem := start_problem(cmd):  # owner 2026-10-30: stop before pytest with one clear message
+        line = f"{problem}\n{EXIT_LINE.format(code=NOT_RUN_CODE)} (no test ran)\n".encode()
+        if f is not None:
+            _close(f)
+        atomic_write_bytes(path, kept[0] + line)
+        out.write(line)
+        out.write(f"full output: {path}\n".encode())
+        out.flush()
+        return NOT_RUN_CODE, path
     t0 = time.monotonic()
     proc = subprocess.Popen(cmd, cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     sampler = MemorySampler(proc.pid)
