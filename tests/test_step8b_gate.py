@@ -9,11 +9,11 @@ import pyarrow as pa
 import pytest
 
 from nqbot.checks import step8b, step8b_gate, step8b_recorded
-from nqbot.clients.databento_client import TRADES
+from nqbot.clients.databento_client import OHLCV_1H, TRADES
 from nqbot.clients.skylit_store import write_parquet
 from nqbot.features import mapping as mp
 from nqbot.features import ndxp
-from tests.databento_fakes import INSTRUMENT, dbn_bytes, trade
+from tests.databento_fakes import INSTRUMENT, FakeHistorical, dbn_bytes, trade
 from tests.test_step8b import DAY, ET, NS, _setup, env  # noqa: F401 (env is a fixture)
 
 
@@ -112,15 +112,12 @@ def _walk(d: date, seed: int, base: float) -> tuple[np.ndarray, np.ndarray]:
 
 
 class FakeDatabento:
-    def __init__(self, end: datetime, usd: float = 0.0):
-        self.end, self.usd, self.costs, self.downloads = end, usd, [], []
-
     def dataset_end(self):
         return self.end
 
-    def resolve_front(self, continuous, start, end):
-        return {"NQ": [(date(2025, 12, 15), date(2026, 3, 13), "NQH6")],
-                "ES": [(date(2025, 12, 15), date(2026, 3, 13), "ESH6")]}, []
+    def __init__(self, end: datetime, usd: float = 0.0, hourly_usd: float = 0.0):
+        self.end, self.usd, self.hourly_usd, self.costs, self.downloads = end, usd, hourly_usd, [], []
+        self.hourly = FakeHistorical(nq_roll=date(2025, 12, 15), es_roll=date(2025, 12, 15))  # H6 leads in March
 
     def dataset_condition(self, start, end):  # every pull records its days' condition (owner 2026-10-09, §3.2)
         self.conditions = (start, end)
@@ -130,9 +127,15 @@ class FakeDatabento:
 
     def cost(self, schema, symbols, start, end):
         self.costs.append((schema, symbols[0], start))
-        return self.usd
+        return self.hourly_usd if schema == OHLCV_1H else self.usd
 
     def download(self, schema, symbol, start, end, path, **context):
+        if schema == OHLCV_1H:  # the front rule's hourly volumes (owner 2026-10-30)
+            s, e = int(start.timestamp() * NS), int(end.timestamp() * NS)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(dbn_bytes(OHLCV_1H, symbol, s, e, self.hourly.hourly(symbol, s, e)))
+            self.downloads.append((OHLCV_1H, symbol))
+            return path.stat().st_size
         d = date.fromisoformat(context["day"])
         ts, px = _walk(d, 1 if symbol.startswith("NQ") else 2, 24_000.0 if symbol.startswith("NQ") else 6_000.0)
         recs = [trade(INSTRUMENT[symbol], int(t), float(p), seq=i) for i, (t, p) in enumerate(zip(ts, px))]
@@ -196,8 +199,14 @@ def test_recorded_day_scores_both_ndxp_methods(env):
     _recording(env)
     fake = FakeDatabento(datetime(2026, 3, 6, tzinfo=timezone.utc))
     rep = step8b_recorded.check_recorded_day(env, REC, with_prev=True, client_factory=lambda: fake, fetch=_fetch)
-    assert [c[1] for c in fake.costs] == ["NQH6", "ESH6", "NQH6"]  # priced first, $0
-    assert fake.downloads == [("NQH6", REC), ("ESH6", REC), ("NQH6", date(2026, 3, 4))]
+    assert [c[1] for c in fake.costs if c[0] == TRADES] == ["NQH6", "ESH6", "NQH6"]  # priced first, $0
+    assert [x for x in fake.downloads if x[0] != OHLCV_1H] == [("NQH6", REC), ("ESH6", REC),
+                                                               ("NQH6", date(2026, 3, 4))]
+    # the front by the volume rule (one code path with the step-8 plan), its hourly bars from the last expiry
+    assert step8b_recorded.chain_days(REC)[0] == date(2025, 12, 22)
+    assert sorted(x[1] for x in fake.downloads if x[0] == OHLCV_1H) == ["ESH6", "ESM6", "ESU6", "ESZ5", "NQH6", "NQM6", "NQU6",
+                                                                         "NQZ5"]
+    assert rep["databento"]["front"] == {"NQ": "NQH6", "ES": "ESH6"}
     al = rep["alignment"]
     assert all(al[m]["pass"] for m in ("QQQ", "SPY", "SPX", "NDXP")) and rep["alerts"] == []
     assert rep["spy_live_offset_ms"] is not None and rep["spy_live_offset_ms"] <= 1000
@@ -219,7 +228,7 @@ def test_recorded_day_scores_both_ndxp_methods(env):
     fake2 = FakeDatabento(datetime(2026, 3, 6, tzinfo=timezone.utc))
     step8b_recorded.check_recorded_day(env, REC, with_prev=True, client_factory=lambda: fake2,
                                        fetch=lambda url: pytest.fail("fetched twice"))
-    assert fake2.costs == [] and fake2.downloads == []
+    assert fake2.costs == [] and fake2.downloads == []  # the hourly bars too
 
 
 def test_recorded_day_waits_and_refuses(env):
@@ -230,7 +239,10 @@ def test_recorded_day_waits_and_refuses(env):
     priced = FakeDatabento(datetime(2026, 3, 6, tzinfo=timezone.utc), usd=1.5)
     with pytest.raises(step8b.CheckRefused, match=r"\$0 only"):
         step8b_recorded.check_recorded_day(env, REC, client_factory=lambda: priced, fetch=_fetch)
-    assert priced.downloads == []
+    assert sorted(priced.downloads) == [("ohlcv-1h", s) for s in ("ESH6", "ESM6", "ESU6", "ESZ5", "NQH6", "NQM6", "NQU6", "NQZ5")]
+    with pytest.raises(step8b.CheckRefused, match="not bought"):  # priced hourly bars are refused, never bought
+        step8b_recorded.front_contracts(env, FakeDatabento(datetime(2026, 6, 6, tzinfo=timezone.utc), hourly_usd=0.5),
+                                        date(2026, 6, 4))
     with pytest.raises(step8b.CheckRefused, match="no stream recording"):
         step8b_recorded.check_recorded_day(env, date(2026, 3, 6), client_factory=lambda: early, fetch=_fetch)
 

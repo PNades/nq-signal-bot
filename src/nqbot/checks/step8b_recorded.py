@@ -37,7 +37,9 @@ from nqbot.checks import step8b as s8
 from nqbot.checks import step8b_gate as gate
 from nqbot.clients import ndx_sources
 from nqbot.clients.databento_client import DATASET, TRADES, DatabentoClient
-from nqbot.clients.databento_contracts import cme_day_span
+from nqbot.clients import databento_volume as vol_mod
+from nqbot.clients.databento_contracts import cme_day_span, expiry, unexpired_quarterlies
+from nqbot.clients.databento_pull import PlanRefused, decide_front
 from nqbot.clients.databento_store import read_records
 from nqbot.features import mapping as mp
 from nqbot.features import ndxp, nodes
@@ -46,7 +48,6 @@ from nqbot.jobs.lock import DATABENTO, job_locks
 from nqbot.storage import atomic_write_bytes
 
 ET = s8.ET
-CONTINUOUS = {"NQ": "NQ.v.0", "ES": "ES.v.0"}  # §3.2: the session's front month
 UNCOVERED_GAP_PRE_S = 2  # owner 2026-10-10: from just before the resume (its lastAsOf -> currentAsOf step)
 QQQ_K_SESSIONS = (5, 10, 20)  # owner 2026-10-08: QQQ x k candidates (k averaged over N previous sessions)
 BASIS = "basis+carry"
@@ -62,6 +63,25 @@ def previous_session(d: date, cal: dict[str, Any] | None) -> date:
 
 # --- 1. Databento ---------------------------------------------------------------------------------------
 
+def chain_days(d: date) -> list[date]:
+    """The weekdays from the last quarterly expiry before `d` to `d`: the front rule's chain for a recorded day
+    starts there, where the front is unambiguous (the expired contract is gone)."""
+    last = max(e for r in unexpired_quarterlies("NQ", d - timedelta(days=100), 2) if (e := expiry(r, "NQ", d)) < d)
+    n = (d - last).days
+    return [x for x in (last + timedelta(days=i) for i in range(1, n + 1)) if x.weekday() < 5]
+
+
+def front_contracts(env: s8.Env, client: DatabentoClient, d: date) -> dict[str, dict[date, str]]:
+    """{root: {day: raw symbol}} up to `d` by the previous-session volume rule (§3.2, owner 2026-10-30): the same
+    `front_by_volume` as the step-8 plan, from the candidates' hourly bars (pulled at $0 if missing, else refused)."""
+    days = chain_days(d)
+    try:
+        vol_mod.pull_volumes(client, env.db, days, cal=env.cal, echo=lambda m: env.echo("  " + m))
+        return decide_front(env.db, days, env.cal)[0]
+    except (vol_mod.VolumesRefused, PlanRefused) as e:
+        raise s8.CheckRefused(str(e)) from e
+
+
 def pull_trades(env: s8.Env, d: date, with_prev: bool, client: DatabentoClient) -> dict[str, Any]:
     """The day's NQ/ES trades (and the previous session's NQ with with_prev), $0 only; front contracts."""
     start, end = cme_day_span(d)
@@ -71,10 +91,10 @@ def pull_trades(env: s8.Env, d: date, with_prev: bool, client: DatabentoClient) 
         raise s8.CheckRefused(f"Databento has not published the whole CME day {d} yet (ends {end.isoformat()}); "
                               "run again later")
     prev = previous_session(d, env.cal)
-    front, _ = client.resolve_front(CONTINUOUS, prev, d + timedelta(days=1))
-    sym = {root: next(s for d0, d1, s in spans if d0 <= d < d1) for root, spans in front.items()}
+    front = front_contracts(env, client, d)
+    sym = {root: per[d] for root, per in front.items()}
     items = [(TRADES, sym["NQ"], d), (TRADES, sym["ES"], d)]
-    prev_sym = next(s for d0, d1, s in front["NQ"] if d0 <= prev < d1)
+    prev_sym = front["NQ"][prev]
     if with_prev:
         items.append((TRADES, sym["NQ"], prev))  # the settlement of today's contract (also when it was not front)
     todo = []
