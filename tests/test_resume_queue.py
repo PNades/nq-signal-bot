@@ -43,6 +43,17 @@ def test_decide_resumes_only_clean_interruptions(end, action):
     assert d.action == action
 
 
+def test_old_plan_done_ids_never_make_a_job_look_complete():
+    """Owner 2026-10-30: done keeps the old plan's ids after a re-plan; only the current plan's chunks count."""
+    old = {f"old-{i}": {"sec": 1} for i in range(10)}
+    state = {"done": {**old, "new-0": {"sec": 1}}, "total": 3, "chunks": ["new-0", "new-1", "new-2"],
+             "runs": [{"start": "x", "status": "complete"}]}
+    assert not queue.is_complete(state)
+    assert queue.decide("dummy", state, {"attempts": {}, "held": {}}, 3).action == "run"
+    state["done"].update({"new-1": {"sec": 1}, "new-2": {"sec": 1}})
+    assert queue.is_complete(state)
+
+
 def test_complete_job_is_skipped_and_the_next_one_runs(paths, settings):
     queue.write_queue(paths, ["dummy", "step8b_gate"])
     _state(paths, "dummy", [{"status": "complete"}], done=5, total=5)

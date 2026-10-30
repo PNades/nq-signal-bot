@@ -29,7 +29,7 @@ from typing import Any, Callable
 
 import psutil
 
-from nqbot.jobs.runner import load_state, state_path
+from nqbot.jobs.runner import load_state, plan_progress, state_path
 from nqbot.storage import Paths, atomic_write_json, atomic_write_text
 
 QUEUE_FILE = "queue.txt"
@@ -87,7 +87,8 @@ def last_end(state: dict[str, Any]) -> str | None:
 
 
 def is_complete(state: dict[str, Any]) -> bool:
-    return last_end(state) == "complete" and len(state.get("done") or {}) >= int(state.get("total") or 0)
+    n_done, total = plan_progress(state)
+    return last_end(state) == "complete" and n_done >= total
 
 
 @dataclass

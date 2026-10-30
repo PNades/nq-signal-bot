@@ -144,6 +144,17 @@ def load_state(path: Path) -> dict[str, Any]:
     return {"done": {}, "runs": []}
 
 
+def plan_progress(state: dict[str, Any]) -> tuple[int, int]:
+    """(chunks done, total) of the job's current plan. `done` keeps every chunk id ever finished, including ids of
+    an older plan (a re-plan gives new ids), so only the ids in the last run's `chunks` list count. A state written
+    before that list was kept: the done count is capped at `total`, which is exact when its last run completed."""
+    done = state.get("done") or {}
+    if "chunks" in state:
+        return sum(1 for c in state["chunks"] if c in done), len(state["chunks"])
+    total = int(state.get("total", len(done)))
+    return min(len(done), total), total
+
+
 def run_job(
     job: Job,
     settings: dict[str, Any],
@@ -222,6 +233,7 @@ def run_job(
         run = {"start": now().isoformat(), "until": deadline.isoformat(), "chunks": []}
         state["runs"].append(run)
         state["total"] = len(chunks)
+        state["chunks"] = list(chunks)  # the current plan's ids: status and the queue count only these
         log.info("%s: %d/%d chunks done, %d to go, until %s", job.name, len(chunks) - len(pending),
                  len(chunks), len(pending), deadline.strftime("%Y-%m-%d %H:%M %Z"))
         result = RunResult("complete", len(chunks) - len(pending), len(chunks))

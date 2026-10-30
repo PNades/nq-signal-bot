@@ -7,7 +7,7 @@ from nqbot.jobs.dummy import DummyJob
 from nqbot.jobs.lock import ALL_LOCKS, DATABENTO, SKYLIT, LockHeld, lock_path
 from nqbot.jobs import runner as runner_mod
 from nqbot.jobs.runner import (ET, effective_max_workers, in_lock_window, next_window_start, p90,
-                               parse_until, run_job, state_path)
+                               parse_until, plan_progress, run_job, state_path)
 from nqbot.jobs.status import job_lines
 from nqbot.storage import GB
 from nqbot.storage import MARKER
@@ -169,6 +169,44 @@ def test_status_estimates_nights_left(settings, paths, log, clock, monkeypatch):
     run(DummyJob(10, 3600), settings, paths, log, clock, until_min=150)  # 2 chunks fit, 8 left
     lines = job_lines(paths)
     assert lines == ["dummy: 2/10 chunks done, p90 chunk 3600s, ~8.0 h left, ~4 night(s) left, peak 1.2 GB RAM"]
+
+
+class Replanned(DummyJob):
+    """A re-plan: new chunk ids (the real jobs put the plan's hash or version in the id, e.g. `<day>:incl:<hash>`)."""
+
+    def __init__(self, n_chunks, plan, **kw):
+        super().__init__(n_chunks, 1, **kw)
+        self.plan = plan
+
+    def chunks(self, ctx):
+        return [f"chunk-{i:03d}-{self.plan}" for i in range(self.n_chunks)]
+
+
+def test_status_counts_only_the_current_plan_after_a_replan(settings, paths, log, clock):
+    """Owner 2026-10-30: status showed 313/12 after a re-plan; the old plan's done ids must not count."""
+    assert run(Replanned(5, "a"), settings, paths, log, clock).status == "complete"
+    r = run(Replanned(3, "b"), settings, paths, log, clock)
+    assert (r.status, r.done, r.total, len(r.ran)) == ("complete", 3, 3, 3)
+    assert job_lines(paths)[0].startswith("dummy: 3/3 chunks done (complete)")
+    assert plan_progress(json.loads(state_path(paths, "dummy").read_text())) == (3, 3)
+
+
+def test_a_replan_mid_way_neither_skips_nor_reruns_a_chunk(settings, paths, log, clock):
+    assert run(Replanned(6, "a"), settings, paths, log, clock).status == "complete"
+    # new plan of 4 chunks, 2 fit before --until: the 6 old done ids must not make it look complete
+    r = run(Replanned(4, "b", units=1), settings, paths, log, clock, until_min=0)
+    assert r.status == "until" and r.ran == []
+    state = json.loads(state_path(paths, "dummy").read_text())
+    assert plan_progress(state) == (0, 4) and len(state["done"]) == 6
+    assert job_lines(paths)[0].startswith("dummy: 0/4 chunks done")
+    r = run(Replanned(4, "b"), settings, paths, log, clock)
+    assert r.ran == [f"chunk-00{i}-b" for i in range(4)] and (r.done, r.total) == (4, 4)
+
+
+def test_plan_progress_of_a_state_written_before_the_chunk_list():
+    done = {f"c{i}": {"sec": 1} for i in range(313)}
+    assert plan_progress({"done": done, "total": 12}) == (12, 12)
+    assert plan_progress({"done": dict(list(done.items())[:5]), "total": 12}) == (5, 12)
 
 
 def test_jobs_hold_only_their_own_lock(settings, paths, log, clock):

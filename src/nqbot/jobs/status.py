@@ -9,7 +9,7 @@ import shutil
 from datetime import datetime
 
 from nqbot.jobs.lock import ALL_LOCKS, lock_path, read_lock
-from nqbot.jobs.runner import p90
+from nqbot.jobs.runner import p90, plan_progress
 from nqbot.storage import GB, Paths
 
 
@@ -20,10 +20,10 @@ def job_lines(paths: Paths) -> list[str]:
         with open(spath, encoding="utf-8") as f:
             state = json.load(f)
         done = state.get("done", {})
-        total = state.get("total", len(done))
-        left = max(0, total - len(done))
+        n_done, total = plan_progress(state)
+        left = total - n_done
         chunk_p90 = p90([d["sec"] for d in done.values()])
-        line = f"{spath.parent.name}: {len(done)}/{total} chunks done"
+        line = f"{spath.parent.name}: {n_done}/{total} chunks done"
         if left and chunk_p90:
             hours_left = left * chunk_p90 / 3600
             line += f", p90 chunk {chunk_p90:.0f}s, ~{hours_left:.1f} h left"
