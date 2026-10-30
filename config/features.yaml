@@ -161,6 +161,8 @@ of_scale_floor: 0.5               # detector scale = tod_norm_w x clip(rvol_toda
 of_scale_cap: 2.0                 # time-of-day part never capped (abs_volume, imb_min_volume)
 of_context_windows_sec: [5, 60]   # multi-window order-flow inputs; a column whose window equals a tuned or fixed window
                                   # of the same quantity is not built
+side_n_max_share: 0.01           # owner 2026-10-29 (SPEC §13 Q-sideN, F9.10): a session whose side-N share of
+                                  # front-contract RTH volume is above this is flagged in the step-17 report; fixed
 
 # --- Stops (§6.2) ---------------------------------------------------------------------------------
 min_stop_pts: null              # owner: no stop guardrails

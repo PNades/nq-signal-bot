@@ -83,6 +83,29 @@ def test_completeness_hand_built():
                                                          ("09:38:10", 110.0)]
 
 
+def test_mbp1_reader_skips_standalone_f_last_records_with_action_n(tmp_path):
+    # Databento's 2026-08-08 normalization: standalone F_LAST records with action N carry no quote change, so a gap
+    # with only such records stays a gap (owner 2026-10-29)
+    import databento_dbn as d
+
+    from tests.databento_fakes import FIX, dbn_bytes
+
+    a_ns = int(datetime(2026, 8, 10, 9, 30, tzinfo=ET).timestamp()) * 10**9
+    lvl = d.BidAskPair(bid_px=20000 * FIX, ask_px=20000 * FIX + FIX // 4, bid_sz=5, ask_sz=7)
+
+    def rec(sec, action, flags):
+        ts = a_ns + sec * 10**9
+        return d.MBP1Msg(1, 1001, ts, 20000 * FIX, 0, action, d.Side.NONE, flags, ts + 1, levels=lvl)
+
+    records = [rec(0, d.Action.ADD, d.F_LAST), rec(100, d.Action.NONE, d.F_LAST), rec(200, d.Action.CANCEL, d.F_LAST)]
+    path = tmp_path / "mbp1.dbn.zst"
+    path.write_bytes(dbn_bytes("mbp-1", "NQZ5", a_ns, a_ns + 300 * 10**9, records))
+    assert cond.timestamps(path, "mbp-1").tolist() == [a_ns, a_ns + 200 * 10**9]
+    out = cond.completeness(cond.timestamps(path, "mbp-1"), datetime(2026, 8, 10, 9, 30, tzinfo=ET),
+                            datetime(2026, 8, 10, 9, 35, tzinfo=ET))
+    assert out["longest_gap_sec"] == 200.0
+
+
 def test_backfill_records_each_days_condition_and_flags_it(paths, dec_settings, clock, log, caplog):
     from tests.test_databento_pull import job_for, plan_with, run
 

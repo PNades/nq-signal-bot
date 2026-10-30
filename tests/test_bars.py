@@ -35,6 +35,15 @@ def test_one_minute_ohlcv_and_aggressor_volume():
     assert (b["open"][1], b["close"][1], b["volume"][1], b["sell_volume"][1]) == (102.0, 102.0, 5, 5)
 
 
+def test_side_n_counts_in_volume_only():
+    # owner 2026-10-29 (SPEC §13 Q-sideN, feature_spec F0.1): B 5, A 2, N 4 -> volume 11, delta +3
+    t = [(et_ns(DAY, 10, 0, 1), 0, 100.0, 5, "B"), (et_ns(DAY, 10, 0, 2), 1, 100.0, 2, "A"),
+         (et_ns(DAY, 10, 0, 3), 2, 100.0, 4, "N")]
+    b = bars(t, 1)
+    assert (b["volume"][0], b["buy_volume"][0], b["sell_volume"][0]) == (11, 5, 2)
+    assert b["buy_volume"][0] - b["sell_volume"][0] == 3
+
+
 def test_same_timestamp_trades_follow_sequence_and_input_order_does_not_matter():
     ts = et_ns(DAY, 10, 0, 5)
     t = [(ts, 7, 200.0, 1, "B"), (ts, 5, 198.0, 1, "A"), (ts, 6, 199.0, 1, "B")]

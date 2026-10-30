@@ -40,6 +40,7 @@ MINUTE_NS = 60 * 1_000_000_000
 GAP_REPORT_SEC = 60  # gaps reported individually from one minute (a reporting cut, not a trading parameter)
 MBP1_CHUNK = 1_000_000  # records per read of an mbp-1 file (low memory, §11)
 MBP1_RES_NS = 100_000_000  # mbp-1 timestamps kept at 0.1 s resolution (a completeness measure, not a feature)
+MBP1_NO_BOOK_ACTION = b"N"  # mbp-1 action 'N' (none): a standalone F_LAST record, not a quote change
 
 
 def condition_dir(store: DatabentoStore):
@@ -153,7 +154,10 @@ def timestamps(path, schema: str) -> np.ndarray:
 
     st = DBNStore.from_file(path)
     if schema == MBP1:  # low memory (§11): only distinct MBP1_RES_NS steps are kept (gaps measured to 0.1 s)
-        parts = [np.unique(np.asarray(a["ts_event"], dtype=np.int64) // MBP1_RES_NS) * MBP1_RES_NS
+        # Databento's 2026-08-08 normalization adds standalone F_LAST records with action N (no book change): not
+        # quote activity, so they never fill a gap (owner 2026-10-29)
+        parts = [np.unique(np.asarray(a["ts_event"][a["action"] != MBP1_NO_BOOK_ACTION], dtype=np.int64)
+                           // MBP1_RES_NS) * MBP1_RES_NS
                  for a in st.to_ndarray(count=MBP1_CHUNK)]
         ts = np.unique(np.concatenate(parts)) if parts else np.zeros(0, dtype=np.int64)
     else:
