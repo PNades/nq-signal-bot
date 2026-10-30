@@ -14,7 +14,7 @@ import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
-from nqbot.clients.databento_client import OHLCV_1S
+from nqbot.clients.databento_client import OHLCV_1H, OHLCV_1S
 
 L1_INCLUDED_MONTHS = 12  # §3.2: Standard plan includes the last 12 months of L1 history
 
@@ -43,7 +43,7 @@ def l1_included_from(today: date) -> date:
 
 def is_payg(schema: str, start: datetime, today: date) -> bool:
     """True if this request is charged on top of the plan."""
-    if schema == OHLCV_1S:
+    if schema in (OHLCV_1S, OHLCV_1H):  # OHLCV bars: the whole history is in the plan
         return False
     return start.date() < l1_included_from(today)
 

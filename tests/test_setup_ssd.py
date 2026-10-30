@@ -181,6 +181,9 @@ def test_skylit_and_databento_first_plans_check_the_merge(paths, settings, log):
     # Once step 10 has a plan the ledger is fixed: step 8 is planned on it, never locked out (review finding 2).
     plan_path(paths).parent.mkdir(parents=True)
     plan_path(paths).write_text("{}")
+    from nqbot.clients.databento_pull import pull_front_volumes
+    pull_front_volumes(DatabentoClient(FakeHistorical(), on_call=store.log_call), store, settings, load_features(),
+                       OCT_21.date(), now=OCT_21, echo=lambda s: None)
     assert plan()["items"]
 
 

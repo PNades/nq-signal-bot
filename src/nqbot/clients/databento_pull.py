@@ -10,14 +10,19 @@ What is pulled, per CME trading day D ([18:00 ET of D−1, 17:00 ET of D), one c
 - warm-up: NQ and ES `trades` + `ohlcv-1s` for the `warmup_sessions` (21) sessions before the first window session;
 - rolls: the new contract's `ohlcv-1s` for the session before each switch, so the spread can be measured.
 
-`nqbot databento plan` resolves the contracts, prints the `metadata.get_cost` estimate and writes the plan;
+The front contract of each CME day follows the previous-session volume rule (owner 2026-10-30, §13 Q-frontroll;
+`databento_contracts.front_by_volume`) from the candidates' hourly bars, which `nqbot databento volumes` pulls
+first ($0). `nqbot databento plan` decides the contracts, prints the `metadata.get_cost` estimate and writes the plan;
 `nqbot run databento_backfill` pulls it oldest day first, one CME day per chunk. Pay-as-you-go items (warm-up
 `trades`, days that left the included L1 window) are bought only if the plan lists them as approved (the owner's
 `--approve-usd` covered them when it was written), in their own chunks, so the time-critical included pull
 never waits for that decision and spending never exceeds the approved estimate. A broken included download is retried
 with backoff; a broken pay-as-you-go download is never retried: it is recorded and waits for the owner
 (`databento plan --retry-failed-payg`), because a broken paid download may already have been billed.
-After each chunk the day's 1- and 5-minute bars are built and any roll spread measurable that day is stored.
+After each chunk the day's 1- and 5-minute bars are built and any roll spread measurable that day is stored. A
+re-plan that puts a day on another contract moves that day's bars, and every roll spread whose roll moved, to
+`processed/replaced/front_rule/<plan time>/` (derived files only; raw files are never touched), so the job rebuilds
+them from the new contract's files.
 """
 
 from __future__ import annotations
@@ -37,14 +42,15 @@ from nqbot import calendar as cal_mod
 from nqbot import months as months_mod
 from nqbot.clients import databento_cost as cost_mod
 from nqbot.clients.databento_client import MBP1, OHLCV_1S, TRADES, DatabentoClient
-from nqbot.clients.databento_contracts import (CONTINUOUS, Roll, cme_day_span, front_by_day, micro_symbol,
-                                               roll_days, roll_spread)
+from nqbot.clients import databento_volume as vol_mod
+from nqbot.clients.databento_contracts import (Roll, VolumeMissing, cme_day_span, front_by_volume, micro_symbol,
+                                               roll_days, roll_spread, seed_front)
 from nqbot.clients.databento_store import DatabentoStore, read_records
 from nqbot.clients.skylit_pull import SKYLIT_HISTORY, day_reachable, sample_days
 from nqbot.features.bars import BAR_MINUTES, PRICE_SCALE, bars_from_records, write_bars
 from nqbot.jobs.lock import DATABENTO
 from nqbot.jobs.runner import Ctx, StopChunk
-from nqbot.storage import Paths, append_jsonl, atomic_write_json, read_jsonl
+from nqbot.storage import Paths, append_jsonl, atomic_write_json, read_jsonl, replace_retry
 from nqbot.warmup import warmup_sessions
 
 ET = ZoneInfo("America/New_York")
@@ -156,7 +162,7 @@ def plan_items(window: list[date], warmup: list[date], front: dict[str, dict[dat
         start, end = cme_day_span(day)
         for root in roots:
             symbol = front[root].get(day)
-            if symbol is None:  # only a non-session day can lack a mapping (front_by_day refuses a session)
+            if symbol is None:  # only a day outside the decided range can lack a contract
                 continue
             for schema in schemas:
                 items.append(PullItem(day, root, symbol, schema, start, end, kind))
@@ -280,18 +286,13 @@ def probe_included(client: DatabentoClient, symbol: str, day: date, today: date)
                               "approving anything (nothing was written)")
 
 
-def make_plan(client: DatabentoClient, store: DatabentoStore, settings: dict[str, Any], features: dict[str, Any],
-              today: date, *, approved_usd: float | None = None, cal: dict[str, Any] | None = None,
-              echo: Callable[[str], None] = print, now: datetime | None = None,
-              retry_failed_payg: bool = False) -> dict[str, Any]:
-    """Resolve contracts, list the items, print the estimate, write the plan (no data is pulled here)."""
+def plan_days(store: DatabentoStore, settings: dict[str, Any], features: dict[str, Any], today: date,
+              now: datetime | None = None, cal: dict[str, Any] | None = None
+              ) -> tuple[list[date], list[date], list[date], list[date]]:
+    """(window weekdays, cut weekdays, warm-up sessions, every planned day) as of `today`."""
     from nqbot.clients.skylit_backfill import fully_lost_days
     from nqbot.clients.skylit_store import SkylitStore
 
-    from nqbot.setup_ssd import check_month1, ledger_fixed
-
-    if not ledger_fixed(store.paths):  # neither backfill planned yet: is the month-1 merge still right (§12 step 4b)?
-        check_month1(settings, now or datetime.combine(today, time(0), tzinfo=ET), cal)
     sky = SkylitStore(store.paths)
     window, cut = window_days(settings, today, now, fully_lost_days(store.paths),
                               skylit_has=lambda d: bool(sky.stored_windows(d)), cal=cal)
@@ -299,11 +300,79 @@ def make_plan(client: DatabentoClient, store: DatabentoStore, settings: dict[str
     if not sessions:
         raise PlanRefused("no window session to pull (is the ledger window inside Skylit's 365-day reach?)")
     warmup = sessions_before(sessions[0], warmup_sessions(features), cal)
-    days = sorted(set(warmup) | set(window))
-    mappings, answers = client.resolve_front(CONTINUOUS, days[0], days[-1] + timedelta(days=1))
-    front = front_by_day(mappings, days, cal)
+    return window, cut, warmup, sorted(set(warmup) | set(window))
+
+
+def decide_front(store: DatabentoStore, days: list[date], cal: dict[str, Any] | None = None
+                 ) -> tuple[dict[str, dict[date, str]], dict[str, dict[str, dict[date, int]]]]:
+    """The front contract of every planned day by the previous-session volume rule, from the stored hourly bars."""
+    sessions = vol_mod.volume_sessions(days, cal)
+    volumes = vol_mod.load_volumes(store, sessions)
+    try:
+        return front_by_volume(volumes, days, seed_front(volumes, sessions[0]), cal), volumes
+    except VolumeMissing as e:
+        raise PlanRefused(f"{e}: run `uv run nqbot databento volumes` first (hourly bars, $0)") from e
+
+
+def pull_front_volumes(client: DatabentoClient, store: DatabentoStore, settings: dict[str, Any],
+                       features: dict[str, Any], today: date, *, cal: dict[str, Any] | None = None,
+                       echo: Callable[[str], None] = print, now: datetime | None = None) -> list[Roll]:
+    """`nqbot databento volumes`: pull the candidates' hourly bars still missing (all $0), then print the rolls
+    the rule gives (no plan is written)."""
+    *_, days = plan_days(store, settings, features, today, now, cal)
+    vol_mod.pull_volumes(client, store, days, cal=cal, echo=echo)
+    front, volumes = decide_front(store, days, cal)
+    rolls = roll_days(front, cal)
+    for line in vol_mod.roll_table(rolls, volumes):
+        echo(line)
+    return rolls
+
+
+def retire_changed_outputs(store: DatabentoStore, old_plan: dict[str, Any], front: dict[str, dict[date, str]],
+                           rolls: list[Roll], echo: Callable[[str], None]) -> list[Path]:
+    """Move aside the derived files a change of contract makes wrong: the bars of every day now on another contract
+    and the spread of every roll that is no longer a roll (raw files stay; the job rebuilds from the new ones)."""
+    old_front = old_plan.get("front") or {}
+    dest = store.processed / "replaced" / "front_rule" / datetime.now(ET).strftime("%Y%m%dT%H%M%S")
+    moved: list[Path] = []
+
+    def move(src: Path) -> None:
+        if src.exists():
+            to = dest / src.relative_to(store.processed)
+            to.parent.mkdir(parents=True, exist_ok=True)
+            replace_retry(src, to)
+            moved.append(to)
+
+    for root, per in front.items():
+        for day, symbol in per.items():
+            was = (old_front.get(root) or {}).get(day.isoformat())
+            if was is not None and was != symbol:
+                for minutes in BAR_MINUTES:
+                    move(store.bars_path(root, day, minutes))
+    now_rolls = {(r.root, r.roll_day.isoformat(), r.prev_session.isoformat(), r.old, r.new) for r in rolls}
+    for r in old_plan.get("rolls") or []:
+        if (r["root"], r["roll_day"], r["prev_session"], r["old"], r["new"]) not in now_rolls:
+            day = date.fromisoformat(r["roll_day"])
+            move(store.roll_path(r["root"], day))
+            move(store.roll_error_path(r["root"], day))
+    if moved:
+        echo(f"moved aside {len(moved)} derived file(s) made wrong by the change of contract: {dest}")
+    return moved
+
+
+def make_plan(client: DatabentoClient, store: DatabentoStore, settings: dict[str, Any], features: dict[str, Any],
+              today: date, *, approved_usd: float | None = None, cal: dict[str, Any] | None = None,
+              echo: Callable[[str], None] = print, now: datetime | None = None,
+              retry_failed_payg: bool = False) -> dict[str, Any]:
+    """Decide the contracts, list the items, print the estimate, write the plan (no data is pulled here)."""
+    from nqbot.setup_ssd import check_month1, ledger_fixed
+
+    if not ledger_fixed(store.paths):  # neither backfill planned yet: is the month-1 merge still right (§12 step 4b)?
+        check_month1(settings, now or datetime.combine(today, time(0), tzinfo=ET), cal)
+    window, cut, warmup, days = plan_days(store, settings, features, today, now, cal)
+    sessions = [d for d in window if cal_mod.is_trading_day(d, cal)]
+    front, volumes = decide_front(store, days, cal)
     probe_included(client, front["NQ"][sessions[-1]], sessions[-1], today)
-    sym_file = store.save_symbology(answers)
     rolls = roll_days(front, cal)
     items = plan_items(window, warmup, front, rolls, cal)
 
@@ -311,8 +380,8 @@ def make_plan(client: DatabentoClient, store: DatabentoStore, settings: dict[str
          f"warm-up: {len(warmup)} sessions {warmup[0]}..{warmup[-1]}")
     if cut:
         echo(f"not bought (beyond Skylit's {SKYLIT_HISTORY_DAYS}-day reach): {len(cut)} weekdays {cut[0]}..{cut[-1]}")
-    for r in rolls:
-        echo(f"roll {r.root}: {r.old} -> {r.new} from {r.roll_day} (spread measured at 17:00 ET {r.prev_session})")
+    for r, line in zip(rolls, vol_mod.roll_table(rolls, volumes)):
+        echo(f"{line}; spread measured at 17:00 ET {r.prev_session}")
     todo = [it for it in items if not store.raw_path(it.schema, it.symbol, it.day).exists()]  # a re-plan: not yet bought
     est, charged, counts = estimate(client, todo, today, f"step 8, {len(todo)} requests not yet pulled (of {len(items)})")
     if counts.included and counts.priced > INCLUDED_PRICED_MAX_SHARE * counts.included:
@@ -336,12 +405,16 @@ def make_plan(client: DatabentoClient, store: DatabentoStore, settings: dict[str
         "payg_keys": sorted(charged),
         "approved_payg": sorted(charged) if payg_ok else [],
         "retry_failed": failed if retry_failed_payg else [],  # broken paid downloads the owner cleared to try again
-        "symbology_file": str(sym_file), "cut_days": [d.isoformat() for d in cut],
+        "front_rule": "previous-session volume (owner 2026-10-30, SPEC §13 Q-frontroll)",
+        "cut_days": [d.isoformat() for d in cut],
         "front": {root: {d.isoformat(): s for d, s in per.items()} for root, per in front.items()},
         "rolls": [{**asdict(r), "roll_day": r.roll_day.isoformat(), "prev_session": r.prev_session.isoformat()}
                   for r in rolls],
         "items": [it.to_json() for it in items],
     }
+    old_path = plan_path(store.paths)
+    if old_path.exists():
+        retire_changed_outputs(store, json.loads(old_path.read_text(encoding="utf-8")), front, rolls, echo)
     atomic_write_json(plan_path(store.paths), plan)
     echo(f"plan written: {plan_path(store.paths)}; pull with: uv run nqbot run {JOB_NAME} --until 07:30")
     return plan

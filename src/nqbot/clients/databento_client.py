@@ -22,6 +22,7 @@ from nqbot.storage import atomic_path, is_device_drop, log_ssd_event, remove_sta
 
 DATASET = "GLBX.MDP3"  # §3.2
 TRADES, MBP1, OHLCV_1S = "trades", "mbp-1", "ohlcv-1s"  # §3.2: the v1 schemas (L1 only, no depth)
+OHLCV_1H = "ohlcv-1h"  # §3.2 Front month: CME-day volumes of the candidate contracts (owner 2026-10-30)
 STYPE_RAW = "raw_symbol"
 
 

@@ -10,8 +10,8 @@ import pytest
 from nqbot.clients import databento_cost as cost_mod
 from nqbot.clients.databento_client import MBP1, OHLCV_1S, TRADES, DatabentoClient
 from nqbot.clients.databento_pull import (DOWNLOAD_RETRY_SEC, HOLIDAY, ROLL, WARMUP, WINDOW, DatabentoPullJob, PlanRefused,
-                                          PullItem, failed_payg, make_plan, mbp1_span, plan_path, sessions_before,
-                                          window_days)
+                                          PullItem, failed_payg, make_plan, mbp1_span, plan_path,
+                                          pull_front_volumes, sessions_before, window_days)
 from nqbot.clients.databento_pull import ET
 from nqbot.clients.databento_store import CacheMismatch, DatabentoStore
 from nqbot.config import load_features
@@ -27,10 +27,21 @@ def dec_settings(settings):
     return settings
 
 
+def pull_volumes_for(fake, paths, settings, today=TODAY):
+    """The hourly volumes the front rule reads (`nqbot databento volumes`), from a twin fake with the same rolls so
+    the test's own fake records only the plan's and the job's calls."""
+    twin = FakeHistorical()
+    twin.rolls = fake.rolls
+    store = DatabentoStore(paths)
+    return pull_front_volumes(DatabentoClient(twin, on_call=store.log_call), store, settings, load_features(), today,
+                              echo=lambda s: None)
+
+
 def plan_with(fake, paths, settings, approved=None, today=TODAY, lines=None, retry_failed_payg=False):
     store = DatabentoStore(paths)
     client = DatabentoClient(fake, on_call=store.log_call)
     echo = (lines.append if lines is not None else lambda s: None)
+    pull_volumes_for(fake, paths, settings, today)
     return make_plan(client, store, settings, load_features(), today, approved_usd=approved, echo=echo,
                      retry_failed_payg=retry_failed_payg)
 
@@ -130,7 +141,7 @@ def test_plan_items(paths, dec_settings):
 
     # Estimate printed first, the warm-up trades before 2025-11-21 are pay-as-you-go and not approved.
     text = "\n".join(lines)
-    assert "PAY-AS-YOU-GO" in text and "NOT approved" in text and "roll NQ: NQZ5 -> NQH6" in text
+    assert "PAY-AS-YOU-GO" in text and "NOT approved" in text and "roll NQ: NQZ5 -> NQH6 from 2025-12-15" in text
     assert plan_path(paths).exists()
     assert not any(c[0] == "get_range" for c in fake.calls)  # planning never downloads
 
@@ -169,7 +180,7 @@ def test_job_pulls_included_items_then_payg_only_after_approval(paths, dec_setti
     assert rolls["NQ"]["spread"] == 250.0 and rolls["NQ"]["prev_session"] == "2025-12-12"
     assert rolls["ES"]["spread"] == 50.0
     ledger = store.ledger()
-    assert sum(1 for r in ledger if r["kind"] == "download") == len(fake.downloads())
+    assert sum(1 for r in ledger if r["kind"] == "download" and r.get("item") != "front_volumes") == len(fake.downloads())
     assert all(r["ok"] for r in ledger)
 
     # The owner approves: re-plan with the amount, the next run buys only the pay-as-you-go items.
@@ -181,6 +192,39 @@ def test_job_pulls_included_items_then_payg_only_after_approval(paths, dec_setti
     new = fake.downloads()[before:]
     assert len(new) == len(payg) and all(c[1] == TRADES for c in new)
     assert store.bars_path("NQ", date(2025, 11, 3), 1).exists()
+
+
+def test_a_replan_on_another_contract_moves_the_derived_files_aside_and_rebuilds_them(paths, dec_settings, clock, log):
+    """Owner 2026-10-30 (§13 Q-frontroll): a day that changes contract gets its bars rebuilt from the new contract's
+    trades, and a roll that moved gets its spread measured on the new previous session; raw files are never touched."""
+    import shutil
+
+    fake = FakeHistorical()  # NQ: NQH6 from 2025-12-15
+    plan_with(fake, paths, dec_settings, approved=1000.0)
+    run(job_for(fake), dec_settings, paths, clock, log)
+    store = DatabentoStore(paths)
+    old_bars = store.bars_path("NQ", date(2025, 12, 15), 1).read_bytes()
+    assert store.roll_path("NQ", date(2025, 12, 15)).exists()
+
+    # The volumes now say NQH6 leads only from 12-15 (roll 12-16): pulled into a fresh folder (a test-only reset).
+    shutil.rmtree(store.root / "ohlcv-1h")
+    fake.rolls["NQ.v.0"] = ("NQZ5", "NQH6", date(2025, 12, 16))
+    lines: list[str] = []
+    plan = plan_with(fake, paths, dec_settings, approved=1000.0, lines=lines)
+    assert plan["front"]["NQ"]["2025-12-15"] == "NQZ5" and plan["front"]["NQ"]["2025-12-16"] == "NQH6"
+    assert any("moved aside 3 derived file(s)" in ln for ln in lines)  # NQ 12-15 1m + 5m bars, the old roll spread
+    assert not store.bars_path("NQ", date(2025, 12, 15), 1).exists() and not store.roll_path("NQ", date(2025, 12, 15)).exists()
+    assert len(list((store.processed / "replaced" / "front_rule").rglob("*"))) >= 3
+
+    before = len(fake.downloads())
+    assert run(job_for(fake), dec_settings, paths, clock, log).status == "complete"
+    got = {(c[1], c[2]) for c in fake.downloads()[before:]}
+    # 12-15 on NQZ5 (and the roll's old 1-s bars); NQH6's 1-s bars on 12-15 were stored as a window day before
+    assert got == {(TRADES, "NQZ5"), (OHLCV_1S, "NQZ5"), (MBP1, "NQZ5"), (TRADES, "MNQZ5")}
+    assert store.bars_path("NQ", date(2025, 12, 15), 1).read_bytes() != old_bars
+    roll = json.loads(store.roll_path("NQ", date(2025, 12, 16)).read_text(encoding="utf-8"))
+    assert roll["prev_session"] == "2025-12-15" and roll["old"] == "NQZ5"
+    assert store.raw_path(TRADES, "NQH6", date(2025, 12, 15)).exists()  # raw files stay
 
 
 def test_cached_files_are_never_pulled_again(paths, dec_settings, clock, log):
@@ -270,11 +314,19 @@ def test_cli_plan(settings, drive, monkeypatch, capsys):
     assert cli.main(["databento", "plan", "--today", TODAY.isoformat()]) == cli.EXIT_REFUSED  # no ledger yet
     assert "step 4b" in capsys.readouterr().err
     settings["months"] = {1: "2025-12"}
+    assert cli.main(["databento", "plan", "--today", TODAY.isoformat(), "--approve-usd", "100"]) == cli.EXIT_REFUSED
+    assert "run `uv run nqbot databento volumes` first" in capsys.readouterr().err  # the front rule's input
+    assert cli.main(["databento", "volumes", "--today", TODAY.isoformat()]) == 0
+    out = capsys.readouterr().out
+    assert "front-rule volumes" in out and "total extra charge: $0.00" in out
+    assert "roll NQ: NQZ5 -> NQH6 from 2025-12-15 (decided on 2025-12-12" in out and "CME roll date 2025-12-11" in out
+    assert {c[1] for c in fake.downloads()} == {"ohlcv-1h"} and not plan_path(storage.resolve_paths(settings)).exists()
+    n = len(fake.downloads())
     assert cli.main(["databento", "plan", "--today", TODAY.isoformat(), "--approve-usd", "100"]) == 0
     out = capsys.readouterr().out
     assert "Databento cost estimate" in out and "approved: $100.00" in out
     assert plan_path(storage.resolve_paths(settings)).exists()
-    assert not fake.downloads()
+    assert len(fake.downloads()) == n  # planning never downloads
 
 
 def test_cli_plan_refuses_before_ssd_day(settings, monkeypatch, capsys):

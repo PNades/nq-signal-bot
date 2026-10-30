@@ -19,7 +19,18 @@ FIX = 1_000_000_000  # fixed-point prices (1e-9)
 NS = 1_000_000_000
 BASE = {"NQZ5": 20000.0, "NQH6": 20250.0, "MNQZ5": 20000.0, "MNQH6": 20250.0, "ESZ5": 6000.0, "ESH6": 6050.0}
 INSTRUMENT = {"NQZ5": 1001, "NQH6": 1002, "ESZ5": 2001, "ESH6": 2002, "MNQZ5": 3001, "MNQH6": 3002}
-USD_PER_DAY = {"trades": 1.0, "ohlcv-1s": 0.1, "mbp-1": 2.0}
+USD_PER_DAY = {"trades": 1.0, "ohlcv-1s": 0.1, "ohlcv-1h": 0.01, "mbp-1": 2.0}
+# Hourly volume of the contract that leads a CME day, and of every other candidate (the front rule's input).
+LEAD_VOLUME, OTHER_VOLUME = 100, 10
+
+
+def iid_of(symbol: str) -> int:
+    """The fixed ids above, or a stable made-up one for any other contract a volume-rule plan reaches."""
+    return INSTRUMENT.get(symbol) or 5000 + sum(ord(c) * 31 ** i for i, c in enumerate(symbol)) % 4000
+
+
+def base_of(symbol: str) -> float:
+    return BASE.get(symbol) or (6000.0 if symbol.startswith("ES") else 20000.0)
 TRADE_EVERY_SEC = 30 * 60
 
 
@@ -45,10 +56,27 @@ def bar_1s(iid: int, ts: int, close: float) -> d.OHLCVMsg:
     return d.OHLCVMsg(d.RType.OHLCV_1S, 1, iid, ts, c, c, c, c, 1)
 
 
+def bar_1h(iid: int, ts: int, close: float, volume: int) -> d.OHLCVMsg:
+    c = round(close * FIX)
+    return d.OHLCVMsg(d.RType.OHLCV_1H, 1, iid, ts, c, c, c, c, volume)
+
+
+def cme_day_of(ts_ns: int) -> date:
+    """The CME trading day an instant belongs to (18:00 ET starts the next day)."""
+    return (datetime.fromtimestamp(ts_ns / NS, ET) + timedelta(hours=6)).date()
+
+
+def prev_weekday(day: date) -> date:
+    day -= timedelta(days=1)
+    while day.weekday() >= 5:
+        day -= timedelta(days=1)
+    return day
+
+
 def default_records(schema: str, symbol: str, start_ns: int, end_ns: int) -> list[Any]:
     """A trade (or 1-second bar) every 30 minutes; 1-second bars also at the last two seconds before `end`
     (close BASE+1, BASE+2) and one starting exactly at `end` (outside the request, never sent)."""
-    iid, base = INSTRUMENT[symbol], BASE[symbol]
+    iid, base = iid_of(symbol), base_of(symbol)
     times = list(range(start_ns, end_ns, TRADE_EVERY_SEC * NS))
     if schema == "trades":
         return [trade(iid, t, base + (i % 4) * 0.25, seq=i) for i, t in enumerate(times)]
@@ -112,7 +140,7 @@ class _Metadata:
         # `included_from`, UTC date of the request start); only older L1 is priced.
         if self.fake.price_all:  # no active subscription: get_cost quotes list prices for everything
             return round(USD_PER_DAY[schema] * (ns(end) - ns(start)) / (86400 * NS), 4) or 0.01
-        if schema == "ohlcv-1s" or datetime.fromisoformat(start).astimezone(timezone.utc).date() >= self.fake.included_from:
+        if schema.startswith("ohlcv-") or datetime.fromisoformat(start).astimezone(timezone.utc).date() >= self.fake.included_from:
             return 0.0
         days = (ns(end) - ns(start)) / (86400 * NS)
         return round(USD_PER_DAY[schema] * days, 4)
@@ -132,12 +160,16 @@ class _Timeseries:
                 f.write(b"partial")  # a half-written download: must never become a cached file
             raise err if isinstance(err, BaseException) else ConnectionError("connection dropped mid-download")
         s, e = ns(start), ns(end)
+        records = (self.fake.hourly(symbols[0], s, e) if schema == "ohlcv-1h"
+                   else self.fake.records(schema, symbols[0], s, e))
         with open(path, "wb") as f:
-            f.write(dbn_bytes(schema, symbols[0], s, e, self.fake.records(schema, symbols[0], s, e)))
+            f.write(dbn_bytes(schema, symbols[0], s, e, records))
 
 
 class FakeHistorical:
-    """Front contracts: NQ.v.0 rolls NQZ5 -> NQH6 on `nq_roll`, ES.v.0 ESZ5 -> ESH6 on `es_roll` (UTC dates)."""
+    """Front contracts: NQ.v.0 rolls NQZ5 -> NQH6 on `nq_roll`, ES.v.0 ESZ5 -> ESH6 on `es_roll` (UTC dates). The
+    hourly volumes agree: the new contract leads from the session before its roll, so the volume rule switches on
+    the same day; other quarters lead from a week before the old contract's expiry."""
 
     def __init__(self, nq_roll: date = date(2025, 12, 15), es_roll: date = date(2025, 12, 16), records=default_records,
                  fail_on=None, included_from: date = date(2025, 11, 20), partial_ids: bool = False,
@@ -156,6 +188,21 @@ class FakeHistorical:
         self.symbology = _Symbology(self)
         self.metadata = _Metadata(self)
         self.timeseries = _Timeseries(self)
+
+    def leader(self, root: str, day: date) -> str:
+        """The contract with the most volume on CME day `day`."""
+        from nqbot.clients.databento_contracts import unexpired_quarterlies
+
+        for old, new, roll in self.rolls.values():
+            if old.startswith(root) and abs((day - roll).days) < 45:
+                return new if day >= prev_weekday(roll) else old
+        return unexpired_quarterlies(root, day + timedelta(days=7), 1)[0]
+
+    def hourly(self, symbol: str, start_ns: int, end_ns: int) -> list[Any]:
+        root = "ES" if symbol.startswith("ES") else "NQ"
+        iid, base, hour = iid_of(symbol), base_of(symbol), 3600 * NS
+        return [bar_1h(iid, t, base, LEAD_VOLUME if self.leader(root, cme_day_of(t)) == symbol else OTHER_VOLUME)
+                for t in range(start_ns - start_ns % hour, end_ns, hour) if t >= start_ns]
 
     def downloads(self) -> list[tuple]:
         return [c for c in self.calls if c[0] == "get_range"]
