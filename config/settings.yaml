@@ -98,6 +98,7 @@ engine_port: 8732                 # approved 2026-10-05 (feature_spec F15)
 ui_port: 8733                     # approved 2026-10-05 (feature_spec F15)
 sleep_detect_sec: 30
 clock_max_offset_ms: 250
+clock_max_rtt_ms: 200            # owner 2026-10-31: a clock reading whose best round trip is longer is not precise enough (error <= rtt / 2)
 clock_check_min: 10
 ntp_server: "time.cloudflare.com"  # step 22 confirms it answers on each network; approved 2026-10-05 (feature_spec F15)
 feed_stale_sec: 5

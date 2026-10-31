@@ -19,14 +19,14 @@ def _reader(tz="Eastern Standard Time", sync="NTP"):
 
 
 def test_clock_checks_all_good(settings):
-    warn, ok = clock.clock_checks(settings, offset_ms=lambda: 40.0, read=_reader(), service=lambda: "running")
+    warn, ok = clock.clock_checks(settings, measure=lambda: (40.0, 12.0), read=_reader(), service=lambda: "running")
     assert warn == [] and len(ok) == 4 and "Windows Time service running" in ok
 
 
 @pytest.mark.parametrize("state", ["stopped", None])
 def test_clock_checks_warn_when_the_time_service_is_not_running(settings, state):
     """Owner 2026-10-31: on the PC w32time was stopped (manual start), so "sync on" was true and nothing synced."""
-    warn, ok = clock.clock_checks(settings, offset_ms=lambda: 40.0, read=_reader(), service=lambda: state)
+    warn, ok = clock.clock_checks(settings, measure=lambda: (40.0, 12.0), read=_reader(), service=lambda: state)
     assert len(warn) == 1 and f"w32time) is {state or 'unreadable'}" in warn[0] and "fix_time_sync.ps1" in warn[0]
     assert "automatic time sync on (NTP)" in ok
 
@@ -35,7 +35,7 @@ def test_clock_checks_warn_when_the_time_service_is_not_running(settings, state)
                                                  ("Eastern Standard Time", "NoSync", 0.0, "time sync is off"),
                                                  ("Eastern Standard Time", "NTP", 900.0, "+900 ms")])
 def test_clock_checks_warn(settings, tz, sync, off, needle):
-    warn, _ = clock.clock_checks(settings, offset_ms=lambda: off, read=_reader(tz, sync), service=lambda: "running")
+    warn, _ = clock.clock_checks(settings, measure=lambda: (off, 12.0), read=_reader(tz, sync), service=lambda: "running")
     assert len(warn) == 1 and needle in warn[0]
 
 
@@ -43,8 +43,20 @@ def test_clock_checks_ntp_unreachable_is_a_warning(settings):
     def fail():
         raise OSError("timed out")
 
-    warn, _ = clock.clock_checks(settings, offset_ms=fail, read=_reader(), service=lambda: "running")
+    warn, _ = clock.clock_checks(settings, measure=fail, read=_reader(), service=lambda: "running")
     assert len(warn) == 1 and "couldn't reach" in warn[0]
+
+
+def test_clock_checks_print_the_round_trip_and_refuse_an_imprecise_reading(settings):
+    """Owner 2026-10-31: the round trip is printed beside the offset; a best round trip over clock_max_rtt_ms warns
+    "couldn't measure precisely" and is never judged as an offset (not even a large one)."""
+    warn, ok = clock.clock_checks(settings, measure=lambda: (60.0, 12.4), read=_reader(), service=lambda: "running")
+    assert warn == [] and "clock offset +60 ms vs time.cloudflare.com (round trip 12 ms; limit 250 ms)" in ok
+    limit = settings["clock_max_rtt_ms"]
+    warn, ok = clock.clock_checks(settings, measure=lambda: (521.0, limit + 1.0), read=_reader(),
+                                  service=lambda: "running")
+    assert len(warn) == 1 and "couldn't measure the clock precisely" in warn[0] and "sync now" not in warn[0]
+    assert not any("clock offset" in line for line in ok)
 
 
 def _checks(**kw):

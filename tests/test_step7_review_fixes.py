@@ -501,11 +501,80 @@ def test_ntp_offset(monkeypatch):
             pass
 
         def sendto(self, data, addr):
-            assert addr == ("time.example", 123)
+            assert addr == ("192.0.2.1", 123)
 
         def recvfrom(self, n):
             return b"\0" * 32 + ntp_bytes(server) + ntp_bytes(server), None
 
     monkeypatch.setattr(clock.socket, "socket", FakeSocket)
+    monkeypatch.setattr(clock.socket, "getaddrinfo", lambda *a: [(2, 2, 17, "", ("192.0.2.1", 123))])
     monkeypatch.setattr(clock.time, "time", lambda: now)
     assert clock.ntp_offset_ms("time.example") == pytest.approx(250.0, abs=0.01)
+
+
+def _fake_ntp(monkeypatch, delays, *, dns_sec=0.0, true_offset=0.060):
+    """A fake clock and NTP server `true_offset` s ahead; each exchange's (out, back) network delay from `delays`
+    (None = the packet is lost); the name lookup takes `dns_sec` on the local clock."""
+    from nqbot import clock
+
+    now = [1_790_000_000.0]
+    sent = []
+
+    def ntp_bytes(t):
+        sec = int(t) + clock.NTP_EPOCH_OFFSET
+        return struct.pack("!II", sec, int((t - int(t)) * 2**32))
+
+    def getaddrinfo(*a):
+        now[0] += dns_sec
+        return [(2, 2, 17, "", ("192.0.2.1", 123))]
+
+    class FakeSocket:
+        def __init__(self, *a):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def settimeout(self, t):
+            pass
+
+        def sendto(self, data, addr):
+            assert addr == ("192.0.2.1", 123)  # resolved before, never a name here
+            sent.append(addr)
+
+        def recvfrom(self, n):
+            d = delays[(len(sent) - 1) % len(delays)]
+            if d is None:
+                now[0] += 3.0
+                raise TimeoutError("timed out")
+            out, back = d
+            server = now[0] + out + true_offset
+            now[0] += out + back
+            return b"\0" * 32 + ntp_bytes(server) + ntp_bytes(server), None
+
+    monkeypatch.setattr(clock.socket, "socket", FakeSocket)
+    monkeypatch.setattr(clock.socket, "getaddrinfo", getaddrinfo)
+    monkeypatch.setattr(clock.time, "time", lambda: now[0])
+    return clock, sent
+
+
+def test_ntp_a_slow_name_lookup_does_not_move_the_offset(monkeypatch):
+    """Owner 2026-10-31: a 1-s lookup between t1 and the send read +560 ms on a clock 60 ms behind."""
+    clock, sent = _fake_ntp(monkeypatch, [(0.006, 0.006)] * 4, dns_sec=1.0)
+    off, rtt = clock.ntp_measure("time.example")
+    assert off == pytest.approx(60.0, abs=0.01) and rtt == pytest.approx(12.0, abs=0.01) and len(sent) == 4
+
+
+def test_ntp_keeps_the_exchange_with_the_shortest_round_trip(monkeypatch):
+    """Each reading is off by half its delay asymmetry; the shortest round trip bounds that best. A lost packet is
+    skipped; all lost is an error."""
+    clock, _ = _fake_ntp(monkeypatch, [(0.400, 0.010), None, (0.005, 0.005), (0.050, 0.150)])
+    off, rtt = clock.ntp_measure("time.example")
+    assert off == pytest.approx(60.0, abs=0.01) and rtt == pytest.approx(10.0, abs=0.01)
+    assert clock.ntp_offset_ms("time.example") == pytest.approx(60.0, abs=0.01)
+    clock, _ = _fake_ntp(monkeypatch, [None] * 4)
+    with pytest.raises(OSError, match="timed out"):
+        clock.ntp_measure("time.example")

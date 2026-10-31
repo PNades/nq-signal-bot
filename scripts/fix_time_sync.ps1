@@ -8,16 +8,27 @@
 # What it changes (prints the state before and after):
 #   1. w32time start type Automatic (Delayed Start), started now
 #   2. peers -Peers (default time.cloudflare.com, nqbot's ntp_server, then time.windows.com), each 0x9 (client
-#      mode + special poll interval), polled every -PollSec (default 900 s); then w32tm /resync /force
+#      mode + special poll interval), polled every -PollSec (default 1024 s); then w32tm /resync /force
+#      (2026-10-31: Windows clamps SpecialPollInterval to 2^MinPollInterval .. 2^MaxPollInterval, 1024 .. 32768 s on a
+#      home PC, so the first version's 900 s ran every 1024 s; a -PollSec outside that range is refused. The 2048 s
+#      "Poll Interval" of w32tm /query /status is the host's clock-discipline poll, not how often the peers are asked.)
 #   3. a scheduled task "nqbot time resync" (SYSTEM, 2 min after every startup, up to 3 retries 1 min apart):
 #      w32tm /resync /force, so the drift a restart brings is fixed at once
 # -ShowOnly prints the current state and changes nothing (no admin needed; used by the tests).
-param([string]$Peers = "time.cloudflare.com,0x9 time.windows.com,0x9", [int]$PollSec = 900, [switch]$ShowOnly)
+param([string]$Peers = "time.cloudflare.com,0x9 time.windows.com,0x9", [int]$PollSec = 1024, [switch]$ShowOnly)
 
 $ErrorActionPreference = "Stop"
 $TaskName = "nqbot time resync"
 $ClientKey = "HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders\NtpClient"
 $ParamKey = "HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters"
+$ConfigKey = "HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Config"
+
+function Get-PollRange {
+    $g = Get-ItemProperty $ConfigKey -ErrorAction SilentlyContinue
+    $min = if ($g.MinPollInterval) { [int]$g.MinPollInterval } else { 10 }
+    $max = if ($g.MaxPollInterval) { [int]$g.MaxPollInterval } else { 15 }
+    return @([math]::Pow(2, $min), [math]::Pow(2, $max))
+}
 
 function Show-TimeSync([string]$Title) {
     "=== $Title"
@@ -27,7 +38,9 @@ function Show-TimeSync([string]$Title) {
     $p = Get-ItemProperty $ParamKey -ErrorAction SilentlyContinue
     "peers: $($p.NtpServer)  type=$($p.Type)"
     $c = Get-ItemProperty $ClientKey -ErrorAction SilentlyContinue
-    "poll interval (SpecialPollInterval): $($c.SpecialPollInterval) s"
+    $lo, $hi = Get-PollRange
+    $eff = if ($c.SpecialPollInterval) { [math]::Min([math]::Max([double]$c.SpecialPollInterval, $lo), $hi) } else { $null }
+    "poll interval (SpecialPollInterval): $($c.SpecialPollInterval) s, effective $eff s (Windows keeps it within $lo .. $hi s)"
     $t = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     "startup resync task: $(if ($t) { "$($t.State), runs as $($t.Principal.UserId)" } else { 'not registered' })"
     "w32tm /query /status:"
@@ -37,6 +50,10 @@ function Show-TimeSync([string]$Title) {
 
 Show-TimeSync "before"
 if ($ShowOnly) { exit 0 }
+$lo, $hi = Get-PollRange
+if ($PollSec -lt $lo -or $PollSec -gt $hi) {
+    throw "-PollSec $PollSec is outside $lo .. $hi s, which Windows would clamp it to; nothing was changed"
+}
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) { throw "run this from an admin PowerShell (right-click > Run as administrator); nothing was changed" }

@@ -251,6 +251,21 @@ def test_verify_accepts_a_windows_1252_log_and_flags_a_zero_byte_run(tmp_path):
     assert [Path(r["path"]).name for r in res.damaged] == ["holed.log"]
 
 
+def test_verify_accepts_json_with_a_utf8_bom_and_still_flags_broken_json(tmp_path):
+    """Owner 2026-10-31: two step-8b study files written by PowerShell's `Out-File -Encoding utf8` start with a BOM
+    and were listed as damaged; they parse in full. Cut-off JSON is still damage."""
+    bom = b"\xef\xbb\xbf"
+    (tmp_path / "guard_fast_trigger_fires.json").write_bytes(bom + b'[{"date": "2025-11-18", "map": "QQQ"}]')
+    (tmp_path / "rows.jsonl").write_bytes(bom + b'{"a": 1}\r\n{"a": 2}\r\n')
+    (tmp_path / "cut.json").write_bytes(bom + b'{"days": 121, "chains": {"QQQ"')
+    for name in ("guard_fast_trigger_fires.json", "rows.jsonl"):
+        verify.check_file(tmp_path / name)
+    with pytest.raises(json.JSONDecodeError):
+        verify.check_file(tmp_path / "cut.json")
+    res = verify.verify_tree(tmp_path, datetime(2020, 1, 1), tmp_path / "raw", lambda: True, echo=lambda s: None)
+    assert [Path(r["path"]).name for r in res.damaged] == ["cut.json"]
+
+
 def test_a_drop_lasting_seconds_waits_for_a_stable_drive_before_the_retry(tmp_path, monkeypatch, events):
     """Owner 2026-10-13 (10-12 03:51): the old volume still looked present, the retry ran 3 ms after the drop and
     failed again; the volume came back 4 s later. Now the retry waits for fresh-handle probes to succeed in a row."""

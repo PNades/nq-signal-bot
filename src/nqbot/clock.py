@@ -11,6 +11,7 @@ import time
 NTP_PORT = 123
 NTP_EPOCH_OFFSET = 2_208_988_800  # seconds from 1900-01-01 (NTP) to 1970-01-01 (Unix)
 NTP_TIMEOUT_SEC = 3.0
+NTP_SAMPLES = 4  # owner 2026-10-31: exchanges per measurement; the one with the shortest round trip is kept
 
 
 def _ntp_time(data: bytes, offset: int) -> float:
@@ -18,19 +19,41 @@ def _ntp_time(data: bytes, offset: int) -> float:
     return sec - NTP_EPOCH_OFFSET + frac / 2**32
 
 
-def ntp_offset_ms(server: str, timeout: float = NTP_TIMEOUT_SEC) -> float:
-    """Server time minus local time, in ms (SNTP, one exchange: ((t2 - t1) + (t3 - t4)) / 2)."""
+def ntp_measure(server: str, samples: int = NTP_SAMPLES, timeout: float = NTP_TIMEOUT_SEC) -> tuple[float, float]:
+    """(offset, round trip) in ms: server time minus local time, ((t2 - t1) + (t3 - t4)) / 2, from the exchange with
+    the shortest round trip (t4 - t1) - (t3 - t2) of `samples`. Its error is at most half that round trip.
+    The name is resolved before any exchange is timed (owner 2026-10-31: the lookup used to fall between t1 and the
+    send, so a slow first lookup after an idle spell read as +500 ms on a clock 60 ms off)."""
+    addr = socket.getaddrinfo(server, NTP_PORT, socket.AF_INET, socket.SOCK_DGRAM)[0][4]
     packet = b"\x1b" + 47 * b"\0"  # LI 0, version 3, mode 3 (client)
+    best: tuple[float, float] | None = None
+    err: OSError | None = None
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.settimeout(timeout)
-        t1 = time.time()
-        s.sendto(packet, (server, NTP_PORT))
-        data, _ = s.recvfrom(48)
-        t4 = time.time()
-    if len(data) < 48:
-        raise OSError(f"short NTP answer from {server}")
-    t2, t3 = _ntp_time(data, 32), _ntp_time(data, 40)
-    return ((t2 - t1) + (t3 - t4)) / 2 * 1000.0
+        for _ in range(samples):
+            try:
+                t1 = time.time()
+                s.sendto(packet, addr)
+                data, _ = s.recvfrom(48)
+                t4 = time.time()
+            except OSError as e:  # one lost packet doesn't end the measurement
+                err = e
+                continue
+            if len(data) < 48:
+                err = OSError(f"short NTP answer from {server}")
+                continue
+            t2, t3 = _ntp_time(data, 32), _ntp_time(data, 40)
+            rtt = ((t4 - t1) - (t3 - t2)) * 1000.0
+            if best is None or rtt < best[1]:
+                best = (((t2 - t1) + (t3 - t4)) / 2 * 1000.0, rtt)
+    if best is None:
+        raise err or OSError(f"no NTP answer from {server}")
+    return best
+
+
+def ntp_offset_ms(server: str, timeout: float = NTP_TIMEOUT_SEC) -> float:
+    """Server time minus local time, in ms (ntp_measure's best exchange)."""
+    return ntp_measure(server, timeout=timeout)[0]
 
 
 # --- machine clock check (owner 2026-10-28: preflight and status on both machines) ---------------------------------
@@ -61,15 +84,16 @@ def w32time_status() -> str | None:
         return None
 
 
-def clock_checks(settings: dict, *, offset_ms=None, read=None, service=None) -> tuple[list[str], list[str]]:
+def clock_checks(settings: dict, *, measure=None, read=None, service=None) -> tuple[list[str], list[str]]:
     """(warnings, ok lines): the Windows time zone is Eastern, automatic time sync is on, the Windows Time service
     runs (owner 2026-10-31: on the PC it was stopped, so the setting alone said "on" while nothing synced), and the
-    clock is within `clock_max_offset_ms` of `ntp_server` (SPEC §9 Clock)."""
+    clock is within `clock_max_offset_ms` of `ntp_server` (SPEC §9 Clock), measured by an exchange whose round trip
+    is within `clock_max_rtt_ms` (owner 2026-10-31; else "couldn't measure precisely", no offset reported)."""
     import os
 
     read = read or (_hklm if os.name == "nt" else (lambda path, name: None))
     service = service or w32time_status
-    offset_ms = offset_ms or (lambda: ntp_offset_ms(settings["ntp_server"]))
+    measure = measure or (lambda: ntp_measure(settings["ntp_server"]))
     warn: list[str] = []
     ok: list[str] = []
     tz = read(TZ_KEY, "TimeZoneKeyName")
@@ -93,13 +117,19 @@ def clock_checks(settings: dict, *, offset_ms=None, read=None, service=None) -> 
         warn.append(f"the Windows Time service (w32time) is {state or 'unreadable'}, so nothing keeps the clock "
                     "synced: run scripts\\fix_time_sync.ps1 from an admin PowerShell")
     limit = float(settings["clock_max_offset_ms"])
+    rtt_limit = float(settings["clock_max_rtt_ms"])
     try:
-        off = offset_ms()
+        off, rtt = measure()
     except OSError as e:
         warn.append(f"couldn't reach {settings['ntp_server']} to check the clock ({e})")
     else:
-        line = f"clock offset {off:+.0f} ms vs {settings['ntp_server']} (limit {limit:.0f} ms)"
-        if abs(off) > limit:
+        line = (f"clock offset {off:+.0f} ms vs {settings['ntp_server']} (round trip {rtt:.0f} ms; "
+                f"limit {limit:.0f} ms)")
+        if rtt > rtt_limit:
+            warn.append(f"couldn't measure the clock precisely: the best of {NTP_SAMPLES} exchanges with "
+                        f"{settings['ntp_server']} took {rtt:.0f} ms (limit {rtt_limit:.0f} ms), so its offset "
+                        f"({off:+.0f} ms) could be off by up to {rtt / 2:.0f} ms; check again later")
+        elif abs(off) > limit:
             warn.append(line + ': sync now (Date & time > "Sync now")')
         else:
             ok.append(line)

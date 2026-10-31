@@ -2,7 +2,8 @@
 a date and list anything damaged. Reads only; writes its report to <reports_dir>/verify/.
 
 Per file type: parquet read in full; Databento `.dbn.zst` decompressed in full (a cut-off or corrupt zstd stream
-fails) and its size checked against the size the download ledger recorded; json/jsonl parsed; npz arrays loaded;
+fails) and its size checked against the size the download ledger recorded; json/jsonl parsed (a leading UTF-8 BOM
+accepted, owner 2026-10-31: two PowerShell-written study files were flagged for it); npz arrays loaded;
 text decoded as UTF-8 or Windows-1252 and free of zero-byte runs (owner 2026-10-31: pytest logs written in the
 console code page held a valid `§` = 0xA7 and were flagged; lost sectors read back as zeros). A read that fails because the drive dropped is retried after the drive comes back
 (VERIFY_DROP_TRIES); a file still unreadable then is listed apart from a damaged one."""
@@ -82,9 +83,9 @@ def check_file(p: Path) -> None:
         if pending:
             raise ValueError("zstd stream cut off: the last frame never ends")
     elif kind == "json":
-        json.loads(p.read_text(encoding="utf-8"))
+        json.loads(p.read_text(encoding="utf-8-sig"))  # PowerShell's Out-File -Encoding utf8 writes a BOM
     elif kind == "jsonl":
-        for i, line in enumerate(p.read_text(encoding="utf-8").splitlines()):
+        for i, line in enumerate(p.read_text(encoding="utf-8-sig").splitlines()):
             if line.strip():
                 json.loads(line)
     elif kind == "npz":

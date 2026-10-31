@@ -28,7 +28,8 @@ def test_show_only_prints_the_state_and_changes_nothing():
     assert r.returncode == 0, r.stderr
     out = r.stdout
     assert "=== before" in out and "w32time: status=" in out and "peers: " in out
-    assert "poll interval (SpecialPollInterval): " in out and "startup resync task: " in out
+    assert "poll interval (SpecialPollInterval): " in out and "Windows keeps it within " in out
+    assert "startup resync task: " in out
     assert "w32tm /query /status:" in out and "=== after" not in out
 
 
@@ -36,3 +37,11 @@ def test_without_admin_it_refuses_before_changing_anything():
     r = _run()
     assert r.returncode != 0 and "admin PowerShell" in r.stderr and "nothing was changed" in r.stderr
     assert "=== before" in r.stdout and "--- 1." not in r.stdout
+
+
+def test_a_poll_interval_windows_would_clamp_is_refused_before_anything_changes():
+    """2026-10-31: 900 s ran every 1024 s (2^MinPollInterval); the script now refuses such a value, checked before
+    the admin check so it runs here too."""
+    r = _run("-PollSec", "900")
+    assert r.returncode != 0 and "-PollSec 900 is outside" in r.stderr and "nothing was changed" in r.stderr
+    assert "--- 1." not in r.stdout
