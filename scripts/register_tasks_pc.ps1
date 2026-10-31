@@ -14,14 +14,30 @@
 #                      and with rclone to Google Drive "NQ bot backup/status/" (the Drive app on the phone)
 #
 # Refuses if the repo's .env holds any TP_WEBHOOK_* line: the PC never trades (SPEC §11), so it must not be able to.
+#
+# uv (owner 2026-10-30): -Uv <path> if given, else the uv this PowerShell finds on PATH ((Get-Command uv).Source; on
+# the PC winget's ...\WinGet\Links\uv.exe); the path used is printed first. -ResolveUvOnly prints it and stops
+# (no admin needed; used by the tests).
 param([string]$Repo = (Join-Path $env:USERPROFILE "code\nq-signal-bot"), [string]$LogDir = "D:\nqbot\logs",
-      [string]$Uv = (Join-Path $env:USERPROFILE ".local\bin\uv.exe"))
+      [string]$Uv = "", [switch]$ResolveUvOnly)
 
 $ErrorActionPreference = "Stop"
+if ($Uv) {
+    if (-not (Test-Path -LiteralPath $Uv -PathType Leaf)) { throw "uv not found at -Uv $Uv" }
+    "uv: $Uv (from -Uv)"
+} else {
+    $found = Get-Command uv -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $found) {
+        throw ("uv not found on this PowerShell's PATH: install it (winget install astral-sh.uv), open a new admin " +
+               "PowerShell, or pass -Uv <full path to uv.exe>")
+    }
+    $Uv = $found.Source
+    "uv: $Uv (found on PATH; pass -Uv <path> to use another)"
+}
+if ($ResolveUvOnly) { exit 0 }
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) { throw "run this from an admin PowerShell (right-click > Run as administrator)" }
-if (-not (Test-Path $Uv)) { throw "uv not found at $Uv (pass -Uv <path>)" }
 if (-not (Test-Path (Join-Path $Repo "pyproject.toml"))) { throw "repo not found at $Repo (pass -Repo <path>)" }
 $drive = Split-Path -Qualifier $LogDir
 if (-not (Test-Path (Join-Path "$drive\" ".nqbot_drive"))) { throw "the SSD marker isn't on $drive (is the SSD D:?)" }
