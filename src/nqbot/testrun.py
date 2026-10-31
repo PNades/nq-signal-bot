@@ -3,8 +3,9 @@
 that line (CLAUDE.md rule 14), so a failure can never hide behind a pipe such as `| tail`. Just above it, the wall time
 and the peak memory of the pytest process tree (owner 2026-10-28: compared between the laptop and the PC).
 
-Owner 2026-10-29: serial by default; `--parallel` uses pytest-xdist with `--dist load` and all cores but 2 as
-workers (opt-in until two full parallel runs pass on the PC),
+Owner 2026-10-29: `--parallel` uses pytest-xdist with `--dist load` and all cores but 2 as workers, opt-in until two
+full parallel runs pass on the PC; they did on 2026-10-30 (895 passed twice, about 3.5 min vs 12.8 serial, peak
+1.8 GB), so parallel is now the default and `--serial` runs one process (`--parallel` is still accepted);
 temporary folders under BASETEMP (C:\\nqbot_pytest, excluded from Defender on each machine; pytest empties it at the
 start of every run, so run one `nqbot test` at a time).
 
@@ -33,7 +34,8 @@ WALL_LINE = "PYTEST WALL TIME: {sec:.0f} s ({hms})"
 PEAK_LINE = "PYTEST PEAK MEMORY: {gb:.2f} GB"
 SAMPLE_SEC = 0.5  # how often the pytest process tree's memory is read
 BASETEMP = r"C:\nqbot_pytest"  # owner 2026-10-29 (name approved); never under a real data root (tests/conftest.py)
-PARALLEL_FLAG = "--parallel"
+PARALLEL_FLAG = "--parallel"  # the default since 2026-10-30; still accepted
+SERIAL_FLAG = "--serial"
 SPARE_CORES = 2  # owner 2026-10-29: workers = all cores but 2
 NOT_RUN_CODE = 4  # pytest's own usage-error code: the run stopped before any test (never a recorded pass)
 PROBE_NAME = ".nqbot_write_probe"
@@ -45,10 +47,10 @@ def workers(cpus: int | None = None) -> int:
 
 
 def pytest_cmd(extra: list[str] | None = None, cpus: int | None = None) -> tuple[list[str], bool]:
-    """The pytest command for `nqbot test [--parallel] [pytest args]`, and whether it is a full-suite run (no pytest
+    """The pytest command for `nqbot test [--serial] [pytest args]`, and whether it is a full-suite run (no pytest
     arguments; only a full run can record a pass, CLAUDE.md rule 14 (c))."""
-    rest = [a for a in (extra or []) if a != PARALLEL_FLAG]
-    parallel = len(rest) != len(extra or [])
+    rest = [a for a in (extra or []) if a not in (PARALLEL_FLAG, SERIAL_FLAG)]
+    parallel = SERIAL_FLAG not in (extra or [])
     par = ["-n", str(workers(cpus)), "--dist", "load"] if parallel else []
     return [sys.executable, "-m", "pytest", *par, "--basetemp", BASETEMP, *rest], not rest
 

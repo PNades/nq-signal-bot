@@ -110,7 +110,7 @@ def _main(argv: list[str] | None = None) -> int:
                                      "session, SSD writable, AC power, SSD drops (exit 5 on any warning; §9)")
     sub.add_parser("fallback-move", help="move a session recording kept on the internal drive (stream-session "
                                          "--fallback-local) onto the SSD, checked file by file")
-    sub.add_parser("test", help="run the test suite (serial; --parallel: pytest-xdist, all cores but 2); the whole "
+    sub.add_parser("test", help="run the test suite (parallel: pytest-xdist, all cores but 2; --serial: one process); the whole "
                                 "output goes to <root>/logs/pytest_<date-time>.txt, ending with 'PYTEST EXIT CODE: N'; "
                                 "any further arguments go to pytest; a full run (no pytest arguments) on a clean commit "
                                 "that passes is recorded, and long jobs run only a recorded commit (CLAUDE.md rule 14)")
