@@ -173,7 +173,8 @@ class SkylitBackupJob:
     name = JOB_NAME
     locks = (SKYLIT,)
 
-    def __init__(self, rclone_factory: Callable[[str], Rclone] = SubprocessRclone):
+    def __init__(self, rclone_factory: Callable[[str], Rclone] | None = None):  # None = the real rclone, found by
+        # rclone_path.find_rclone (owner 2026-10-30); tests pass a factory
         self.rclone_factory = rclone_factory
         self._rclone: Rclone | None = None
         self._parts: dict[str, Part] = {}
@@ -186,7 +187,18 @@ class SkylitBackupJob:
         skylit = self._skylit(ctx)
         if not skylit.is_dir() or not any(skylit.iterdir()):
             raise BackupRefused(f"nothing to back up: {skylit} is empty (Skylit history comes with steps 7 and 10)")
-        self._rclone = self.rclone_factory(cfg["exe"])
+        if self.rclone_factory is None:
+            from nqbot.rclone_path import RcloneNotFound, find_rclone
+
+            try:
+                exe, how = find_rclone(ctx.settings)
+            except RcloneNotFound as e:
+                raise BackupRefused(str(e)) from None
+            print(f"rclone: {exe} ({how})")
+            ctx.log.info("backup: rclone %s (%s)", exe, how)
+            self._rclone = SubprocessRclone(exe)
+        else:
+            self._rclone = self.rclone_factory(cfg["exe"])
         version = preflight(self._rclone, cfg["remote"])
         ctx.log.info("backup: %s -> %s (%s)", skylit, remote_path(cfg, ""), version)
         self._parts = {f"{p.name}@{fingerprint(p)}": p for p in parts(skylit)}

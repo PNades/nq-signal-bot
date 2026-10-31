@@ -5,7 +5,8 @@ Warns (exit EXIT_WARN, Discord from step 22) if a restart is pending, Windows Up
 today's session (or the pause ends within PAUSE_WARN_DAYS), the SSD isn't reachable and writable, the laptop is on
 battery, closing the lid on battery would sleep (owner 2026-10-19, §13 Q-power; skipped on a machine with no battery,
 the home PC), the SSD logged a drop since the last check, or (owner 2026-10-28, both machines) the Windows time zone
-isn't Eastern, automatic time sync is off or the clock is off by more than `clock_max_offset_ms`. Reads only (the registry, the SSD probe); writes its report to
+isn't Eastern, automatic time sync is off or the clock is off by more than `clock_max_offset_ms`, or (owner
+2026-10-30) rclone isn't found (the path it will use is listed, rclone_path.py). Reads only (the registry, the SSD probe); writes its report to
 <reports_dir>/preflight/ (or the internal-drive fallback when the SSD is gone)."""
 
 from __future__ import annotations
@@ -95,7 +96,8 @@ def run_checks(now: datetime, *, key_exists: Callable[[str], bool], read: Callab
                drops_since: Callable[[datetime], int], last_check: datetime | None,
                lid_warning: Callable[[], str | None] = lambda: None,
                has_battery: Callable[[], bool | None] = lambda: True,
-               clock: Callable[[], tuple[list[str], list[str]]] = lambda: ([], [])) -> dict[str, Any]:
+               clock: Callable[[], tuple[list[str], list[str]]] = lambda: ([], []),
+               rclone: Callable[[], tuple[bool, str]] | None = None) -> dict[str, Any]:
     warn: list[str] = []
     ok: list[str] = []
     pending = [k for k in REBOOT_KEYS if key_exists(k)]
@@ -130,6 +132,9 @@ def run_checks(now: datetime, *, key_exists: Callable[[str], bool], read: Callab
     (ok if good else warn).append("SSD reachable and writable" if good else f"SSD not usable: {why}")
     n = drops_since(last_check or now - timedelta(days=1))
     (warn if n else ok).append(f"SSD drops logged since the last check: {n}")
+    if rclone is not None:  # owner 2026-10-30: the rclone that status-push and backup will run
+        found, line = rclone()
+        (ok if found else warn).append(line)
     return {"checked_at": now.isoformat(), "warnings": warn, "ok": ok,
             "pause_until": end.isoformat() if end else None}
 
@@ -152,6 +157,7 @@ def preflight(settings: dict[str, Any], echo: Callable[[str], None] = print) -> 
     from nqbot.clock import clock_checks
     from nqbot.fallback import fallback_paths, ssd_writable
     from nqbot.power import lid_on_battery_warning
+    from nqbot.rclone_path import rclone_line
     from nqbot.storage import SSD_EVENT_LOG, SSDNotFound, atomic_write_json, resolve_paths
 
     now = datetime.now(timezone.utc)
@@ -170,7 +176,7 @@ def preflight(settings: dict[str, Any], echo: Callable[[str], None] = print) -> 
     rep = run_checks(now, key_exists=_hklm_key_exists, read=_hklm_value, on_ac=_on_ac, ssd_ok=ssd_ok,
                      drops_since=lambda since: drops_since(SSD_EVENT_LOG, since), last_check=last,
                      lid_warning=lid_on_battery_warning, has_battery=_has_battery,
-                     clock=lambda: clock_checks(settings))
+                     clock=lambda: clock_checks(settings), rclone=lambda: rclone_line(settings))
     for line in rep["warnings"]:
         echo(f"WARN {line}")
     for line in rep["ok"]:

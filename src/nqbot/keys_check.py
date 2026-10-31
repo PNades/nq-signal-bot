@@ -90,7 +90,7 @@ def run_checks(settings: dict[str, Any], *, env: Callable[[str], Secret] = get_s
                checks: dict[str, Callable[..., str]] | None = None) -> list[Result]:
     c = {"skylit": lambda k: check_skylit(k, settings), "databento": check_databento,
          "anthropic": lambda k: check_anthropic(k, settings), "discord_webhook": check_discord_webhook,
-         "discord_bot": check_discord_bot, **(checks or {})}
+         "discord_bot": check_discord_bot, "rclone": lambda: _rclone(settings), **(checks or {})}
     plan = [("SKYLIT_API_KEY", "skylit"), ("DATABENTO_API_KEY", "databento"), ("ANTHROPIC_API_KEY", "anthropic"),
             ("DISCORD_WEBHOOK_URL", "discord_webhook")]
     out: list[Result] = []
@@ -112,10 +112,18 @@ def run_checks(settings: dict[str, Any], *, env: Callable[[str], Secret] = get_s
             out.append(Result("DISCORD_BOT_TOKEN", True, c["discord_bot"](token, channel.reveal() if channel else None)))
         except Exception as e:
             out.append(Result("DISCORD_BOT_TOKEN", False, f"FAILED: {type(e).__name__}{_status(e)}"))
+    found, line = c["rclone"]()  # owner 2026-10-30: the rclone status-push and backup use (not a key: never fails)
+    out.append(Result("rclone", True if found else None, line))
     tp = sorted(n for n in env_names() if n.startswith("TP_WEBHOOK_"))
     out.append(Result("TP_WEBHOOK_*", None, f"{len(tp)} set, not called (a request would be a trade signal)"
                       + (f": {', '.join(tp)}" if tp else "")))
     return out
+
+
+def _rclone(settings: dict[str, Any]) -> tuple[bool, str]:
+    from nqbot.rclone_path import rclone_line
+
+    return rclone_line(settings)
 
 
 def _status(e: Exception) -> str:

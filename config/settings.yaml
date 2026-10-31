@@ -14,7 +14,7 @@ min_free_gb_live: 20
 backup:                 # nqbot backup: data/raw/skylit/ -> Google Drive with rclone (§11 Storage; owner 2026-10-05)
   rclone_remote: gdrive         # the owner's rclone Google Drive remote (made once with `rclone config`)
   drive_folder: "NQ bot backup" # folder on that Drive; the copy lands in <drive_folder>/raw/skylit/
-  rclone_exe: rclone            # the rclone command (or its full path if it isn't on PATH)
+  rclone_exe: rclone            # the rclone command looked up on PATH (per machine: rclone_path in local.yaml)
   status_folder: status         # nqbot status-push (owner 2026-10-28): <drive_folder>/status/status_<host>.txt
 
 # --- Month ledger (§7 rule 2b) ----------------------------------------------------------------

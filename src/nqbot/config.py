@@ -12,7 +12,7 @@ from typing import Any
 from ruamel.yaml import YAML
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
-LOCAL_KEYS = frozenset({"max_workers", "max_fold_mem_gb", "low_memory"})
+LOCAL_KEYS = frozenset({"max_workers", "max_fold_mem_gb", "low_memory", "rclone_path"})  # rclone_path: owner 2026-10-30
 
 
 class ConfigError(Exception):

@@ -68,7 +68,8 @@ def _env(values):
 FULL = {"SKYLIT_API_KEY": "s", "DATABENTO_API_KEY": "db-SECRET-key", "ANTHROPIC_API_KEY": "a",
         "DISCORD_WEBHOOK_URL": "https://discord.com/api/webhooks/1/tok", "DISCORD_BOT_TOKEN": "b",
         "DISCORD_CHANNEL_ID": "42"}
-OK = {k: (lambda *a, **kw: "ok") for k in ("skylit", "databento", "anthropic", "discord_webhook", "discord_bot")}
+OK = {**{k: (lambda *a, **kw: "ok") for k in ("skylit", "databento", "anthropic", "discord_webhook", "discord_bot")},
+      "rclone": lambda: (True, "rclone: C:\\x\\rclone.exe (found on PATH)")}
 
 
 def test_keys_check_all_ok_and_tp_webhooks_never_called(settings):

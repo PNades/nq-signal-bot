@@ -50,16 +50,24 @@ def snapshot(paths: Paths, settings: dict[str, Any], *, clock: Callable[[], tupl
 def push(paths: Paths, settings: dict[str, Any], *, clock: Callable[[], tuple[list[str], list[str]]],
          rclone: Any = None, echo: Callable[[str], None] = print, host: str | None = None) -> int:
     from nqbot.backup import SubprocessRclone
+    from nqbot.rclone_path import RcloneNotFound, find_rclone
 
     host = host or socket.gethostname()
     text = snapshot(paths, settings, clock=clock, host=host)
     local = paths.log_dir / f"status_{host}.txt"
     atomic_write_text(local, text)
     b = settings["backup"]
-    rclone = rclone or SubprocessRclone(b["rclone_exe"])
     dst = f"{b['rclone_remote']}:{b['drive_folder']}/{b['status_folder']}/status_{host}.txt"
-    code, out = rclone.quick(["copyto", str(local), dst])
     echo(text.rstrip())
+    if rclone is None:  # owner 2026-10-30: local.yaml rclone_path, else PATH, else the WinGet Links folder
+        try:
+            exe, how = find_rclone(settings)
+        except RcloneNotFound as e:
+            echo(f"status-push: {e} (local copy: {local})")
+            return 1
+        echo(f"rclone: {exe} ({how})")
+        rclone = SubprocessRclone(exe)
+    code, out = rclone.quick(["copyto", str(local), dst])
     if code != 0:
         echo(f"status-push: rclone copyto failed ({code}): {out.strip()[:300]} (local copy: {local})")
         return 1

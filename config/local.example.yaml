@@ -1,5 +1,6 @@
 # Copy to config/local.yaml (uncommitted) to override machine resources on this machine only (SPEC §11 One machine).
-# Only these three keys are allowed: nothing that changes results may go here.
+# Only these keys are allowed: nothing that changes results may go here.
 max_workers: null      # null = all cores but 2 (still capped at run time by free RAM)
 max_fold_mem_gb: 10    # a fold whose estimated peak memory is above this is re-chunked
 low_memory: true       # 16 GB laptop mode; the home PC may set false
+rclone_path: null     # full path to rclone.exe; null = rclone on PATH, else winget's Links or Packages folder
