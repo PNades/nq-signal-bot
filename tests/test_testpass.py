@@ -101,15 +101,20 @@ def test_every_long_job_entry_refuses_without_a_pass(drive, paths, monkeypatch, 
     assert queue.read_queue(paths) == []
 
 
-def test_pytest_cmd_parallel_by_default_serial_on_request():
-    """Owner 2026-10-30: parallel became the default after two full parallel passes on the PC."""
-    cmd, full = testrun.pytest_cmd(["--serial"], cpus=8)
+def test_pytest_cmd_default_comes_from_local_yaml_and_flags_override():
+    """Owner 2026-10-30: local.yaml test_parallel true (the PC) -> parallel; absent (the laptop) -> serial; the flags
+    override either way (both given: serial)."""
+    par = ["-n", "6", "--dist", "load"]
+    cmd, full = testrun.pytest_cmd([], cpus=8)  # key absent
     assert full and "-n" not in cmd and cmd[-2:] == ["--basetemp", testrun.BASETEMP]
-    for args in ([], ["--parallel"]):
-        cmd, full = testrun.pytest_cmd(args, cpus=8)
-        assert full and cmd[3:7] == ["-n", "6", "--dist", "load"] and "--basetemp" in cmd
-    cmd, full = testrun.pytest_cmd(["tests/test_config.py", "--serial"], cpus=8)
-    assert not full and cmd[-1] == "tests/test_config.py" and "-n" not in cmd
+    cmd, full = testrun.pytest_cmd([], cpus=8, default_parallel=True)  # key true
+    assert full and cmd[3:7] == par and "--basetemp" in cmd
+    assert testrun.pytest_cmd(["--parallel"], cpus=8)[0][3:7] == par
+    cmd, full = testrun.pytest_cmd(["--serial"], cpus=8, default_parallel=True)
+    assert full and "-n" not in cmd and "--serial" not in cmd
+    assert "-n" not in testrun.pytest_cmd(["--parallel", "--serial"], cpus=8, default_parallel=True)[0]
+    cmd, full = testrun.pytest_cmd(["tests/test_config.py", "--parallel"], cpus=8)
+    assert not full and cmd[-1] == "tests/test_config.py" and "-n" in cmd
     cmd, full = testrun.pytest_cmd(["tests/test_config.py", "--parallel"], cpus=8)
     assert not full and cmd[-1] == "tests/test_config.py" and "-n" in cmd
     assert testrun.workers(2) == 1 and testrun.workers(1) == 1

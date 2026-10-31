@@ -110,7 +110,8 @@ def _main(argv: list[str] | None = None) -> int:
                                      "session, SSD writable, AC power, SSD drops (exit 5 on any warning; §9)")
     sub.add_parser("fallback-move", help="move a session recording kept on the internal drive (stream-session "
                                          "--fallback-local) onto the SSD, checked file by file")
-    sub.add_parser("test", help="run the test suite (parallel: pytest-xdist, all cores but 2; --serial: one process); the whole "
+    sub.add_parser("test", help="run the test suite (serial, or parallel with test_parallel: true in config/local.yaml: "
+                                "pytest-xdist, all cores but 2; --parallel / --serial override); the whole "
                                 "output goes to <root>/logs/pytest_<date-time>.txt, ending with 'PYTEST EXIT CODE: N'; "
                                 "any further arguments go to pytest; a full run (no pytest arguments) on a clean commit "
                                 "that passes is recorded, and long jobs run only a recorded commit (CLAUDE.md rule 14)")
@@ -224,7 +225,7 @@ def _main(argv: list[str] | None = None) -> int:
         full = pytest_cmd(extra)[1]
         state = testpass.before_run() if full else None
         t0 = monotonic()
-        code = run_tests(paths.log_dir, extra)[0]
+        code = run_tests(paths.log_dir, extra, default_parallel=settings.get("test_parallel") is True)[0]
         if state is not None:  # owner 2026-10-29: a full-suite pass on a clean commit lets jobs run it (rule 14 (f))
             print(testpass.record(paths, state, code, monotonic() - t0))
         return code

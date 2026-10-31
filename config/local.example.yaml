@@ -4,3 +4,4 @@ max_workers: null      # null = all cores but 2 (still capped at run time by fre
 max_fold_mem_gb: 10    # a fold whose estimated peak memory is above this is re-chunked
 low_memory: true       # 16 GB laptop mode; the home PC may set false
 rclone_path: null     # full path to rclone.exe; null = rclone on PATH, else winget's Links or Packages folder
+test_parallel: true   # nqbot test default: true = pytest-xdist, all cores but 2 (the build PC); leave it out on the laptop (live machine from step 21) = serial; --parallel / --serial override

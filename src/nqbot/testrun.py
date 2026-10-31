@@ -3,9 +3,10 @@
 that line (CLAUDE.md rule 14), so a failure can never hide behind a pipe such as `| tail`. Just above it, the wall time
 and the peak memory of the pytest process tree (owner 2026-10-28: compared between the laptop and the PC).
 
-Owner 2026-10-29: `--parallel` uses pytest-xdist with `--dist load` and all cores but 2 as workers, opt-in until two
-full parallel runs pass on the PC; they did on 2026-10-30 (895 passed twice, about 3.5 min vs 12.8 serial, peak
-1.8 GB), so parallel is now the default and `--serial` runs one process (`--parallel` is still accepted);
+Owner 2026-10-29: `--parallel` uses pytest-xdist with `--dist load` and all cores but 2 as workers. Owner 2026-10-30
+(after two full parallel passes on the PC): the default is per machine, `test_parallel` in config/local.yaml (true on
+the PC; absent = serial, so the laptop, the live machine from step 21, never starves the live engine of memory by
+default); `--parallel` / `--serial` override it (both given: serial);
 temporary folders under BASETEMP (C:\\nqbot_pytest, excluded from Defender on each machine; pytest empties it at the
 start of every run, so run one `nqbot test` at a time).
 
@@ -34,7 +35,7 @@ WALL_LINE = "PYTEST WALL TIME: {sec:.0f} s ({hms})"
 PEAK_LINE = "PYTEST PEAK MEMORY: {gb:.2f} GB"
 SAMPLE_SEC = 0.5  # how often the pytest process tree's memory is read
 BASETEMP = r"C:\nqbot_pytest"  # owner 2026-10-29 (name approved); never under a real data root (tests/conftest.py)
-PARALLEL_FLAG = "--parallel"  # the default since 2026-10-30; still accepted
+PARALLEL_FLAG = "--parallel"
 SERIAL_FLAG = "--serial"
 SPARE_CORES = 2  # owner 2026-10-29: workers = all cores but 2
 NOT_RUN_CODE = 4  # pytest's own usage-error code: the run stopped before any test (never a recorded pass)
@@ -46,11 +47,14 @@ def workers(cpus: int | None = None) -> int:
     return max(1, (cpus if cpus is not None else os.cpu_count() or 1) - SPARE_CORES)
 
 
-def pytest_cmd(extra: list[str] | None = None, cpus: int | None = None) -> tuple[list[str], bool]:
-    """The pytest command for `nqbot test [--serial] [pytest args]`, and whether it is a full-suite run (no pytest
-    arguments; only a full run can record a pass, CLAUDE.md rule 14 (c))."""
-    rest = [a for a in (extra or []) if a not in (PARALLEL_FLAG, SERIAL_FLAG)]
-    parallel = SERIAL_FLAG not in (extra or [])
+def pytest_cmd(extra: list[str] | None = None, cpus: int | None = None,
+               default_parallel: bool = False) -> tuple[list[str], bool]:
+    """The pytest command for `nqbot test [--parallel|--serial] [pytest args]`, and whether it is a full-suite run (no
+    pytest arguments; only a full run can record a pass, CLAUDE.md rule 14 (c)). `default_parallel` = local.yaml
+    `test_parallel`."""
+    extra = extra or []
+    rest = [a for a in extra if a not in (PARALLEL_FLAG, SERIAL_FLAG)]
+    parallel = SERIAL_FLAG not in extra and (PARALLEL_FLAG in extra or default_parallel)
     par = ["-n", str(workers(cpus)), "--dist", "load"] if parallel else []
     return [sys.executable, "-m", "pytest", *par, "--basetemp", BASETEMP, *rest], not rest
 
@@ -156,10 +160,11 @@ def log_path(log_dir: Path, now: datetime) -> Path:
 
 
 def run_tests(log_dir: Path, extra: list[str] | None = None, *, cmd: list[str] | None = None,
-              now: datetime | None = None, out: BinaryIO | None = None) -> tuple[int, Path]:
+              now: datetime | None = None, out: BinaryIO | None = None,
+              default_parallel: bool = False) -> tuple[int, Path]:
     """Run pytest from the repo root, copy its output to the console and to the log as it arrives, append the exit
     line to both. `cmd` replaces the pytest command in tests."""
-    cmd = cmd or pytest_cmd(extra)[0]
+    cmd = cmd or pytest_cmd(extra, default_parallel=default_parallel)[0]
     out = out or sys.stdout.buffer
     path = log_path(log_dir, now or datetime.now())
     kept = [f"nqbot test {datetime.now():%Y-%m-%d %H:%M:%S}: {' '.join(cmd)}\n".encode()]

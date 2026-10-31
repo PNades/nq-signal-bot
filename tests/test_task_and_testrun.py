@@ -80,14 +80,31 @@ def test_nqbot_test_stops_at_the_start_when_elevated_or_the_basetemp_is_locked(t
     assert testrun.basetemp_of(["pytest", "--basetemp", "a", "--basetemp=b"]) == Path("b")
 
 
-def test_nqbot_test_command_is_wired(monkeypatch):
+@pytest.mark.parametrize("local, parallel", [({}, False), ({"test_parallel": True}, True),
+                                             ({"test_parallel": False}, False)])
+def test_nqbot_test_command_is_wired(monkeypatch, local, parallel):
+    """Owner 2026-10-30: the default comes from config/local.yaml test_parallel (absent = serial)."""
     from nqbot import cli
+    from nqbot.config import CONFIG_DIR, load_yaml
 
     seen = {}
-    monkeypatch.setattr(testrun, "run_tests", lambda log_dir, extra: (seen.update(extra=extra), (5, log_dir))[1])
+    monkeypatch.setattr(testrun, "run_tests", lambda log_dir, extra, default_parallel: (
+        seen.update(extra=extra, parallel=default_parallel), (5, log_dir))[1])
+    monkeypatch.setattr(cli, "load_settings", lambda: {**load_yaml(CONFIG_DIR / "settings.yaml"), **local})
     monkeypatch.setattr(cli, "resolve_paths", lambda s: type("P", (), {"log_dir": Path("logs")})())
     monkeypatch.setattr(cli, "setup_logging", lambda d: None)
-    assert cli.main(["test", "-k", "x"]) == 5 and seen["extra"] == ["-k", "x"]
+    assert cli.main(["test", "-k", "x"]) == 5 and seen == {"extra": ["-k", "x"], "parallel": parallel}
+
+
+def test_local_yaml_test_parallel_must_be_a_bool(tmp_path):
+    from nqbot.config import CONFIG_DIR, ConfigError, load_settings
+
+    (tmp_path / "settings.yaml").write_text((CONFIG_DIR / "settings.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "local.yaml").write_text("test_parallel: true\n", encoding="utf-8")
+    assert load_settings(tmp_path)["test_parallel"] is True
+    (tmp_path / "local.yaml").write_text("test_parallel: yes please\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="test_parallel must be true or false"):
+        load_settings(tmp_path)
 
 
 @pytest.mark.skipif(shutil.which("powershell") is None, reason="Windows PowerShell only")

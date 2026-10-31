@@ -12,7 +12,8 @@ from typing import Any
 from ruamel.yaml import YAML
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
-LOCAL_KEYS = frozenset({"max_workers", "max_fold_mem_gb", "low_memory", "rclone_path"})  # rclone_path: owner 2026-10-30
+# rclone_path, test_parallel: owner 2026-10-30
+LOCAL_KEYS = frozenset({"max_workers", "max_fold_mem_gb", "low_memory", "rclone_path", "test_parallel"})
 
 
 class ConfigError(Exception):
@@ -36,6 +37,8 @@ def load_settings(config_dir: Path | None = None) -> dict[str, Any]:
             raise ConfigError(
                 f"{local_path}: only {sorted(LOCAL_KEYS)} may be overridden locally, found {unknown}"
             )
+        if "test_parallel" in local and not isinstance(local["test_parallel"], bool):
+            raise ConfigError(f"{local_path}: test_parallel must be true or false, found {local['test_parallel']!r}")
         settings.update(local)
     if settings.get("months"):  # the ledger written at step 4b: all 12 months, strictly formatted (§7 rule 2b)
         from nqbot.months import LedgerInvalid, validate

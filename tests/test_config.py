@@ -77,7 +77,7 @@ def test_local_yaml_refuses_result_changing_keys(tmp_path):
 
 def test_local_example_has_only_allowed_keys():
     assert set(load_yaml(CONFIG_DIR / "local.example.yaml")) == {"max_workers", "max_fold_mem_gb", "low_memory",
-                                                                 "rclone_path"}  # owner 2026-10-30
+                                                                 "rclone_path", "test_parallel"}  # owner 2026-10-30
 
 
 def test_step6_approved_values_set():
