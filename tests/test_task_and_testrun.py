@@ -25,6 +25,16 @@ def _stand_in(tmp_path: Path, code: int) -> list[str]:
     return [sys.executable, str(script)]
 
 
+def test_nqbot_test_runs_pytest_in_utf8_mode(tmp_path, monkeypatch):
+    """Owner 2026-10-31: a `§` in pytest's output is written as UTF-8, not in the console code page (the laptop's
+    Windows-1252 logs held the queue)."""
+    monkeypatch.delenv("PYTHONUTF8", raising=False)
+    script = tmp_path / "section.py"
+    script.write_text("import sys\nprint('\\u00a73.4', sys.flags.utf8_mode)\n", encoding="utf-8")
+    got, path = testrun.run_tests(tmp_path / "logs", cmd=[sys.executable, str(script)], out=io.BytesIO())
+    assert got == 0 and "§3.4 1".encode("utf-8") in path.read_bytes()
+
+
 @pytest.mark.parametrize("code", [0, 1])
 def test_nqbot_test_saves_the_whole_output_and_returns_pytests_exit_code(tmp_path, code):
     out = io.BytesIO()

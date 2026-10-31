@@ -38,6 +38,7 @@ TZ_KEY = r"SYSTEM\CurrentControlSet\Control\TimeZoneInformation"
 EASTERN_TZ = "Eastern Standard Time"  # Windows' name for America/New_York, summer and winter alike
 W32TIME_KEY = r"SYSTEM\CurrentControlSet\Services\W32Time\Parameters"
 SYNC_OFF = "NoSync"  # W32Time Type when "Set time automatically" is off
+W32TIME_SERVICE = "w32time"
 
 
 def _hklm(path: str, name: str):
@@ -50,12 +51,24 @@ def _hklm(path: str, name: str):
         return None
 
 
-def clock_checks(settings: dict, *, offset_ms=None, read=None) -> tuple[list[str], list[str]]:
-    """(warnings, ok lines): the Windows time zone is Eastern, automatic time sync is on, and the clock is within
-    `clock_max_offset_ms` of `ntp_server` (SPEC §9 Clock)."""
+def w32time_status() -> str | None:
+    """The Windows Time service's state ('running', 'stopped', ...), or None if it can't be read."""
+    try:
+        import psutil
+
+        return psutil.win_service_get(W32TIME_SERVICE).status()
+    except Exception:  # noqa: BLE001 - not Windows, no such service, access denied
+        return None
+
+
+def clock_checks(settings: dict, *, offset_ms=None, read=None, service=None) -> tuple[list[str], list[str]]:
+    """(warnings, ok lines): the Windows time zone is Eastern, automatic time sync is on, the Windows Time service
+    runs (owner 2026-10-31: on the PC it was stopped, so the setting alone said "on" while nothing synced), and the
+    clock is within `clock_max_offset_ms` of `ntp_server` (SPEC §9 Clock)."""
     import os
 
     read = read or (_hklm if os.name == "nt" else (lambda path, name: None))
+    service = service or w32time_status
     offset_ms = offset_ms or (lambda: ntp_offset_ms(settings["ntp_server"]))
     warn: list[str] = []
     ok: list[str] = []
@@ -73,6 +86,12 @@ def clock_checks(settings: dict, *, offset_ms=None, read=None) -> tuple[list[str
         warn.append('automatic time sync is off (Settings > Time & language > Date & time > "Set time automatically")')
     else:
         ok.append(f"automatic time sync on ({sync})")
+    state = service()
+    if state == "running":
+        ok.append("Windows Time service running")
+    else:
+        warn.append(f"the Windows Time service (w32time) is {state or 'unreadable'}, so nothing keeps the clock "
+                    "synced: run scripts\\fix_time_sync.ps1 from an admin PowerShell")
     limit = float(settings["clock_max_offset_ms"])
     try:
         off = offset_ms()

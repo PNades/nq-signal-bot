@@ -3,7 +3,8 @@ a date and list anything damaged. Reads only; writes its report to <reports_dir>
 
 Per file type: parquet read in full; Databento `.dbn.zst` decompressed in full (a cut-off or corrupt zstd stream
 fails) and its size checked against the size the download ledger recorded; json/jsonl parsed; npz arrays loaded;
-text decoded as UTF-8. A read that fails because the drive dropped is retried after the drive comes back
+text decoded as UTF-8 or Windows-1252 and free of zero-byte runs (owner 2026-10-31: pytest logs written in the
+console code page held a valid `§` = 0xA7 and were flagged; lost sectors read back as zeros). A read that fails because the drive dropped is retried after the drive comes back
 (VERIFY_DROP_TRIES); a file still unreadable then is listed apart from a damaged one."""
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ VERIFY_DROP_TRIES = 3  # reads of one file when the drive drops mid-read
 VERIFY_DROP_WAIT_SEC = 60  # how long to wait for the drive to come back before a retry
 READ_CHUNK = 1 << 22
 TEXT_EXT = (".md", ".txt", ".log", ".html", ".csv")
+ZERO_RUN = b"\0" * 16  # owner 2026-10-31: this many zero bytes in a row in a text file = damage (a lost sector)
 
 
 @dataclass
@@ -92,13 +94,29 @@ def check_file(p: Path) -> None:
             for k in z.files:
                 z[k]
     elif kind == "text":
-        raw = p.read_bytes()
-        # logs written by the old PowerShell task action are UTF-16 with a BOM (fixed 2026-10-10), not damage
-        raw.decode("utf-16") if raw[:2] in (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE) else raw.decode("utf-8")
+        check_text(p.read_bytes())
     else:
         with open(p, "rb") as fh:
             while fh.read(READ_CHUNK):
                 pass
+
+
+def check_text(raw: bytes) -> None:
+    """Raise if a text file is damaged: a run of ZERO_RUN zero bytes, or bytes that are neither UTF-8 nor
+    Windows-1252 (owner 2026-10-31). Logs written by the old PowerShell task action are UTF-16 with a BOM (fixed
+    2026-10-10), not damage."""
+    if ZERO_RUN in raw:
+        raise ValueError(f"a run of {len(ZERO_RUN)}+ zero bytes at byte {raw.index(ZERO_RUN)} (lost data)")
+    if raw[:2] in (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE):
+        raw.decode("utf-16")
+        return
+    try:
+        raw.decode("utf-8")
+    except UnicodeDecodeError as e:
+        try:
+            raw.decode("cp1252")  # a console-code-page log (pytest before 2026-10-31)
+        except UnicodeDecodeError:
+            raise ValueError(f"neither UTF-8 ({e.reason} at byte {e.start}) nor Windows-1252") from None
 
 
 def databento_sizes(raw_dir: Path) -> dict[Path, int]:

@@ -243,9 +243,9 @@ def _main(argv: list[str] | None = None) -> int:
             return EXIT_REFUSED  # = resume's "waiting for the owner"
         _print_power_warnings()
 
-        def verify(since: datetime) -> bool:
+        def verify(since: datetime) -> list[str]:
             res, _ = run_verify(paths, since)
-            return not (res.damaged or res.size_mismatch or res.unreadable)
+            return [r["path"] for r in res.damaged + res.size_mismatch + res.unreadable]
 
         return resume(paths, settings, run=lambda name: _run_for_resume(name, settings, paths, until, log),
                       verify=verify)

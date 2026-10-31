@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
 import psutil
 
@@ -37,6 +38,8 @@ RESUME_STATE = "resume_state.json"
 RESUMABLE = ("until", "ssd_missing", "lock_window")  # last-run ends resume picks up again by itself
 DIED = "died"  # a run whose end was never recorded (reboot, power loss, killed) or that raised
 BOOT_TOL_SEC = 5  # psutil.boot_time() can move by a second or two between reads
+HOLD_SHOW_FILES = 5  # files named in the after-restart hold message (the rest counted; all in verify.md)
+ET = ZoneInfo("America/New_York")
 
 
 def queue_path(paths: Paths) -> Path:
@@ -136,11 +139,13 @@ def boot_time() -> float:
     return psutil.boot_time()
 
 
-def resume(paths: Paths, settings: dict[str, Any], *, run: Callable[[str], Any], verify: Callable[[datetime], bool],
+def resume(paths: Paths, settings: dict[str, Any], *, run: Callable[[str], Any],
+           verify: Callable[[datetime], list[str]],
            echo: Callable[[str], None] = print, now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
            booted: Callable[[], float] = boot_time) -> int:
     """Run the queue (see the module docstring). `run(job)` is `nqbot run <job> --until ...` and returns its
-    RunResult (it raises LockHeld if the job is already running); `verify(since)` is True if nothing is damaged.
+    RunResult (it raises LockHeld if the job is already running); `verify(since)` returns the files it flagged
+    (empty = nothing damaged).
     Exit codes as the CLI's: 0 done / ran, 1 verify found damage, 2 waiting for the owner, 3 a job lock is held."""
     from nqbot.jobs.lock import LockHeld
 
@@ -159,9 +164,12 @@ def resume(paths: Paths, settings: dict[str, Any], *, run: Callable[[str], Any],
         echo(f"resume: first run since the computer started "
              f"({datetime.fromtimestamp(boot, timezone.utc):%Y-%m-%d %H:%M} UTC): checking every file written "
              f"since {since:%Y-%m-%d %H:%M} UTC")
-        if not verify(since):
-            rs["hold_all"] = (f"nqbot verify found damaged files after the restart at "
-                              f"{datetime.fromtimestamp(boot, timezone.utc):%Y-%m-%d %H:%M} UTC (see "
+        flagged = verify(since)
+        if flagged:  # owner 2026-10-31: when the check ran and what it flagged, not the boot time
+            shown = ", ".join(flagged[:HOLD_SHOW_FILES]) + (f" and {len(flagged) - HOLD_SHOW_FILES} more"
+                                                            if len(flagged) > HOLD_SHOW_FILES else "")
+            rs["hold_all"] = (f"nqbot verify at {now().astimezone(ET):%Y-%m-%d %H:%M} ET (first resume since the "
+                              f"computer started) flagged {len(flagged)} file(s): {shown} (see "
                               f"<reports_dir>/verify/verify.md)")
             save_resume_state(paths, rs)
             echo(f"resume: HOLD: {rs['hold_all']}")
@@ -241,13 +249,18 @@ def release(paths: Paths, job: str | None = None) -> list[str]:
 
 
 def queue_lines(paths: Paths, settings: dict[str, Any]) -> list[str]:
-    """For `nqbot status` and `nqbot queue show`: each queued job and what resume would do with it now."""
+    """For `nqbot status` and `nqbot queue show`: each queued job and what resume would do with it now. A hold is
+    always shown, even with the queue empty (owner 2026-10-31: an empty queue hid the after-restart verify hold, which
+    would still stop the next job queued)."""
     queue = read_queue(paths)
-    if not queue:
-        return ["queue: empty"]
     rs = load_resume_state(paths)
+    holds = ([f"  HOLD ALL: {rs['hold_all']} (lift: uv run nqbot queue release)"] if rs.get("hold_all") else [])
+    holds += [f"  HELD {job} (not queued): {why} (lift: uv run nqbot queue release {job})"
+              for job, why in (rs.get("held") or {}).items() if job not in queue]
+    if not queue:
+        return ["queue: empty"] + holds
     max_crashes = int((settings.get("ops") or {})["resume_max_crashes"])
-    lines = ["queue (nqbot resume):"] + ([f"  HOLD ALL: {rs['hold_all']}"] if rs.get("hold_all") else [])
+    lines = ["queue (nqbot resume):"] + holds
     for job in queue:
         d = decide(job, load_state(state_path(paths, job)), rs, max_crashes)
         lines.append(f"  {job}: {d.action} ({d.reason})")

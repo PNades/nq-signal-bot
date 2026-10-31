@@ -226,9 +226,29 @@ def test_verify_reads_utf16_task_logs(tmp_path):
     log.write_text("TASK START\n69760 boards\n", encoding="utf-16")
     verify.check_file(log)
     bad = tmp_path / "bad.txt"
-    bad.write_bytes(b"\x80\x81 not utf-8")
-    with pytest.raises(UnicodeDecodeError):
+    bad.write_bytes(b"\x80\x81 not utf-8")  # 0x81 isn't Windows-1252 either
+    with pytest.raises(ValueError, match="neither UTF-8 .* nor Windows-1252"):
         verify.check_file(bad)
+
+
+def test_verify_accepts_a_windows_1252_log_and_flags_a_zero_byte_run(tmp_path):
+    """Owner 2026-10-31: the laptop's pytest logs held `§` as Windows-1252 0xA7 (console code page) and held the
+    queue; they are valid text. A run of zero bytes (a lost sector) is damage in any text file."""
+    log = tmp_path / "pytest_20261028-213116.txt"
+    log.write_bytes("# Step-9 gameplan parser (§3.4): model name\r\nPYTEST EXIT CODE: 1\r\n".encode("cp1252"))
+    assert b"\xa7" in log.read_bytes()
+    verify.check_file(log)
+    (tmp_path / "utf8.md").write_text("SPEC §11 — ok\n", encoding="utf-8")
+    verify.check_file(tmp_path / "utf8.md")
+    holed = tmp_path / "holed.log"
+    holed.write_bytes(b"line one\n" + b"\0" * 512 + b"line two\n")
+    with pytest.raises(ValueError, match="zero bytes at byte 9"):
+        verify.check_file(holed)
+    few = tmp_path / "few.txt"
+    few.write_bytes(b"a" + b"\0" * (len(verify.ZERO_RUN) - 1) + b"b")  # shorter than a run: not damage
+    verify.check_file(few)
+    res = verify.verify_tree(tmp_path, datetime(2020, 1, 1), tmp_path / "raw", lambda: True, echo=lambda s: None)
+    assert [Path(r["path"]).name for r in res.damaged] == ["holed.log"]
 
 
 def test_a_drop_lasting_seconds_waits_for_a_stable_drive_before_the_retry(tmp_path, monkeypatch, events):

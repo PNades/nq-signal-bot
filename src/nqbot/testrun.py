@@ -187,7 +187,10 @@ def run_tests(log_dir: Path, extra: list[str] | None = None, *, cmd: list[str] |
         out.flush()
         return NOT_RUN_CODE, path
     t0 = time.monotonic()
-    proc = subprocess.Popen(cmd, cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    # PYTHONUTF8 (owner 2026-10-31): pytest's output is UTF-8, not the console code page (a `§` in a failing test's
+    # source made the laptop's logs Windows-1252, and nqbot verify flagged them)
+    proc = subprocess.Popen(cmd, cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            env={**os.environ, "PYTHONUTF8": "1"})
     sampler = MemorySampler(proc.pid)
     sampler.start()
     assert proc.stdout is not None

@@ -19,15 +19,23 @@ def _reader(tz="Eastern Standard Time", sync="NTP"):
 
 
 def test_clock_checks_all_good(settings):
-    warn, ok = clock.clock_checks(settings, offset_ms=lambda: 40.0, read=_reader())
-    assert warn == [] and len(ok) == 3
+    warn, ok = clock.clock_checks(settings, offset_ms=lambda: 40.0, read=_reader(), service=lambda: "running")
+    assert warn == [] and len(ok) == 4 and "Windows Time service running" in ok
+
+
+@pytest.mark.parametrize("state", ["stopped", None])
+def test_clock_checks_warn_when_the_time_service_is_not_running(settings, state):
+    """Owner 2026-10-31: on the PC w32time was stopped (manual start), so "sync on" was true and nothing synced."""
+    warn, ok = clock.clock_checks(settings, offset_ms=lambda: 40.0, read=_reader(), service=lambda: state)
+    assert len(warn) == 1 and f"w32time) is {state or 'unreadable'}" in warn[0] and "fix_time_sync.ps1" in warn[0]
+    assert "automatic time sync on (NTP)" in ok
 
 
 @pytest.mark.parametrize("tz,sync,off,needle", [("Pacific Standard Time", "NTP", 0.0, "not Eastern Standard Time"),
                                                  ("Eastern Standard Time", "NoSync", 0.0, "time sync is off"),
                                                  ("Eastern Standard Time", "NTP", 900.0, "+900 ms")])
 def test_clock_checks_warn(settings, tz, sync, off, needle):
-    warn, _ = clock.clock_checks(settings, offset_ms=lambda: off, read=_reader(tz, sync))
+    warn, _ = clock.clock_checks(settings, offset_ms=lambda: off, read=_reader(tz, sync), service=lambda: "running")
     assert len(warn) == 1 and needle in warn[0]
 
 
@@ -35,7 +43,7 @@ def test_clock_checks_ntp_unreachable_is_a_warning(settings):
     def fail():
         raise OSError("timed out")
 
-    warn, _ = clock.clock_checks(settings, offset_ms=fail, read=_reader())
+    warn, _ = clock.clock_checks(settings, offset_ms=fail, read=_reader(), service=lambda: "running")
     assert len(warn) == 1 and "couldn't reach" in warn[0]
 
 

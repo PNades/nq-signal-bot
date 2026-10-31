@@ -21,7 +21,7 @@ def _state(paths, job, runs, done=0, total=5):
                                                "runs": runs})
 
 
-def _resume(paths, settings, run, verify=lambda since: True, boot=1000.0, echo=None):
+def _resume(paths, settings, run, verify=lambda since: [], boot=1000.0, echo=None):
     lines = []
     code = queue.resume(paths, settings, run=run, verify=verify, echo=echo or lines.append, now=lambda: NOW,
                         booted=lambda: boot)
@@ -128,20 +128,31 @@ def test_first_resume_after_a_restart_verifies_and_holds_on_damage(paths, settin
     queue.write_queue(paths, ["dummy"])
     seen = []
     code, _ = _resume(paths, settings, lambda j: pytest.fail("must not run"),
-                      verify=lambda since: (seen.append(since), False)[1])
+                      verify=lambda since: (seen.append(since), [r"D:\nqbot\logs\a.txt", r"D:\nqbot\x.parquet"])[1])
     assert code == 1 and seen == [NOW - timedelta(days=settings["ops"]["resume_verify_days"])]
+    # owner 2026-10-31: the hold says when the check ran (ET) and which files it flagged, not the boot time
+    assert queue.load_resume_state(paths)["hold_all"] == (
+        r"nqbot verify at 2026-10-28 08:00 ET (first resume since the computer started) flagged 2 file(s): "
+        r"D:\nqbot\logs\a.txt, D:\nqbot\x.parquet (see <reports_dir>/verify/verify.md)")
     code, lines = _resume(paths, settings, lambda j: pytest.fail("must not run"))
     assert code == 2 and "everything held" in lines[-1]
     queue.release(paths)
-    code, _ = _resume(paths, settings, lambda j: RunResult("until", 1, 5), verify=lambda s: True)
+    code, _ = _resume(paths, settings, lambda j: RunResult("until", 1, 5), verify=lambda s: [])
     assert code == 0
+
+
+def test_a_long_hold_names_the_first_files_and_counts_the_rest(paths, settings):
+    files = [f"f{i}.txt" for i in range(queue.HOLD_SHOW_FILES + 3)]
+    _resume(paths, settings, lambda j: pytest.fail("must not run"), verify=lambda since: files)
+    held = queue.load_resume_state(paths)["hold_all"]
+    assert f"flagged {len(files)} file(s): f0.txt, " in held and "f4.txt and 3 more (see" in held and "f5" not in held
 
 
 def test_verify_runs_once_per_boot(paths, settings):
     queue.write_queue(paths, ["dummy"])
     calls = []
     for boot in (1000.0, 1001.0, 5000.0):  # 1001: the same boot read a second later
-        _resume(paths, settings, lambda j: RunResult("until", 1, 5), verify=lambda s: (calls.append(s), True)[1],
+        _resume(paths, settings, lambda j: RunResult("until", 1, 5), verify=lambda s: (calls.append(s), [])[1],
                 boot=boot)
     assert len(calls) == 2
 
@@ -214,3 +225,23 @@ def test_queue_lines_show_each_decision(paths, settings):
     queue.write_queue(paths, ["dummy"])
     _state(paths, "dummy", [{"status": "stopped"}])
     assert "dummy: wait" in queue.queue_lines(paths, settings)[1]
+
+
+def test_status_shows_a_hold_even_with_the_queue_empty(paths, settings):
+    """Owner 2026-10-31: the after-restart verify hold (and a held job no longer queued) shows with an empty queue."""
+    rs = queue.load_resume_state(paths)
+    rs["hold_all"] = "nqbot verify found damaged files after the restart at 2026-10-22 04:17 UTC"
+    rs["held"] = {"dummy_drill": "3 resume attempts in a row died"}
+    queue.save_resume_state(paths, rs)
+    assert queue.queue_lines(paths, settings) == [
+        "queue: empty",
+        "  HOLD ALL: nqbot verify found damaged files after the restart at 2026-10-22 04:17 UTC "
+        "(lift: uv run nqbot queue release)",
+        "  HELD dummy_drill (not queued): 3 resume attempts in a row died "
+        "(lift: uv run nqbot queue release dummy_drill)"]
+    queue.write_queue(paths, ["dummy"])
+    lines = queue.queue_lines(paths, settings)
+    assert lines[0] == "queue (nqbot resume):" and lines[1].startswith("  HOLD ALL:")
+    assert lines[2].startswith("  HELD dummy_drill (not queued)") and lines[3].startswith("  dummy: run")
+    queue.release(paths)
+    assert not any("HOLD" in x or "HELD" in x for x in queue.queue_lines(paths, settings))
