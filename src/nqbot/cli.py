@@ -133,6 +133,7 @@ def _main(argv: list[str] | None = None) -> int:
     setup.add_argument("--yes", action="store_true", help="write it (after the owner saw the diff)")
     _add_step7(sub)
     _add_step8b(sub)
+    _add_step11(sub)
     _add_skylit(sub)
     _add_databento(sub)
     _add_gameplan(sub)
@@ -253,6 +254,8 @@ def _main(argv: list[str] | None = None) -> int:
         return _run_step7(args, settings, paths, log)
     if args.command == "step8b":
         return _run_step8b(args, settings, paths, log)
+    if args.command == "step11":
+        return _run_step11(args, settings, paths, log)
     if args.command == "skylit":
         return _run_skylit(args, settings, paths, log)
     if args.command == "databento":
@@ -773,6 +776,34 @@ def _run_step8b(args: argparse.Namespace, settings, paths, log) -> int:
     except LockHeld as e:  # recorded-day takes the Databento lock (the nightly backfill holds it until 07:30)
         print(f"locked: {e}", file=sys.stderr)
         return EXIT_LOCKED
+    return 0
+
+
+def _add_step11(sub: argparse._SubParsersAction) -> None:
+    """`nqbot step11 <check>`: step-11 checks on stored data (read-only, $0, no lock)."""
+    s11 = sub.add_parser("step11", help="step-11 feature checks on stored data (read-only)").add_subparsers(
+        dest="check", required=True)
+    p = s11.add_parser("chart-day", help="smoke-run the chart-level engine on one development day (report only)")
+    p.add_argument("date", type=_date, help="a development-month session (YYYY-MM-DD)")
+    s11.add_parser("roll-report", help="F9.10 roll report: rvol_today / vol_tod_60 around each NQ roll, months 1-6")
+
+
+def _run_step11(args: argparse.Namespace, settings, paths, log) -> int:
+    from nqbot import calendar as cal_mod
+    from nqbot.checks import step11
+    from nqbot.checks.step8b import Env
+    from nqbot.config import load_features
+    from nqbot.months import LedgerMissing, NotDevelopmentMonth
+
+    env = Env(settings=settings, features=load_features(), paths=paths, log=log, cal=cal_mod.load())
+    try:
+        if args.check == "chart-day":
+            step11.chart_day(env, args.date)
+        elif args.check == "roll-report":
+            step11.roll_report(env)
+    except (LedgerMissing, NotDevelopmentMonth, step11.Refused) as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return EXIT_REFUSED
     return 0
 
 

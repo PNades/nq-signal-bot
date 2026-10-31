@@ -33,7 +33,7 @@ def test_features_and_accounts_load():
     assert f["golden_zone_upper_fib"] == 0.79 == max(f["golden_fib_levels"]) and min(f["golden_fib_levels"]) == 0.5
     # shallow / deep split (owner 2026-10-27, Q-gzsplit): at a fib level strictly inside the zone
     assert f["golden_zone_split_fib"] == 0.618 and f["golden_zone_split_fib"] in f["golden_fib_levels"][1:-1]
-    assert f["features_version"] == 26
+    assert f["features_version"] == 28  # 27: Q-step11a, 28: Q-step11b 1-7 (owner 2026-10-31)
     # golden-zone variants (owner 2026-10-26, Q-fibvariants): both start on, the 2 x 2 grid chosen at step 13
     assert f["golden_zone_flip"] is True and f["golden_zone_redraw_1030"] is True
     assert f["tune_grids_13"]["golden_zone_variants"] == {"golden_zone_flip": [True, False],

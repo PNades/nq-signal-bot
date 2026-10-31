@@ -15,3 +15,6 @@ config/local.yaml
 __pycache__/
 .pytest_cache/
 *.egg-info/
+# Claude Code settings and hook scripts for this machine only (owner 2026-10-31)
+.claude/settings.local.json
+.claude/local/
