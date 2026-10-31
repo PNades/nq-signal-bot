@@ -229,3 +229,69 @@ def test_overnight_cross_is_a_real_cross():
     s = lv.at(o)   # broke at 03:30 (over depth), flipped at 03:35 (a one-trade 5-minute bar settles): a real cross
     assert s["role"] == ls.FLOOR and s["cross_count_today"] == 1 and s["flip_count"] == 1
     assert s["xb_depth"] == approx(47.5) and s["minutes_since_cross"] == approx(360)
+
+
+# --- Q8 (owner 2026-10-31): reclaim and resume need the cross back confirmed by the level's own rule ---------
+
+def ev_time(lv, name):
+    return [t for t, n in lv.events if n == name]
+
+
+CHART_CROSSED = [(-50, 89), (0, 101.5), (59, 102)]          # 10:00 bar settles above the ceiling [100, 101]
+
+
+def test_chart_touched_10_back_without_a_settled_bar_stays_crossed():
+    trades = CHART_CROSSED + [(65, 101.5), (70, 90), (110, 100.5)]   # 10:01 bar dips to 90, closes inside the band
+    lv = make(ls.CHART, trades, 100, 101)
+    for t in (75, 120, 300):
+        s = lv.at(at(t))
+        assert s["crossed"] and not s["reclaimed"] and s["role"] == ls.FLOOR, t
+    assert ev_time(lv, "reclaim") == [] and ev_time(lv, "cross_back") == []
+
+
+def test_chart_reclaim_after_the_settled_bar_then_the_rearm_trade():
+    trades = CHART_CROSSED + [(120, 99.5), (179, 99)] + [(190, 89.5)]      # 10:02 bar settles below, then 89.5
+    lv = make(ls.CHART, trades, 100, 101)
+    assert ev_time(lv, "cross_back") == [at(180)] and ev_time(lv, "reclaim") == [at(190)]
+    assert lv.at(at(185))["crossed"] and lv.at(at(190))["reclaimed"]
+    same_bar = CHART_CROSSED + [(120, 99.5), (150, 90), (179, 99)]          # the 90 dip inside the confirming bar
+    lv = make(ls.CHART, same_bar, 100, 101)
+    assert ev_time(lv, "reclaim") == [at(180)] and not lv.at(at(179))["reclaimed"]
+
+
+SWEEP_CROSSED = [(-50, 85), (10, 120)]                     # PDH [100, 100] broken at once (20 > sweep_max_depth 15)
+
+
+def test_high_low_reverse_sweep_closing_back_keeps_the_provisional_role():
+    trades = SWEEP_CROSSED + [(70, 88), (110, 101)]        # 12 back below (< 15), the 10:01 bar closes back above
+    lv = make(ls.SWEEP, trades, 100, 100)
+    s = lv.at(at(130))
+    assert s["crossed"] and s["role"] == ls.FLOOR and not s["reclaimed"]
+    assert ev_time(lv, "swept_back") == [at(120)] and ev_time(lv, "reclaim") == []
+
+
+def test_high_low_reverse_break_then_reclaim_at_the_window_close():
+    trades = SWEEP_CROSSED + [(70, 88)] + [(60 * k + 50, 95) for k in range(1, 5)]   # stays below to 10:04
+    lv = make(ls.SWEEP, trades, 100, 100)
+    assert not lv.at(at(299))["reclaimed"]                  # break bar 10:01 + 3 minutes: resolved at 10:05:00
+    assert ev_time(lv, "cross_back") == [at(300)] and ev_time(lv, "reclaim") == [at(300)]
+    assert lv.at(at(300))["reclaimed"] and lv.at(at(300))["role"] == ls.CEILING
+
+
+def test_resume_needs_the_same_confirmation():
+    broken = CHART_CROSSED + [(120, 99.5), (179, 99)]                      # broken back at 10:03
+    lv = make(ls.CHART, broken + [(190, 102), (230, 100.5)], 100, 101)      # one trade above, the bar closes inside
+    assert ev_time(lv, "resume") == []
+    lv = make(ls.CHART, broken + [(240, 101.5), (299, 102)], 100, 101)      # the 10:04 bar settles above
+    # resumed at 10:05:00 (the same instant the 10:00 5-minute bar, 101.5 -> 102, settles above and flips it)
+    assert ev_time(lv, "resume") == [at(300)] and lv.at(at(300))["role"] == ls.FLOOR
+    # a reverse break at the window close only 5 below (< rearm_dist): broken back at 10:05:00, not reclaimed
+    # (a reverse break beyond sweep_max_depth 15 is always >= rearm_dist 10 past the edge, so it reclaims at once)
+    base = SWEEP_CROSSED + [(70, 95)] + [(60 * k + 50, 96) for k in range(1, 5)]
+    lv = make(ls.SWEEP, base + [(310, 105), (350, 99)], 100, 100)           # a poke above that closes back below
+    assert ev_time(lv, "cross_back") == [at(300)] and ev_time(lv, "reclaim") == []
+    assert ev_time(lv, "resume_swept") == [at(360)] and ev_time(lv, "resume") == []
+    lv = make(ls.SWEEP, base + [(310, 117)], 100, 100)                      # 17 above: a break at once
+    assert ev_time(lv, "resume") == [at(310)]
+    node = make(ls.NODE, [(0, 89), (10, 101.25), (20, 99.75), (30, 101.25)], 100, 101)   # nodes: unchanged
+    assert [n for _, n in node.events] == ["role_ceiling", "cross", "cross_back", "resume"]

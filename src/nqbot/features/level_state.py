@@ -20,10 +20,13 @@ Common steps (F2.6):
 3. flipped: while crossed, a clock-aligned `flip_bar_minutes` bar settles beyond the band on the crossed side by
    >= `flip_margin` (F0.5): the provisional role is confirmed, `flip_count` + 1; a later cross of the new role is a new
    cross (a new episode);
-4. reclaimed: while crossed (not flipped), price trades >= `rearm_dist` beyond the original-side edge: the original
-   role returns, `reclaimed`, the episode closes;
+4. reclaimed: while crossed (not flipped), once the cross back is confirmed by the kind's own rule (step 5), price
+   trades >= `rearm_dist` beyond the original-side edge (in the confirming bar or sweep window, known at its close):
+   the original role returns, `reclaimed`, the episode closes (Q8, owner 2026-10-31);
 5. a cross back of the provisional role by the kind's own rule ends it (that retest's break); the level then creates no
-   events until a reclaim (4) or a trade beyond the band on the crossed side again, which resumes the same episode.
+   events until a reclaim (4) or a move beyond the band on the crossed side confirmed by the same rule (a trade for
+   nodes and gameplan zones, a settled 1-minute bar for chart levels, an unswept break for highs/lows), which resumes
+   the same episode (Q8).
 Owner 2026-10-31 (SPEC §13 Q-step11a): the machine runs from the level's creation (overnight included).
 Cross features (F2.6b), per episode from the cross, trades on the level's own tape, band as of each trade:
 `xb_depth` (deepest beyond the crossed-side edge), `xb_vol_rel` / `xb_delta_rel` (volume / buy - sell traded beyond
@@ -234,9 +237,17 @@ class LevelState:
                 cands.append((beyond(p, lo, hi, -d) >= rd, "armed"))
         else:
             d = up(s.orig_role)    # the crossed side
-            cands.append((beyond(p, lo, hi, -d) >= rd, "reclaim"))
             if s.broken_back:
-                cands.append((beyond(p, lo, hi, d) > 0, "resume"))
+                # Q8 (owner 2026-10-31): a reclaim only once the cross back is confirmed by the kind's own rule
+                cands.append((beyond(p, lo, hi, -d) >= rd, "reclaim"))
+                if self.kind in TRADE_CROSS:      # resume by the same rule on the crossed side
+                    cands.append((beyond(p, lo, hi, d) > 0, "resume"))
+                elif self.kind == SWEEP:
+                    if s.unresolved is None:
+                        cands.append((beyond(p, lo, hi, d) > 0, "resume_start"))
+                    else:
+                        cands.append((beyond(p, lo, hi, d) > self.params.sweep_max_depth, "resume"))
+                # chart levels and single prints resume on a settled 1-minute bar (bar close)
             else:
                 if self.kind in TRADE_CROSS:
                     cands.append((beyond(p, lo, hi, -d) > 0, "cross_back"))
@@ -268,8 +279,10 @@ class LevelState:
             s.unresolved = self._unresolved(-up(s.orig_role), t, idx)
         elif name == "cross_back":
             s.broken_back, s.prov_armed, s.unresolved = True, False, None
+        elif name == "resume_start":
+            s.unresolved = self._unresolved(up(s.orig_role), t, idx)
         elif name == "resume":
-            s.broken_back = False
+            s.broken_back, s.unresolved = False, None
         elif name == "prov_armed":
             s.prov_armed = True
         elif name == "reclaim":
@@ -343,6 +356,14 @@ class LevelState:
                     self.bars_1m, k, -up(s.orig_role), 0.0):
                 s.broken_back, s.prov_armed = True, False
                 self._event(s, t, i, "cross_back")
+                # the rearm_dist move may come in the confirming bar itself (Q8): then the reclaim is known at its close
+                if self._reached(int(self.bars_1m.first[k]), int(self.bars_1m.last[k]) + 1, -up(s.orig_role)):
+                    self._apply(s, "reclaim", t, i, 0.0, 0.0, 0.0)
+                    self._event(s, t, i, "reclaim")
+            elif s.crossed and s.broken_back and self.kind in BAR_CROSS and self._settled(
+                    self.bars_1m, k, up(s.orig_role), 0.0):
+                s.broken_back = False
+                self._event(s, t, i, "resume")
         if self.kind == SWEEP and s.unresolved is not None:
             self._sweep_close(s, t, k, i)
         kf = self._bar_ending(self.bars_flip, t)
@@ -361,20 +382,36 @@ class LevelState:
         if n_min < 0:
             return
         b = self.band.at(t)
+        resuming = s.crossed and s.broken_back      # a crossed-side move of a broken-back level (Q8)
         if k is not None and b is not None and beyond(self.bars_1m.close[k], *b, u["d"]) <= 0:
-            s.last_sweep = {"t": t, "depth": u["acc"].depth, "sec": u["acc"].sec + (
-                (t - u["acc"].last_ts) / NS if u["acc"].last_beyond else 0.0)}
+            if not resuming:
+                s.last_sweep = {"t": t, "depth": u["acc"].depth, "sec": u["acc"].sec + (
+                    (t - u["acc"].last_ts) / NS if u["acc"].last_beyond else 0.0)}
             s.unresolved = None
-            self._event(s, t, i, "swept_back" if s.crossed else "swept")
+            self._event(s, t, i, "resume_swept" if resuming else "swept_back" if s.crossed else "swept")
             return
         if n_min >= self.params.sweep_reclaim_bars:
             s.unresolved = None
             if not s.crossed:
                 self._open_episode(s, t, None, at_trade=False)
                 self._event(s, t, i, "cross")
+            elif resuming:
+                s.broken_back = False
+                self._event(s, t, i, "resume")
             else:
                 s.broken_back, s.prov_armed = True, False
                 self._event(s, t, i, "cross_back")
+                if u["acc"].depth >= self.params.rearm_dist:   # the rearm_dist move inside the window (Q8)
+                    self._apply(s, "reclaim", t, i, 0.0, 0.0, 0.0)
+                    self._event(s, t, i, "reclaim")
+
+    def _reached(self, i: int, j: int, d: int) -> bool:
+        """Did a trade in [i, j) reach `rearm_dist` beyond the band in direction d (band as of each trade)?"""
+        if j <= i:
+            return False
+        lo, hi = self.band.at_trades(i, j)
+        bd = np.nan_to_num(beyond(self.tape.price[i:j], lo, hi, d), nan=-np.inf)
+        return bool(bd.max() >= self.params.rearm_dist)
 
     @staticmethod
     def _bar_ending(bars: Bars, t: int) -> int | None:
@@ -427,7 +464,7 @@ class LevelState:
         band = self.band.at(t_ns)
         unresolved = s.unresolved is not None
         if self.kind in BAR_CROSS and last is not None and s.role is not None:
-            d = up(s.role) if not s.crossed else (-up(s.orig_role) if not s.broken_back else None)
+            d = up(s.role) if not s.crossed else (-up(s.orig_role) if not s.broken_back else up(s.orig_role))
             unresolved = d is not None and beyond(last, *band, d) > 0
         out.update(role=s.role, crossed=s.crossed, provisional_role=s.crossed, flip_count=s.flip_count,
                    reclaimed=s.reclaimed, cross_count_today=s.cross_count, armed=s.armed or (s.crossed and s.prov_armed),
