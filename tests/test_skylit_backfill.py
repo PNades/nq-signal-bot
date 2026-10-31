@@ -17,7 +17,7 @@ from nqbot.clients.skylit_pull import (SessionResult, Window, pull_session, pull
 from nqbot.clients.skylit_store import SkylitStore
 from nqbot.config import load_features
 from nqbot.jobs.registry import JOBS
-from nqbot.jobs.runner import StopChunk, run_job
+from nqbot.jobs.runner import StopChunk, load_state, run_job, state_path
 from tests.skylit_fakes import FakeSkylit, parse_z, pass_strike_window, range_body, z
 from tests.skylit_fakes import make_client as _make_client
 
@@ -241,7 +241,8 @@ def test_approval_is_never_exceeded(setup):
     from nqbot.jobs.runner import Ctx
     ctx = Ctx(paths=s.paths, settings=s.settings, out_dir=s.paths.data_dir / "jobs" / bf.JOB_NAME, low_memory=True,
               max_workers=1, log=s.env.log, deadline=NOW + timedelta(days=1), should_stop=lambda: None)
-    job.chunks(ctx)
+    # owner 2026-10-30: the plan records the ids the job will run
+    assert job.chunks(ctx) == load_state(state_path(s.paths, bf.JOB_NAME))["chunks"]
     job._budget.approved = job._budget.spent + 60  # room for two range calls
     with pytest.raises(StopChunk) as e:
         job.run_chunk("2025-10-07", ctx)

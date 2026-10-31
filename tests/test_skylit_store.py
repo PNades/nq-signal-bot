@@ -13,7 +13,7 @@ from nqbot.clients.skylit_store import (
     CacheMismatch, SkylitStore, historical_to_table, ms, range_to_tables, read_meta, vol_history_to_table,
 )
 from nqbot.features.mapping import board_tau_ns, last_price_at_or_before, ratio_for_boards
-from nqbot.jobs.runner import StopChunk, run_job
+from nqbot.jobs.runner import StopChunk, load_state, plan_progress, run_job, state_path
 from tests.skylit_fakes import SYMBOLS_MAP, FakeSkylit
 from tests.skylit_fakes import make_client as _make_client
 
@@ -232,6 +232,7 @@ def test_job_resumes_and_gates_credits(paths, settings, log, clock, monkeypatch)
     n = len(fake.calls)
     job2 = SkylitPullJob("skylit_sample_days", client_factory=lambda s, store, lg: make_client(fake))
     SkylitPullJob.write_plan(paths, "skylit_sample_days", days + [date(2026, 3, 4)], approved=None)
+    assert plan_progress(load_state(state_path(paths, "skylit_sample_days"))) == (2, 3)  # owner 2026-10-30
     run_job(job2, settings, paths, until=clock.now() + timedelta(hours=8), log=log, now=clock.now, sleep=clock.sleep,
             is_trading_day=lambda d: d.weekday() < 5)
     assert len(fake.calls) - n == 1 + 26  # the free account read, then only the new day

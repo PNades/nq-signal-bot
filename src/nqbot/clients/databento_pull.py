@@ -49,7 +49,7 @@ from nqbot.clients.databento_store import DatabentoStore, read_records
 from nqbot.clients.skylit_pull import SKYLIT_HISTORY, day_reachable, sample_days
 from nqbot.features.bars import BAR_MINUTES, PRICE_SCALE, bars_from_records, write_bars
 from nqbot.jobs.lock import DATABENTO
-from nqbot.jobs.runner import Ctx, StopChunk
+from nqbot.jobs.runner import Ctx, StopChunk, record_plan
 from nqbot.storage import Paths, append_jsonl, atomic_write_json, read_jsonl, replace_retry
 from nqbot.warmup import warmup_sessions
 
@@ -416,11 +416,37 @@ def make_plan(client: DatabentoClient, store: DatabentoStore, settings: dict[str
     if old_path.exists():
         retire_changed_outputs(store, json.loads(old_path.read_text(encoding="utf-8")), front, rolls, echo)
     atomic_write_json(plan_path(store.paths), plan)
-    echo(f"plan written: {plan_path(store.paths)}; pull with: uv run nqbot run {JOB_NAME} --until 07:30")
+    done, total = record_plan(store.paths, JOB_NAME, plan_chunk_ids(store, plan, today))
+    echo(f"plan written: {plan_path(store.paths)} ({done}/{total} chunks already done); pull with: "
+         f"uv run nqbot run {JOB_NAME} --until 07:30")
     return plan
 
 
 # --- job -------------------------------------------------------------------------------------------------
+
+def plan_chunk_ids(store: DatabentoStore, plan: dict[str, Any], today: date) -> list[str]:
+    """The job's chunk ids for `plan` (no calls, no logging): used by the job and, at re-plan time, by make_plan."""
+    plan = {**plan, "payg_keys": set(plan.get("payg_keys") or []), "approved_payg": set(plan.get("approved_payg") or [])}
+    items = [PullItem.from_json(d) for d in plan["items"]]
+    blocked = blocked_payg(store.paths, plan)
+    missing = [it for it in items if it.key not in blocked and not store.raw_path(it.schema, it.symbol, it.day).exists()]
+    parts: dict[tuple[date, str], list[str]] = {}
+    for it in missing:
+        part = DatabentoPullJob._part(it, today, plan)
+        if part is not None:
+            parts.setdefault((it.day, part), []).append(it.key)
+    for day in sorted({it.day for it in items}):
+        if (day, "incl") not in parts and needs_outputs(store, plan, day):
+            parts[(day, "incl")] = []
+    order = {"payg": 0, "incl": 1}
+    # The step-7 sample days first, so the step-8b gate can run after the first night (presd_fixes 12); then
+    # oldest day first. A paid chunk's id also carries the plan: after a --retry-failed-payg re-plan the same
+    # missing requests form a new chunk (a finished one held only requests that broke, and stays "done" otherwise).
+    samples = sample_days(store.paths)
+    return [f"{day.isoformat()}:{part}:{_fingerprint(keys + ([plan['created']] if part == 'payg' else []))}"
+            for (day, part), keys in sorted(parts.items(),
+                                            key=lambda kv: (kv[0][0] not in samples, kv[0][0], order[kv[0][1]]))]
+
 
 def _rolls(plan: dict[str, Any]) -> list[Roll]:
     return [Roll(r["root"], date.fromisoformat(r["roll_day"]), date.fromisoformat(r["prev_session"]), r["old"], r["new"])
@@ -489,22 +515,7 @@ class DatabentoPullJob:
             cost_mod.check(est, approved_usd=None, echo=ctx.log.warning)
         for err in store.roll_errors():
             ctx.log.error("roll spread missing (the roll day can't be shifted until it is fixed): %s", err["error"])
-        parts: dict[tuple[date, str], list[str]] = {}
-        for it in missing:
-            part = self._part(it, today, plan)
-            if part is not None:
-                parts.setdefault((it.day, part), []).append(it.key)
-        for day in sorted({it.day for it in items}):
-            if (day, "incl") not in parts and needs_outputs(store, plan, day):
-                parts[(day, "incl")] = []
-        order = {"payg": 0, "incl": 1}
-        # The step-7 sample days first, so the step-8b gate can run after the first night (presd_fixes 12); then
-        # oldest day first. A paid chunk's id also carries the plan: after a --retry-failed-payg re-plan the same
-        # missing requests form a new chunk (a finished one held only requests that broke, and stays "done" otherwise).
-        samples = sample_days(ctx.paths)
-        return [f"{day.isoformat()}:{part}:{_fingerprint(keys + ([plan['created']] if part == 'payg' else []))}"
-                for (day, part), keys in sorted(parts.items(),
-                                                key=lambda kv: (kv[0][0] not in samples, kv[0][0], order[kv[0][1]]))]
+        return plan_chunk_ids(store, plan, today)
 
     def run_chunk(self, chunk_id: str, ctx: Ctx) -> None:
         plan = self._plan(ctx)

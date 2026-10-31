@@ -114,6 +114,8 @@ def decide(job: str, state: dict[str, Any], rs: dict[str, Any], max_crashes: int
     crashes = crash_count(job, state, rs)
     if crashes >= max_crashes:
         return Decision(job, "held", f"{crashes} resume attempts in a row died or failed without finishing a chunk")
+    if end == "complete":  # complete, but a re-plan since added chunks not done (runner.record_plan)
+        return Decision(job, "run", "re-planned since its last complete run")
     return Decision(job, "run", "never run" if end is None else f"last run ended '{end}'")
 
 

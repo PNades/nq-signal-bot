@@ -60,7 +60,7 @@ from nqbot.clients.skylit_pull import (ET, NEVER_SKIPPED, REACH_ANSWER_TOLERANCE
                                        window_reachable)
 from nqbot.clients.skylit_store import CacheMismatch, SkylitStore, _norm, read_meta, vol_history_to_table, write_parquet
 from nqbot.jobs.lock import SKYLIT
-from nqbot.jobs.runner import Ctx, StopChunk
+from nqbot.jobs.runner import Ctx, StopChunk, record_plan
 from nqbot.storage import Paths, append_jsonl, atomic_write_bytes, atomic_write_json, atomic_write_text, replace_retry
 
 JOB_NAME = "skylit_backfill"
@@ -554,6 +554,12 @@ def fully_lost_days(paths: Paths) -> set[date]:
     return {date.fromisoformat(d) for d in json.loads(path.read_text(encoding="utf-8"))["fully_lost"]}
 
 
+def chunk_ids(plan: BackfillPlan) -> list[str]:
+    """The job's chunk ids for `plan`: dark-pool dates, then range days, then Tempest (job and re-plan alike)."""
+    return ([f"{DP_CHUNK}{d.isoformat()}" for d in sorted(plan.dp_dates)]
+            + [d.isoformat() for d in sorted(plan.days)] + [f"{TEMPEST_CHUNK}_{plan.last.isoformat()}"])
+
+
 def make_plan(env: step7.Env, approved: int | None) -> BackfillPlan:
     """`nqbot skylit plan`: print the estimate, balance and shortfall; refuse over 5,000 credits without an
     approval at least as large (rule 2); write the plan."""
@@ -596,7 +602,9 @@ def make_plan(env: step7.Env, approved: int | None) -> BackfillPlan:
                  {"plan": plan.plan_id, "approved_credits": approved, "estimate": est.total,
                   "spent_before": earlier, "at": now.isoformat()})
     atomic_write_json(plan_path(env.paths), plan.to_json())
-    env.echo(f"plan written: {plan_path(env.paths)}; start it with: uv run nqbot run {JOB_NAME} --until 07:30")
+    done, total = record_plan(env.paths, JOB_NAME, chunk_ids(plan))
+    env.echo(f"plan written: {plan_path(env.paths)} ({done}/{total} chunks already done); start it with: "
+             f"uv run nqbot run {JOB_NAME} --until 07:30")
     return plan
 
 
@@ -726,9 +734,7 @@ class SkylitBackfillJob:
         self._failed = load_failed(ctx.paths)
         self._in_row = 0
         self._night_retry_spent = 0
-        last = plan.last.isoformat()
-        return ([f"{DP_CHUNK}{d.isoformat()}" for d in sorted(plan.dp_dates)]
-                + [d.isoformat() for d in sorted(plan.days)] + [f"{TEMPEST_CHUNK}_{last}"])
+        return chunk_ids(plan)
 
     # retry passes (owner 2026-10-06): at the start of every run and the end of every night, oldest first
     def at_start(self, ctx: Ctx) -> None:

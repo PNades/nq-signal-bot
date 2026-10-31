@@ -31,7 +31,7 @@ from nqbot import months as months_mod
 from nqbot.clients.skylit import AccessDenied, OutOfCredits, SkylitClient, SkylitError, iso_utc
 from nqbot.clients.skylit_store import SkylitStore
 from nqbot.jobs.lock import SKYLIT
-from nqbot.jobs.runner import Ctx, StopChunk
+from nqbot.jobs.runner import Ctx, StopChunk, record_plan
 from nqbot.storage import Paths, append_jsonl, atomic_write_bytes, atomic_write_json, atomic_write_text
 from nqbot.warmup import warmup_sessions
 
@@ -116,6 +116,11 @@ def missing(paths: Paths, tiers: list[str], days: list[date]) -> list[tuple[str,
     return [(t, d) for t in tiers for d in days if not snapshot_path(paths, t, d).exists()]
 
 
+def chunk_ids(plan: dict[str, Any]) -> list[str]:
+    """One chunk `<tier>:<date>` per session and tier, tier by tier (job and re-plan alike)."""
+    return [f"{t}:{d}" for t in plan["tiers"] for d in plan["days"]]
+
+
 def make_plan(paths: Paths, settings: dict[str, Any], features: dict[str, Any], tiers: list[str], end: date,
               approve: int | None, balance: int | None, echo: Callable[[str], None] = print,
               cal: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -146,7 +151,9 @@ def make_plan(paths: Paths, settings: dict[str, Any], features: dict[str, Any], 
             "approved_credits": approve, "estimate": total,
             "plan_id": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")}
     atomic_write_json(job_dir(paths) / "plan.json", plan)
-    echo(f"plan written: {job_dir(paths) / 'plan.json'}; run: uv run nqbot run {JOB_NAME} --until HH:MM")
+    done, n = record_plan(paths, JOB_NAME, chunk_ids(plan))
+    echo(f"plan written: {job_dir(paths) / 'plan.json'} ({done}/{n} chunks already done); run: "
+         f"uv run nqbot run {JOB_NAME} --until HH:MM")
     return plan
 
 
@@ -180,8 +187,7 @@ class MultiExpJob:
         return self._plan
 
     def chunks(self, ctx: Ctx) -> list[str]:
-        p = self.plan(ctx)
-        return [f"{t}:{d}" for t in p["tiers"] for d in p["days"]]
+        return chunk_ids(self.plan(ctx))
 
     def spent(self, ctx: Ctx) -> int:
         """Credits this plan's calls were charged (from the ledger; an unknown charge counts as a full call)."""

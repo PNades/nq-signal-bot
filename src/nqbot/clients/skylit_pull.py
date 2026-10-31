@@ -29,7 +29,7 @@ from nqbot.clients import skylit_credits as credits
 from nqbot.clients.skylit import AccessDenied, OutOfCredits, SkylitClient, SkylitError, iso_utc
 from nqbot.clients.skylit_store import SkylitStore, range_to_tables
 from nqbot.jobs.lock import SKYLIT
-from nqbot.jobs.runner import Ctx, StopChunk
+from nqbot.jobs.runner import Ctx, StopChunk, record_plan
 from nqbot.secrets import get_secret
 from nqbot.storage import Paths, atomic_write_json
 
@@ -344,9 +344,16 @@ class SkylitPullJob:
     @staticmethod
     def write_plan(paths: Paths, name: str, dates: list[date], approved: int | None,
                    max_strikes: int | str | None = None, repull: str | None = None) -> None:
-        atomic_write_json(SkylitPullJob.plan_path(paths, name),
-                          {"dates": [d.isoformat() for d in dates], "approved_credits": approved, "max_strikes": max_strikes,
-                           "repull": repull})
+        plan = {"dates": [d.isoformat() for d in dates], "approved_credits": approved, "max_strikes": max_strikes,
+                "repull": repull}
+        atomic_write_json(SkylitPullJob.plan_path(paths, name), plan)
+        record_plan(paths, name, SkylitPullJob.chunk_ids(plan))
+
+    @staticmethod
+    def chunk_ids(plan: dict[str, Any]) -> list[str]:
+        # A re-pull's chunk ids carry its maxStrikes: a second raise is never marked done by the first (D4).
+        suffix = f"_max{plan.get('max_strikes')}" if plan.get("repull") else ""
+        return [f"{d}{suffix}" for d in plan["dates"]]
 
     @staticmethod
     def _base(store: SkylitStore, plan: dict[str, Any]) -> Path | None:
@@ -372,9 +379,7 @@ class SkylitPullJob:
                                      uncached_windows(store, client, days, plan.get("max_strikes"),
                                                       base=self._base(store, plan)))
         credits.check(est, balance=client.credits.remaining, approved=plan.get("approved_credits"), echo=ctx.log.info)
-        # A re-pull's chunk ids carry its maxStrikes: a second raise is never marked done by the first (D4).
-        suffix = f"_max{plan.get('max_strikes')}" if plan.get("repull") else ""
-        return [f"{d}{suffix}" for d in plan["dates"]]
+        return self.chunk_ids(plan)
 
     def run_chunk(self, chunk_id: str, ctx: Ctx) -> None:
         plan = self._plan(ctx)

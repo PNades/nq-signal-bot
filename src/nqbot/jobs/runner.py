@@ -155,6 +155,19 @@ def plan_progress(state: dict[str, Any]) -> tuple[int, int]:
     return min(len(done), total), total
 
 
+def record_plan(paths: Paths, job_name: str, chunk_ids: list[str]) -> tuple[int, int]:
+    """A re-plan (owner 2026-10-30): save the new plan's chunk ids in the job's state.json, so status shows its
+    progress against them and the queue, seeing chunks not done, runs the job again. The runner sets the same list
+    again from job.chunks() at its next start. Returns (done, total) of the new plan."""
+    spath = state_path(paths, job_name)
+    state = load_state(spath)
+    state["chunks"] = list(chunk_ids)
+    state["total"] = len(chunk_ids)
+    state["replanned"] = datetime.now(ET).isoformat()
+    atomic_write_json(spath, state)
+    return plan_progress(state)
+
+
 def run_job(
     job: Job,
     settings: dict[str, Any],

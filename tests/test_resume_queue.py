@@ -9,7 +9,8 @@ import pytest
 from nqbot.jobs import drill, queue
 from nqbot.jobs.dummy import DummyJob
 from nqbot.jobs.lock import LockHeld, lock_path, SKYLIT
-from nqbot.jobs.runner import RunResult, load_state, run_job, state_path
+from nqbot.jobs.runner import RunResult, load_state, record_plan, run_job, state_path
+from nqbot.jobs.status import job_lines
 from nqbot.storage import atomic_write_json
 
 NOW = datetime(2026, 10, 28, 12, 0, tzinfo=timezone.utc)
@@ -143,6 +144,34 @@ def test_verify_runs_once_per_boot(paths, settings):
         _resume(paths, settings, lambda j: RunResult("until", 1, 5), verify=lambda s: (calls.append(s), True)[1],
                 boot=boot)
     assert len(calls) == 2
+
+
+def test_a_complete_job_replanned_with_new_chunks_is_shown_and_resumed(paths, settings, log, clock):
+    """Owner 2026-10-30: a re-plan saves the new plan's ids at once: status shows n/m, the queue runs the rest."""
+    queue.write_queue(paths, ["dummy"])
+
+    def run(job):
+        return run_job(DummyJob(3, 1), settings, paths, until=clock.now() + timedelta(hours=1), log=log,
+                       now=clock.now, sleep=clock.sleep)
+
+    assert _resume(paths, settings, run)[0] == 0
+    assert job_lines(paths)[0].startswith("dummy: 3/3 chunks done (complete)")
+    assert record_plan(paths, "dummy", [f"chunk-{i:03d}" for i in range(5)]) == (3, 5)  # two new chunks
+    state = load_state(state_path(paths, "dummy"))
+    assert not queue.is_complete(state) and job_lines(paths)[0].startswith("dummy: 3/5 chunks done")
+    d = queue.decide("dummy", state, queue.load_resume_state(paths), 3)
+    assert (d.action, d.reason) == ("run", "re-planned since its last complete run")
+    ran = []
+
+    def run5(job):
+        r = run_job(DummyJob(5, 1), settings, paths, until=clock.now() + timedelta(hours=1), log=log,
+                    now=clock.now, sleep=clock.sleep)
+        ran.extend(r.ran)
+        return r
+
+    assert _resume(paths, settings, run5)[0] == 0
+    assert ran == ["chunk-003", "chunk-004"]  # only the new ones, nothing re-run
+    assert job_lines(paths)[0].startswith("dummy: 5/5 chunks done (complete)")
 
 
 def test_resume_runs_the_real_runner_end_to_end(paths, settings, log, clock):

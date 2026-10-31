@@ -12,7 +12,7 @@ import pytest
 from nqbot.clients import skylit_multiexp as mx
 from nqbot.clients.skylit import CallRecord, SkylitError
 from nqbot.config import load_features
-from nqbot.jobs.runner import run_job
+from nqbot.jobs.runner import load_state, run_job, state_path
 
 MONTHS = {i + 1: f"{2025 + (9 + i) // 12}-{(9 + i) % 12 + 1:02d}" for i in range(12)}  # 2025-10 .. 2026-09
 
@@ -83,6 +83,8 @@ def test_plan_prints_each_tier_and_refuses_what_is_not_approved(setup):
         _plan(settings, paths, features, ["0925", "1000"], end, approve=None)
     plan, text = _plan(settings, paths, features, ["1000", "0925"], end, approve=2 * n * 5)
     assert plan["tiers"] == ["0925", "1000"]  # the owner's priority order whatever was typed
+    assert load_state(state_path(paths, mx.JOB_NAME))["chunks"] == mx.chunk_ids(plan)  # owner 2026-10-30
+    assert len(mx.chunk_ids(plan)) == 2 * n and "(0/" in text
     assert f"tier 0925 ET: {n} calls" in text and f"cumulative {2 * n * 5:,}" in text
     with pytest.raises(mx.MultiExpRefused, match="reserve"):
         _plan(settings, paths, features, ["0925"], end, approve=n * 5, balance=n * 5 + 500)

@@ -12,10 +12,13 @@ from nqbot.clients.databento_client import MBP1, OHLCV_1S, TRADES, DatabentoClie
 from nqbot.clients.databento_pull import (DOWNLOAD_RETRY_SEC, HOLIDAY, ROLL, WARMUP, WINDOW, DatabentoPullJob, PlanRefused,
                                           PullItem, failed_payg, make_plan, mbp1_span, plan_path,
                                           pull_front_volumes, sessions_before, window_days)
+from nqbot.clients.databento_pull import JOB_NAME
 from nqbot.clients.databento_pull import ET
 from nqbot.clients.databento_store import CacheMismatch, DatabentoStore
 from nqbot.config import load_features
-from nqbot.jobs.runner import Ctx, StopChunk, run_job
+from nqbot.jobs import queue
+from nqbot.jobs.runner import Ctx, StopChunk, load_state, plan_progress, run_job, state_path
+from nqbot.jobs.status import job_lines
 from tests.databento_fakes import FakeHistorical
 
 TODAY = date(2026, 11, 20)  # L1 included from 2025-11-21; Skylit reaches back to 2025-11-20
@@ -186,7 +189,17 @@ def test_job_pulls_included_items_then_payg_only_after_approval(paths, dec_setti
     # The owner approves: re-plan with the amount, the next run buys only the pay-as-you-go items.
     before = len(fake.downloads())
     plan_with(fake, paths, dec_settings, approved=1000.0)
+    # owner 2026-10-30: the re-plan's new chunks show at once and the queue picks the job up again
+    state = load_state(state_path(paths, JOB_NAME))
+    n_done, total = plan_progress(state)
+    # this job's chunks are only the work still to do (a day whose files exist drops out), so it reads 0/k
+    assert n_done == 0 < total and not queue.is_complete(state)
+    assert job_lines(paths)[0].startswith(f"{JOB_NAME}: {n_done}/{total} chunks done") and "complete" not in \
+        job_lines(paths)[0]
+    assert queue.decide(JOB_NAME, state, {"attempts": {}, "held": {}}, 3).action == "run"
+    recorded = state["chunks"]
     result = run(job_for(fake), dec_settings, paths, clock, log)
+    assert load_state(state_path(paths, JOB_NAME))["chunks"] == recorded  # the plan's ids are the job's ids
     assert result.status == "complete"
     assert {c.split(":")[1] for c in result.ran if ":" in c} == {"payg"}
     new = fake.downloads()[before:]
