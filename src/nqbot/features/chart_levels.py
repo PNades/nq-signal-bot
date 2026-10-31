@@ -54,6 +54,13 @@ REGISTRY_TYPE = {"vwap": "vwap", "vwap_band": "vwap", "em_level": "expected_move
                  "prior_week": "session_hl", "retested_extreme": "session_hl", "ib": "opening_range"}
 
 
+# Q-step11c (1), owner 2026-10-31: a high starts as a ceiling and a low as a floor when price is on the range side as
+# the level appears (otherwise the approach rule); the IB gets its roles at the lock unconditionally (F3.6)
+NATURAL_ROLE = {"on_high": "ceiling", "on_low": "floor", "pdh": "ceiling", "pdl": "floor",
+                "prior_rth_high": "ceiling", "prior_rth_low": "floor", "prior_week_high": "ceiling",
+                "prior_week_low": "floor"}
+
+
 def kind_of(key: str, features: dict) -> str:
     if key == "single_print":
         return ls.SINGLE_PRINT
@@ -140,7 +147,8 @@ class ChartSession:
         st = ls.LevelState(level_id, kind_of(key, self.f), self.tape, band,
                            params or ls.Params.from_features(self.f, key), self.bars_1m, self.bars_flip,
                            normals=self.normals, end_ns=min(stop, self.end_ns), params_from=params_from or [],
-                           initial_role=initial_role)
+                           initial_role=initial_role,
+                           natural_role=None if initial_role else NATURAL_ROLE.get(sub_type))
         self.levels.setdefault(level_id, []).append(LevelRecord(level_id, sub_type, key, self.root, multi_day, st.run()))
 
     def _const(self, level_id: str, sub_type: str, price: float | None, start_ns: int, multi_day: bool,

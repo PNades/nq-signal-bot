@@ -234,3 +234,55 @@ def test_no_lookahead_approach_vol_tod_and_es():
             other = es_session(v, o + 2 * NS)
             assert {x["level_id"]: x for x in other.registry_at(t)} == a_es, t_
             assert other.features_at(t) == full_es.features_at(t)
+
+
+# --- Q-step11c (1), owner 2026-10-31: highs/lows start in their natural role when price is on the range side ---
+
+def natural(trades, lo, hi, role, start):
+    tape = st.Tape.from_arrays(DAY, [x[0] for x in trades], [x[1] for x in trades])
+    band = StepBand.const(tape, start, lo, hi)
+    return ls.LevelState("x", ls.SWEEP, tape, band, P, st.bars(tape, 1), st.bars(tape, 5), natural_role=role,
+                         end_ns=trades[-1][0] + 10 * MIN).run()
+
+
+def test_pdh_created_near_price_records_its_break():
+    d0 = st.cme_start_ns(DAY)                                  # PDH 20,100 (band 20,096-20,104) from 18:00
+    lv = natural([(d0 + NS, 20_095.0), (d0 + 60 * NS, 20_150.0)], 20_096.0, 20_104.0, ls.CEILING, d0)
+    assert [n for _, n in lv.events][:3] == ["natural_role", "break_start", "cross"]   # 46 > 15: broke at once
+    s = lv.at(d0 + 60 * NS)
+    assert s["crossed"] and s["cross_count_today"] == 1 and s["xb_depth"] == approx(46.0)
+    assert lv.at(d0)["role"] is None and lv.at(d0 + NS)["role"] == ls.CEILING     # known from the first trade
+
+
+def test_price_inside_the_band_counts_as_the_range_side():
+    d0 = st.cme_start_ns(DAY)
+    lv = natural([(d0 + NS, 20_100.0), (d0 + 60 * NS, 20_090.0)], 20_096.0, 20_104.0, ls.CEILING, d0)
+    assert lv.at(d0 + 60 * NS)["role"] == ls.CEILING
+
+
+def test_gapped_through_level_uses_the_approach_rule():
+    d0 = st.cme_start_ns(DAY)                                  # the first trade is above the PDH band
+    lv = natural([(d0 + NS, 20_110.0), (d0 + 60 * NS, 20_112.0), (d0 + 120 * NS, 20_115.0)], 20_096.0, 20_104.0,
+                 ls.CEILING, d0)
+    assert lv.at(d0 + 60 * NS)["role"] is None                  # 8 above: not yet rearm_dist away
+    assert lv.at(d0 + 120 * NS)["role"] == ls.FLOOR and "natural_role" not in [n for _, n in lv.events]
+
+
+def test_on_low_at_0930_uses_the_last_preopen_trade():
+    o = st.rth_open_ns(DAY)                                    # ON low 19,950 (band 19,946-19,954)
+    lv = natural([(o - 60 * NS, 19_955.0), (o + 30 * NS, 19_930.0)], 19_946.0, 19_954.0, ls.FLOOR, o)
+    assert lv.at(o)["role"] == ls.FLOOR                          # decided at 09:30 from the 09:29 trade
+    assert lv.at(o + 30 * NS)["crossed"] and lv.at(o + 30 * NS)["xb_depth"] == approx(16.0)
+
+
+def test_engine_sets_natural_roles_for_highs_and_lows_only():
+    tape = synthetic_tape(every_sec=60.0)
+    cs = session(tape)
+    roles = {r.sub_type: r.state.natural_role for recs in cs.levels.values() for r in recs}
+    assert {k: roles[k] for k in ("on_high", "on_low", "pdh", "pdl", "prior_rth_high", "prior_rth_low",
+                                  "prior_week_high", "prior_week_low")} == {
+        "on_high": ls.CEILING, "on_low": ls.FLOOR, "pdh": ls.CEILING, "pdl": ls.FLOOR, "prior_rth_high": ls.CEILING,
+        "prior_rth_low": ls.FLOOR, "prior_week_high": ls.CEILING, "prior_week_low": ls.FLOOR}
+    assert roles["ib_high"] is None and roles["vwap18"] is None and roles["poc_daily"] is None
+    es = es_session(synthetic_tape(seed=3, every_sec=60.0, start=7_000.0, symbol="ESH6"), None)
+    assert es.levels["es_pdh-2026-03-05"][0].state.natural_role == ls.CEILING

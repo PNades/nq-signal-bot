@@ -118,6 +118,7 @@ class State:
     unresolved: dict | None = None     # sweep kind: {'d', 't0', 'minute0', 'acc'}
     last_sweep: dict | None = None     # {'t', 'depth', 'sec'}
     in_block: bool = False
+    pending_natural: bool = False      # the natural role waits for the first known price (Q-step11c (1))
 
     def copy(self) -> State:
         return replace(self, episode=None if self.episode is None else replace(self.episode),
@@ -140,6 +141,10 @@ class LevelState:
     end_ns: int | None = None           # the session end (default: the tape's last trade + 1 ns)
     initial_role: str | None = None     # a role given at creation (F3.6: before a break the IB high is a ceiling, the
                                         # IB low a floor); None = step 1, the role from the first rearm_dist move
+    natural_role: str | None = None     # Q-step11c (1), owner 2026-10-31: a high starts as a ceiling, a low as a floor,
+                                        # if price is on the range side (not beyond the band) when the level appears
+                                        # (the last trade at or before its creation, else the first trade after it);
+                                        # otherwise step 1's approach rule
     params_from: list = field(default_factory=list)  # [(t_ns, Params)]: params in force from t (ES levels before the
                                                      # open use the previous session's ES/NQ ratio, F0.11)
     events: list = field(default_factory=list)   # (t_ns, name) transitions, for reports and tests
@@ -167,6 +172,12 @@ class LevelState:
         if self.initial_role is not None:
             s.role = s.orig_role = self.initial_role
             s.armed = True
+        elif self.natural_role is not None:
+            last, band = tape.last_price_at(start), self.band.at(start)
+            if last is not None and band is not None:   # the price when the level appears is known
+                self._natural(s, last, *band)
+            else:
+                s.pending_natural = True                # decided by the first trade after the creation
         i = tape.idx_before(start)
         self._snap(start, i, s)
         cuts = sorted({b for blk in self.blocks for b in blk if start < b < end})
@@ -198,10 +209,23 @@ class LevelState:
         self._snap(t, i, s)
 
     # --- trades ------------------------------------------------------------------------------------------------
+    def _natural(self, s: State, price: float, lo: float, hi: float) -> bool:
+        """Give the natural role if price is on the range side (not beyond the band in its breaking direction)."""
+        s.pending_natural = False
+        if beyond(price, lo, hi, up(self.natural_role)) > 0:
+            return False                                # gapped through: the approach rule (step 1) decides
+        s.role = s.orig_role = self.natural_role
+        s.armed = True
+        return True
+
     def _trades(self, s: State, i: int, j: int) -> int:
         """Process trades [i, j); returns j. Inside a dislocation block nothing changes (F2.6 step 6)."""
         if j <= i or s.in_block:
             return j
+        if s.pending_natural:
+            lo0, hi0 = self.band.at_trades(i, i + 1)
+            if not np.isnan(lo0[0]) and self._natural(s, float(self.tape.price[i]), float(lo0[0]), float(hi0[0])):
+                self._event(s, int(self.tape.ts[i]), i, "natural_role")
         tape = self.tape
         lo, hi = self.band.at_trades(i, j)
         p = tape.price[i:j]
