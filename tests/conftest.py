@@ -189,4 +189,5 @@ def no_power_calls(monkeypatch):
     monkeypatch.setattr(power, "_set_state", calls.append)
     monkeypatch.setattr(power, "powercfg_query", lambda subgroup, setting: "Current AC Power Setting Index: 0x00000000\n"
                         "Current DC Power Setting Index: 0x00000000\n")
+    monkeypatch.setattr(power, "has_battery", lambda: True)  # the laptop's case on every machine (the PC has none)
     return calls

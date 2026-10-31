@@ -27,6 +27,54 @@ def test_restart_pending_and_not_paused_warn():
     assert any("not paused" in w for w in rep["warnings"])
 
 
+def _win(build, now=NOW):
+    return pf.run_checks(now, key_exists=lambda k: False, read=lambda k, n: None, on_ac=lambda: True,
+                         ssd_ok=lambda: (True, ""), drops_since=lambda since: 0, last_check=None,
+                         windows_build=lambda: build)
+
+
+def test_windows_10_past_end_of_support_is_info_not_a_warning():
+    """Owner 2026-10-31: the home PC runs Windows 10 past end of support (can't upgrade, can't pause): no updates and
+    no update restarts come, so no 'not paused' warning and no exit 5; Windows 11 (the laptop) keeps the check."""
+    after = datetime(2026, 10, 31, 11, 40, tzinfo=timezone.utc)
+    rep = _win(19045, after)
+    assert rep["warnings"] == [] and len(rep["info"]) == 1
+    assert "Windows 10 (build 19045) is past end of support" in rep["info"][0] and "no pause is needed" in rep["info"][0]
+    for build in (22631, 26100, None):  # Windows 11 (the laptop), or the version can't be read
+        rep = _win(build, after)
+        assert rep["info"] == [] and any("not paused" in w for w in rep["warnings"])
+    # Windows 10 on its last update day (the consumer ESU year's end, 2026-10-13 ET) still warns
+    rep = _win(19045, datetime(2026, 10, 14, 3, 59, tzinfo=timezone.utc))  # 23:59 ET on 10-13
+    assert any("not paused" in w for w in rep["warnings"])
+    assert _win(19045, datetime(2026, 10, 14, 4, 0, tzinfo=timezone.utc))["warnings"] == []  # 00:00 ET on 10-14
+
+
+def test_windows_10_still_warns_on_a_pending_restart():
+    rep = pf.run_checks(datetime(2026, 10, 31, 11, 40, tzinfo=timezone.utc), key_exists=lambda k: k == pf.REBOOT_KEYS[0],
+                        read=lambda k, n: None, on_ac=lambda: True, ssd_ok=lambda: (True, ""),
+                        drops_since=lambda since: 0, last_check=None, windows_build=lambda: 19045)
+    assert len(rep["warnings"]) == 1 and "restart is pending" in rep["warnings"][0]
+
+
+def test_the_info_line_is_printed(settings, tmp_path, monkeypatch):
+    from nqbot import clock, power
+
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
+    monkeypatch.setattr(pf, "_hklm_key_exists", lambda k: False)
+    monkeypatch.setattr(pf, "_hklm_value", lambda k, n: None)
+    monkeypatch.setattr(pf, "_on_ac", lambda: True)
+    monkeypatch.setattr(pf, "_has_battery", lambda: False)
+    monkeypatch.setattr(pf, "_windows_build", lambda: 19045)
+    monkeypatch.setattr(pf, "datetime", type("D", (datetime,), {"now": staticmethod(
+        lambda tz=None: datetime(2026, 10, 31, 11, 40, tzinfo=timezone.utc))}))
+    monkeypatch.setattr(power, "lid_on_battery_warning", lambda: None)
+    monkeypatch.setattr(clock, "clock_checks", lambda s: ([], ["clock ok"]))
+    out: list[str] = []
+    rep = pf.preflight(settings, echo=out.append)
+    assert not any("not paused" in w for w in rep["warnings"])
+    assert any(line.startswith("info Windows 10 (build 19045) is past end of support") for line in out)
+
+
 def test_pause_ending_during_the_session_or_soon_warns():
     rep = _run(pause="2026-10-15T17:47:56Z")  # 13:47 ET today, mid-session
     assert any("before today's session ends" in w for w in rep["warnings"])

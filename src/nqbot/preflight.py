@@ -2,7 +2,8 @@
 restarted the laptop at 04:50 ET, Windows sat at the sign-in screen and the 09:27 recording never started.
 
 Warns (exit EXIT_WARN, Discord from step 22) if a restart is pending, Windows Update isn't paused through the end of
-today's session (or the pause ends within PAUSE_WARN_DAYS), the SSD isn't reachable and writable, the laptop is on
+today's session (or the pause ends within PAUSE_WARN_DAYS; on Windows 10 past end of support, the home PC, info
+only: no updates come, owner 2026-10-31), the SSD isn't reachable and writable, the laptop is on
 battery, closing the lid on battery would sleep (owner 2026-10-19, §13 Q-power; skipped on a machine with no battery,
 the home PC), the SSD logged a drop since the last check, or (owner 2026-10-28, both machines) the Windows time zone
 isn't Eastern, automatic time sync is off or the clock is off by more than `clock_max_offset_ms`, or (owner
@@ -13,7 +14,8 @@ from __future__ import annotations
 
 import ctypes
 import os
-from datetime import datetime, time, timedelta, timezone
+import sys
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
@@ -27,6 +29,12 @@ REBOOT_KEYS = (  # a key that exists = a restart is pending (Windows Update / se
     r"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
     r"SOFTWARE\Microsoft\WindowsUpdate\Orchestrator\RebootRequired",
 )
+# Owner 2026-10-31 (SPEC §11 Two machines): the home PC runs Windows 10 past end of support and can't upgrade, so
+# Windows Update can't be paused and delivers no update restarts. Windows 10 support ended 2025-10-14; the consumer
+# Extended Security Updates year ran through 2026-10-13, the last day any Windows 10 Home machine got updates. After
+# it the pause check is info only on Windows 10; Windows 11 (the laptop, build >= 22000) keeps the warning.
+WIN11_FIRST_BUILD = 22000
+WIN10_LAST_UPDATE_DAY = date(2026, 10, 13)
 PAUSE_KEY = r"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"
 PAUSE_VALUES = ("PauseUpdatesExpiryTime", "PauseQualityUpdatesEndTime", "PauseFeatureUpdatesEndTime")
 
@@ -63,19 +71,19 @@ def _on_ac() -> bool | None:
     return {0: False, 1: True}.get(s.ACLineStatus)
 
 
-NO_BATTERY_FLAG = 128  # GetSystemPowerStatus BatteryFlag: no system battery (a desktop)
-
-
 def _has_battery() -> bool | None:
-    class SPS(ctypes.Structure):
-        _fields_ = [("ACLineStatus", ctypes.c_byte), ("BatteryFlag", ctypes.c_ubyte), ("BatteryLifePercent", ctypes.c_byte),
-                    ("SystemStatusFlag", ctypes.c_byte), ("BatteryLifeTime", ctypes.c_ulong),
-                    ("BatteryFullLifeTime", ctypes.c_ulong)]
+    from nqbot.power import has_battery  # one rule for preflight and `nqbot run`'s power check (owner 2026-10-31)
 
-    s = SPS()
-    if not ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(s)):
-        return None
-    return s.BatteryFlag != 255 and not s.BatteryFlag & NO_BATTERY_FLAG  # 255 = unknown: treat as no battery
+    return has_battery()
+
+
+def _windows_build() -> int | None:
+    return sys.getwindowsversion().build if os.name == "nt" else None
+
+
+def win10_past_support(build: int | None, now: datetime) -> bool:
+    """Windows 10 (a build below Windows 11's first) after its last update day: no updates, nothing to pause."""
+    return build is not None and build < WIN11_FIRST_BUILD and now.astimezone(ET).date() > WIN10_LAST_UPDATE_DAY
 
 
 def pause_until(read: Callable[[str, str], Any]) -> datetime | None:
@@ -97,9 +105,11 @@ def run_checks(now: datetime, *, key_exists: Callable[[str], bool], read: Callab
                lid_warning: Callable[[], str | None] = lambda: None,
                has_battery: Callable[[], bool | None] = lambda: True,
                clock: Callable[[], tuple[list[str], list[str]]] = lambda: ([], []),
-               rclone: Callable[[], tuple[bool, str]] | None = None) -> dict[str, Any]:
+               rclone: Callable[[], tuple[bool, str]] | None = None,
+               windows_build: Callable[[], int | None] = lambda: None) -> dict[str, Any]:
     warn: list[str] = []
     ok: list[str] = []
+    info: list[str] = []
     pending = [k for k in REBOOT_KEYS if key_exists(k)]
     if pending:
         warn.append("a restart is pending (" + "; ".join(k.rsplit("\\", 1)[-1] for k in pending) + "): restart now, "
@@ -108,7 +118,11 @@ def run_checks(now: datetime, *, key_exists: Callable[[str], bool], read: Callab
         ok.append("no restart pending")
     end = pause_until(read)
     session_end = datetime.combine(now.astimezone(ET).date(), SESSION_END_ET, tzinfo=ET)
-    if end is None:
+    build = windows_build()
+    if win10_past_support(build, now):  # the home PC (owner 2026-10-31): nothing to pause, no update restarts
+        info.append(f"Windows 10 (build {build}) is past end of support (last updates {WIN10_LAST_UPDATE_DAY}): Windows "
+                    "Update delivers no updates, so no pause is needed (Defender definitions still update)")
+    elif end is None:
         warn.append("Windows Update is not paused (Settings > Windows Update > Pause updates)")
     elif end <= session_end:
         warn.append(f"the Windows Update pause ends {end.astimezone(ET):%Y-%m-%d %H:%M} ET, before today's session "
@@ -135,7 +149,7 @@ def run_checks(now: datetime, *, key_exists: Callable[[str], bool], read: Callab
     if rclone is not None:  # owner 2026-10-30: the rclone that status-push and backup will run
         found, line = rclone()
         (ok if found else warn).append(line)
-    return {"checked_at": now.isoformat(), "warnings": warn, "ok": ok,
+    return {"checked_at": now.isoformat(), "warnings": warn, "ok": ok, "info": info,
             "pause_until": end.isoformat() if end else None}
 
 
@@ -176,9 +190,12 @@ def preflight(settings: dict[str, Any], echo: Callable[[str], None] = print) -> 
     rep = run_checks(now, key_exists=_hklm_key_exists, read=_hklm_value, on_ac=_on_ac, ssd_ok=ssd_ok,
                      drops_since=lambda since: drops_since(SSD_EVENT_LOG, since), last_check=last,
                      lid_warning=lid_on_battery_warning, has_battery=_has_battery,
-                     clock=lambda: clock_checks(settings), rclone=lambda: rclone_line(settings))
+                     clock=lambda: clock_checks(settings), rclone=lambda: rclone_line(settings),
+                     windows_build=_windows_build)
     for line in rep["warnings"]:
         echo(f"WARN {line}")
+    for line in rep["info"]:
+        echo(f"info {line}")
     for line in rep["ok"]:
         echo(f"ok   {line}")
     target = paths if paths is not None and ssd_ok()[0] else fallback_paths(settings["paths"]["root"])

@@ -34,6 +34,36 @@ def test_unreadable_setting_says_check_by_hand():
     assert len(w) == 1 and "couldn't read lid close action" in w[0]
 
 
+def _lid_closes_on_ac(sub, setting):
+    v = 1 if setting == power.LID_ACTION else 0  # Sleep on lid close, everything else fine
+    return f"Current AC Power Setting Index: 0x{v:08x}\nCurrent DC Power Setting Index: 0x{v:08x}\n"
+
+
+def test_no_lid_check_on_a_machine_without_a_battery(monkeypatch):
+    """Owner 2026-10-31: `nqbot run` warned "lid close action" on the desktop PC; like preflight, no battery = no lid."""
+    monkeypatch.setattr(power.os, "name", "nt")
+    monkeypatch.setattr(power, "powercfg_query", _lid_closes_on_ac)
+    monkeypatch.setattr(power, "has_battery", lambda: False)  # the home PC
+    assert power.power_warnings() == []
+    monkeypatch.setattr(power, "has_battery", lambda: True)  # the laptop keeps the check
+    assert len(w := power.power_warnings()) == 1 and "lid close action (on AC)" in w[0]
+    monkeypatch.setattr(power, "has_battery", lambda: None)  # Windows can't tell: check it
+    assert len(power.power_warnings()) == 1
+    assert power.power_warnings(_lid_closes_on_ac, battery=lambda: False) == []
+    assert len(power.power_warnings(_lid_closes_on_ac)) == 1  # a given query without `battery`: every check
+
+
+def test_every_fix_runs_in_windows_powershell_5_1():
+    assert not any("&&" in c[4] for c in power.CHECKS)  # a parse error there (owner 2026-10-31)
+
+
+def test_preflight_and_the_run_check_use_the_same_battery_rule(monkeypatch):
+    from nqbot import preflight
+
+    monkeypatch.setattr(power, "has_battery", lambda: False)
+    assert preflight._has_battery() is False
+
+
 def test_not_windows_no_checks_no_calls(monkeypatch, no_power_calls):
     monkeypatch.setattr(power.os, "name", "posix")
     assert power.power_warnings() == []

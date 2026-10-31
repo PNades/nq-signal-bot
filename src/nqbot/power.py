@@ -39,10 +39,11 @@ CHECKS = (
     ("USB selective suspend (on AC)", SUB_USB, "48e6b7a6-50f5-4782-a5d4-53bb8f07e226", 0,
      'Power Options > Change plan settings > Change advanced power settings > USB settings > '
      'USB selective suspend setting, Plugged in = Disabled'),
-    # owner 2026-10-11: the SSD's JMS583 bridge resets under link power management (U1/U2); keep the link awake
+    # owner 2026-10-11: the SSD's JMS583 bridge resets under link power management (U1/U2); keep the link awake.
+    # `;`, not `&&` (owner 2026-10-31): Windows PowerShell 5.1 can't parse `&&`, and the fix is run there.
     ("USB 3 link power management (on AC)", SUB_USB, "d4e98f31-5ffe-4ce1-be31-1b38b384c009", 0,
      "powercfg /setacvalueindex SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 "
-     "d4e98f31-5ffe-4ce1-be31-1b38b384c009 0 && powercfg /setactive SCHEME_CURRENT"),
+     "d4e98f31-5ffe-4ce1-be31-1b38b384c009 0; powercfg /setactive SCHEME_CURRENT"),
 )
 # powercfg prints the AC index then the DC index as the last two "...: 0x........" lines; matched by position, so a
 # non-English Windows (translated labels) is read too.
@@ -133,14 +134,42 @@ def lid_on_battery_warning(query: Callable[[str, str], str | None] | None = None
     return None
 
 
-def power_warnings(query: Callable[[str, str], str | None] | None = None) -> list[str]:
-    """One line per AC setting that could stop an overnight job (empty list: all fine, or not Windows)."""
+NO_BATTERY_FLAG = 128  # GetSystemPowerStatus BatteryFlag: no system battery (a desktop)
+
+
+def has_battery() -> bool | None:
+    """False on a machine with no system battery (the home PC: no lid either), None if Windows can't tell (or not
+    Windows). Shared by `nqbot preflight` and `power_warnings` (owner 2026-10-31: the same lid rule in both)."""
+    if os.name != "nt":
+        return None
+    import ctypes
+
+    class SPS(ctypes.Structure):
+        _fields_ = [("ACLineStatus", ctypes.c_ubyte), ("BatteryFlag", ctypes.c_ubyte),
+                    ("BatteryLifePercent", ctypes.c_ubyte), ("SystemStatusFlag", ctypes.c_ubyte),
+                    ("BatteryLifeTime", ctypes.c_ulong), ("BatteryFullLifeTime", ctypes.c_ulong)]
+
+    s = SPS()
+    if not ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(s)):
+        return None
+    return s.BatteryFlag != 255 and not s.BatteryFlag & NO_BATTERY_FLAG  # 255 = unknown: treat as no battery
+
+
+def power_warnings(query: Callable[[str, str], str | None] | None = None,
+                   battery: Callable[[], bool | None] | None = None) -> list[str]:
+    """One line per AC setting that could stop an overnight job (empty list: all fine, or not Windows). The lid
+    action is skipped on a machine with no battery, so no lid (owner 2026-10-31, as `nqbot preflight` does); `battery`
+    defaults to `has_battery` when the real powercfg is read."""
     if query is None:
         if os.name != "nt":
             return []
         query = powercfg_query
+        battery = battery or has_battery
+    no_lid = battery is not None and battery() is False
     warnings = []
     for what, subgroup, setting, ok, fix in CHECKS:
+        if setting == LID_ACTION and no_lid:
+            continue
         values = HEX_LINE.findall(query(subgroup, setting) or "")
         if len(values) < 2:
             warnings.append(f"power: couldn't read {what}; check it by hand ({fix})")
