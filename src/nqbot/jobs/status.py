@@ -8,7 +8,7 @@ import statistics
 import shutil
 from datetime import datetime
 
-from nqbot.jobs.lock import ALL_LOCKS, lock_path, read_lock
+from nqbot.jobs.lock import ALL_LOCKS, holder_dead_here, lock_path, read_lock
 from nqbot.jobs.runner import p90, plan_progress
 from nqbot.storage import GB, Paths
 
@@ -47,8 +47,14 @@ def lock_lines(paths: Paths) -> list[str]:
             lines.append(f"{kind} job lock: free")
             continue
         h = read_lock(path)
-        lines.append(f"{kind} job lock: held by job {h.get('job')!r} (pid {h.get('pid')} on {h.get('host')}, since "
-                     f"{h.get('started_utc')})" if h else f"{kind} job lock: unreadable lock file {path}")
+        if not h:
+            lines.append(f"{kind} job lock: unreadable lock file {path}")
+            continue
+        line = (f"{kind} job lock: held by job {h.get('job')!r} (pid {h.get('pid')} on {h.get('host')}, since "
+                f"{h.get('started_utc')})")
+        if holder_dead_here(h):  # owner 2026-10-31: after a restart the dead run's lock read as still held
+            line += ": that process is no longer running (stale; the next job run takes it over)"
+        lines.append(line)
     return lines
 
 

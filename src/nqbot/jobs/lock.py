@@ -73,6 +73,12 @@ def holder_alive(holder: dict | None) -> bool:
     return created is not None and (recorded is None or abs(created - recorded) <= 1)
 
 
+def holder_dead_here(holder: dict | None) -> bool:
+    """True if the lock was taken on this machine by a process that is no longer running: a stale lock the next job
+    run takes over (`JobLock.acquire` writes its own pid and start time). Another machine's lock is never judged."""
+    return bool(holder) and holder.get("host") == socket.gethostname() and not holder_alive(holder)
+
+
 @contextmanager
 def job_locks(root: Path, kinds: Iterable[str], job: str) -> Iterator[None]:
     """Hold the given job locks (in ALL_LOCKS order) for `job`; if one is taken, none is kept."""

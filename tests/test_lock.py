@@ -22,6 +22,41 @@ def test_stale_same_host_reclaimed(tmp_path):
         assert json.loads(path.read_text())["job"] == "new"
 
 
+def test_takeover_of_a_dead_lock_writes_our_pid_and_start(tmp_path):
+    # Owner 2026-10-31 (resume drill): a run cut off by a restart left pid 5220's lock; the resumed run must hold it
+    # under its own pid, process start time and start time, so `nqbot status` names the live holder.
+    from nqbot.jobs.lock import _create_time, holder_alive
+
+    path = tmp_path / "job.lock"
+    dead = {"host": socket.gethostname(), "pid": 2**22 + 12345, "pid_created": 1.0, "job": "dummy_drill",
+            "started_utc": "2026-10-31T06:34:14+00:00"}
+    path.write_text(json.dumps(dead))
+    with JobLock(path, "dummy_drill"):
+        now = json.loads(path.read_text())
+        assert now["pid"] == os.getpid() and now["pid_created"] == _create_time(os.getpid())
+        assert now["started_utc"] > dead["started_utc"] and now["host"] == socket.gethostname()
+        assert holder_alive(now)
+    assert not path.exists()
+
+
+def test_status_marks_a_dead_holder_stale(tmp_path):
+    from types import SimpleNamespace
+
+    from nqbot.jobs.lock import DATABENTO, SKYLIT, _create_time, lock_path
+    from nqbot.jobs.status import lock_lines
+
+    host = socket.gethostname()
+    lock_path(tmp_path, SKYLIT).write_text(json.dumps(
+        {"host": host, "pid": 2**22 + 12345, "pid_created": 1.0, "job": "dummy_drill", "started_utc": "t0"}))
+    lock_path(tmp_path, DATABENTO).write_text(json.dumps(
+        {"host": host, "pid": os.getpid(), "pid_created": _create_time(os.getpid()), "job": "x", "started_utc": "t1"}))
+    sky, db = lock_lines(SimpleNamespace(root=tmp_path))
+    assert "held by job 'dummy_drill'" in sky and "no longer running (stale" in sky
+    assert "held by job 'x'" in db and "stale" not in db  # a live holder
+    lock_path(tmp_path, SKYLIT).write_text(json.dumps({"host": "home-pc", "pid": 1, "job": "fold"}))
+    assert "stale" not in lock_lines(SimpleNamespace(root=tmp_path))[0]  # another machine's lock is never judged
+
+
 def test_other_host_never_broken(tmp_path):
     path = tmp_path / "job.lock"
     path.write_text(json.dumps({"host": "home-pc", "pid": 1, "job": "fold", "started_utc": "x"}))
