@@ -801,7 +801,7 @@ def _run_step11(args: argparse.Namespace, settings, paths, log) -> int:
             step11.chart_day(env, args.date)
         elif args.check == "roll-report":
             step11.roll_report(env)
-    except (LedgerMissing, NotDevelopmentMonth, step11.Refused) as e:
+    except (LedgerMissing, NotDevelopmentMonth, step11.Refused, step11.cl.RollSpreadMissing) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
     return 0

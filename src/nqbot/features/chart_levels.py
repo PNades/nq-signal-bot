@@ -88,7 +88,8 @@ class SessionInputs:
     eth_empty: bool = False               # §3.2: today's overnight is damaged
     retested: list = field(default_factory=list)   # session_levels.Retested in force today (from part 3's labels)
     scale_today: float = 1.0              # ES ÷ NQ at today's open (ES only, F0.11)
-    scale_prev: float = 1.0               # ... at the previous session's open (used before 09:30)
+    scale_prev: float = 1.0               # ... at the previous session's open (used before today's is known)
+    scale_from_ns: int | None = None      # when today's ratio is known: the later of the first RTH trades of NQ and ES
 
 
 def preopen_ns(day: date, settings: dict) -> int:
@@ -111,7 +112,10 @@ class ChartSession:
         self.em = emod.ExpectedMove(carry.prev_close(), emod.em_fraction(inp.tempest_row, lag, inp.em_calendar_days),
                                     tuple(f["em_level_sigmas"]))
         self.normals = None if inp.normals is None else rvol.RthNormals.of(self.day, inp.normals, inp.cal)
-        self.volume = rvol.SessionVolume.of(tape, inp.normals, f)
+        self.volume = rvol.SessionVolume.of(tape, inp.normals, f, inp.cal)
+        need = max(f["atr_period"] + 1, f["ib_avg_sessions"])
+        if RTH_KEEP < need:   # the carry keeps RTH_KEEP sessions; a longer lookback would be cut silently
+            raise ValueError(f"carry.RTH_KEEP {RTH_KEEP} < the lookbacks need ({need}): raise RTH_KEEP")
         self.on = sl.on_levels(tape, inp.eth_empty)
         self.vwap: dict[str, vw.Vwap] = {}
         self.daily = self.weekly = None
@@ -129,20 +133,23 @@ class ChartSession:
         return float(self.f["chart_level_half_width"][key])
 
     def _add(self, level_id: str, sub_type: str, band, multi_day: bool, end_ns: int | None = None,
-             params_from: list | None = None, params: ls.Params | None = None) -> None:
+             params_from: list | None = None, params: ls.Params | None = None, initial_role: str | None = None) -> None:
         key = SUBTYPE_KEY[sub_type]
+        # a level that ends (an LVN span, a moved IB, a filled single print) stops its machine there
+        stop = end_ns or getattr(band, "end_ns", None) or self.end_ns
         st = ls.LevelState(level_id, kind_of(key, self.f), self.tape, band,
                            params or ls.Params.from_features(self.f, key), self.bars_1m, self.bars_flip,
-                           normals=self.normals, end_ns=end_ns or self.end_ns, params_from=params_from or [])
+                           normals=self.normals, end_ns=min(stop, self.end_ns), params_from=params_from or [],
+                           initial_role=initial_role)
         self.levels.setdefault(level_id, []).append(LevelRecord(level_id, sub_type, key, self.root, multi_day, st.run()))
 
     def _const(self, level_id: str, sub_type: str, price: float | None, start_ns: int, multi_day: bool,
-               end_ns: int | None = None) -> None:
+               end_ns: int | None = None, initial_role: str | None = None) -> None:
         if price is None:
             return
         hw = self._hw(SUBTYPE_KEY[sub_type])
         self._add(level_id, sub_type, StepBand.const(self.tape, start_ns, price - hw, price + hw, end_ns), multi_day,
-                  end_ns=None)
+                  initial_role=initial_role)
 
     # --- NQ --------------------------------------------------------------------------------------------------
     def _build_nq(self) -> None:
@@ -197,7 +204,11 @@ class ChartSession:
         # F3.6 / F10 opening range, IB high/low
         self.opening = orm.OpeningRange.build(tape, self.bars_1m, f, self.inp.cal)
         for lv in self.opening.ib_levels:
-            self._const(lv.level_id, f"ib_{lv.side}", lv.price, lv.created_ns, False, end_ns=lv.end_ns)
+            # F3.6: before a break the IB high is a ceiling and the IB low a floor (the 10:00 lock, price inside the
+            # range); the 10:30 replacement is a fresh level whose role comes from the approach rule
+            role = None if lv.level_id.endswith("-1030") else (ls.CEILING if lv.side == "high" else ls.FLOOR)
+            self._const(lv.level_id, f"ib_{lv.side}", lv.price, lv.created_ns, False, end_ns=lv.end_ns,
+                        initial_role=role)
         # F3.11 expected-move lines, known at the pre-open
         pre = preopen_ns(d, self.inp.settings)
         for k, price in self.em.lines().items():
@@ -237,20 +248,20 @@ class ChartSession:
     def _build_es(self) -> None:
         f, c, ds = self.f, self.carry, self.day.isoformat()
         sc_prev, sc_now = self.inp.scale_prev, self.inp.scale_today
+        # today's ratio is known from the later of the first RTH trades of NQ and ES (F0.11)
+        switch = max(self.open_ns, self.inp.scale_from_ns or self.open_ns)
 
         def const_es(level_id, sub_type, price, start_ns):
             if price is None:
                 return
             key = SUBTYPE_KEY[sub_type]
             hw = self._hw(key)
-            times = np.array([start_ns] + ([self.open_ns] if start_ns < self.open_ns else []), dtype=np.int64)
-            scales = [sc_prev] + ([sc_now] if start_ns < self.open_ns else [])
-            if start_ns >= self.open_ns:
-                scales = [sc_now]
+            times = np.array([start_ns] + ([switch] if start_ns < switch else []), dtype=np.int64)
+            scales = [sc_prev, sc_now] if start_ns < switch else [sc_now]
             band = StepBand(self.tape, times, np.array([price - hw * s for s in scales]),
                             np.array([price + hw * s for s in scales]))
             first = ls.Params.from_features(f, key, scales[0])
-            later = [(self.open_ns, ls.Params.from_features(f, key, sc_now))] if len(scales) > 1 else []
+            later = [(switch, ls.Params.from_features(f, key, sc_now))] if len(scales) > 1 else []
             self._add(level_id, sub_type, band, multi_day=sub_type in ("pdh", "pdl"), params=first, params_from=later)
 
         if self.on is not None:
@@ -344,10 +355,19 @@ class ChartSession:
 
 # --- moving the carried state from session to session ------------------------------------------------------
 
-def start_session(carry: CarryState, day: date, contract: str, spread: float) -> bool:
-    """Before a session: roll shift (F0.4), a new week, the weekly profile's anchor. Returns True on a roll day."""
+class RollSpreadMissing(ValueError):
+    """A contract change with no measured roll spread: carried levels can't be shifted (F0.4)."""
+
+
+def start_session(carry: CarryState, day: date, contract: str, spread: float | None) -> bool:
+    """Before a session: roll shift (F0.4), a new week, the weekly profile's anchor. Returns True on a roll day.
+    `spread` = the measured roll spread of `day` (None if none is recorded): a roll without one is refused, never
+    left unshifted."""
     roll = carry.contract is not None and contract != carry.contract
     if roll:
+        if spread is None:
+            raise RollSpreadMissing(f"{carry.root} {day}: {carry.contract} -> {contract} but no roll spread is "
+                                    f"recorded (processed/rolls/); carried levels would be off by the spread")
         carry.shift(spread)
     ws = week_start_ns(day)
     if carry.week_start_ns != ws:
@@ -360,6 +380,14 @@ def start_session(carry: CarryState, day: date, contract: str, spread: float) ->
         carry.weekly_volume, carry.weekly_anchor_ns = {}, cme_start_ns(day)
     carry.contract = contract
     return roll
+
+
+def roll_spread_of(root: str, day: date, rolls: list[dict]) -> float | None:
+    """The recorded roll spread of `day` (None if no roll is recorded that day)."""
+    for r in rolls:
+        if r["root"] == root and r["roll_day"] == day.isoformat():
+            return float(r["spread"])
+    return None
 
 
 def ib_width(tape: Tape, features: dict) -> float | None:

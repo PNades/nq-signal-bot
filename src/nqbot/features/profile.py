@@ -86,7 +86,10 @@ def gaussian_kernel(smooth_ticks: float, trunc_sigma: float) -> np.ndarray:
 
 def smooth(vol: np.ndarray, smooth_ticks: float, trunc_sigma: float) -> np.ndarray:
     """Truncated Gaussian smoothing; zero volume outside the profile's range."""
-    return np.convolve(vol, gaussian_kernel(smooth_ticks, trunc_sigma), mode="same")
+    k = gaussian_kernel(smooth_ticks, trunc_sigma)
+    r = (len(k) - 1) // 2
+    return np.convolve(vol, k, mode="full")[r:r + len(vol)]   # aligned with vol even when the profile is narrower
+                                                             # than the kernel ("same" returns max(len) values)
 
 
 def lvn_indices(s: np.ndarray, max_pct: float) -> list[int]:
@@ -139,7 +142,7 @@ def stats(vol: np.ndarray, lo_tick: int, t_ns: int, lvn_params: dict | None) -> 
         merge = lvn_params["lvn_merge_pts"]
         for m in lvn_indices(s, lvn_params["lvn_max_pct"]):
             price = (lo_tick + m) * TICK
-            ident = round(price / merge) * merge
+            ident = float(np.floor(price / merge + 0.5)) * merge   # halves round up (not to even)
             if ident not in found or s[m] < found[ident][1]:   # two minima on one identity: the deeper one
                 found[ident] = (price, s[m])
         lvns = tuple(sorted((k, v[0]) for k, v in found.items()))

@@ -154,8 +154,7 @@ class SinglePrints:
 
     def start_session(self, carried: list[Run], t0: int) -> None:
         self.runs = [r for r in carried if not r.done]
-        for r in self.runs:
-            r.piece_of = []
+        for r in self.runs:   # keep the carried piece ids (Q-step11b (3)): levels are recreated under them
             self._assign(r, t0)
 
     def _fill(self, tape: Tape, i: int, j: int) -> None:

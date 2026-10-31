@@ -85,5 +85,6 @@ def test_dedupe_gives_the_same_output_as_feeding_every_trade():
 def test_fib_level_reached():
     rows = [(m(2), 20_000), (m(10), 20_100), (m(40), 20_060), (m(41), 20_035)]   # long: 0.5 at 20,050, 0.618 at 20,038.2
     o, tape = build(rows)
-    assert o.fib_level_reached(m(39), m(40), tape) is None
-    assert o.fib_level_reached(m(39), m(41), tape) == 0.618
+    lv = load_features()["golden_fib_levels"]
+    assert o.fib_level_reached(m(39), m(40), tape, lv) is None
+    assert o.fib_level_reached(m(39), m(41), tape, lv) == 0.618

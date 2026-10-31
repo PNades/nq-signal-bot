@@ -138,6 +138,8 @@ class LevelState:
     normals: Any = None                 # rvol.RthNormals (for xb_vol_rel / xb_delta_rel), or None
     blocks: list = field(default_factory=list)   # [(start_ns, end_ns)] mapping-dislocation blocks (node kind)
     end_ns: int | None = None           # the session end (default: the tape's last trade + 1 ns)
+    initial_role: str | None = None     # a role given at creation (F3.6: before a break the IB high is a ceiling, the
+                                        # IB low a floor); None = step 1, the role from the first rearm_dist move
     params_from: list = field(default_factory=list)  # [(t_ns, Params)]: params in force from t (ES levels before the
                                                      # open use the previous session's ES/NQ ratio, F0.11)
     events: list = field(default_factory=list)   # (t_ns, name) transitions, for reports and tests
@@ -162,6 +164,9 @@ class LevelState:
         start = int(self.band.start_ns)
         end = self.end_ns if self.end_ns is not None else (int(tape.ts[-1]) + 1 if len(tape) else start)
         s = State(in_block=self._blocked(start))
+        if self.initial_role is not None:
+            s.role = s.orig_role = self.initial_role
+            s.armed = True
         i = tape.idx_before(start)
         self._snap(start, i, s)
         cuts = sorted({b for blk in self.blocks for b in blk if start < b < end})
@@ -466,7 +471,7 @@ class LevelState:
         if self.kind in BAR_CROSS and last is not None and s.role is not None:
             d = up(s.role) if not s.crossed else (-up(s.orig_role) if not s.broken_back else up(s.orig_role))
             unresolved = d is not None and beyond(last, *band, d) > 0
-        out.update(role=s.role, crossed=s.crossed, provisional_role=s.crossed, flip_count=s.flip_count,
+        out.update(role=s.role, crossed=s.crossed, provisional_role=s.crossed and not s.broken_back, flip_count=s.flip_count,
                    reclaimed=s.reclaimed, cross_count_today=s.cross_count, armed=s.armed or (s.crossed and s.prov_armed),
                    unresolved_break=unresolved,
                    active=s.role is not None and (not s.crossed or (s.prov_armed and not s.broken_back)),

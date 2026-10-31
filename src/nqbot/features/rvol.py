@@ -82,10 +82,12 @@ class SessionVolume:
     normals: np.ndarray | None
     clip_mult: float
     open_ns: int
+    close_ns: int
 
     @classmethod
-    def of(cls, tape: Tape, normals: np.ndarray | None, features: dict[str, Any]) -> SessionVolume:
-        return cls(tape, normals, features["rvol_clip_mult"], rth_open_ns(tape.day))
+    def of(cls, tape: Tape, normals: np.ndarray | None, features: dict[str, Any], cal: dict | None = None
+           ) -> SessionVolume:
+        return cls(tape, normals, features["rvol_clip_mult"], rth_open_ns(tape.day), rth_close_ns(tape.day, cal))
 
     def _volume_between(self, a_ns: int, b_ns: int) -> float:
         """Volume of trades with a < ts <= b."""
@@ -95,7 +97,7 @@ class SessionVolume:
         if self.normals is None:
             return None
         s = (t_ns - self.open_ns) / NS
-        if s <= 0 or s > vn.RTH_SECONDS:
+        if s <= 0 or t_ns > self.close_ns:          # RTH ends at the early close on a half day (§1.2)
             return None
         k = int(s // 60)
         mv = np.array([self._volume_between(self.open_ns + m * MIN_NS - 1, self.open_ns + (m + 1) * MIN_NS - 1)
@@ -107,6 +109,8 @@ class SessionVolume:
         if self.normals is None:
             return None
         s = (t_ns - self.open_ns) / NS
+        if t_ns > self.close_ns:
+            return None
         return vn.vol_tod(self._volume_between(t_ns - int(w_sec * NS), t_ns), self.normals, s, w_sec)
 
     def minutes_since_open(self, t_ns: int) -> float:

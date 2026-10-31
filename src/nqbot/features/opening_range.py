@@ -184,8 +184,9 @@ class OpeningRange:
         out["fib_prices"] = {x: d.level(x) for x in EXTENSIONS}
         return out
 
-    def fib_level_reached(self, t0_ns: int, t1_ns: int, tape: Tape, levels=(0.5, 0.618, 0.705, 0.79)) -> float | None:
-        """The deepest golden fib level reached by trades in [t0, t1] on the drawing in force at t1 (a pair column)."""
+    def fib_level_reached(self, t0_ns: int, t1_ns: int, tape: Tape, levels) -> float | None:
+        """The deepest golden fib level reached by trades in [t0, t1] on the drawing in force at t1 (a pair column);
+        `levels` = `golden_fib_levels` (features.yaml)."""
         d = self.drawing_at(t1_ns)
         if d is None or d.high == d.low:
             return None

@@ -18,7 +18,7 @@ import numpy as np
 import psutil
 
 from nqbot.checks.step8b import Env
-from nqbot.clients.databento_contracts import roll_shift, session_before
+from nqbot.clients.databento_contracts import session_before
 from nqbot.clients.skylit_store import SkylitStore
 from nqbot.features import chart_levels as cl
 from nqbot.features import damage as dmg
@@ -71,7 +71,7 @@ def _replay_carry(env: Env, plan, root: str, days: list[date], damage: dict, min
         if tape is None:
             env.echo(f"  {root} {d}: no stored trades, skipped")
             continue
-        cl.start_session(carry, d, tape.symbol, roll_shift(root, d, rolls))
+        cl.start_session(carry, d, tape.symbol, cl.roll_spread_of(root, d, rolls))
         sp = tpo.SinglePrints(env.features["tpo_tick_pts"], env.features["sp_min_ticks"],
                               env.features["max_zone_width"]).run_session(
             tape, d, [tpo.Run.from_json(r) for r in carry.single_prints])
@@ -96,6 +96,8 @@ def chart_day(env: Env, day: date) -> Any:
         raise Refused(f"{day} is not a planned trading session")
     n = warmup_sessions(f)
     prior = [d for d in sessions if d < day][-n:]
+    if not prior:
+        raise Refused(f"{day}: no planned session before it to build the carry from")
     env.echo(f"step 11 chart-day {day}: carry from {len(prior)} prior sessions ({prior[0]} .. {prior[-1]}), "
              f"stored data only ($0, no lock)")
     minute_vols: dict[date, np.ndarray] = {}
@@ -111,8 +113,12 @@ def chart_day(env: Env, day: date) -> Any:
     tapes = {}
     for root, carry in (("NQ", carry_nq), ("ES", carry_es)):
         tape = st.load_tape(env.db, plan, root, day)
+        if tape is None:
+            raise Refused(f"{root} {day}: no stored trades")
+        if not carry.rth:
+            raise Refused(f"{root} {day}: no prior session folded into the carry")
         tapes[root] = tape
-        spread = roll_shift(root, day, rolls)
+        spread = cl.roll_spread_of(root, day, rolls)
         roll = cl.start_session(carry, day, tape.symbol, spread)
         row = rows.get(emod.TEMPEST_SYMBOL[root], _session_back(day, lag, cal))
         inp = cl.SessionInputs(f, env.settings, cal, normals if root == "NQ" else None, row,
@@ -123,6 +129,7 @@ def chart_day(env: Env, day: date) -> Any:
             nq_o = nq_t.price[nq_t.idx_before(o)]
             es_o = es_t.price[es_t.idx_before(o)]
             inp.scale_today = float(es_o / nq_o)
+            inp.scale_from_ns = int(max(nq_t.ts[nq_t.idx_before(o)], es_t.ts[es_t.idx_before(o)]))
             pn, pe = carry_nq.rth[-1].get("open"), carry_es.rth[-1].get("open")
             inp.scale_prev = float(pe / pn) if pn and pe else inp.scale_today
         cs = cl.ChartSession(tape, carry, inp, root)

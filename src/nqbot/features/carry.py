@@ -53,6 +53,9 @@ class CarryState:
         caller (one contract only); its volume is not merged across contracts."""
         if spread == 0:
             return
+        steps = round(spread / TICK)
+        if abs(steps * TICK - spread) > 1e-9:   # checked before anything moves, so a refusal leaves the carry whole
+            raise ValueError(f"roll spread {spread} is not a whole number of ticks")
         for r in self.rth:
             for k in ("high", "low", "close"):
                 r[k] += spread
@@ -60,9 +63,6 @@ class CarryState:
             if d is not None:
                 d["high"] += spread
                 d["low"] += spread
-        steps = round(spread / TICK)
-        if abs(steps * TICK - spread) > 1e-9:
-            raise ValueError(f"roll spread {spread} is not a whole number of ticks")
         if self.prev_profile is not None:
             for anchor, prof in self.prev_profile.items():
                 if isinstance(prof, dict) and "volume" in prof:
