@@ -106,6 +106,7 @@ class ZoneTouches:
             pr, rd = self.prox, self.rearm
             k = 0
             steps = 0
+            held = {1: 0, -1: 0}   # per side: the segment index before which that side can't arm (an unresolved break)
             while k < len(p):
                 steps += 1
                 if steps > MAX_STEPS:
@@ -115,6 +116,8 @@ class ZoneTouches:
                     if not armed:
                         up = np.flatnonzero(pk > hk + pr + rd)
                         dn = np.flatnonzero(pk < lk - pr - rd)
+                        up = up[up + k >= held[1]]
+                        dn = dn[dn + k >= held[-1]]
                         e = min((x[0] for x in (up, dn) if len(x)), default=None)
                         if e is None:
                             break
@@ -122,8 +125,9 @@ class ZoneTouches:
                         t = int(tape.ts[i + k + e])
                         hold = self._suppressed(members, s, t)
                         if hold is not None:
-                            nxt = tape.idx_before(hold)
-                            k = max(k + e + 1, nxt - i)
+                            # only that (far) side waits for the break to resolve; the other side can still re-arm
+                            held[s] = max(k + e + 1, tape.idx_before(hold) - i)
+                            k += e + 1
                             continue
                         armed, side = True, s
                         k += e + 1

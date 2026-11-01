@@ -36,7 +36,12 @@ from nqbot.features.session_features import SessionContext, SessionFeatures, his
 from nqbot.features.vwap import Vwap
 from nqbot.warmup import warmup_sessions
 
-MINUTE_VOLS_KEEP = 40   # NQ RTH minute-volume sessions kept in the state (>= vol_baseline_sessions + holidays)
+MINUTE_VOLS_KEEP = 40   # NQ RTH minute-volume sessions kept in the state at least (room for holidays, damage)
+
+
+def minute_vols_keep(features: dict) -> int:
+    """Sessions of minute volumes kept: twice `vol_baseline_sessions`, at least MINUTE_VOLS_KEEP."""
+    return max(MINUTE_VOLS_KEEP, 2 * int(features.get("vol_baseline_sessions", 0)))
 
 
 class Refused(Exception):
@@ -112,7 +117,7 @@ def fold_only(env: Env, pl, d: date, state: DayState, damage: dict) -> DayState:
             carry.yesterday_day_type = _eod_of_tape(tape, f, cal)
         cl.fold_session(carry, tape, f, cal, dropped=bool(dd and dd.rth_dropped), single_prints=sp.carry())
         out[root] = carry
-    keep = sorted(vols)[-MINUTE_VOLS_KEEP:]
+    keep = sorted(vols)[-minute_vols_keep(f):]
     return DayState(d.isoformat(), out["NQ"].to_json(), out["ES"].to_json(), {k: vols[k] for k in keep})
 
 
@@ -199,7 +204,7 @@ def build_day(env: Env, day: date, state: DayState, pl, sessions: list[date], da
     carry_nq.yesterday_day_type = end["yesterday_day_type"]
     vols = dict(state.minute_vols)
     vols[day.isoformat()] = rvol.rth_minute_volumes(tapes["NQ"], cal).tolist()
-    keep = sorted(vols)[-MINUTE_VOLS_KEEP:]
+    keep = sorted(vols)[-minute_vols_keep(f):]
     out = DayState(day.isoformat(), carry_nq.to_json(), carry_es.to_json(), {k: vols[k] for k in keep})
     info = {"nq_symbol": tapes["NQ"].symbol, "es_symbol": tapes["ES"].symbol, "roll": roll_info,
             "nq_trades": len(tapes["NQ"]), "es_trades": len(tapes["ES"]), "skylit": sky_note,
@@ -259,7 +264,7 @@ def _context(env: Env, day: date, cs: dict, sky, sky_note, carry_nq: CarryState,
                       f["rv_lookback_sessions"])
     gp = gpf.usable(GameplanStore.from_paths(env.paths).load_effective(day), day, env.settings)
     lookback = int(f["retest_lookback_sessions"])
-    cands = [sl.Candidate(float(c["price"]), c["type"], date.fromisoformat(c["session"]))
+    cands = [sl.Candidate(float(c["price"]), c["type"], date.fromisoformat(c["session"]), c.get("cid") or "")
              for c in carry_nq.retest_candidates]
     retested = [retested_from_json(r) for r in carry_nq.retested]
     retested = [r for r in retested if not sl.expired(r, day, sessions, lookback)]

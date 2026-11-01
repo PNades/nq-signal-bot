@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import json
 from datetime import date, timedelta
+from types import SimpleNamespace
 
 import pyarrow.parquet as pq
 import pytest
@@ -144,7 +145,7 @@ class FakeSF:
 
 
 def test_two_passes_with_a_fake_build(env, monkeypatch):
-    days = trading_days(date(2025, 10, 1), date(2025, 10, 10), env.cal)
+    days = trading_days(date(2025, 9, 29), date(2025, 10, 10), env.cal)   # two warm-up sessions, then month 1
     write_backfill_plan(env, days)
     doc = fb.make_plan(env, [1], batch=2)
     plan_days = [date.fromisoformat(x) for x in doc["sessions"]]
@@ -155,12 +156,12 @@ def test_two_passes_with_a_fake_build(env, monkeypatch):
         out = sb.DayState(day.isoformat(), {"n": (state.nq.get("n", 0) + 1)}, {}, {})
         return sb.Built(FakeSF(3), out, {"skylit": "ok"})
     monkeypatch.setattr(sb, "build_day", fake_build)
-    monkeypatch.setattr(sb, "warmup_state", lambda *a, **k: sb.DayState("warm", {"n": 0}, {}, {}))
+    monkeypatch.setattr(sb, "warmup_state", lambda *a, **k: sb.DayState("2025-09-30", {"n": 0}, {}, {}))
     monkeypatch.setattr(sb, "load_damage", lambda env_: {})
     # the first session needs the warm-up state (chunk p0) first
     with pytest.raises(fb.BuildRefused, match="warm-up"):
         fb.build_day_cmd(env, plan_days[0], 1)
-    assert fb.build_warmup_cmd(env) == 0 and fb.warmup_file(env, doc["key"]).exists()
+    assert fb.build_warmup_cmd(env) == 0 and fb.warmup_file(env, doc["key"], plan_days[0]).exists()
     # pass 2 of a session refuses before pass 1 wrote its checkpoint; pass 1 runs in order
     with pytest.raises(fb.BuildRefused, match="pass 1"):
         fb.build_day_cmd(env, plan_days[0], 2)
@@ -168,10 +169,12 @@ def test_two_passes_with_a_fake_build(env, monkeypatch):
         fb.build_day_cmd(env, plan_days[1], 1)
     for d in plan_days[:2]:
         assert fb.build_day_cmd(env, d, 1) == 0
-    assert seen[0][1] == "warm" and seen[1][1] == plan_days[0].isoformat()
+    assert seen[0][1] == "2025-09-30" and seen[1][1] == plan_days[0].isoformat()
     for d in plan_days[:2]:
+        assert not fb.pass2_done(env, doc["key"], d)
         assert fb.build_day_cmd(env, d, 2) == 0
         assert (fb.out_dir(env, doc["key"]) / "touches" / f"{d.isoformat()}.parquet").exists()
+        assert fb.pass2_done(env, doc["key"], d)
     t = pq.read_table(fb.out_dir(env, doc["key"]) / "touches" / f"{plan_days[0].isoformat()}.parquet")
     assert t.num_rows == 3
     s = json.loads(fb.summary_file(env, doc["key"], plan_days[0]).read_text(encoding="utf-8"))
@@ -181,6 +184,10 @@ def test_two_passes_with_a_fake_build(env, monkeypatch):
                                                                    {}))
     with pytest.raises(fb.BuildRefused, match="differs"):
         fb.build_day_cmd(env, plan_days[1], 2)
+    # a checkpoint that isn't the state after the planned session before the day is refused (never chained across)
+    atomic_write_json(fb.state_file(env, doc["key"], plan_days[1]), sb.DayState("2025-10-01", {}, {}, {}).to_json())
+    with pytest.raises(fb.BuildRefused, match="not after the planned session"):
+        fb.build_day_cmd(env, plan_days[2], 1)
 
 
 def test_full_warmup_builds_after_the_first_fold(env, monkeypatch):
@@ -212,3 +219,113 @@ def test_read_rows_fills_columns_a_day_lacks(tmp_path):
     t = fb.read_rows([a, b])
     assert t.num_rows == 2 and t.column("qqq_lean").to_pylist()[1] is None
     assert t.column("skylit_missing").to_pylist() == [None, True]
+
+
+def test_plan_refuses_gaps_and_dark_pools(env):
+    days = trading_days(date(2025, 10, 1), date(2026, 4, 30), env.cal)
+    write_backfill_plan(env, days)
+    with pytest.raises(fb.BuildRefused, match="not consecutive"):
+        fb.make_plan(env, [1, 2, 4], batch=2)    # month 4 would start from month 2's end state
+    env.features = {**env.features, "dp_in_model": True}
+    with pytest.raises(fb.BuildRefused, match="dp_in_model"):
+        fb.make_plan(env, [1], batch=2)
+
+
+def test_write_rows_takes_every_rows_columns(tmp_path):
+    # the first event is overnight (no golden-zone or RTH columns): later rows' columns must not be dropped
+    p = tmp_path / "x.parquet"
+    fb.write_rows(p, [{"event_id": "a", "ts": 1, "n": 2}, {"event_id": "b", "ts": 2, "n": 3, "gz_touch_number": 1}],
+                  {})
+    t = pq.read_table(p)
+    assert t.column("gz_touch_number").to_pylist() == [None, 1.0]
+    assert str(t.schema.field("n").type) == "float" and str(t.schema.field("ts").type) == "int64"
+
+
+def test_read_rows_mixes_whole_and_fractional_days(tmp_path):
+    a, b = tmp_path / "a.parquet", tmp_path / "b.parquet"
+    fb.write_rows(a, [{"event_id": "x", "tests_so_far_mean": 2}], {})      # every value whole that day
+    fb.write_rows(b, [{"event_id": "y", "tests_so_far_mean": 1.5}], {})
+    assert fb.read_rows([a, b]).column("tests_so_far_mean").to_pylist() == [2.0, 1.5]
+
+
+def test_pass2_unfinished_session_is_built_again(env):
+    key, d = "k", date(2025, 10, 1)
+    atomic_write_json(fb.summary_file(env, key, d), {"pass1": {"events": 1}})   # stopped after the parquet files
+    assert not fb.pass2_done(env, key, d)
+    atomic_write_json(fb.summary_file(env, key, d), {"pass1": {}, "pass2": {"rows": 1}})
+    assert fb.pass2_done(env, key, d)
+
+
+class _Proc:
+    """A child process stand-in: runs the command in this process, writes its output and peak line to the log."""
+
+    def __init__(self, env, argv, log, fail_on=()):
+        log.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if argv[1] == "build-warmup":
+                rc = fb.build_warmup_cmd(env)
+            else:
+                d = date.fromisoformat(argv[2])
+                rc = 7 if d in fail_on else fb.build_day_cmd(env, d, int(argv[4]))
+        except fb.BuildRefused as e:
+            rc, msg = 3, str(e)
+        else:
+            msg = "ok"
+        log.write_text(f"{msg}\n{fb.PEAK_TAG} 1.25\n", encoding="utf-8")
+        self.returncode = rc
+
+    def wait(self):
+        return self.returncode
+
+
+def _job_ctx(env, stop=lambda: None, workers=2):
+    import logging
+
+    return SimpleNamespace(settings=env.settings, paths=env.paths, log=logging.getLogger("t"), should_stop=stop,
+                           max_workers=workers)
+
+
+def test_job_runs_every_chunk_resumes_and_stops_on_failures(env, monkeypatch):
+    from nqbot.checks import step8b_disloc
+    from nqbot.jobs.runner import StopChunk
+
+    days = trading_days(date(2025, 9, 29), date(2025, 10, 8), env.cal)
+    write_backfill_plan(env, days)
+    import nqbot.config as cfg
+    monkeypatch.setattr(cfg, "load_features", lambda: env.features)
+    doc = fb.make_plan(env, [1], batch=2)
+    plan_days = [date.fromisoformat(x) for x in doc["sessions"]]
+
+    def fake_build(env_, day, state, pl, planned, damage):
+        return sb.Built(FakeSF(2), sb.DayState(day.isoformat(), {"n": 1}, {}, {}), {"skylit": "ok"})
+    monkeypatch.setattr(sb, "build_day", fake_build)
+    monkeypatch.setattr(sb, "warmup_state", lambda *a, **k: sb.DayState("2025-09-30", {}, {}, {}))
+    monkeypatch.setattr(sb, "load_damage", lambda env_: {})
+    monkeypatch.setattr(step8b_disloc, "free_mb", lambda: 64 * 1024)
+    fail = set()
+    monkeypatch.setattr(fb, "_child", lambda argv, log: _Proc(env, argv, log, fail))
+    job, ctx = fb.FeatureBuildJob(), _job_ctx(env)
+    ids = job.chunks(ctx)
+    assert ids[0].startswith("p0:")
+    # a failing pass-2 session stops the chunk with status "failures" and names the session
+    p1 = [c for c in ids if c.startswith("p0:") or c.startswith("p1:")]
+    for c in p1:
+        assert job.run_chunk(c, ctx) is not None
+    assert job.run_chunk(p1[1], ctx) is None          # done already: skipped on resume
+    fail.add(plan_days[1])
+    p2 = [c for c in ids if c.startswith("p2:")]
+    with pytest.raises(StopChunk) as ex:
+        job.run_chunk(p2[0], ctx)
+    assert ex.value.status == "failures" and str(plan_days[1]) in str(ex.value)
+    assert fb.pass2_done(env, doc["key"], plan_days[0]) and not fb.pass2_done(env, doc["key"], plan_days[1])
+    fail.clear()
+    for c in p2:   # resume: only the unfinished session runs again
+        job.run_chunk(c, ctx)
+    assert all(fb.pass2_done(env, doc["key"], d) for d in plan_days)
+    job.at_end(ctx)
+    assert (env.paths.reports_dir / "step11" / "feature_build.md").exists()
+    # too little memory for one session: a clean stop before anything runs
+    monkeypatch.setattr(step8b_disloc, "free_mb", lambda: 1024)
+    fb.summary_file(env, doc["key"], plan_days[0]).unlink()     # one pass-2 session has work again
+    with pytest.raises(StopChunk, match="free"):
+        job.run_chunk(p2[0], ctx)

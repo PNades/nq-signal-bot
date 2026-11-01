@@ -57,6 +57,10 @@ def zones_of(gp: dict | None) -> list[GpZone]:
             continue
         lo, hi = sorted((float(band[0]), float(band[1])))
         gid = f"gp_{z.get('id') or k}".replace(" ", "_")
+        n, base = 1, gid
+        while any(x.gid == gid for x in out):   # two entries with one label stay two containers
+            n += 1
+            gid = f"{base}_{n}"
         out.append(GpZone(gid, z, lo, hi))
     return out
 

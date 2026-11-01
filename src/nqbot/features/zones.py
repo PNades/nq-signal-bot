@@ -291,17 +291,21 @@ class ZoneBook:
                 done.add((m.level_id, o.level_id))
                 for a, z in _overlap_spans(m.spans, o.spans):
                     i0, i1 = tape.idx_before(a), tape.idx_before(z)
-                    if i1 - i0 < 2:
+                    # start one trade earlier: the state at a is the line after the last trade before a, so a flip at
+                    # the first trade of [a, z) is a change from it (an extra candidate time is harmless)
+                    s0 = i0 - 1 if i0 > 0 else i0
+                    if i1 - s0 < 2:
                         continue
-                    bm, bo = m.bounds(a, z), o.bounds(a, z)
+                    a0 = int(tape.ts[s0]) if s0 < i0 else a
+                    bm, bo = m.bounds(a0, z), o.bounds(a0, z)
                     pad = max(self.params(a)) + 1.0
                     if bm is None or bo is None or bm[1] < bo[0] - pad or bo[1] < bm[0] - pad:
                         continue   # never within a zone width of each other on [a, z): no relation can flip
-                    lo1, hi1 = m.band.at_trades(i0, i1)
-                    lo2, hi2 = o.band.at_trades(i0, i1)
+                    lo1, hi1 = m.band.at_trades(s0, i1)
+                    lo2, hi2 = o.band.at_trades(s0, i1)
                     ok = np.isfinite(lo1) & np.isfinite(lo2)
-                    ts = tape.ts[i0:i1]
-                    tol, maxw = self.params(int(ts[0]))
+                    ts = tape.ts[s0:i1]
+                    tol, maxw = self.params(a)
                     c1, c2 = (lo1 + hi1) / 2, (lo2 + hi2) / 2
                     with np.errstate(invalid="ignore"):
                         q = ((lo1 <= hi2 + EPS) & (lo2 <= hi1 + EPS)) | (np.abs(c1 - c2) <= tol + EPS)

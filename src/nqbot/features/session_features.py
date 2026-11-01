@@ -8,8 +8,9 @@ feature_spec F5.1-F5.13, F5.16, F5.18, F8, F10, F11.4, F11.7).
 3. touches (`touches.py`: level zones, gameplan zones, golden zones), touch groups and event ids;
 4. structure labels (`structure_label.py`);
 5. retested extremes (F3.8): a held touch within `retest_tol_ticks` of an earlier session's high/low creates a
-   `retested_extreme` level at the label's resolution time; the new levels can only change what happens after their
-   creation, so the steps above are re-run until no new level appears (a fixed point; each pass is causal).
+   `retested_extreme` level at the label's resolution time; a new level can only change what happens after its
+   creation, so each pass accepts only the earliest new retest(s) and the steps above are re-run until no new level
+   appears (the same levels a single pass in time order, as live, would create).
 `row(event, t)` is every structure-model input of an event as of t (t = the touch for the structure model; step 13
 calls it at each pair's `decision_ts`, the same code). It reads only data with known time <= t; outcomes enter only as
 labels resolved by t (freshness, day memory, earlier golden-zone touches). `end_state()` is what the next session needs
@@ -50,7 +51,7 @@ SP = ("SPY", "SPX")
 MAPS = ("QQQ", "NDXP", "SPY", "SPX")
 NQ_SUBTYPES = tuple(sorted(SUBTYPE_KEY)) + ("qqq_node", "ndxp_node")
 RTYPES = ("gex_node", "vwap", "volume_profile", "session_hl", "opening_range", "expected_move")
-MAX_RETEST_PASSES = 8
+MAX_RETEST_PASSES = 64   # a guard: one pass per distinct retest creation time in the session, plus one
 NODE_TYPES = ("king", "gatekeeper", "significant", "normal")
 
 
@@ -75,6 +76,10 @@ class SessionContext:
     skylit_note: str | None = None
 
 
+class NotWired(Exception):
+    """A configuration this engine does not build (dark pools in the model, F4: added at a later retrain)."""
+
+
 class FixedBook:
     """The zone-book interface for containers: one zone per container, never merged (F5.9)."""
 
@@ -97,8 +102,13 @@ class FixedBook:
 
 
 class SessionFeatures:
-    def __init__(self, ctx: SessionContext):
+    def __init__(self, ctx: SessionContext, exclude_source: str | None = None):
+        """`exclude_source`: build the session as if that event's held label had made no retested extreme (the world
+        its own rows are read from after that level appears, Q-step11g (2))."""
         self.c = ctx
+        self.exclude_source = exclude_source
+        self._alts: dict[str, SessionFeatures] = {}
+        self._mine_uids: set[str] = set()
         self.f, self.day = ctx.features, ctx.day
         cs = ctx.cs_nq
         self.nq, self.es = cs.tape, ctx.cs_es.tape
@@ -113,12 +123,13 @@ class SessionFeatures:
         self.gp = Gameplan(ctx.gameplan, self.day, self.nq, self.es, ctx.settings, cs.bars_1m)
         self.dt = DayType(cs, self.f, cs.carry.ib_widths(int(self.f["ib_avg_sessions"])))
         self.retested_today: list = []
+        self.retest_source: dict[str, str] = {}   # level_id of today's retested extremes -> the event that made it
         self.passes = 0
 
     # --- build ---------------------------------------------------------------------------------------------------
     def build(self) -> SessionFeatures:
         if self.f.get("dp_in_model"):
-            raise NotImplementedError("dp_in_model is true: dark-pool levels are not wired into the zones yet "
+            raise NotWired("dp_in_model is true: dark-pool levels are not wired into the zones yet "
                                       "(owner 2026-10-06: added and tested at a later retrain)")
         for _ in range(MAX_RETEST_PASSES):
             self.passes += 1
@@ -126,15 +137,20 @@ class SessionFeatures:
             new = self._new_retests()
             if not new:
                 return self
-            for r in new:
-                self.c.cs_nq._const(r.level_id, "retested_extreme", r.price, max(r.created_ns, self.c.cs_nq.start_ns),
-                                    True)
+            # causal, as the live engine (one pass in time order): only the earliest new retest(s) are accepted. A
+            # level created at t1 can change any touch or label after t1, so a retest found at t2 > t1 in this pass
+            # may not exist once the t1 level is in; the next pass finds it again if it still does
+            first = min(r.created_ns for r in new)
+            for r in (r for r in new if r.created_ns == first):
+                self._mine_uids.add(_retest_record(self.c.cs_nq, r))
                 self.retested_today.append(r)
+                self.retest_source[r.level_id] = r.source
         raise RuntimeError(f"{self.day}: retested extremes did not settle after {MAX_RETEST_PASSES} passes")
 
     def _build_once(self) -> None:
         c, f, iso = self.c, self.f, self.day.isoformat()
-        nq_levels = rg.chart_levels(c.cs_nq, self.end_ns)
+        made = _today_retests(c.cs_nq)   # retested extremes of any build of this session: only this build's own
+        nq_levels = [x for x in rg.chart_levels(c.cs_nq, self.end_ns) if x.uid not in made or x.uid in self._mine_uids]
         es_levels = rg.chart_levels(c.cs_es, self.end_ns)
         if c.sky is not None:
             nq_levels += rg.node_levels(c.sky, NASDAQ, iso, self.end_ns)
@@ -146,11 +162,10 @@ class SessionFeatures:
         tol, maxw = float(f["confluence_tol"]), float(f["max_zone_width"])
         self.book = ZoneBook([x.book_level() for x in nq_levels], self.nq, lambda t: (tol, maxw),
                              end_ns=self.end_ns).run()
-        sc = c.sky.ctx.scale if c.sky is not None else None
-        sw = () if sc is None or sc.switch_ns is None else (sc.switch_ns,)
+        sw = (self._es_switch(),)
 
         def es_params(t):
-            k = 1.0 if sc is None else (sc.today if sc.switch_ns is not None and t >= sc.switch_ns else sc.prev)
+            k = self.es_ratio(t)
             return tol * k, maxw * k
         self.es_book = ZoneBook([x.book_level() for x in es_levels], self.es, es_params, param_times=sw,
                                 end_ns=self.end_ns).run()
@@ -165,6 +180,15 @@ class SessionFeatures:
         self.by_id = {e.event_id: e for e in self.events}
         self.labels = {e.event_id: self._label(e) for e in self.events}
         self.records = [self._record(e) for e in self.events]
+
+    def _es_switch(self) -> int:
+        inp = self.c.cs_es.inp
+        return int(max(self.open_ns, inp.scale_from_ns or self.open_ns))
+
+    def es_ratio(self, t: int) -> float:
+        """ES ÷ NQ at the open (F0.11): the previous session's before today's is known, today's from then."""
+        inp = self.c.cs_es.inp
+        return float(inp.scale_today if t >= self._es_switch() else inp.scale_prev)
 
     def _label(self, e: tch.Touch) -> slab.Label:
         f = self.f
@@ -191,18 +215,41 @@ class SessionFeatures:
 
     def _new_retests(self) -> list:
         f = self.f
+        tol = int(f["retest_tol_ticks"])
         in_force = {r.level_id for r in self.c.retested} | {r.level_id for r in self.retested_today}
         touches = [{"price": e.price, "t_resolved": self.labels[e.event_id].t_resolved,
-                    "label": self.labels[e.event_id].label} for e in self.events]
-        found = sl.retests_from_touches(self.c.retest_candidates, touches, self.day, self.c.sessions,
-                                        int(f["retest_tol_ticks"]), int(f["retest_lookback_sessions"]))
-        return [r for r in found if r.level_id not in in_force]
+                    "label": self.labels[e.event_id].label, "event_id": e.event_id} for e in self.events]
+        cands = sl.dedupe_candidates(self.c.retest_candidates, tol)
+        found = sl.retests_from_touches(cands, touches, self.day, self.c.sessions, tol,
+                                        int(f["retest_lookback_sessions"]))
+        if self.exclude_source is not None:
+            found = [r for r in found if r.source != self.exclude_source]
+        out = []
+        for r in sorted((r for r in found if r.level_id not in in_force), key=lambda r: (r.created_ns, r.level_id)):
+            # one level per price (owner 2026-11-01, Q-step11g (1)): none within the tolerance of a high/low level
+            # (or a retested extreme) that exists at its creation, nor of one accepted just before it
+            if self._high_low_near(r.price, r.created_ns, tol) or any(sl.within_tol(r.price, x.price, tol)
+                                                                      for x in out):
+                continue
+            out.append(r)
+        return out
+
+    def _high_low_near(self, price: float, t: int, tol: int) -> bool:
+        for x in self.nq_levels.values():
+            if x.key in sl.HIGHS_LOWS_TYPES or x.key == "retested_extreme":
+                b = x.band.at(t)
+                if b is not None and sl.within_tol(price, (b[0] + b[1]) / 2, tol):
+                    return True
+        return False
+
+    def _own(self, e: tch.Touch, x) -> bool:
+        """A retested extreme made by `e`'s own held label (never part of `e`'s own rows, Q-step11g (2))."""
+        return self.retest_source.get(x.level_id) == e.event_id
 
     # --- queries -------------------------------------------------------------------------------------------------
     def zone_edges(self, e: tch.Touch, t: int) -> tuple[float, float] | None:
         if e.kind == "level":
-            z = self.book.follow(e.zone_id, t)
-            return None if z is None else self.book.edges(z, t, {u: x.band for u, x in self.nq_levels.items()})
+            return _edges_of(self.members_at(e, t), t)
         if e.kind == "gameplan":
             x = next(x for x in self.containers if x.uid == e.zone_id)
             return x.band.at(t)
@@ -216,24 +263,36 @@ class SessionFeatures:
         """The zone's members (level events) or its confluence members (containers: levels overlapping it)."""
         if e.kind == "level":
             z = self.book.follow(e.zone_id, t)
-            return [] if z is None else [self.nq_levels[m] for m in self.book.members(z, t)]
+            return [] if z is None else [x for x in (self.nq_levels[m] for m in self.book.members(z, t))
+                                         if not self._own(e, x)]
         edges = self.zone_edges(e, t)
         if edges is None:
             return []
         out = []
         for x in self.nq_levels.values():
             b = x.band.at(t)
-            if x.active(t) and b is not None and b[0] <= edges[1] and b[1] >= edges[0]:
+            if x.active(t) and b is not None and b[0] <= edges[1] and b[1] >= edges[0] and not self._own(e, x):
                 out.append(x)
         return out
 
     def row(self, e: tch.Touch, t: int) -> dict[str, Any]:
+        own_t = min((r.created_ns for r in self.retested_today if r.source == e.event_id), default=None)
+        if own_t is not None and t >= own_t:
+            # the event's own held label made a retested extreme by t: its rows come from the session as it would be
+            # without that level (it can merge zones and change later labels), never from the level itself (owner
+            # 2026-11-01, SPEC §13 Q-step11g (2)); the feature build's rows (at the touch) are always before it
+            alt = self._alts.get(e.event_id)
+            if alt is None:
+                alt = self._alts[e.event_id] = SessionFeatures(self.c, exclude_source=e.event_id).build()
+            return alt.row(alt.by_id[e.event_id], t)
         f, c = self.f, self.c
         d = e.direction
         price = self.nq.last_price_at(t)
         edges = self.zone_edges(e, t)
         members = self.members_at(e, t)
-        lab_ok = [lb for eid, lb in self.labels.items() if lb.t_resolved <= t and self.by_id[eid].t < t]
+        # outcomes: only touches before this event's own touch, their labels if resolved by t; never the event's own
+        # touch or label (owner 2026-11-01, SPEC §13 Q-step11g (2)), also at a pair's later decision_ts
+        lab_ok = [lb for eid, lb in self.labels.items() if lb.t_resolved <= t and self.by_id[eid].t < e.t]
         out: dict[str, Any] = {"event_id": e.event_id, "zone_id": e.zone_id, "touch_group_id": f"{self.day}-{e.group}",
                                "day": self.day.isoformat(), "ts": int(e.t), "t": int(t), "event_type": e.kind,
                                "direction": d, "role": e.role, "touch_price": e.price, "price": price,
@@ -242,8 +301,9 @@ class SessionFeatures:
         out.update(self._geometry(e, t, edges, members, price))
         out.update(self._makeup(members, t))
         ids = sorted({m.level_id for m in members}) if e.kind == "level" else [e.zone_id]
-        hist = [r for r in c.history if r.t_touch < t] + [r for r in self.records if r.t_touch < t]
-        out.update(zone_freshness(hist, ids, e.role, e.zone_id, t))
+        today = [r for r in self.records if r.t_touch < e.t]
+        hist = [r for r in c.history if r.t_touch < e.t] + today
+        out.update(zone_freshness(hist, ids, e.role, e.zone_id, t, zone_touches=today))
         out.update(self._day_memory(t, lab_ok))
         out.update(_flat(c.cs_nq.features_at(t, d)))
         if c.sky is not None:
@@ -308,13 +368,13 @@ class SessionFeatures:
                   if m.rtype == rt and m.band.at(t) is not None]
             out[f"dist_center_{rt}"] = min(ds) if ds else None
         # the next level zone above and below (gap between zone edges)
-        bands = {u: x.band for u, x in self.nq_levels.items()}
         own = self.book.follow(e.zone_id, t) if e.kind == "level" else None
         above, below = None, None
         for zid in self.book.zones_at(t):
             if zid == own:
                 continue
-            ez = self.book.edges(zid, t, bands)
+            ez = _edges_of([x for x in (self.nq_levels[m] for m in self.book.members(zid, t)) if not self._own(e, x)],
+                           t)
             if ez is None:
                 continue
             if ez[0] > hi and (above is None or ez[0] - hi < above):
@@ -358,9 +418,10 @@ class SessionFeatures:
         nodes = [info[m.level_id] for m in members if m.level_id in info]
         pcts = [n["pct_of_king"] for n in nodes]
         out.update(largest_pct_of_king=max(pcts) if pcts else None, min_pct_of_king=min(pcts) if pcts else None,
-                   mean_pct_of_king=mean(pcts) if pcts else None,
-                   king_present=any(n["node_type"] == "king" for n in nodes) if nodes else False,
-                   gatekeeper_present=any(n["node_type"] == "gatekeeper" for n in nodes) if nodes else False,
+                   mean_pct_of_king=float(mean(pcts)) if pcts else None,
+                   king_present=None if self.c.sky is None else any(n["node_type"] == "king" for n in nodes),
+                   gatekeeper_present=None if self.c.sky is None else any(n["node_type"] == "gatekeeper"
+                                                                         for n in nodes),
                    n_node_pos=sum(1 for n in nodes if n["node_sign"] > 0),
                    n_node_neg=sum(1 for n in nodes if n["node_sign"] < 0),
                    any_rug=any(n["rug"] for n in nodes) if nodes else None,
@@ -370,7 +431,7 @@ class SessionFeatures:
             out[f"n_node_{ty}"] = sum(1 for n in nodes if n["node_type"] == ty)
         vel = [n["velocity"] for n in nodes if n.get("velocity") is not None]
         out["node_velocity_max_abs"] = max((abs(x) for x in vel), default=None)
-        out["node_velocity_mean"] = mean(vel) if vel else None
+        out["node_velocity_mean"] = float(mean(vel)) if vel else None
         msr = [n["minutes_since_relevant"] for n in nodes if n.get("minutes_since_relevant") is not None]
         out["node_minutes_since_relevant_min"] = min(msr) if msr else None
         for k in ("rug_neg_count", "rug_neg_pct_sum", "rug_first_partner_pct", "gatekeeper_vs_beyond",
@@ -459,10 +520,12 @@ class SessionFeatures:
 
     def _golden(self, e: tch.Touch, t: int, members: list) -> dict[str, Any]:
         """F10 touch history of that golden zone (resolved earlier touches only) and the nodes inside it."""
-        mine = [x for x in self.events if x.zone_id == e.zone_id and x.t < t]
+        # earlier touches of the same golden zone (F10: "earlier touches' outcomes"): touched before this event, so at
+        # a pair's decision_ts neither the event itself nor a later touch counts
+        mine = [x for x in self.events if x.zone_id == e.zone_id and x.t < e.t]
         res = [self.labels[x.event_id] for x in mine if self.labels[x.event_id].t_resolved <= t]
         last = mine[-1] if mine else None
-        out = {"gz_touch_number": len([x for x in mine if x.t < e.t]) + 1,
+        out = {"gz_touch_number": len(mine) + 1,
                "gz_prev_held": sum(1 for r in res if r.label == slab.HELD),
                "gz_prev_broke": sum(1 for r in res if r.label == slab.BROKE),
                "gz_prev_pending": len(mine) - len(res),
@@ -479,7 +542,7 @@ class SessionFeatures:
                     out[f"gz_nodes_{m.lower()}"] = sum(1 for n in sky._relevant_nodes(m, t)
                                                        if n["band"][0] <= edges[1] and n["band"][1] >= edges[0])
             if nq and es:
-                k = es / nq   # S&P maps via ES, scaled by ES ÷ NQ
+                k = self.es_ratio(t)   # S&P maps via ES: NQ prices × ES ÷ NQ at the open (F0.11)
                 lo_es, hi_es = edges[0] * k, edges[1] * k
                 for m in SP:
                     if sky.board_at(m, t) >= 0 and not sky.blocked(m, t):
@@ -529,11 +592,11 @@ class SessionFeatures:
         cands = list(self.c.retest_candidates) + self._candidates()
         order = sorted(d for d in sessions if d <= self.day)
         keep_from = order[-lookback] if len(order) >= lookback else (order[0] if order else self.day)
-        cands = [x for x in cands if x.session >= keep_from]
+        cands = sl.dedupe_candidates([x for x in cands if x.session >= keep_from], int(f["retest_tol_ticks"]))
         eod = self.eod()
         return {"history": [asdict(r) for r in hist], "retested": [_retested_json(r) for r in retested],
-                "retest_candidates": [{"price": x.price, "type": x.type, "session": x.session.isoformat()}
-                                      for x in cands],
+                "retest_candidates": [{"price": x.price, "type": x.type, "session": x.session.isoformat(),
+                                       "cid": x.cid} for x in cands],
                 "yesterday_day_type": None if eod is None else eod["day_type"]}
 
     def _candidates(self) -> list:
@@ -543,7 +606,8 @@ class SessionFeatures:
             if x.key in sl.HIGHS_LOWS_TYPES:
                 b = x.band.at(int(x.band.start_ns))
                 if b is not None:
-                    out.append(sl.Candidate((b[0] + b[1]) / 2, x.sub_type, self.day))
+                    p = (b[0] + b[1]) / 2
+                    out.append(sl.Candidate(p, x.sub_type, self.day, f"{x.sub_type}-{self.day.isoformat()}-{p:g}"))
         return out
 
 
@@ -578,12 +642,39 @@ def _flat(d: dict[str, Any]) -> dict[str, Any]:
 
 def _retested_json(r) -> dict:
     return {"level_id": r.level_id, "price": r.price, "type": r.type, "session": r.session.isoformat(),
-            "created_ns": int(r.created_ns)}
+            "created_ns": int(r.created_ns), "source": r.source}
 
 
 def retested_from_json(d: dict):
     return sl.Retested(d["level_id"], float(d["price"]), d["type"], date.fromisoformat(d["session"]),
-                       int(d["created_ns"]))
+                       int(d["created_ns"]), d.get("source") or "")
+
+
+def _today_retests(cs) -> set:
+    """Record uids of retested extremes made today on this chart session, by any build of the session."""
+    s = getattr(cs, "_today_retests", None)
+    if s is None:
+        s = cs._today_retests = set()
+    return s
+
+
+def _retest_record(cs, r) -> str:
+    """The chart-session record of retested extreme `r` (made once per start time; another build of the session may
+    have made the same one), as its registry uid."""
+    start = max(int(r.created_ns), int(cs.start_ns))
+    recs = cs.levels.get(r.level_id, [])
+    k = next((k for k, x in enumerate(recs) if int(x.state.band.start_ns) == start), None)
+    if k is None:
+        cs._const(r.level_id, "retested_extreme", r.price, start, True)
+        k = len(cs.levels[r.level_id]) - 1
+    uid = r.level_id if k == 0 else f"{r.level_id}#{k}"
+    _today_retests(cs).add(uid)
+    return uid
+
+
+def _edges_of(levels: list, t: int) -> tuple[float, float] | None:
+    bs = [b for b in (x.band.at(t) for x in levels) if b is not None]
+    return None if not bs else (min(b[0] for b in bs), max(b[1] for b in bs))
 
 
 def _next_session(day: date, sessions: list) -> date | None:

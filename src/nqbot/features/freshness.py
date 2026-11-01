@@ -35,11 +35,16 @@ def level_freshness(touches: Iterable[TouchRecord], level_id: str, role: str, t:
             "minutes_since_last_test": None if last is None else (t - last) / MIN_NS}
 
 
-def zone_freshness(touches: list[TouchRecord], member_ids: list[str], role: str, zone_id: str, t: int) -> dict:
+def zone_freshness(touches: list[TouchRecord], member_ids: list[str], role: str, zone_id: str, t: int,
+                   zone_touches: list[TouchRecord] | None = None) -> dict:
+    """`zone_touches`: the records the zone's own count is taken from. A `zone_id` is unique within one session
+    only (F5.5: every session numbers its zones from z1), so a caller holding carried records of earlier sessions
+    passes today's records here; by default `touches` (all from one session)."""
     per = [level_freshness(touches, lid, role, t) for lid in member_ids]
-    out = {"zone_tests_so_far": sum(1 for x in touches if x.zone_id == zone_id and x.t_touch < t)}
+    own = touches if zone_touches is None else zone_touches
+    out = {"zone_tests_so_far": sum(1 for x in own if x.zone_id == zone_id and x.t_touch < t)}
     for k in ("tests_so_far", "holds_so_far", "pending_tests"):
         vals = [p[k] for p in per]
         out.update({f"{k}_min": min(vals, default=None), f"{k}_max": max(vals, default=None),
-                    f"{k}_mean": mean(vals) if vals else None})
+                    f"{k}_mean": float(mean(vals)) if vals else None})
     return out

@@ -47,7 +47,8 @@ def test_makeup_king_and_weekly_poc():
                                "reverse_rug": False, "in_pika_cloud_member": False, "velocity": 0.2,
                                "minutes_since_relevant": 30.0}}
     fake = SimpleNamespace(_node_info=lambda t: info, _sp_stacked=lambda m, t: 0,
-                           c=SimpleNamespace(cs_nq=SimpleNamespace(atr=100.0, em=SimpleNamespace(points=200.0))))
+                           c=SimpleNamespace(sky=object(),
+                                             cs_nq=SimpleNamespace(atr=100.0, em=SimpleNamespace(points=200.0))))
     out = SessionFeatures._makeup(fake, [king, poc], at(10, 0, 30))
     assert out["stack_count"] == 2 and out["king_present"] is True and out["gatekeeper_present"] is False
     assert out["n_qqq_node"] == 1 and out["n_poc_weekly"] == 1 and out["n_poc_daily"] == 0

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
-from datetime import time
+from datetime import time, timedelta
 
 import numpy as np
 import pytest
@@ -21,16 +21,21 @@ from nqbot.features import chart_levels as cl
 from nqbot.features import session_tape as st
 from nqbot.features.boards import MapBoards
 from nqbot.features.node_levels import Scale
+from nqbot.features.freshness import TouchRecord
 from nqbot.features.session_features import SessionContext, SessionFeatures
+from nqbot.features.session_levels import Candidate
 from nqbot.features.skylit_session import Context, SkylitSession
 from tests.test_chart_levels import DAY, carry_for, synthetic_tape
 
-F = load_features()
+# the synthetic day moves less than NQ: a 10-point hold reaction (config 20) gives held labels, so freshness,
+# day memory and retested extremes have something to count
+F = {**load_features(), "hold_reaction_pts": 10.0}
 S = load_settings()
 CAL = cal_mod.load()
 NS = st.NS
 OPEN = st.rth_open_ns(DAY)
 SCALE = 0.285
+PREV = DAY - timedelta(days=1)   # the session before the synthetic day
 
 
 def es_carry():
@@ -87,11 +92,27 @@ def gameplan(nq: st.Tape) -> dict:
                                                                {"id": "B", "prob": 0.4, "bias": "down"}]}]}
 
 
+CANDS: list = []   # retest candidates "from the previous session": fixed inputs, set once by base_data
+
+
 def base_data():
     rng = np.random.default_rng(11)
     nq = synthetic_tape(seed=4, every_sec=3.0)
     es = synthetic_tape(seed=5, every_sec=3.0, start=20_000.0 * SCALE, symbol="ESH6")
-    return nq, es, boards_for(nq, es, rng), gameplan(nq)
+    boards, gp = boards_for(nq, es, rng), gameplan(nq)
+    if not CANDS:
+        # prices of held touches spread over the day (overnight, the open, midday), so retested extremes are created
+        # at several times and the retest passes run; as constants they are known before the day like real candidates
+        sf0 = build(nq, es, boards, gp)
+        held = [e for e in sf0.events if sf0.labels[e.event_id].label == "held" and e.kind == "level"]
+        picks, used = [], set()
+        for t0 in (st.et_ns(DAY, time(2, 0)), OPEN, OPEN + 2 * 3600 * NS):
+            e = next((x for x in held if x.t >= t0 and round(x.price) not in used), None)
+            if e is not None:
+                used.add(round(e.price))
+                picks.append(e.price)
+        CANDS.extend(Candidate(float(p), "on_low", PREV, f"on_low-{PREV}-{k}") for k, p in enumerate(picks))
+    return nq, es, boards, gp
 
 
 def build(nq, es, boards, gp):
@@ -108,8 +129,16 @@ def build(nq, es, boards, gp):
                   scale=Scale(SCALE, SCALE, OPEN))
     es_levels = [r for recs in cs_es.levels.values() for r in recs]
     sky = SkylitSession(boards, nq, es, ctx, normals=cs_nq.normals, end_ns=st.cme_end_ns(DAY), es_levels=es_levels)
+    # carried from earlier sessions (known before the day): touch records of the multi-day levels, under a zone id
+    # today's book also uses (z1), and retest candidates at prices the overnight trades through (F3.8)
+    multi = sorted(lid for lid, recs in cs_nq.levels.items() if recs[0].multi_day)[:4]
+    day0 = OPEN - 86_400 * NS
+    history = [TouchRecord(day0 + k * 600 * NS, (lid,), "z1", "floor" if k % 2 else "ceiling",
+                           day0 + (k * 600 + 300) * NS, "held" if k % 3 else "broke") for k, lid in enumerate(multi)]
+    cands = list(CANDS)
     sc = SessionContext(DAY, f, s, CAL, cs_nq, cs_es, sky=sky, vol={"rv_iv_ratio": 0.9}, flags={"half_day": False},
-                        gameplan=gp, yesterday_day_type="range", sessions=[DAY])
+                        gameplan=gp, yesterday_day_type="range", sessions=[PREV, DAY], history=history,
+                        retest_candidates=cands)
     return SessionFeatures(sc).build()
 
 
@@ -193,6 +222,8 @@ def test_the_synthetic_day_exercises_the_engine(full):
     rows = sf.touch_rows()
     assert any(r["trinity_count"] is not None for r in rows) and any(r["es_at_level"] for r in rows)
     assert sum(r["tradeable"] for r in rows) > 0
+    assert sf.c.history and len(sf.retested_today) >= 2 and sf.passes >= 3,         "carried touch records and retested extremes created at several times are exercised"
+    assert any(r["tests_so_far_max"] for r in rows)
     late = [r for r in sf.daytype_rows() if r["t"] >= OPEN + 3 * 3600 * NS]
     assert late and all(r["vr_prior"] is not None and r["er_so_far"] is not None and r["er_120"] is not None
                         for r in late)
@@ -229,3 +260,64 @@ def test_labels_resolved_after_t_never_count(full):
         r = sf.row(e, e.t)
         done = [lb for eid, lb in sf.labels.items() if lb.t_resolved <= e.t and sf.by_id[eid].t < e.t]
         assert r["held_today"] == sum(1 for x in done if x.label == "held")
+
+
+def test_a_planted_lookahead_is_caught(full, monkeypatch):
+    """The test has teeth: day memory made to count every label, resolved by t or not, must fail it."""
+    nq, es, boards, gp, sf = full
+    orig = SessionFeatures._day_memory
+    monkeypatch.setattr(SessionFeatures, "_day_memory", lambda self, t, labs: orig(self, t, list(self.labels.values())))
+    t = TIMES[2]
+    want = snapshot(sf, t)
+    got = snapshot(build(cut_tape(nq, t, "changed"), cut_tape(es, t, "changed"),
+                         {m: cut_boards(mb, t, "changed") for m, mb in boards.items()}, gp), t)
+    with pytest.raises(AssertionError):
+        same(want, got)
+
+
+# --- an event's own touch and label never reach its own features (owner 2026-11-01, SPEC §13 Q-step11g (2)) ---------
+
+def _decision_times(sf, e):
+    lab = sf.labels[e.event_id]
+    ts = [e.t, e.t + NS, lab.t_resolved, lab.t_resolved + 60 * NS, e.t + 45 * 60 * NS, sf.end_ns - NS]
+    return sorted({t for t in ts if e.t <= t < sf.end_ns})
+
+
+def test_own_label_never_reaches_own_features(full):
+    """Every event's rows at its touch and at later decision times (after its own label resolved too) are unchanged
+    when its own label (outcome, resolution time, run) is replaced."""
+    *_, sf = full
+    events = sf.events
+    assert any(sf.labels[e.event_id].t_resolved < sf.end_ns - NS for e in events)
+    for k, e in enumerate(events):
+        times = _decision_times(sf, e)
+        want = [sf.row(e, t) for t in times]
+        lab, rec = sf.labels[e.event_id], sf.records[k]
+        other = "broke" if lab.label == "held" else "held"
+        sf.labels[e.event_id] = replace(lab, label=other, t_resolved=e.t + 1, run_pts=lab.run_pts + 7.0)
+        sf.records[k] = replace(rec, label=other, t_resolved=e.t + 1)
+        try:
+            same(want, [sf.row(e, t) for t in times], f"{e.event_id}")
+        finally:
+            sf.labels[e.event_id], sf.records[k] = lab, rec
+
+
+def test_own_retested_extreme_never_reaches_own_features(full):
+    """A retested extreme made by an event's own held label (F3.8): that event's rows are the same as in a build
+    where the level is never made."""
+    nq, es, boards, gp, sf = full
+    sources = {r.source for r in sf.retested_today if r.source in sf.by_id}
+    assert sources, "the synthetic day makes a retested extreme from a held touch"
+    for src in sorted(sources):
+        orig = SessionFeatures._new_retests
+
+        def without(self, src=src):
+            return [r for r in orig(self) if r.source != src]
+        SessionFeatures._new_retests = without
+        try:
+            alt = build(nq, es, boards, gp)
+        finally:
+            SessionFeatures._new_retests = orig
+        e = sf.by_id[src]
+        times = _decision_times(sf, e)
+        same([sf.row(e, t) for t in times], [alt.row(alt.by_id[src], t) for t in times], src)

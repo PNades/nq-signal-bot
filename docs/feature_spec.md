@@ -506,7 +506,7 @@ Coarse and few; inputs of the structure model and the pair scorer:
 
 ### F3.8 Retested extremes
 - *Definition (per §5.3; candidates per FQ-13, owner 2026-10-05: the registry's session highs/lows — ON, PDH/PDL, prior RTH, prior week, IB high/low — of the last `retest_lookback_sessions` sessions):* a candidate extreme E from the last `retest_lookback_sessions` sessions (on the candidate list) becomes a `retested_extreme` level once a later touch came within `retest_tol_ticks` of E **and** that touch's structure label was *held* (resolved ≤ t). It is sweep-eligible; it is crossed and flipped like other highs/lows (F3.9, F2.6). It ends `retest_lookback_sessions` sessions after E's own session (owner 2026-10-31, SPEC §13 Q-step11b (1): crossed or not, like the other highs/lows, consistent with the post-cross retests of Q-flipretest; replaces FQ-22's "crossed and not flipped back, whichever comes first"). Only retests in sessions after E's own session count (FQ-22): that day E is already a registry level.
-- *Known at:* the resolution time of the held touch.
+- *Known at:* the resolution time of the held touch. Built (2026-11-01, SPEC §13 Q-step11g): a retested extreme changes what happens after its creation, so the session is rebuilt accepting only the earliest new retest(s) each time, until none is new: the same levels one pass in time order (live) creates. One retested extreme per price (owner 2026-11-01, SPEC §13 Q-step11g (1)): candidates within `retest_tol_ticks` of each other are one extreme, the most recent session's kept (its age runs from it); none is made within `retest_tol_ticks` of a high/low level or retested extreme that exists at its creation.
 - *Params:* `retest_tol_ticks`, `retest_lookback_sessions`.
 - *Test:* a prior ON low of 100, a touch at 100.75 (3 ticks, within `retest_tol_ticks` 4) that resolves held → a `retested_extreme` level from that resolution time; a touch at 101.5 (6 ticks) → none.
 
@@ -688,9 +688,10 @@ The golden zone (F10) and gameplan zones (F8) never merge. Levels whose bands ov
   - `minutes_since_last_test`.
 - Zone features: min, max and mean over members, plus the zone's own test count (by `zone_id`).
 - *Test:* touch 1 at 10:00 resolves held at 10:20. At a touch at 10:10, `holds_so_far` = 0 and `pending_tests` = 1.
+- At a pair's later `decision_ts` (owner 2026-11-01, SPEC §13 Q-step11g (2)): only the touches before the event's own touch count (their labels if resolved by t); never the event's own touch or label, nor a retested extreme its own held label made.
 
 ### F5.12 Day memory
-At t, among today's events whose structure labels resolved ≤ t: `held_today`, `broke_today`, `timeout_today` and the held rate. Also `yesterday_day_type`, the previous session's EOD day-type label (F11.6).
+At t, among today's events touched before the event's own touch (owner 2026-11-01, SPEC §13 Q-step11g (2): never the event's own label, also at a later `decision_ts`) whose structure labels resolved ≤ t: `held_today`, `broke_today`, `timeout_today` and the held rate. Also `yesterday_day_type`, the previous session's EOD day-type label (F11.6).
 
 ### F5.13 Confluence and proximity features (zone makeup)
 Computed as of the touch for events and as of `decision_ts` for pairs:

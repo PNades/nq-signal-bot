@@ -445,14 +445,19 @@ def fold_session(carry: CarryState, tape: Tape, features: dict, cal: dict | None
     if r5 is not None:   # Q-er vr_prior: a full session (no early close) the damage rule didn't drop
         from nqbot.features.rvol import is_full_session
         carry.rth5 = (carry.rth5 + [{"day": d.isoformat(), "full": bool(is_full_session(d, cal) and not dropped),
-                                     "r": r5}])[-RTH5_KEEP:]
+                                     "r": r5}])[-rth5_keep(features):]
     if dropped:
         carry.drop_handed_levels()
     carry.session = d.isoformat()
     carry.contract = tape.symbol
 
 
-RTH5_KEEP = 20   # sessions of RTH 5-minute returns kept (>= vr_sessions + half days and dropped sessions)
+RTH5_KEEP = 20   # sessions of RTH 5-minute returns kept at least (room for half days and dropped sessions)
+
+
+def rth5_keep(features: dict) -> int:
+    """Sessions of RTH 5-minute returns kept: enough for `vr_sessions` full ones (twice it, at least RTH5_KEEP)."""
+    return max(RTH5_KEEP, 2 * int(features.get("vr_sessions", 0)))
 
 
 def rth_returns(tape: Tape, features: dict, cal: dict | None) -> list[float] | None:

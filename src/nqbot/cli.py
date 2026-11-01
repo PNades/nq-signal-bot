@@ -820,9 +820,10 @@ def _run_step11(args: argparse.Namespace, settings, paths, log) -> int:
         elif args.check == "build-day":
             from nqbot.checks import feature_build as fb
             from nqbot.checks import session_build as sb
+            from nqbot.features.session_features import NotWired
             try:
                 fb.build_day_smoke(env, args.date, full_warmup=args.full_warmup)
-            except (fb.BuildRefused, sb.Refused) as e:
+            except (fb.BuildRefused, sb.Refused, NotWired) as e:
                 print(f"refused: {e}", file=sys.stderr)
                 return EXIT_REFUSED
     except (LedgerMissing, NotDevelopmentMonth, step11.Refused, step11.cl.RollSpreadMissing,
@@ -853,6 +854,7 @@ def _run_features(args: argparse.Namespace, settings, paths, log) -> int:
     from nqbot.checks.step8b import CheckRefused, Env
     from nqbot.config import load_features
     from nqbot.features.chart_levels import RollSpreadMissing
+    from nqbot.features.session_features import NotWired
     from nqbot.months import LedgerMissing
 
     env = Env(settings=settings, features=load_features(), paths=paths, log=log, cal=cal_mod.load())
@@ -863,7 +865,7 @@ def _run_features(args: argparse.Namespace, settings, paths, log) -> int:
         if args.action == "build-warmup":
             return fb.build_warmup_cmd(env)
         return fb.build_day_cmd(env, args.date, args.pass_no)
-    except (fb.BuildRefused, sb.Refused, LedgerMissing, RollSpreadMissing, CheckRefused) as e:
+    except (fb.BuildRefused, sb.Refused, NotWired, LedgerMissing, RollSpreadMissing, CheckRefused) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
 

@@ -54,6 +54,7 @@ class Candidate:
     price: float
     type: str
     session: date
+    cid: str = ""      # identity fixed when the candidate is made (its price then); a roll shifts the price, not this
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,7 @@ class Retested:
     type: str          # the candidate's own type
     session: date      # E's own session
     created_ns: int    # the held touch's resolution time
+    source: str = ""   # the event whose held label created it (its own rows never see it, Q-step11g (2))
 
 
 def retests_from_touches(candidates: list[Candidate], touches: list[dict[str, Any]], today: date,
@@ -79,11 +81,28 @@ def retests_from_touches(candidates: list[Candidate], touches: list[dict[str, An
             if c.session >= today or (today in pos and c.session in pos and pos[today] - pos[c.session] > lookback):
                 continue
             if abs(t["price"] - c.price) <= tol_ticks * TICK + 1e-9:
-                lid = f"retested_extreme-{c.type}-{c.session.isoformat()}-{c.price:g}"
+                lid = (f"retested_extreme-{c.cid}" if c.cid else
+                       f"retested_extreme-{c.type}-{c.session.isoformat()}-{c.price:g}")
                 if lid not in seen:
                     seen.add(lid)
-                    out.append(Retested(lid, c.price, c.type, c.session, int(t["t_resolved"])))
+                    out.append(Retested(lid, c.price, c.type, c.session, int(t["t_resolved"]),
+                                        str(t.get("event_id") or "")))
     return out
+
+
+def within_tol(a: float, b: float, tol_ticks: int) -> bool:
+    return abs(a - b) <= tol_ticks * TICK + 1e-9
+
+
+def dedupe_candidates(candidates: list[Candidate], tol_ticks: int) -> list[Candidate]:
+    """One candidate per price (owner 2026-11-01, SPEC §13 Q-step11g (1)): candidates within `retest_tol_ticks` of
+    each other are one extreme, and the most recent session's occurrence is kept (its age limit runs from the latest
+    session); taken newest first, a candidate within the tolerance of one already kept is dropped."""
+    kept: list[Candidate] = []
+    for c in sorted(candidates, key=lambda x: (-x.session.toordinal(), x.type, x.price)):
+        if not any(within_tol(c.price, k.price, tol_ticks) for k in kept):
+            kept.append(c)
+    return sorted(kept, key=lambda x: (x.session, x.type, x.price))
 
 
 def expired(level: Retested, today: date, sessions: list[date], lookback: int) -> bool:

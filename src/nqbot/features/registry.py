@@ -92,6 +92,12 @@ def active_spans(state: ls.LevelState, band: Any, end_ns: int) -> list[tuple[int
         if nan.any():
             ch = np.flatnonzero(np.r_[True, nan[1:] != nan[:-1]])
             times.update(int(band.times[k]) for k in ch if start <= band.times[k] < stop)
+    elif isinstance(band, TradeBand):   # a moving line (VWAP) exists from its first trade, not at its anchor instant
+        fin = np.isfinite(band.center)
+        if len(fin):
+            ch = np.flatnonzero(np.r_[True, fin[1:] != fin[:-1]])
+            ts = band.tape.ts
+            times.update(int(ts[k]) for k in ch if start <= ts[k] < stop)
     spans: list[list[int]] = []
     for t in sorted(times):
         on = band.at(t) is not None and is_active(state.state_at(t))

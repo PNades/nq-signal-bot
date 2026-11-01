@@ -46,7 +46,7 @@ from nqbot.storage import atomic_write_bytes, atomic_write_json, atomic_write_te
 JOB = "feature_build"
 BUILD_VERSION = 1        # bump when the build's code changes its outputs without a config change
 PEAK_TAG = "CHILD_PEAK_GB"
-EST_PEAK_GB = 4.0        # assumed per-session peak before one is measured (3.24 GB on 2026-03-20, part 2)
+EST_PEAK_GB = 4.5        # assumed per-session peak before one is measured (4.29 GB, `step11 build-day 2026-03-20`)
 MIN_FREE_GB_EXTRA = 4.0  # headroom kept free besides the children (as runner.RAM_RESERVE_GB)
 DEV_MONTHS = months_mod.DEVELOPMENT
 LOCAL_SETTING_KEYS = {"paths", "max_workers", "max_fold_mem_gb", "low_memory", "rclone_path", "test_parallel"}
@@ -79,8 +79,14 @@ def state_file(env: Env, key: str, day: date) -> Path:
     return out_dir(env, key) / "state" / f"state_{day.isoformat()}.json"
 
 
-def warmup_file(env: Env, key: str) -> Path:
-    return out_dir(env, key) / "state" / "state_warmup.json"
+def warmup_file(env: Env, key: str, first: date) -> Path:
+    """The full warm-up's state before the plan's first session (named by that session: a plan starting elsewhere
+    needs its own)."""
+    return out_dir(env, key) / "state" / f"state_warmup_{first.isoformat()}.json"
+
+
+def log_file(env: Env, key: str, name: str) -> Path:
+    return out_dir(env, key) / "logs" / f"{name}.txt"
 
 
 def summary_file(env: Env, key: str, day: date) -> Path:
@@ -103,6 +109,13 @@ def parse_months(text: str) -> list[int]:
 def make_plan(env: Env, months: list[int], batch: int | None = None) -> dict[str, Any]:
     from nqbot.jobs.runner import record_plan
 
+    if months != list(range(min(months), max(months) + 1)):
+        # each session starts from the previous session's state: a gap would chain across it
+        raise BuildRefused(f"ledger months {months} are not consecutive: the build chains each session's state "
+                           "into the next, so plan one consecutive range (e.g. 1-12)")
+    if env.features.get("dp_in_model"):
+        raise BuildRefused("dp_in_model is true: dark-pool levels are not wired into the zones yet (owner 2026-11-01, "
+                           "SPEC §13 Q-step11f: added and tested at the retrain that turns them on)")
     cal = env.cal
     pl = sb.plan(env)
     planned = sb.planned_sessions(pl, cal)
@@ -175,15 +188,19 @@ def build_day_cmd(env: Env, day: date, pass_no: int) -> int:
     damage = sb.load_damage(env)
     k = days.index(day)
     if k == 0:
-        wf = warmup_file(env, key)
-        if not wf.exists():
-            raise BuildRefused(f"{day}: the warm-up state {wf.name} is missing (chunk p0 runs first)")
-        state = sb.DayState.from_json(json.loads(wf.read_text(encoding="utf-8")))
+        src = warmup_file(env, key, day)
+        if not src.exists():
+            raise BuildRefused(f"{day}: the warm-up state {src.name} is missing (chunk p0 runs first)")
     else:
-        prev = state_file(env, key, days[k - 1])
-        if not prev.exists():
-            raise BuildRefused(f"{day}: the previous session's state {prev.name} is missing (pass 1 runs in order)")
-        state = sb.DayState.from_json(json.loads(prev.read_text(encoding="utf-8")))
+        src = state_file(env, key, days[k - 1])
+        if not src.exists():
+            raise BuildRefused(f"{day}: the previous session's state {src.name} is missing (pass 1 runs in order)")
+    state = sb.DayState.from_json(json.loads(src.read_text(encoding="utf-8")))
+    before = [d for d in planned if d < day]
+    want_prev = before[-1].isoformat() if before else None
+    if state.day != want_prev:
+        raise BuildRefused(f"{day}: {src.name} is the state after {state.day}, not after the planned session before "
+                           f"it ({want_prev})")
     built = sb.build_day(env, day, state, pl, planned, damage)
     t_build = _time.monotonic() - t0
     sf = built.sf
@@ -229,17 +246,22 @@ def build_warmup_cmd(env: Env) -> int:
     planned = sb.planned_sessions(pl, env.cal)
     t0 = _time.monotonic()
     state = sb.warmup_state(env, pl, planned, first, sb.load_damage(env), full=True)
-    atomic_write_json(warmup_file(env, doc["key"]), state.to_json())
+    atomic_write_json(warmup_file(env, doc["key"], first), state.to_json())
     env.echo(f"warm-up before {first}: state after {state.day} ({_time.monotonic() - t0:.0f} s)")
     return 0
 
 
 def write_rows(path: Path, rows: list[dict], meta: dict) -> None:
-    """zstd parquet, written atomically; floats as float32 (§11 Low memory: features are float32)."""
-    table = pa.Table.from_pylist(rows) if rows else pa.table({})
+    """zstd parquet, written atomically; numbers as float32 except the time columns (§11 Low memory: features are
+    float32); a column missing from some rows is null there."""
+    keys: dict[str, None] = {}
+    for r in rows:   # every column any row has (rows differ: golden-only, after-the-open, Skylit keys), first-seen order
+        keys.update(dict.fromkeys(r))
+    table = pa.Table.from_pylist([{k: r.get(k) for k in keys} for r in rows]) if rows else pa.table({})
     cols = []
     for name, col in zip(table.column_names, table.columns):
-        if pa.types.is_floating(col.type) and name not in ID_COLS:
+        # numbers as float32, counts too: an integer column one day and a float one the next would not concatenate
+        if (pa.types.is_floating(col.type) or pa.types.is_integer(col.type)) and name not in ID_COLS:
             col = col.cast(pa.float32())
         cols.append(col)
     if rows:
@@ -257,16 +279,25 @@ def read_rows(paths: list[Path]) -> pa.Table:
     tables = [t for t in tables if t.num_columns]
     if not tables:
         return pa.table({})
-    return pa.concat_tables([t.replace_schema_metadata(None) for t in tables], promote_options="default")
+    return pa.concat_tables([t.replace_schema_metadata(None) for t in tables], promote_options="permissive")
 
 
 # --- the job --------------------------------------------------------------------------------------------------
 
-def _child(argv: list[str]) -> subprocess.Popen:
+def _child(argv: list[str], log: Path) -> subprocess.Popen:
+    """One session in its own process; its whole output goes to `log` (a file, not a pipe: several children run at
+    once and a full pipe buffer would stall one until it is read)."""
     code = ("import sys, psutil; from nqbot.cli import main; rc = main(sys.argv[1:]); i = psutil.Process().memory_info(); "
-            f"print('{PEAK_TAG}', getattr(i, 'peak_wset', 0) / 2**30 or i.rss / 2**30); sys.exit(rc)")
-    return subprocess.Popen([sys.executable, "-c", code, *argv], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            text=True)
+            f"print('{PEAK_TAG}', getattr(i, 'peak_wset', 0) / 2**30 or i.rss / 2**30, flush=True); sys.exit(rc)")
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with open(log, "w", encoding="utf-8") as fh:   # the child keeps its own handle; ours closes at once
+        return subprocess.Popen([sys.executable, "-c", code, *argv], stdout=fh, stderr=subprocess.STDOUT,
+                                env={**os.environ, "PYTHONUTF8": "1"})
+
+
+def _wait(p: subprocess.Popen, log: Path) -> str:
+    p.wait()
+    return log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
 
 
 def _peak(stdout: str) -> float | None:
@@ -304,13 +335,17 @@ class FeatureBuildJob:
         kind, which, key = chunk_id.split(":")
         days = [date.fromisoformat(x) for x in doc["sessions"]]
         if kind == "p0":
-            if warmup_file(env, key).exists():
+            if warmup_file(env, key, days[0]).exists():
                 return None
-            proc = _child(["features", "build-warmup"])
-            out, err = proc.communicate()
+            mb = free_mb()
+            if mb is not None and mb < (EST_PEAK_GB + MIN_FREE_GB_EXTRA) * 1024:
+                raise StopChunk(f"{mb} MB free before the warm-up")
+            log = log_file(env, key, "warmup")
+            proc = _child(["features", "build-warmup"], log)
+            out = _wait(proc, log)
             if proc.returncode != 0:
-                ctx.log.error("%s: warm-up failed (exit %s): %s", JOB, proc.returncode, (err or out or "")[-600:])
-                raise StopChunk(f"the warm-up failed (exit {proc.returncode}; see the log)", status="failures")
+                ctx.log.error("%s: warm-up failed (exit %s), log %s: %s", JOB, proc.returncode, log, out[-600:])
+                raise StopChunk(f"the warm-up failed (exit {proc.returncode}; log {log})", status="failures")
             ctx.log.info("%s: warm-up done, process peak %s GB", JOB, _peak(out))
             return {"peak_gb": _peak(out)}
         if kind == "p1":
@@ -324,7 +359,7 @@ class FeatureBuildJob:
             return {"peak_gb": peak}
         n = int(doc["batch"])
         k = int(which)
-        done = lambda d: (out_dir(env, key) / "touches" / f"{d.isoformat()}.parquet").exists()
+        done = lambda d: pass2_done(env, key, d)
         peak = None
         while True:
             todo = [d for d in days[k * n:(k + 1) * n] if not done(d)]
@@ -347,28 +382,45 @@ class FeatureBuildJob:
     def _run(self, days: list[date], pass_no: int, ctx) -> float | None:
         from nqbot.jobs.runner import StopChunk
 
-        procs = [(d, _child(["features", "build-day", d.isoformat(), "--pass", str(pass_no)])) for d in days]
+        env = self._env(ctx)
+        key = load_plan(env)["key"]
+        procs = []
+        for d in days:
+            log = log_file(env, key, f"{d.isoformat()}_p{pass_no}")
+            procs.append((d, log, _child(["features", "build-day", d.isoformat(), "--pass", str(pass_no)], log)))
         peaks, failed = [], []
-        for d, p in procs:
-            out, err = p.communicate()
+        for d, log, p in procs:
+            out = _wait(p, log)
             pk = _peak(out)
             if pk is not None:
                 peaks.append(pk)
             if p.returncode != 0:
-                failed.append((d, p.returncode, (err or out or "")[-600:]))
+                failed.append((d, p.returncode, log, out[-600:]))
             else:
                 ctx.log.info("%s: %s pass %d done, process peak %s GB", JOB, d, pass_no, pk)
         if failed:
-            for d, rc, msg in failed:
-                ctx.log.error("%s: %s pass %d failed (exit %s): %s", JOB, d, pass_no, rc, msg)
+            for d, rc, log, msg in failed:
+                ctx.log.error("%s: %s pass %d failed (exit %s), log %s: %s", JOB, d, pass_no, rc, log, msg)
             raise StopChunk(f"{len(failed)} session(s) failed in pass {pass_no}: "
-                            f"{', '.join(str(d) for d, _, _ in failed)} (see the log)", status="failures")
+                            f"{', '.join(str(d) for d, *_ in failed)} (see the log)", status="failures")
         return max(peaks) if peaks else None
 
     def at_end(self, ctx) -> None:
         env = self._env(ctx)
         path = write_report(env, load_plan(env))
         ctx.log.info("%s: report %s", JOB, path)
+
+
+def pass2_done(env: Env, key: str, day: date) -> bool:
+    """Pass 2 wrote every file of `day`: the summary's pass-2 entry is written last, after the three parquet files
+    (a run stopped in between leaves no entry, so the session is built again)."""
+    s = summary_file(env, key, day)
+    if not s.exists():
+        return False
+    try:
+        return "pass2" in json.loads(s.read_text(encoding="utf-8"))
+    except ValueError:
+        return False
 
 
 def _measured_peak(env: Env, key: str) -> float | None:
