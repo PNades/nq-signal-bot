@@ -786,6 +786,11 @@ def _add_step11(sub: argparse._SubParsersAction) -> None:
     p = s11.add_parser("chart-day", help="smoke-run the chart-level engine on one development day (report only)")
     p.add_argument("date", type=_date, help="a development-month session (YYYY-MM-DD)")
     s11.add_parser("roll-report", help="F9.10 roll report: rvol_today / vol_tod_60 around each NQ roll, months 1-6")
+    p = s11.add_parser("skylit-day", help="smoke-run the Skylit / cross-market engine on one development day (report "
+                                          "only)")
+    p.add_argument("date", type=_date, help="a development-month session (YYYY-MM-DD)")
+    s11.add_parser("nodetype-check", help="F2.2 / F2.5: Skylit's nodeType vs the bot's King / Gatekeeper on the "
+                                          "stored step-7 instants (report only)")
 
 
 def _run_step11(args: argparse.Namespace, settings, paths, log) -> int:
@@ -801,7 +806,12 @@ def _run_step11(args: argparse.Namespace, settings, paths, log) -> int:
             step11.chart_day(env, args.date)
         elif args.check == "roll-report":
             step11.roll_report(env)
-    except (LedgerMissing, NotDevelopmentMonth, step11.Refused, step11.cl.RollSpreadMissing) as e:
+        elif args.check == "skylit-day":
+            step11.skylit_day(env, args.date)
+        elif args.check == "nodetype-check":
+            return step11.nodetype_check(env)
+    except (LedgerMissing, NotDevelopmentMonth, step11.Refused, step11.cl.RollSpreadMissing,
+            step11.BoardsRefused) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
     return 0

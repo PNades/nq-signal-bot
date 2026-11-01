@@ -36,6 +36,13 @@ They are reported only while the level is in a post-cross role (provisional or f
 
 The whole session runs in one causal pass; `at(t)` reads the last snapshot <= t and rolls the accumulators forward
 over the trades in between (no transition happens between snapshots by construction).
+
+Freezes (step 11 part 2, owner 2026-10-31; F2.1, F2.4): a GEX node that is not relevant, or missing from a board, keeps
+its state: inside a freeze span no trade, bar close or accumulator changes anything, and at its end nothing is judged
+(unlike a dislocation block's end): the machine carries on from the next trade. The open beyond-stretch is closed at the
+freeze start, so `xb_sec_beyond` does not grow while frozen; a 1-minute or flip bar that formed partly while frozen is
+not judged (owner 2026-10-31, Q-step11d (11)). `node_series` (board apply times, pct_of_king, sign) gives
+the two node-only cross features (F2.6b `xb_node_pctking_chg`, `xb_node_sign_flipped`), from boards applied <= t.
 """
 
 from __future__ import annotations
@@ -118,6 +125,9 @@ class State:
     unresolved: dict | None = None     # sweep kind: {'d', 't0', 'minute0', 'acc'}
     last_sweep: dict | None = None     # {'t', 'depth', 'sec'}
     in_block: bool = False
+    frozen: bool = False               # not relevant / missing from the board (F2.4): nothing changes
+    x_pct: float | None = None         # pct_of_king at the cross (node_series)
+    x_sign: float | None = None        # node sign at the cross (node_series)
     pending_natural: bool = False      # the natural role waits for the first known price (Q-step11c (1))
 
     def copy(self) -> State:
@@ -147,6 +157,8 @@ class LevelState:
                                         # otherwise step 1's approach rule
     params_from: list = field(default_factory=list)  # [(t_ns, Params)]: params in force from t (ES levels before the
                                                      # open use the previous session's ES/NQ ratio, F0.11)
+    freezes: list = field(default_factory=list)  # [(start_ns, end_ns)]: the state is frozen inside (F2.1, F2.4)
+    node_series: Any = None             # (t_ns array, pct_of_king array, sign array) per applied board, or None
     events: list = field(default_factory=list)   # (t_ns, name) transitions, for reports and tests
     _snaps_t: list = field(default_factory=list)
     _snaps: list = field(default_factory=list)
@@ -168,7 +180,7 @@ class LevelState:
         tape = self.tape
         start = int(self.band.start_ns)
         end = self.end_ns if self.end_ns is not None else (int(tape.ts[-1]) + 1 if len(tape) else start)
-        s = State(in_block=self._blocked(start))
+        s = State(in_block=self._blocked(start), frozen=self._frozen(start))
         if self.initial_role is not None:
             s.role = s.orig_role = self.initial_role
             s.armed = True
@@ -181,13 +193,16 @@ class LevelState:
         i = tape.idx_before(start)
         self._snap(start, i, s)
         cuts = sorted({b for blk in self.blocks for b in blk if start < b < end})
+        fcuts = {b for fz in self.freezes for b in fz if start < b < end}
         m = start - start % MIN_NS + MIN_NS
-        boundaries = sorted(set(range(m, end, MIN_NS)) | set(cuts) | {end})
+        boundaries = sorted(set(range(m, end, MIN_NS)) | set(cuts) | fcuts | {end})
         for b in boundaries:
             j = tape.idx_before(b)
             if self.params_from:
                 self._set_params(int(tape.ts[i]) if j > i else b - 1)
             i = self._trades(s, i, j)
+            if b in fcuts:
+                self._freeze_edge(s, b, i)
             if b in cuts:
                 self._block_edge(s, b, i)
             if b % MIN_NS == 0:
@@ -199,6 +214,13 @@ class LevelState:
 
     def _blocked(self, t: int) -> bool:
         return self.kind == NODE and any(a <= t < z for a, z in self.blocks)
+
+    def _frozen(self, t: int) -> bool:
+        return any(a <= t < z for a, z in self.freezes)
+
+    def _frozen_during(self, a: int, b: int) -> bool:
+        """Any freeze overlapping [a, b): a bar that formed partly while frozen is not judged (Q-step11d (11))."""
+        return any(fa < b and fz > a for fa, fz in self.freezes)
 
     def _snap(self, t: int, i: int, s: State) -> None:
         self._snaps_t.append(t)
@@ -220,7 +242,7 @@ class LevelState:
 
     def _trades(self, s: State, i: int, j: int) -> int:
         """Process trades [i, j); returns j. Inside a dislocation block nothing changes (F2.6 step 6)."""
-        if j <= i or s.in_block:
+        if j <= i or s.in_block or s.frozen:
             return j
         if s.pending_natural:
             lo0, hi0 = self.band.at_trades(i, i + 1)
@@ -330,6 +352,7 @@ class LevelState:
         s.role = opposite(s.role)
         s.crossed, s.broken_back, s.prov_armed, s.armed, s.reclaimed = True, False, False, False, False
         s.cross_count += 1
+        s.x_pct, s.x_sign = self._node_at(t)
         s.t_cross, s.unresolved = t, None
         last = None if at_trade else self.tape.last_price_at(t)
         b = self.band.at(t)
@@ -370,9 +393,11 @@ class LevelState:
         return beyond(bars.open[k], *b0, d) > margin and beyond(bars.close[k], *b1, d) > margin
 
     def _bar_close(self, s: State, t: int) -> None:
-        if s.in_block:
+        if s.in_block or s.frozen:
             return
         k = self._bar_ending(self.bars_1m, t)
+        if k is not None and self.freezes and self._frozen_during(t - self.bars_1m.length_ns, t):
+            k = None
         i = self.tape.idx_before(t)
         if k is not None:
             if s.episode is not None and t > s.t_cross and self._settled(self.bars_1m, k, s.episode.d, 0.0):
@@ -396,6 +421,8 @@ class LevelState:
         if self.kind == SWEEP and s.unresolved is not None:
             self._sweep_close(s, t, k, i)
         kf = self._bar_ending(self.bars_flip, t)
+        if kf is not None and self.freezes and self._frozen_during(t - self.bars_flip.length_ns, t):
+            kf = None
         if kf is not None and s.episode is not None and t > s.t_cross:   # bars closing after the cross
             m = self.params.flip_margin
             if self._settled(self.bars_flip, kf, s.episode.d, m):
@@ -448,12 +475,47 @@ class LevelState:
         k = int(np.searchsorted(bars.start, t - bars.length_ns))
         return k if k < len(bars) and int(bars.start[k]) == t - bars.length_ns else None
 
+    # --- freezes -----------------------------------------------------------------------------------------------
+    def _freeze_edge(self, s: State, b: int, i: int) -> None:
+        now = self._frozen(b)
+        if now == s.frozen:
+            return
+        accs = [a for a in (s.episode, s.unresolved["acc"] if s.unresolved else None) if a is not None]
+        if now:   # freezing: close the open beyond-stretch at b (nothing accumulates while frozen)
+            for acc in accs:
+                if acc.last_beyond and b > acc.last_ts:
+                    acc.sec += (b - acc.last_ts) / NS
+                    if self.normals is not None:
+                        acc.normal_rth += float(self.normals.between(np.array([acc.last_ts]), np.array([b])).sum())
+                acc.last_ts, acc.last_beyond = b, False
+            s.frozen = True
+            return
+        s.frozen = False   # unfreezing: no transition is judged; the stretch restarts from b
+        last, band = self.tape.last_price_at(b), self.band.at(b)
+        for acc in accs:
+            acc.last_ts = b
+            acc.last_beyond = bool(last is not None and band is not None and beyond(last, *band, acc.d) > 0)
+
+    def _node_at(self, t: int) -> tuple[float | None, float | None]:
+        """pct_of_king and sign of the node from the last board applied <= t (node_series), or (None, None)."""
+        if self.node_series is None:
+            return None, None
+        ts, pct, sign = self.node_series
+        k = int(np.searchsorted(ts, t, side="right")) - 1
+        if k < 0 or not np.isfinite(pct[k]):
+            return None, None
+        return float(pct[k]), float(sign[k])
+
     # --- blocks (node kind) ------------------------------------------------------------------------------------
     def _block_edge(self, s: State, b: int, i: int) -> None:
         starting = any(a == b for a, _ in self.blocks)
         ending = any(z == b for _, z in self.blocks)
         if ending and not any(a <= b < z for a, z in self.blocks):
             s.in_block = False
+            if s.frozen:   # a node that is not relevant at the block end is not judged (F2.4)
+                if starting:
+                    s.in_block = True
+                return
             last, band = self.tape.last_price_at(b), self.band.at(b)
             if last is not None and band is not None and s.role is not None:
                 p, lo, hi = np.array([last]), np.array([band[0]]), np.array([band[1]])
@@ -478,7 +540,7 @@ class LevelState:
         i, snap = self._snaps[k]
         s = snap.copy()
         j = self.tape.idx_at(t_ns)
-        if j > i and not s.in_block:
+        if j > i and not s.in_block and not s.frozen:
             lo, hi = self.band.at_trades(i, j)
             self._accumulate(s, i, j, lo, hi)
         return s
@@ -516,6 +578,11 @@ class LevelState:
                        xb_delta_rel=a.delta_rth / normal if self.normals is not None and normal > 0 else None)
             out["xb_depth_atr"] = a.depth / atr if atr else None
             out["xb_depth_em"] = a.depth / em if em else None
+            if self.node_series is not None and s.x_pct is not None:
+                pct, sign = self._node_at(t_ns)
+                if pct is not None:
+                    out["xb_node_pctking_chg"] = pct - s.x_pct
+                    out["xb_node_sign_flipped"] = bool(sign != s.x_sign)
         return out
 
 

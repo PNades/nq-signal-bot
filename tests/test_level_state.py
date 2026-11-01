@@ -295,3 +295,74 @@ def test_resume_needs_the_same_confirmation():
     assert ev_time(lv, "resume") == [at(310)]
     node = make(ls.NODE, [(0, 89), (10, 101.25), (20, 99.75), (30, 101.25)], 100, 101)   # nodes: unchanged
     assert [n for _, n in node.events] == ["role_ceiling", "cross", "cross_back", "resume"]
+
+
+# --- freezes and node_series (step 11 part 2, owner 2026-10-31; F2.1, F2.4, F2.6b) -------------------------------
+
+def make_frozen(trades, lo, hi, freezes=(), node_series=None, blocks=(), kind=ls.NODE):
+    secs = [x[0] for x in trades]
+    tape = st.Tape.from_arrays(DAY, [at(x) for x in secs], [x[1] for x in trades])
+    band = StepBand.const(tape, T0 - 60 * NS, lo, hi)
+    lv = ls.LevelState("N", kind, tape, band, P, st.bars(tape, 1), st.bars(tape, 5), blocks=list(blocks),
+                       freezes=[(at(a), at(b)) for a, b in freezes], node_series=node_series,
+                       end_ns=at(secs[-1]) + 600 * NS)
+    return lv.run()
+
+
+def test_freeze_trades_inside_change_nothing():
+    # a ceiling [100, 101]; frozen 20-40 s (not relevant): the trade at 30 beyond the band is not a cross
+    lv = make_frozen([(0, 89), (30, 101.5), (50, 100.5)], 100, 101, freezes=[(20, 40)])
+    assert names(lv) == ["role_ceiling"]
+    assert not lv.at(at(60))["crossed"]
+    # without the freeze it is a cross
+    assert "cross" in names(make_frozen([(0, 89), (30, 101.5), (50, 100.5)], 100, 101))
+
+
+def test_freeze_end_judges_nothing_unlike_a_block_end():
+    # price is beyond at the freeze end (last trade at 30 inside the freeze): no cross until a later trade beyond
+    lv = make_frozen([(0, 89), (30, 101.5), (60, 100.5)], 100, 101, freezes=[(20, 40)])
+    assert not lv.at(at(45))["crossed"] and "cross" not in names(lv)
+    # the same with a dislocation block: the block end judges it at once (F1.8)
+    lb = make_frozen([(0, 89), (30, 101.5), (60, 100.5)], 100, 101, blocks=[(at(20), at(40))])
+    assert "cross_at_block_end" in names(lb)
+    # a later trade beyond after the freeze is a cross, at that trade
+    lv = make_frozen([(0, 89), (30, 101.5), (50, 101.5)], 100, 101, freezes=[(20, 40)])
+    assert [t for t, n in lv.events if n == "cross"] == [at(50)]
+
+
+def test_freeze_keeps_cross_features_still():
+    # crossed at 10 (beyond until 20), frozen 20-60: xb_sec_beyond stops at the freeze start, no false re-entry
+    trades = [(0, 89), (10, 101.5), (15, 102.0), (40, 100.5), (70, 102.0), (80, 102.0)]
+    lv = make_frozen(trades, 100, 101, freezes=[(20, 60)])
+    s30 = lv.at(at(30))
+    assert s30["xb_sec_beyond"] == approx(10.0) and s30["xb_reentries"] == 0
+    assert lv.at(at(59))["xb_sec_beyond"] == approx(10.0)
+    # after the freeze the last trade (40, inside) is not beyond: the stretch restarts at the trade at 70
+    s = lv.at(at(80))
+    assert s["xb_reentries"] == 0 and s["xb_sec_beyond"] == approx(20.0)
+
+
+def test_freeze_skips_flip_bars():
+    # crossed at 10:00:10; the 10:05 bar (101.5 -> 102) would flip at 10:10, but the node is frozen 9:00-10:10
+    trades = [(0, 89), (10, 101.25), (300, 101.5), (590, 102), (700, 102)]
+    assert make_frozen(trades, 100, 101).at(at(600))["flip_count"] == 1
+    assert make_frozen(trades, 100, 101, freezes=[(540, 610)]).at(at(650))["flip_count"] == 0
+
+
+def test_freeze_block_end_inside_a_freeze_is_not_judged():
+    lv = make_frozen([(0, 89), (30, 101.5), (100, 100.5)], 100, 101, blocks=[(at(20), at(40))], freezes=[(35, 60)])
+    assert "cross_at_block_end" not in names(lv) and not lv.at(at(70))["crossed"]
+
+
+def test_node_series_cross_features():
+    # pct_of_king 0.40 at the cross, 0.30 later; sign + then - from 30 s
+    ts = np.array([at(-60), at(5), at(30)], dtype=np.int64)
+    series = (ts, np.array([0.40, 0.40, 0.30]), np.array([1.0, 1.0, -1.0]))
+    lv = make_frozen([(0, 89), (10, 101.5), (40, 102.0)], 100, 101, node_series=series)
+    s = lv.at(at(20))
+    assert s["xb_node_pctking_chg"] == approx(0.0) and s["xb_node_sign_flipped"] is False
+    s = lv.at(at(45))
+    assert s["xb_node_pctking_chg"] == approx(-0.10) and s["xb_node_sign_flipped"] is True
+    # without a series the two stay null
+    s = make_frozen([(0, 89), (10, 101.5), (40, 102.0)], 100, 101).at(at(45))
+    assert s["xb_node_pctking_chg"] is None and s["xb_node_sign_flipped"] is None
