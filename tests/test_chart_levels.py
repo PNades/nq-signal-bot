@@ -109,6 +109,7 @@ def _strip(d):
     return {k: v for k, v in d.items()}
 
 
+@pytest.mark.slow
 def test_no_lookahead_cut_and_shift():
     """F0.1 global: every feature and level state at t is unchanged when the data after t is removed, or shifted
     +1 s / +1 bar."""

@@ -591,6 +591,7 @@ def test_backfill_day_with_older_strikes_refuses(setup):
         _plan(s, approved=20_000)
 
 
+@pytest.mark.slow
 def test_replan_estimate_skips_settled_work_and_tempest_adds_only_the_tail(setup):
     s = setup
     _plan(s, approved=20_000)
@@ -730,6 +731,7 @@ def test_backfill_uses_31_day_calls_once_step7_matched(setup):
     assert s.run().status == "complete" and len(s.fake.calls) - n <= 2  # nothing pulled twice
 
 
+@pytest.mark.slow
 def test_backfill_stays_one_date_per_call_without_the_step7_match(setup):
     s = setup
     s.clock.t = datetime(2026, 1, 15, 10, 0, tzinfo=ET)
@@ -740,6 +742,7 @@ def test_backfill_stays_one_date_per_call_without_the_step7_match(setup):
     assert all("date" in q and "date_start" not in q for q in _dp_calls(s.fake))
 
 
+@pytest.mark.slow
 def test_an_empty_trading_day_in_a_range_is_not_asked_again(setup):
     s = setup
     s.clock.t = datetime(2026, 1, 15, 10, 0, tzinfo=ET)
@@ -761,6 +764,7 @@ def test_range_groups_never_span_a_date_already_paid_for():
     assert bf.dp_range_groups(fri_mon, edge) == [fri_mon]
 
 
+@pytest.mark.slow
 def test_range_no_data_404_settles_the_dates(setup):
     s = setup
     s.clock.t = datetime(2026, 1, 15, 10, 0, tzinfo=ET)
@@ -775,6 +779,7 @@ def test_range_no_data_404_settles_the_dates(setup):
     assert s.run().status == "complete" and len(_dp_calls(s.fake)) == n  # never asked again
 
 
+@pytest.mark.slow
 def test_a_range_answer_is_kept_before_it_is_split(setup):
     """A range answer that can't be split (a print outside its dates) is kept: re-runs never pay for it again."""
     s = setup
@@ -796,6 +801,7 @@ def test_a_range_answer_is_kept_before_it_is_split(setup):
     assert list((s.store.root / "darkpool" / "range").glob("*.parquet"))
 
 
+@pytest.mark.slow
 def test_a_crash_before_the_range_record_never_pays_again(setup, monkeypatch):
     """Fresh review #1: the per-date files are written, then the process dies before the dp_range record: the empty
     trading day in that range is settled again from the kept answer, never by a new call (rule 2)."""

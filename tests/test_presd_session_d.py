@@ -1072,6 +1072,7 @@ def test_a_stop_mid_walk_keeps_and_records_the_paid_dark_pool_pages(setup, monke
     assert len(_dp_calls_for(s, "2025-10-21")) == 2 + 3
 
 
+@pytest.mark.slow
 def test_a_failed_31_day_split_records_its_group_and_never_ages_out(setup, monkeypatch):
     """Review finding 4: a split that fails records every date of the call at once (no K-in-a-row stop from one
     answer) and, since the answer is kept in darkpool/range/, is never lost when it leaves the reach."""
@@ -1105,6 +1106,7 @@ def test_a_failed_31_day_split_records_its_group_and_never_ages_out(setup, monke
     assert plan.dp_range
 
 
+@pytest.mark.slow
 def test_a_cut_off_31_day_answer_re_pulls_only_the_dates_it_does_not_hold(setup, monkeypatch):
     """Owner 2026-10-06: dates wholly inside the kept pages are stored from them for free; only the rest are pulled
     again, one date per call."""

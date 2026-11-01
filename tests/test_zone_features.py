@@ -79,6 +79,9 @@ def es_case(es_points, nq_points):
                           ctx=SimpleNamespace(es_prox=lambda tau: 0.5))
     fake = SimpleNamespace(es_book=book, es_levels={"es_pdh-d": pdh, "es_on_high-d": onh}, nq=nq, es=es,
                            f={"zone_proximity": 5.0}, c=SimpleNamespace(sky=sky), zone_edges=lambda e, tau: (200.0, 202.0))
+    # the NQ side: NQ inside the event's zone [200, 202] +- zone_proximity at each tau
+    fake._nq_inside_many = lambda e_, ts: np.array([(p := nq.last_price_at(int(x))) is not None and 195.0 <= p <= 207.0
+                                                    for x in ts], dtype=bool)
     e = tch.Touch("z1", at(10, 0), 0, 199.0, -1, ("x",), 200.0, 202.0)
     return fake, e
 

@@ -32,11 +32,13 @@ class EsZone:
     members: list = field(default_factory=list)        # RoleTrack per member (F2.6 / F5.2 roles and crosses)
     chains: frozenset = frozenset()                     # S&P chains of its SPY/SPX node members (empty: chart levels only)
     makeup: Callable[[float], dict] | None = None       # tau -> {'es_stack_count', 'es_member_types'}
+    inside_taus: object = None                          # the checked taus where inside_at is true, in order (if known)
 
 
 def first_overlap(z: EsZone, rho: str, taus, t: float) -> float | None:
-    for tau in taus:
-        if z.inside_at(tau) and any(counts_in_role(m, rho, tau, t) for m in z.members):
+    cand = z.inside_taus if z.inside_taus is not None else (tau for tau in taus if z.inside_at(tau))
+    for tau in cand:
+        if any(counts_in_role(m, rho, tau, t) for m in z.members):
             return tau
     return None
 

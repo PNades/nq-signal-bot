@@ -73,3 +73,26 @@ class TradeBand:
     def at_trades(self, i0: int, i1: int) -> tuple[np.ndarray, np.ndarray]:
         c = self.center[i0:i1]
         return c - self.half_width, c + self.half_width
+
+
+def values_at(band, ts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(lo, hi) of `band` at each instant of the sorted array `ts`, NaN where `band.at` gives None (the same values,
+    many instants at once)."""
+    ts = np.asarray(ts, dtype=np.int64)
+    if isinstance(band, StepBand):
+        k = np.searchsorted(band.times, ts, side="right") - 1
+        good = k >= 0
+        if band.end_ns is not None:
+            good &= ts < band.end_ns
+        kk = np.where(good, k, 0)
+        lo, hi = np.where(good, band.lo[kk], np.nan), np.where(good, band.hi[kk], np.nan)
+        bad = np.isnan(lo)
+        return lo, np.where(bad, np.nan, hi)
+    if isinstance(band, TradeBand):
+        j = np.searchsorted(band.tape.ts, ts, side="right")
+        good = (ts >= band.start_ns) & (j > 0)
+        c = np.where(good, band.center[np.maximum(j - 1, 0)], np.nan)
+        return c - band.half_width, c + band.half_width
+    vals = [band.at(int(t)) for t in ts]
+    return (np.array([v[0] if v is not None else np.nan for v in vals], float),
+            np.array([v[1] if v is not None else np.nan for v in vals], float))

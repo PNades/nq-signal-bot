@@ -36,13 +36,15 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, Callable, Iterable
 
 import numpy as np
 
-from nqbot.features.bands import TradeBand
+from nqbot.features.bands import TradeBand, values_at
 
 EPS = 1e-9
+BLOCK = 2048   # candidate instants evaluated at once (memory: levels x BLOCK floats per array)
 
 
 # --- the pure merge ----------------------------------------------------------------------------------------------
@@ -173,6 +175,7 @@ class BookLevel:
     spans: list                        # [(start_ns, end_ns)) active
     pct_of_king: Callable[[int], float | None] | None = None
     change_times: np.ndarray | None = None   # instants the band moves (StepBand.times); TradeBand: every trade
+    pct_series: tuple | None = None          # (times, values) behind pct_of_king, for evaluating many instants at once
 
     def __post_init__(self):
         self.spans = _normalise(self.spans)
@@ -220,43 +223,50 @@ class ZoneBook:
     _segs: dict | None = None
 
     def run(self, every_trade: bool = False) -> ZoneBook:
-        """`every_trade`: recompute at every trade too (the parity test's reference)."""
-        lv = {x.level_id: x for x in self.levels}
+        """`every_trade`: recompute at every trade too (the parity test's reference).
+        Every level's activity, band and % of King are evaluated at a block of candidate instants at once (the same
+        values `active`, `band.at` and `pct_of_king` give one instant at a time); the merge runs only where the
+        active set or a relation changed."""
+        by_id = {x.level_id: x for x in self.levels}
+        lv = [by_id[k] for k in sorted(by_id)]          # the active set in level_id order
+        names = [x.level_id for x in lv]
         times = self._candidate_times(every_trade)
         self.candidates = len(times)
         ids = IdSource()
         prev: list[Zone] = []
         last_key = None
         cur: dict[str, tuple] = {}
-        for t in times:
-            act = sorted(lid for lid, x in lv.items() if x.active(t) and x.band.at(t) is not None)
-            geoms = []
-            for lid in act:
-                b = lv[lid].band.at(t)
-                pk = lv[lid].pct_of_king(t) if lv[lid].pct_of_king else None
-                geoms.append(Geom(lid, float(b[0]), float(b[1]), pk))
-            tol, maxw = self.params(t)
-            key = (tuple(act), _relations(geoms, tol, maxw), tol, maxw)
-            if key == last_key:
-                continue
-            last_key = key
-            self.recomputes += 1
-            zones, absorbed = merge(geoms, prev, tol, maxw, ids)
-            new = {z.zone_id: tuple(z.members) for z in zones}
-            for z in zones:
-                if z.zone_id not in self.created:
-                    self.created[z.zone_id] = t
-                    self.anchors[z.zone_id] = z.anchors
-            for young, old in absorbed.items():
-                self.merged_into[young] = (t, old)
-            for zid in cur:
-                if zid not in new and zid not in self.ended:
-                    self.ended[zid] = t
-            if new != cur:
-                self.times.append(t)
-                self.snaps.append(new)
-                cur = new
-            prev = zones
+        tarr = np.asarray(times, dtype=np.int64)
+        for b0 in range(0, len(tarr), BLOCK):
+            tb = tarr[b0:b0 + BLOCK]
+            ok, lo, hi, pk = _evaluate(lv, tb)
+            for j, t in enumerate(tb.tolist()):
+                act = np.flatnonzero(ok[j])
+                tol, maxw = self.params(t)
+                key = (act.tobytes(), _relations_arr(lo[j, act], hi[j, act], tol, maxw), tol, maxw)
+                if key == last_key:
+                    continue
+                last_key = key
+                self.recomputes += 1
+                geoms = [Geom(names[i], float(lo[j, i]), float(hi[j, i]),
+                              None if lv[i].pct_of_king is None or np.isnan(pk[j, i]) else float(pk[j, i]))
+                         for i in act.tolist()]
+                zones, absorbed = merge(geoms, prev, tol, maxw, ids)
+                new = {z.zone_id: tuple(z.members) for z in zones}
+                for z in zones:
+                    if z.zone_id not in self.created:
+                        self.created[z.zone_id] = t
+                        self.anchors[z.zone_id] = z.anchors
+                for young, old in absorbed.items():
+                    self.merged_into[young] = (t, old)
+                for zid in cur:
+                    if zid not in new and zid not in self.ended:
+                        self.ended[zid] = t
+                if new != cur:
+                    self.times.append(t)
+                    self.snaps.append(new)
+                    cur = new
+                prev = zones
         return self
 
     def _candidate_times(self, every_trade: bool) -> list[int]:
@@ -363,17 +373,55 @@ class ZoneBook:
 
 
 def _relations(geoms: list[Geom], tol: float, maxw: float) -> bytes:
-    n = len(geoms)
+    return _relations_arr(np.array([g.lo for g in geoms]), np.array([g.hi for g in geoms]), tol, maxw)
+
+
+@lru_cache(maxsize=512)
+def _triu(n: int):
+    return np.triu_indices(n, 1)
+
+
+def _relations_arr(lo: np.ndarray, hi: np.ndarray, tol: float, maxw: float) -> bytes:
+    """The pairwise relations the merge reads (qualify; pair hull <= max width), packed."""
+    n = len(lo)
     if n < 2:
         return b""
-    lo = np.array([g.lo for g in geoms])
-    hi = np.array([g.hi for g in geoms])
     c = (lo + hi) / 2
     q = ((lo[:, None] <= hi[None, :] + EPS) & (lo[None, :] <= hi[:, None] + EPS)) | \
         (np.abs(c[:, None] - c[None, :]) <= tol + EPS)
     w = (np.maximum(hi[:, None], hi[None, :]) - np.minimum(lo[:, None], lo[None, :])) <= maxw + EPS
-    iu = np.triu_indices(n, 1)
+    iu = _triu(n)
     return np.packbits(np.concatenate([q[iu], w[iu]])).tobytes()
+
+
+def _evaluate(levels: list, ts: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """(ok, lo, hi, pct) of every level at each instant of `ts`, shaped (len(ts), levels): ok = active and the band
+    exists (`BookLevel.active`, `band.at`), pct = `pct_of_king` (NaN for None), the same values one instant at a time
+    gives."""
+    n, m = len(ts), len(levels)
+    ok = np.zeros((n, m), dtype=bool)
+    lo = np.full((n, m), np.nan)
+    hi = np.full((n, m), np.nan)
+    pk = np.full((n, m), np.nan)
+    for i, x in enumerate(levels):
+        act = (np.searchsorted(np.asarray(x._edges, dtype=np.int64), ts, side="right") % 2) == 1
+        if not act.any():
+            continue
+        l_, h_ = values_at(x.band, ts)
+        good = act & ~np.isnan(l_)
+        ok[:, i] = good
+        lo[:, i] = np.where(good, l_, np.nan)
+        hi[:, i] = np.where(good, h_, np.nan)
+        if x.pct_of_king is not None:
+            if x.pct_series is not None:
+                st, sv = x.pct_series
+                k = np.searchsorted(st, ts, side="right") - 1
+                v = np.where(k >= 0, np.asarray(sv, float)[np.maximum(k, 0)], np.nan)
+                pk[:, i] = np.where(good & np.isfinite(v), v, np.nan)
+            else:
+                pk[:, i] = [np.nan if not g else (np.nan if (p := x.pct_of_king(int(t))) is None else p)
+                            for g, t in zip(good, ts)]
+    return ok, lo, hi, pk
 
 
 def _normalise(spans) -> list[tuple[int, int]]:

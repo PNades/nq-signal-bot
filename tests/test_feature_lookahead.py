@@ -92,30 +92,36 @@ def gameplan(nq: st.Tape) -> dict:
                                                                {"id": "B", "prob": 0.4, "bias": "down"}]}]}
 
 
-CANDS: list = []   # retest candidates "from the previous session": fixed inputs, set once by base_data
+# Retest candidates "from the previous session": fixed inputs known before the day, like real candidates. They are
+# the prices of the first held level touches at or after 02:00, 09:30 and 11:30 (one per rounded price) in a build of
+# this synthetic day without candidates, so retested extremes are created at several times and the retest passes run
+# (`candidate_prices()` recomputes them; `test_the_synthetic_day_exercises_the_engine` fails if they stop doing so).
+CAND_PRICES = (20022.5, 20035.0, 20033.5)
+CANDS = [Candidate(p, "on_low", PREV, f"on_low-{PREV}-{k}") for k, p in enumerate(CAND_PRICES)]
+
+
+def candidate_prices() -> list[float]:
+    """How CAND_PRICES were found (run by hand if the synthetic day changes)."""
+    nq, es, boards, gp = base_data()
+    sf0 = build(nq, es, boards, gp, cands=[])
+    held = [e for e in sf0.events if sf0.labels[e.event_id].label == "held" and e.kind == "level"]
+    picks, used = [], set()
+    for t0 in (st.et_ns(DAY, time(2, 0)), OPEN, OPEN + 2 * 3600 * NS):
+        e = next((x for x in held if x.t >= t0 and round(x.price) not in used), None)
+        if e is not None:
+            used.add(round(e.price))
+            picks.append(e.price)
+    return picks
 
 
 def base_data():
     rng = np.random.default_rng(11)
     nq = synthetic_tape(seed=4, every_sec=3.0)
     es = synthetic_tape(seed=5, every_sec=3.0, start=20_000.0 * SCALE, symbol="ESH6")
-    boards, gp = boards_for(nq, es, rng), gameplan(nq)
-    if not CANDS:
-        # prices of held touches spread over the day (overnight, the open, midday), so retested extremes are created
-        # at several times and the retest passes run; as constants they are known before the day like real candidates
-        sf0 = build(nq, es, boards, gp)
-        held = [e for e in sf0.events if sf0.labels[e.event_id].label == "held" and e.kind == "level"]
-        picks, used = [], set()
-        for t0 in (st.et_ns(DAY, time(2, 0)), OPEN, OPEN + 2 * 3600 * NS):
-            e = next((x for x in held if x.t >= t0 and round(x.price) not in used), None)
-            if e is not None:
-                used.add(round(e.price))
-                picks.append(e.price)
-        CANDS.extend(Candidate(float(p), "on_low", PREV, f"on_low-{PREV}-{k}") for k, p in enumerate(picks))
-    return nq, es, boards, gp
+    return nq, es, boards_for(nq, es, rng), gameplan(nq)
 
 
-def build(nq, es, boards, gp):
+def build(nq, es, boards, gp, cands=None):
     f, s = F, S
     inp_nq = cl.SessionInputs(f, s, CAL, np.full(390, 600.0), {"em_1d_pct": 0.8})
     inp_es = cl.SessionInputs(f, s, CAL, None, {"em_1d_pct": 0.8}, scale_today=SCALE, scale_prev=SCALE,
@@ -135,7 +141,7 @@ def build(nq, es, boards, gp):
     day0 = OPEN - 86_400 * NS
     history = [TouchRecord(day0 + k * 600 * NS, (lid,), "z1", "floor" if k % 2 else "ceiling",
                            day0 + (k * 600 + 300) * NS, "held" if k % 3 else "broke") for k, lid in enumerate(multi)]
-    cands = list(CANDS)
+    cands = list(CANDS if cands is None else cands)
     sc = SessionContext(DAY, f, s, CAL, cs_nq, cs_es, sky=sky, vol={"rv_iv_ratio": 0.9}, flags={"half_day": False},
                         gameplan=gp, yesterday_day_type="range", sessions=[PREV, DAY], history=history,
                         retest_candidates=cands)
@@ -206,10 +212,31 @@ def same(a, b, path="") -> None:
         assert a == b, f"{path}: {a!r} != {b!r}"
 
 
-@pytest.fixture(scope="module")
+pytestmark = pytest.mark.slow   # every test here builds whole synthetic sessions (CLAUDE.md rule 14: the full suite
+                                # always runs them; a targeted run may skip them with -m "not slow")
+
+
+@pytest.fixture(scope="session")
 def full():
+    """The baseline session, built once per test process and shared by every test here."""
     nq, es, boards, gp = base_data()
     return nq, es, boards, gp, build(nq, es, boards, gp)
+
+
+_VARIANTS: dict = {}
+
+
+def variant(full, t: int, how):
+    """The session built from the data with everything after t removed / shifted / changed. The changed build at
+    TIMES[2] is kept (the planted-leak check reads it too); the others are built for their one test only."""
+    nq, es, boards, gp, _ = full
+    key = (t, how)
+    if key in _VARIANTS:
+        return _VARIANTS[key]
+    sf = build(cut_tape(nq, t, how), cut_tape(es, t, how), {m: cut_boards(mb, t, how) for m, mb in boards.items()}, gp)
+    if key == (TIMES[2], "changed"):
+        _VARIANTS[key] = sf
+    return sf
 
 
 def test_the_synthetic_day_exercises_the_engine(full):
@@ -240,14 +267,12 @@ def test_no_lookahead(full, t, how):
     want = snapshot(sf, t)
     if t > OPEN:
         assert want["events"] and want["rows_t"]
-    got = snapshot(build(cut_tape(nq, t, how), cut_tape(es, t, how),
-                         {m: cut_boards(mb, t, how) for m, mb in boards.items()}, gp), t)
+    got = snapshot(variant(full, t, how), t)
     same(want, got, f"how={how}")
 
 
-def test_bar_label_known_at_its_end(full):
-    nq, *_ , sf = full
-    b = sf.c.cs_nq.bars_1m
+def test_bar_label_known_at_its_end():
+    b = st.bars(synthetic_tape(seed=4, every_sec=3.0), 1)   # the baseline's NQ 1-minute bars, without the build
     k = int(np.searchsorted(b.start, st.et_ns(DAY, time(9, 31))))
     assert b.known_at(st.et_ns(DAY, time(9, 31, 59)) + 999_999_999) == k
     assert b.known_at(st.et_ns(DAY, time(9, 32))) == k + 1
@@ -269,8 +294,7 @@ def test_a_planted_lookahead_is_caught(full, monkeypatch):
     monkeypatch.setattr(SessionFeatures, "_day_memory", lambda self, t, labs: orig(self, t, list(self.labels.values())))
     t = TIMES[2]
     want = snapshot(sf, t)
-    got = snapshot(build(cut_tape(nq, t, "changed"), cut_tape(es, t, "changed"),
-                         {m: cut_boards(mb, t, "changed") for m, mb in boards.items()}, gp), t)
+    got = snapshot(variant(full, t, "changed"), t)
     with pytest.raises(AssertionError):
         same(want, got)
 
@@ -283,13 +307,20 @@ def _decision_times(sf, e):
     return sorted({t for t in ts if e.t <= t < sf.end_ns})
 
 
-def test_own_label_never_reaches_own_features(full):
+OWN_SHARDS = 3
+
+
+@pytest.mark.parametrize("shard", range(OWN_SHARDS))
+def test_own_label_never_reaches_own_features(full, shard):
     """Every event's rows at its touch and at later decision times (after its own label resolved too) are unchanged
-    when its own label (outcome, resolution time, run) is replaced."""
+    when its own label (outcome, resolution time, run) is replaced. The events are split over OWN_SHARDS tests (every
+    event is checked by exactly one)."""
     *_, sf = full
     events = sf.events
     assert any(sf.labels[e.event_id].t_resolved < sf.end_ns - NS for e in events)
     for k, e in enumerate(events):
+        if k % OWN_SHARDS != shard:
+            continue
         times = _decision_times(sf, e)
         want = [sf.row(e, t) for t in times]
         lab, rec = sf.labels[e.event_id], sf.records[k]

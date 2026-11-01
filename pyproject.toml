@@ -40,3 +40,6 @@ build-backend = "uv_build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "slow: heavy end-to-end tests; the full suite (`uv run nqbot test`, no arguments) always runs them, a targeted run may skip them with -m \"not slow\" (CLAUDE.md rule 14)",
+]

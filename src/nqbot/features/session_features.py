@@ -37,6 +37,7 @@ from nqbot.features import session_levels as sl
 from nqbot.features import structure_label as slab
 from nqbot.features import touches as tch
 from nqbot.features.approach import approach_features
+from nqbot.features.bands import values_at
 from nqbot.features.chart_levels import SUBTYPE_KEY
 from nqbot.features.daytype_rows import DayType
 from nqbot.features.es_level import EsZone, es_at_level
@@ -472,41 +473,67 @@ class SessionFeatures:
                 "held_rate_today": held / n if n else None, "yesterday_day_type": self.c.yesterday_day_type}
 
     def _es_at_level(self, e: tch.Touch, t: int) -> dict[str, Any]:
+        """F5.16 by the overlap rule: at each checked tau (the touch, every NQ / ES trade and board apply up to t), NQ
+        inside the event's zone touch band and ES inside an ES zone's band +- `es_zone_proximity` at the same moment.
+        Evaluated for all taus at once (NQ once per tau, each ES zone segment on its own taus), the same tests one
+        tau at a time makes."""
         sky = self.c.sky
-        prox = float(self.f["zone_proximity"])
-        es_bands = {u: x.band for u, x in self.es_levels.items()}
-
-        def nq_inside(tau):
-            ed = self.zone_edges(e, tau)
-            p = self.nq.last_price_at(tau)
-            return ed is not None and p is not None and ed[0] - prox <= p <= ed[1] + prox
+        taus = np.asarray(sky.check_times(e.t, t), dtype=np.int64)
+        nq_in = self._nq_inside_many(e, taus)
+        pe = _prices_at(self.es, taus)
+        q = np.array([sky.ctx.es_prox(tau) for tau in taus.tolist()], dtype=float)   # es_zone_proximity at each tau
         zones = []
         for zid in self.es_book.zone_ids():
             for a, z, mem in self.es_book.segments(zid):
                 if z <= e.t or a > t:
                     continue
                 lvs = [self.es_levels[m] for m in mem]
-
-                def inside(tau, a=a, z=z, mem=mem):
-                    if not (a <= tau < z) or not nq_inside(tau):
-                        return False
-                    p = self.es.last_price_at(tau)
-                    bs = [es_bands[m].at(tau) for m in mem]
-                    bs = [b for b in bs if b is not None]
-                    if p is None or not bs:
-                        return False
-                    q = sky.ctx.es_prox(tau)
-                    return min(b[0] for b in bs) - q <= p <= max(b[1] for b in bs) + q
+                i0, i1 = int(np.searchsorted(taus, a, side="left")), int(np.searchsorted(taus, z, side="left"))
+                sub = taus[i0:i1]
+                if len(sub):
+                    lo, hi = _span([values_at(x.band, sub) for x in lvs])
+                    p, qq = pe[i0:i1], q[i0:i1]
+                    with np.errstate(invalid="ignore"):
+                        hit = nq_in[i0:i1] & ~np.isnan(p) & ~np.isnan(lo) & (lo - qq <= p) & (p <= hi + qq)
+                    inside_taus = [int(x) for x in sub[hit]]
+                else:
+                    inside_taus = []
                 types = tuple(sorted(x.sub_type for x in lvs))
-                zones.append(EsZone(inside, [x.track for x in lvs], frozenset(x.chain for x in lvs if x.chain),
+                zones.append(EsZone(lambda _tau: False, [x.track for x in lvs],
+                                    frozenset(x.chain for x in lvs if x.chain),
                                     makeup=lambda _tau, n=len(lvs), ty=types: {"es_stack_count": n,
-                                                                               "es_member_types": ty}))
-        taus = [int(x) for x in sky.check_times(e.t, t)]
+                                                                               "es_member_types": ty},
+                                    inside_taus=inside_taus))
         blocked = {m for m in SP if sky.blocked_in(m, e.t, t)}
-        out = es_at_level(zones, e.role, taus, t, blocked)
+        out = es_at_level(zones, e.role, [int(x) for x in taus], t, blocked)
         mt = out.pop("es_member_types")
         out["es_member_types"] = None if mt is None else ",".join(mt)
         return out
+
+    def _nq_inside_many(self, e: tch.Touch, taus: np.ndarray) -> np.ndarray:
+        """NQ price inside the event's zone touch band (edges +- `zone_proximity`) at each tau."""
+        prox = float(self.f["zone_proximity"])
+        p = _prices_at(self.nq, taus)
+        lo = np.full(len(taus), np.nan)
+        hi = np.full(len(taus), np.nan)
+        if e.kind == "level":
+            # the zone's members change only at the book's snapshot times: one member list per stretch between them
+            bt = np.asarray(self.book.times, dtype=np.int64)
+            kk = np.searchsorted(bt, taus, side="right") - 1
+            starts = np.flatnonzero(np.r_[True, kk[1:] != kk[:-1]]) if len(taus) else np.zeros(0, dtype=np.int64)
+            ends = np.r_[starts[1:], len(taus)]
+            for s0, s1 in zip(starts.tolist(), ends.tolist()):
+                mem = self.members_at(e, int(taus[s0]))
+                if not mem:
+                    continue
+                lo[s0:s1], hi[s0:s1] = _span([values_at(x.band, taus[s0:s1]) for x in mem])
+        else:
+            for n, tau in enumerate(taus.tolist()):
+                ed = self.zone_edges(e, tau)
+                if ed is not None:
+                    lo[n], hi[n] = ed
+        with np.errstate(invalid="ignore"):
+            return ~np.isnan(p) & ~np.isnan(lo) & (lo - prox <= p) & (p <= hi + prox)
 
     def _multiexp(self, t: int) -> dict[str, Any]:
         sky = self.c.sky
@@ -670,6 +697,21 @@ def _retest_record(cs, r) -> str:
     uid = r.level_id if k == 0 else f"{r.level_id}#{k}"
     _today_retests(cs).add(uid)
     return uid
+
+
+def _span(vals: list) -> tuple[np.ndarray, np.ndarray]:
+    """The union of several bands' (lo, hi) arrays per instant (NaN where none exists)."""
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)   # all-NaN columns: no member band exists then
+        return np.nanmin(np.vstack([v[0] for v in vals]), axis=0), np.nanmax(np.vstack([v[1] for v in vals]), axis=0)
+
+
+def _prices_at(tape, ts: np.ndarray) -> np.ndarray:
+    """`tape.last_price_at` at each instant (NaN before the first trade)."""
+    j = np.searchsorted(tape.ts, ts, side="right")
+    return np.where(j > 0, tape.price[np.maximum(j - 1, 0)].astype(float), np.nan)
 
 
 def _edges_of(levels: list, t: int) -> tuple[float, float] | None:

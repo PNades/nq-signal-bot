@@ -62,8 +62,10 @@ class RegLevel:
 
     def book_level(self) -> BookLevel:
         times = None if isinstance(self.band, TradeBand) else np.asarray(self.band.times, dtype=np.int64)
-        return BookLevel(self.uid, self.band, list(self.spans),
-                         self.pct_of_king if self.rtype == GEX_NODE else None, times)
+        node = self.rtype == GEX_NODE
+        ns = self.state.node_series if node else None
+        return BookLevel(self.uid, self.band, list(self.spans), self.pct_of_king if node else None, times,
+                         pct_series=None if ns is None else (np.asarray(ns[0], dtype=np.int64), ns[1]))
 
 
 def is_active(s: ls.State) -> bool:
