@@ -39,13 +39,21 @@ class CarryState:
     prev_profile: dict | None = None     # {'day', 'globex_1800_1700': {...}, 'rth_0930_1600': {...}}
     single_prints: list = field(default_factory=list)  # tpo.Run.to_json()
     retest_candidates: list = field(default_factory=list)  # [{'price', 'type', 'session'}]
+    retested: list = field(default_factory=list)   # retested extremes in force: [{'level_id', 'price', 'type',
+                                                   # 'session', 'created_ns'}] (F3.8, part 3)
+    touch_history: list = field(default_factory=list)  # freshness touch records of multi-day levels (F5.11, part 3)
+    yesterday_day_type: str | None = None          # the last session's EOD day-type label (F5.12, F11.6)
+    rth5: list = field(default_factory=list)       # [{'day', 'full', 'r'}]: each session's RTH 5-minute log returns
+                                                   # (within the session, contract-free: never roll-shifted; Q-er vr_prior)
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> CarryState:
-        return cls(**d)
+        import copy
+
+        return cls(**copy.deepcopy(d))   # never share the source's lists: a session mutates its carry
 
     # --- the roll ----------------------------------------------------------------------------------------------
     def shift(self, spread: float) -> None:
@@ -74,6 +82,8 @@ class CarryState:
             sp["bin_lo"] = [x + spread for x in sp["bin_lo"]]
         for c in self.retest_candidates:
             c["price"] += spread
+        for r in self.retested:
+            r["price"] += spread
 
     def drop_handed_levels(self) -> None:
         """§3.2: a dropped session hands no prior-day / prior-RTH levels or previous-session profile."""

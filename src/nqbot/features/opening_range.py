@@ -50,6 +50,7 @@ class OpeningRange:
     timeline_t: list = field(default_factory=list)      # ns of each drawing change
     timeline: list = field(default_factory=list)        # (Drawing | None)
     touches: list = field(default_factory=list)         # (ns, golden_zone.Touch)
+    touch_idx: list = field(default_factory=list)       # the tape index of each touch's trade (F5.10 groups)
     breaks: list = field(default_factory=list)          # (ns, golden_zone.Break)
     redraws: list = field(default_factory=list)         # (ns, golden_zone.Redraw)
     flips_at: list = field(default_factory=list)        # ns of each flip
@@ -131,6 +132,7 @@ class OpeningRange:
                 self._outputs(t, self.fib.on_trade(s, p))
                 for touch in self.touches_engine.on_trade(s, p):
                     self.touches.append((t, touch))
+                    self.touch_idx.append(k)
                 last_price, last_drawing = p, self.fib.drawing
                 self.fed += 1
             i = j

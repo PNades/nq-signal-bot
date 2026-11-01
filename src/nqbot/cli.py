@@ -134,6 +134,7 @@ def _main(argv: list[str] | None = None) -> int:
     _add_step7(sub)
     _add_step8b(sub)
     _add_step11(sub)
+    _add_features(sub)
     _add_skylit(sub)
     _add_databento(sub)
     _add_gameplan(sub)
@@ -256,6 +257,8 @@ def _main(argv: list[str] | None = None) -> int:
         return _run_step8b(args, settings, paths, log)
     if args.command == "step11":
         return _run_step11(args, settings, paths, log)
+    if args.command == "features":
+        return _run_features(args, settings, paths, log)
     if args.command == "skylit":
         return _run_skylit(args, settings, paths, log)
     if args.command == "databento":
@@ -791,6 +794,10 @@ def _add_step11(sub: argparse._SubParsersAction) -> None:
     p.add_argument("date", type=_date, help="a development-month session (YYYY-MM-DD)")
     s11.add_parser("nodetype-check", help="F2.2 / F2.5: Skylit's nodeType vs the bot's King / Gatekeeper on the "
                                           "stored step-7 instants (report only)")
+    p = s11.add_parser("build-day", help="smoke-run the part-3 session engine (zones, touches, labels, rows) on one "
+                                         "development day, twice from the same state (report only)")
+    p.add_argument("date", type=_date, help="a development-month session (YYYY-MM-DD)")
+    p.add_argument("--full-warmup", action="store_true", help="build the warm-up sessions fully, as the job does")
 
 
 def _run_step11(args: argparse.Namespace, settings, paths, log) -> int:
@@ -810,11 +817,55 @@ def _run_step11(args: argparse.Namespace, settings, paths, log) -> int:
             step11.skylit_day(env, args.date)
         elif args.check == "nodetype-check":
             return step11.nodetype_check(env)
+        elif args.check == "build-day":
+            from nqbot.checks import feature_build as fb
+            from nqbot.checks import session_build as sb
+            try:
+                fb.build_day_smoke(env, args.date, full_warmup=args.full_warmup)
+            except (fb.BuildRefused, sb.Refused) as e:
+                print(f"refused: {e}", file=sys.stderr)
+                return EXIT_REFUSED
     except (LedgerMissing, NotDevelopmentMonth, step11.Refused, step11.cl.RollSpreadMissing,
             step11.BoardsRefused) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
     return 0
+
+
+def _add_features(sub: argparse._SubParsersAction) -> None:
+    """`nqbot features <plan|build-day>`: the step-11 feature build (the job itself: `nqbot run feature_build`)."""
+    fe = sub.add_parser("features", help="step 11: the feature build (plan, one session)").add_subparsers(
+        dest="action", required=True)
+    p = fe.add_parser("plan", help="write the feature-build plan for these ledger months (then: nqbot run "
+                                   "feature_build --until 07:30)")
+    p.add_argument("--months", required=True, help="ledger months, e.g. 1-12 or 1-4")
+    p.add_argument("--batch", type=int, default=None, help="pass-2 sessions per chunk (default: all cores but 2)")
+    fe.add_parser("build-warmup", help="the full warm-up before the plan's first session (the job's chunk p0)")
+    p = fe.add_parser("build-day", help="one session of the plan (the job runs this in its own process)")
+    p.add_argument("date", type=_date)
+    p.add_argument("--pass", dest="pass_no", type=int, choices=(1, 2), required=True)
+
+
+def _run_features(args: argparse.Namespace, settings, paths, log) -> int:
+    from nqbot import calendar as cal_mod
+    from nqbot.checks import feature_build as fb
+    from nqbot.checks import session_build as sb
+    from nqbot.checks.step8b import CheckRefused, Env
+    from nqbot.config import load_features
+    from nqbot.features.chart_levels import RollSpreadMissing
+    from nqbot.months import LedgerMissing
+
+    env = Env(settings=settings, features=load_features(), paths=paths, log=log, cal=cal_mod.load())
+    try:
+        if args.action == "plan":
+            fb.make_plan(env, fb.parse_months(args.months), args.batch)
+            return 0
+        if args.action == "build-warmup":
+            return fb.build_warmup_cmd(env)
+        return fb.build_day_cmd(env, args.date, args.pass_no)
+    except (fb.BuildRefused, sb.Refused, LedgerMissing, RollSpreadMissing, CheckRefused) as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return EXIT_REFUSED
 
 
 def _add_skylit(sub: argparse._SubParsersAction) -> None:

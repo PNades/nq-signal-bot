@@ -441,10 +441,33 @@ def fold_session(carry: CarryState, tape: Tape, features: dict, cal: dict | None
         carry.single_prints = [r.to_json() for r in single_prints]
     if retest_candidates is not None:
         carry.retest_candidates = retest_candidates
+    r5 = rth_returns(tape, features, cal)
+    if r5 is not None:   # Q-er vr_prior: a full session (no early close) the damage rule didn't drop
+        from nqbot.features.rvol import is_full_session
+        carry.rth5 = (carry.rth5 + [{"day": d.isoformat(), "full": bool(is_full_session(d, cal) and not dropped),
+                                     "r": r5}])[-RTH5_KEEP:]
     if dropped:
         carry.drop_handed_levels()
     carry.session = d.isoformat()
     carry.contract = tape.symbol
+
+
+RTH5_KEEP = 20   # sessions of RTH 5-minute returns kept (>= vr_sessions + half days and dropped sessions)
+
+
+def rth_returns(tape: Tape, features: dict, cal: dict | None) -> list[float] | None:
+    """The session's RTH log returns on clock-aligned `er_bar_minutes` bars, the first from the RTH open (the first
+    RTH trade) to the first bar's close (Q-er; within the session only, no overnight return)."""
+    o, c = rth_open_ns(tape.day), rth_close_ns(tape.day, cal)
+    i0 = tape.idx_before(o)
+    if i0 >= tape.idx_before(c):
+        return None
+    b = bars(tape, int(features["er_bar_minutes"]))
+    sel = (b.start >= o) & (b.start + b.length_ns <= c)
+    closes = np.r_[float(tape.price[i0]), b.close[sel]]
+    if len(closes) < 2:
+        return None
+    return np.diff(np.log(closes)).tolist()
 
 
 def cal_early_close(day: date, cal: dict | None) -> time | None:
