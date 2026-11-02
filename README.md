@@ -114,9 +114,7 @@ Entry styles: **(a)** absorption, **(b)** another order-flow trigger, **(c)** a 
 
 ## Roadmap and status
 
-<img src="docs/readme/roadmap.png" alt="Roadmap: 29 steps grouped by theme, with their gates" width="100%">
-
-The picture groups the steps by theme; the official phases are A–H in SPEC §12.
+<img src="docs/readme/roadmap.png" alt="Roadmap: 29 steps in SPEC phases A–H, with their gates" width="100%">
 
 **Now:** step 11 (features) is built and its full 12-month feature build (`feature_build`, about 10 hours) is running on the build PC. Next is the step-12 visual check of the chart levels against Deepcharts (a ✅ gate). The live status is always in [`CLAUDE.md`](CLAUDE.md) → *Status*.
 
