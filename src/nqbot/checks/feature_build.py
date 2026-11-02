@@ -51,6 +51,7 @@ MIN_FREE_GB_EXTRA = 4.0  # headroom kept free besides the children (as runner.RA
 DEV_MONTHS = months_mod.DEVELOPMENT
 LOCAL_SETTING_KEYS = {"paths", "max_workers", "max_fold_mem_gb", "low_memory", "rclone_path", "test_parallel"}
 ID_COLS = {"ts", "t"}
+NS_FLOAT_OK: frozenset = frozenset()   # float columns that must stay float64 (none: every time column is an integer)
 
 
 class BuildRefused(Exception):
@@ -59,11 +60,29 @@ class BuildRefused(Exception):
 
 # --- keys and paths -------------------------------------------------------------------------------------------
 
+CODE_PARTS = ("features", "checks/session_build.py", "checks/feature_build.py", "calendar.py",
+              "clients/databento_store.py", "clients/skylit_store.py", "gameplan/parser.py")
+
+
+def code_digest() -> str:
+    """sha256 of the source that makes the build's outputs (line endings normalised, so both machines agree): a code
+    change renames the build like a config change, so a resume never mixes outputs of two versions."""
+    root = Path(__file__).resolve().parent.parent
+    h = hashlib.sha256()
+    for part in CODE_PARTS:
+        p = root / part
+        files = sorted(p.rglob("*.py")) if p.is_dir() else [p]
+        for f in files:
+            h.update(f.relative_to(root).as_posix().encode())
+            h.update(f.read_bytes().replace(b"\r\n", b"\n"))
+    return h.hexdigest()
+
+
 def build_key(env: Env) -> str:
     sett = {k: v for k, v in env.settings.items() if k not in LOCAL_SETTING_KEYS}
     cal = env.cal if env.cal is not None else cal_mod.load()
-    blob = json.dumps({"features": env.features, "settings": sett, "calendar": cal, "build": BUILD_VERSION},
-                      sort_keys=True, default=str)
+    blob = json.dumps({"features": env.features, "settings": sett, "calendar": cal, "build": BUILD_VERSION,
+                       "code": code_digest()}, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
 
@@ -146,11 +165,15 @@ def make_plan(env: Env, months: list[int], batch: int | None = None) -> dict[str
 
 
 def chunk_ids(doc: dict[str, Any]) -> list[str]:
+    """`<pass>:<what>:<key>:<first session>`: the build key and the chain's first session (its warm-up root) name
+    every chunk, and a pass-2 chunk names its first and last session, so a re-plan (other months, another batch size)
+    never inherits a chunk finished for another chain or another set of days."""
     key, n = doc["key"], int(doc["batch"])
     days = doc["sessions"]
-    p0 = [f"p0:warmup:{key}"]
-    p1 = [f"p1:{d}:{key}" for d in days]
-    p2 = [f"p2:{k // n:03d}:{key}" for k in range(0, len(days), n)]
+    root = days[0]
+    p0 = [f"p0:warmup:{key}:{root}"]
+    p1 = [f"p1:{d}:{key}:{root}" for d in days]
+    p2 = [f"p2:{days[k]}~{days[min(k + n, len(days)) - 1]}:{key}:{root}" for k in range(0, len(days), n)]
     return p0 + p1 + p2
 
 
@@ -186,16 +209,12 @@ def build_day_cmd(env: Env, day: date, pass_no: int) -> int:
     pl = sb.plan(env)
     planned = sb.planned_sessions(pl, env.cal)
     damage = sb.load_damage(env)
-    k = days.index(day)
-    if k == 0:
-        src = warmup_file(env, key, day)
-        if not src.exists():
-            raise BuildRefused(f"{day}: the warm-up state {src.name} is missing (chunk p0 runs first)")
-    else:
-        src = state_file(env, key, days[k - 1])
-        if not src.exists():
-            raise BuildRefused(f"{day}: the previous session's state {src.name} is missing (pass 1 runs in order)")
+    src = start_file(env, key, days, day)
+    if not src.exists():
+        raise BuildRefused(f"{day}: the warm-up state {src.name} is missing (chunk p0 runs first)" if days.index(day) == 0
+                           else f"{day}: the previous session's state {src.name} is missing (pass 1 runs in order)")
     state = sb.DayState.from_json(json.loads(src.read_text(encoding="utf-8")))
+    source = state.digest()
     before = [d for d in planned if d < day]
     want_prev = before[-1].isoformat() if before else None
     if state.day != want_prev:
@@ -207,24 +226,20 @@ def build_day_cmd(env: Env, day: date, pass_no: int) -> int:
     summary = {"day": day.isoformat(), "pass": pass_no, "events": len(sf.events), "passes": sf.passes,
                "build_sec": round(t_build, 1), "zones": len(sf.book.created), "es_zones": len(sf.es_book.created),
                "zone_recomputes": sf.book.recomputes, **built.info}
+    summary["source"] = source
     if pass_no == 1:
-        atomic_write_json(state_file(env, key, day), built.state_out.to_json())
+        atomic_write_json(state_file(env, key, day), {**built.state_out.to_json(), "source": source})
     else:
         sp = state_file(env, key, day)
-        want = sb.DayState.from_json(json.loads(sp.read_text(encoding="utf-8"))).digest()
+        doc_s = json.loads(sp.read_text(encoding="utf-8"))
+        if doc_s.get("source") != source:
+            raise BuildRefused(f"{day}: pass 1's checkpoint was built from another starting state (re-planned or "
+                               "rebuilt since): pass 1 must run again first")
+        want = sb.DayState.from_json(doc_s).digest()
         if built.state_out.digest() != want:
             raise BuildRefused(f"{day}: pass 2's end state differs from pass 1's checkpoint (the build is not "
                                "deterministic, or the data changed between the passes)")
-        rows = sf.touch_rows()
-        write_rows(out_dir(env, key) / "touches" / f"{day.isoformat()}.parquet", rows, {"day": day.isoformat(),
-                                                                                         "key": key})
-        write_rows(out_dir(env, key) / "daytype" / f"{day.isoformat()}.parquet", sf.daytype_rows(),
-                   {"day": day.isoformat(), "key": key, "daytype_inputs": env.features["daytype_inputs"]})
-        eod = sf.eod()
-        outcomes = sf.outcome_rows() + ([{"event_id": f"eod-{day.isoformat()}", "day": day.isoformat(),
-                                          "label": eod["day_type"], "how": "eod_day_type"}] if eod else [])
-        write_rows(out_dir(env, key) / "outcomes" / f"{day.isoformat()}.parquet", outcomes,
-                   {"day": day.isoformat(), "key": key, "note": "outcomes: never read as features"})
+        rows, eod = write_day_files(out_dir(env, key), sf, day, key, env.features)
         summary.update(rows=len(rows), tradeable=sum(1 for r in rows if r["tradeable"]),
                        labels={lab: sum(1 for x in sf.labels.values() if x.label == lab)
                                for lab in ("held", "broke", "timeout")},
@@ -235,6 +250,22 @@ def build_day_cmd(env: Env, day: date, pass_no: int) -> int:
     atomic_write_json(old, {**prev_s, f"pass{pass_no}": summary})
     env.echo(f"{day} pass {pass_no}: {len(sf.events)} events, {summary['build_sec']} s")
     return 0
+
+
+def write_day_files(base: Path, sf, day: date, key: str, features: dict) -> tuple[list[dict], dict | None]:
+    """Pass 2's three files of a session under `base` (touches/, daytype/, outcomes/); returns the touch rows and the
+    EOD day type. The smoke run writes them the same way (to a temporary folder) and reads them back."""
+    iso = day.isoformat()
+    rows = sf.touch_rows()
+    write_rows(base / "touches" / f"{iso}.parquet", rows, {"day": iso, "key": key})
+    write_rows(base / "daytype" / f"{iso}.parquet", sf.daytype_rows(),
+               {"day": iso, "key": key, "daytype_inputs": features["daytype_inputs"]})
+    eod = sf.eod()
+    outcomes = sf.outcome_rows() + ([{"event_id": f"eod-{iso}", "day": iso, "label": eod["day_type"],
+                                      "how": "eod_day_type"}] if eod else [])
+    write_rows(base / "outcomes" / f"{iso}.parquet", outcomes,
+               {"day": iso, "key": key, "note": "outcomes: never read as features"})
+    return rows, eod
 
 
 def build_warmup_cmd(env: Env) -> int:
@@ -252,16 +283,17 @@ def build_warmup_cmd(env: Env) -> int:
 
 
 def write_rows(path: Path, rows: list[dict], meta: dict) -> None:
-    """zstd parquet, written atomically; numbers as float32 except the time columns (§11 Low memory: features are
-    float32); a column missing from some rows is null there."""
+    """zstd parquet, written atomically; floats as float32 (§11 Low memory: features are float32), integers and the
+    time columns as int64; a column missing from some rows is null there."""
     keys: dict[str, None] = {}
     for r in rows:   # every column any row has (rows differ: golden-only, after-the-open, Skylit keys), first-seen order
         keys.update(dict.fromkeys(r))
     table = pa.Table.from_pylist([{k: r.get(k) for k in keys} for r in rows]) if rows else pa.table({})
     cols = []
     for name, col in zip(table.column_names, table.columns):
-        # numbers as float32, counts too: an integer column one day and a float one the next would not concatenate
-        if (pa.types.is_floating(col.type) or pa.types.is_integer(col.type)) and name not in ID_COLS:
+        # floats as float32 (features); integers stay int64: counts are exact, and nanosecond times (an outcome's
+        # t_resolved) don't fit float32; a column that is int one day and float the next is merged by read_rows
+        if pa.types.is_floating(col.type) and name not in ID_COLS and name not in NS_FLOAT_OK:
             col = col.cast(pa.float32())
         cols.append(col)
     if rows:
@@ -332,7 +364,7 @@ class FeatureBuildJob:
 
         env = self._env(ctx)
         doc = load_plan(env)
-        kind, which, key = chunk_id.split(":")
+        kind, which, key, _root = chunk_id.split(":")
         days = [date.fromisoformat(x) for x in doc["sessions"]]
         if kind == "p0":
             if warmup_file(env, key, days[0]).exists():
@@ -350,7 +382,7 @@ class FeatureBuildJob:
             return {"peak_gb": _peak(out)}
         if kind == "p1":
             d = date.fromisoformat(which)
-            if state_file(env, key, d).exists():
+            if pass1_done(env, key, days, d):
                 return None
             mb = free_mb()
             if mb is not None and mb < (EST_PEAK_GB + MIN_FREE_GB_EXTRA) * 1024:
@@ -358,11 +390,11 @@ class FeatureBuildJob:
             peak = self._run([d], 1, ctx)
             return {"peak_gb": peak}
         n = int(doc["batch"])
-        k = int(which)
-        done = lambda d: pass2_done(env, key, d)
+        d0, d1 = (date.fromisoformat(x) for x in which.split("~"))
+        done = lambda d: pass2_done(env, key, d, days)
         peak = None
         while True:
-            todo = [d for d in days[k * n:(k + 1) * n] if not done(d)]
+            todo = [d for d in days if d0 <= d <= d1 and not done(d)]
             if not todo:
                 return {"peak_gb": peak}
             why = ctx.should_stop()
@@ -411,16 +443,52 @@ class FeatureBuildJob:
         ctx.log.info("%s: report %s", JOB, path)
 
 
-def pass2_done(env: Env, key: str, day: date) -> bool:
+def start_file(env: Env, key: str, days: list[date], day: date) -> Path:
+    """The state `day` starts from: the warm-up before the plan's first session, else the previous session's."""
+    k = days.index(day)
+    return warmup_file(env, key, day) if k == 0 else state_file(env, key, days[k - 1])
+
+
+def _digest_of(path: Path) -> str | None:
+    try:
+        return sb.DayState.from_json(json.loads(path.read_text(encoding="utf-8"))).digest()
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def _source_of(path: Path, part: str | None = None) -> str | None:
+    try:
+        d = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    d = d.get(part) if part else d
+    return d.get("source") if isinstance(d, dict) else None
+
+
+def pass1_done(env: Env, key: str, days: list[date], day: date) -> bool:
+    """`day`'s checkpoint exists and was built from the state it starts from now (a re-plan or a rebuilt earlier
+    session makes it stale, and it is built again; so are the sessions after it, in turn)."""
+    sf = state_file(env, key, day)
+    want = _digest_of(start_file(env, key, days, day))
+    return sf.exists() and want is not None and _source_of(sf) == want
+
+
+def pass2_done(env: Env, key: str, day: date, days: list[date] | None = None) -> bool:
     """Pass 2 wrote every file of `day`: the summary's pass-2 entry is written last, after the three parquet files
-    (a run stopped in between leaves no entry, so the session is built again)."""
+    (a run stopped in between leaves no entry, so the session is built again). With `days` (the job), also built
+    from the state the session starts from now."""
     s = summary_file(env, key, day)
     if not s.exists():
         return False
     try:
-        return "pass2" in json.loads(s.read_text(encoding="utf-8"))
+        p2 = json.loads(s.read_text(encoding="utf-8")).get("pass2")
     except ValueError:
         return False
+    if not p2:
+        return False
+    if days is None:
+        return True
+    return p2.get("source") is not None and p2.get("source") == _digest_of(start_file(env, key, days, day))
 
 
 def _measured_peak(env: Env, key: str) -> float | None:
@@ -428,7 +496,7 @@ def _measured_peak(env: Env, key: str) -> float | None:
 
     st = load_state(state_path(env.paths, JOB))
     vals = [v.get("child_peak_gb") or v.get("peak_gb") for c, v in (st.get("done") or {}).items()
-            if c.endswith(key) and c.startswith("p2")]
+            if f":{key}:" in c and c.startswith("p2")]
     vals = [v for v in vals if v]
     return max(vals) if vals else None
 
@@ -499,6 +567,19 @@ def build_day_smoke(env: Env, day: date, full_warmup: bool = False) -> Path:
     rows = sf.touch_rows()
     t_rows = _time.monotonic() - t0 - t_warm - t_build
     dtr = sf.daytype_rows()
+    # pass 2's file writing on the real rows, read back (a temporary folder on the SSD, removed after)
+    import shutil
+    tmp = env.paths.tmp_dir / f"build_day_smoke_{day.isoformat()}"
+    try:
+        write_day_files(tmp, sf, day, "smoke", env.features)
+        back = {part: read_rows([tmp / part / f"{day.isoformat()}.parquet"]) for part in ("touches", "daytype", "outcomes")}
+        files_ok = (back["touches"].num_rows == len(rows) and back["daytype"].num_rows == len(dtr)
+                    and back["outcomes"].num_rows >= len(sf.events)
+                    and back["touches"].num_columns == len({k for r in rows for k in r}))
+        files_note = (f"{back['touches'].num_rows} touch rows x {back['touches'].num_columns} columns, "
+                      f"{back['daytype'].num_rows} day-type rows, {back['outcomes'].num_rows} outcome rows")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
     rss1 = proc.memory_info()
     peak1 = getattr(rss1, "peak_wset", 0) / 2**30 or rss1.rss / 2**30
     again = sb.build_day(env, day, state, pl, planned, damage)
@@ -524,6 +605,7 @@ def build_day_smoke(env: Env, day: date, full_warmup: bool = False) -> Path:
              f"- Wall time: warm-up replay {t_warm:.0f} s, build (zones, touches, labels) {t_build:.0f} s, rows "
              f"{t_rows:.0f} s; peak process memory {peak1:.2f} GB after one build ({peak:.2f} GB after the second)",
              f"- Built twice from the same state: end state identical {same}, same events {same_rows}",
+             f"- Pass-2 files written and read back: {'ok' if files_ok else 'MISMATCH'} ({files_note})",
              f"- NQ {built.info['nq_symbol']} ({built.info['nq_trades']:,} trades), ES {built.info['es_symbol']}; "
              f"Skylit: {built.info['skylit']}; gameplan: {built.info['gameplan']}; retest passes {sf.passes}",
              f"- NQ zones founded {len(sf.book.created)} (book recomputes {sf.book.recomputes:,} of "
@@ -556,7 +638,7 @@ def build_day_smoke(env: Env, day: date, full_warmup: bool = False) -> Path:
     path = env.paths.reports_dir / "step11" / f"build_day_{day.isoformat()}.md"
     atomic_write_text(path, "\n".join(lines) + "\n")
     env.echo(f"  report {path} (warm-up {t_warm:.0f} s, build {t_build:.0f} s, rows {t_rows:.0f} s, "
-             f"peak {peak:.2f} GB, deterministic {same and same_rows})")
+             f"peak {peak:.2f} GB, deterministic {same and same_rows}, files {'ok' if files_ok else 'MISMATCH'})")
     return path
 
 

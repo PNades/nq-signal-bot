@@ -53,6 +53,7 @@ MAPS = ("QQQ", "NDXP", "SPY", "SPX")
 NQ_SUBTYPES = tuple(sorted(SUBTYPE_KEY)) + ("qqq_node", "ndxp_node")
 RTYPES = ("gex_node", "vwap", "volume_profile", "session_hl", "opening_range", "expected_move")
 MAX_RETEST_PASSES = 64   # a guard: one pass per distinct retest creation time in the session, plus one
+MAX_ALT_BUILDS = 2       # sessions built without one event's own retested extreme kept at once (memory, §11 Low memory)
 NODE_TYPES = ("king", "gatekeeper", "significant", "normal")
 
 
@@ -248,7 +249,26 @@ class SessionFeatures:
         return self.retest_source.get(x.level_id) == e.event_id
 
     # --- queries -------------------------------------------------------------------------------------------------
+    def world(self, e: tch.Touch, t: int) -> tuple[SessionFeatures, tch.Touch]:
+        """The session `e`'s rows at t are read from: this one, or, once `e`'s own held label has made a retested
+        extreme by t, the session as it would be without that level (it can merge zones and change later labels;
+        owner 2026-11-01, SPEC §13 Q-step11g (2)). The feature build's rows are at the touch, always before it; step 13
+        reads its `decision_ts` rows, zone edges and members through here too."""
+        own_t = min((r.created_ns for r in self.retested_today if r.source == e.event_id), default=None)
+        if own_t is None or t < own_t:
+            return self, e
+        alt = self._alts.pop(e.event_id, None)
+        if alt is None:
+            alt = SessionFeatures(self.c, exclude_source=e.event_id).build()
+        self._alts[e.event_id] = alt               # most recently used last
+        while len(self._alts) > MAX_ALT_BUILDS:
+            self._alts.pop(next(iter(self._alts)))
+        return alt, alt.by_id[e.event_id]
+
     def zone_edges(self, e: tch.Touch, t: int) -> tuple[float, float] | None:
+        w, we = self.world(e, t)
+        if w is not self:
+            return w.zone_edges(we, t)
         if e.kind == "level":
             return _edges_of(self.members_at(e, t), t)
         if e.kind == "gameplan":
@@ -262,6 +282,9 @@ class SessionFeatures:
 
     def members_at(self, e: tch.Touch, t: int) -> list:
         """The zone's members (level events) or its confluence members (containers: levels overlapping it)."""
+        w, we = self.world(e, t)
+        if w is not self:
+            return w.members_at(we, t)
         if e.kind == "level":
             z = self.book.follow(e.zone_id, t)
             return [] if z is None else [x for x in (self.nq_levels[m] for m in self.book.members(z, t))
@@ -277,15 +300,9 @@ class SessionFeatures:
         return out
 
     def row(self, e: tch.Touch, t: int) -> dict[str, Any]:
-        own_t = min((r.created_ns for r in self.retested_today if r.source == e.event_id), default=None)
-        if own_t is not None and t >= own_t:
-            # the event's own held label made a retested extreme by t: its rows come from the session as it would be
-            # without that level (it can merge zones and change later labels), never from the level itself (owner
-            # 2026-11-01, SPEC §13 Q-step11g (2)); the feature build's rows (at the touch) are always before it
-            alt = self._alts.get(e.event_id)
-            if alt is None:
-                alt = self._alts[e.event_id] = SessionFeatures(self.c, exclude_source=e.event_id).build()
-            return alt.row(alt.by_id[e.event_id], t)
+        w, we = self.world(e, t)
+        if w is not self:
+            return w.row(we, t)
         f, c = self.f, self.c
         d = e.direction
         price = self.nq.last_price_at(t)
@@ -619,7 +636,9 @@ class SessionFeatures:
         cands = list(self.c.retest_candidates) + self._candidates()
         order = sorted(d for d in sessions if d <= self.day)
         keep_from = order[-lookback] if len(order) >= lookback else (order[0] if order else self.day)
-        cands = sl.dedupe_candidates([x for x in cands if x.session >= keep_from], int(f["retest_tol_ticks"]))
+        # kept as they come (one per session and type) and merged within retest_tol_ticks only when used
+        # (_new_retests): merging at each checkpoint would make the result depend on the order sessions arrive in
+        cands = [x for x in cands if x.session >= keep_from]
         eod = self.eod()
         return {"history": [asdict(r) for r in hist], "retested": [_retested_json(r) for r in retested],
                 "retest_candidates": [{"price": x.price, "type": x.type, "session": x.session.isoformat(),

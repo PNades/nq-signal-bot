@@ -299,7 +299,7 @@ class ZoneBook:
                 if o is m or (o.level_id, m.level_id) in done:
                     continue
                 done.add((m.level_id, o.level_id))
-                for a, z in _overlap_spans(m.spans, o.spans):
+                for a, z in _split_at(_overlap_spans(m.spans, o.spans), self.param_times):
                     i0, i1 = tape.idx_before(a), tape.idx_before(z)
                     # start one trade earlier: the state at a is the line after the last trade before a, so a flip at
                     # the first trade of [a, z) is a change from it (an extra candidate time is harmless)
@@ -432,6 +432,19 @@ def _normalise(spans) -> list[tuple[int, int]]:
         else:
             out.append([a, z])
     return [(a, z) for a, z in out]
+
+
+def _split_at(spans: list, cuts) -> list[tuple[int, int]]:
+    """The spans cut at every instant of `cuts` inside them (each piece has one parameter set)."""
+    cs = sorted(int(c) for c in cuts)
+    out = []
+    for a, z in spans:
+        for c in cs:
+            if a < c < z:
+                out.append((a, c))
+                a = c
+        out.append((a, z))
+    return out
 
 
 def _overlap_spans(a: list, b: list) -> list[tuple[int, int]]:

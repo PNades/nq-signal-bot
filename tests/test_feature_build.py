@@ -60,8 +60,9 @@ def test_plan_chunks_and_key(env):
     p1 = [c for c in ids if c.startswith("p1:")]
     p2 = [c for c in ids if c.startswith("p2:")]
     assert len(p1) == len(want) and len(p2) == -(-len(want) // 4)
-    assert ids == [f"p0:warmup:{doc['key']}"] + p1 + p2
-    assert all(c.endswith(doc["key"]) for c in ids)
+    assert ids == [f"p0:warmup:{doc['key']}:{want[0]}"] + p1 + p2
+    assert all(c.endswith(f":{doc['key']}:{want[0]}") for c in ids)
+    assert p2[0].split(":")[1] == f"{want[0]}~{want[3]}" and p2[-1].split(":")[1].endswith(want[-1])
     assert fb.load_plan(env)["key"] == doc["key"]
     # any configuration change renames every chunk: the plan refuses until re-planned
     env.features = {**env.features, "zone_proximity": env.features["zone_proximity"] + 1}
@@ -137,8 +138,9 @@ class FakeSF:
     def daytype_rows(self):
         return [{"day": "d", "t": 1, "vwap_crosses": 0}]
 
-    def outcome_rows(self):
-        return [{"event_id": f"e{k}", "label": "held"} for k in self.events]
+    def outcome_rows(self):   # the shape of SessionFeatures.outcome_rows (t_resolved: a nanosecond time)
+        return [{"event_id": f"e{k}", "day": "d", "label": "held", "t_resolved": 1_772_756_184_976_607_116 + k,
+                 "extreme": 20_000.25, "run_pts": 21.5, "how": "held"} for k in self.events]
 
     def eod(self):
         return {"day_type": "range"}
@@ -237,8 +239,8 @@ def test_write_rows_takes_every_rows_columns(tmp_path):
     fb.write_rows(p, [{"event_id": "a", "ts": 1, "n": 2}, {"event_id": "b", "ts": 2, "n": 3, "gz_touch_number": 1}],
                   {})
     t = pq.read_table(p)
-    assert t.column("gz_touch_number").to_pylist() == [None, 1.0]
-    assert str(t.schema.field("n").type) == "float" and str(t.schema.field("ts").type) == "int64"
+    assert t.column("gz_touch_number").to_pylist() == [None, 1]
+    assert str(t.schema.field("n").type) == "int64" and str(t.schema.field("ts").type) == "int64"
 
 
 def test_read_rows_mixes_whole_and_fractional_days(tmp_path):
@@ -329,3 +331,67 @@ def test_job_runs_every_chunk_resumes_and_stops_on_failures(env, monkeypatch):
     fb.summary_file(env, doc["key"], plan_days[0]).unlink()     # one pass-2 session has work again
     with pytest.raises(StopChunk, match="free"):
         job.run_chunk(p2[0], ctx)
+
+
+def test_outcome_times_survive_the_file_exactly(tmp_path):
+    # an outcome's t_resolved is a nanosecond time: it doesn't fit float32 (the cast raised) and must come back exact
+    from nqbot.features import structure_label as slab
+    from dataclasses import asdict
+    lab = slab.Label("20260320T150000Z-z3", "held", 1_772_756_184_976_607_116, 20_000.25, 21.5, "held")
+    rows = [{"event_id": lab.event_id, "day": "2026-03-20", **{k: v for k, v in asdict(lab).items() if k != "event_id"}},
+            {"event_id": "eod-2026-03-20", "day": "2026-03-20", "label": "range", "how": "eod_day_type"}]
+    p = tmp_path / "o.parquet"
+    fb.write_rows(p, rows, {})
+    t = pq.read_table(p)
+    assert t.column("t_resolved").to_pylist() == [1_772_756_184_976_607_116, None]
+    assert str(t.schema.field("extreme").type) == "float"
+    big = tmp_path / "b.parquet"
+    fb.write_rows(big, [{"event_id": "x", "count": 2**40}], {})
+    assert pq.read_table(big).column("count").to_pylist() == [2**40]
+
+
+def test_replan_never_inherits_another_chain(env, monkeypatch):
+    days = trading_days(date(2025, 9, 29), date(2026, 1, 9), env.cal)
+    write_backfill_plan(env, days)
+    later = fb.chunk_ids(fb.make_plan(env, [2, 3], batch=4))
+    full = fb.chunk_ids(fb.make_plan(env, [1, 2, 3], batch=4))
+    # the same session in a chain with another first session is another chunk (the runner skips finished ids)
+    assert not set(later) & set(full)
+    short = fb.chunk_ids(fb.make_plan(env, [1], batch=4))
+    longer = fb.chunk_ids(fb.make_plan(env, [1, 2], batch=4))
+    # month 1's last batch holds fewer days than the same batch in the longer plan: a different chunk
+    assert short[-1] not in longer and set(short[:-1]) <= set(longer)
+
+
+def test_stale_checkpoints_are_built_again(env, monkeypatch):
+    days = trading_days(date(2025, 9, 29), date(2025, 10, 10), env.cal)
+    write_backfill_plan(env, days)
+    doc = fb.make_plan(env, [1], batch=2)
+    key = doc["key"]
+    plan_days = [date.fromisoformat(x) for x in doc["sessions"]]
+
+    def fake_build(env_, day, state, pl, planned, damage):
+        return sb.Built(FakeSF(2), sb.DayState(day.isoformat(), {"n": state.nq.get("n", 0) + 1}, {}, {}),
+                        {"skylit": "ok"})
+    monkeypatch.setattr(sb, "build_day", fake_build)
+    monkeypatch.setattr(sb, "warmup_state", lambda *a, **k: sb.DayState("2025-09-30", {"n": 0}, {}, {}))
+    monkeypatch.setattr(sb, "load_damage", lambda env_: {})
+    fb.build_warmup_cmd(env)
+    for d in plan_days[:3]:
+        fb.build_day_cmd(env, d, 1)
+    for d in plan_days[:3]:
+        fb.build_day_cmd(env, d, 2)
+    assert all(fb.pass1_done(env, key, plan_days, d) and fb.pass2_done(env, key, d, plan_days) for d in plan_days[:3])
+    # session 2's checkpoint rebuilt from another start (e.g. after a re-plan): sessions 2 and 3 are stale now
+    atomic_write_json(fb.state_file(env, key, plan_days[0]), {**sb.DayState(plan_days[0].isoformat(), {"n": 99}, {},
+                                                                            {}).to_json(), "source": "x"})
+    assert fb.pass1_done(env, key, plan_days, plan_days[0]) is False
+    assert not fb.pass1_done(env, key, plan_days, plan_days[1]) and not fb.pass2_done(env, key, plan_days[1], plan_days)
+    with pytest.raises(fb.BuildRefused, match="another starting state"):
+        fb.build_day_cmd(env, plan_days[1], 2)      # pass 2 never runs on a checkpoint from another start
+
+
+def test_build_key_follows_the_code(env, monkeypatch):
+    k0 = fb.build_key(env)
+    monkeypatch.setattr(fb, "code_digest", lambda: "other")
+    assert fb.build_key(env) != k0

@@ -214,3 +214,44 @@ def test_retested_extreme_source_round_trip():
     from nqbot.features.session_features import _retested_json, retested_from_json
     r = sl.Retested("retested_extreme-x", 1.0, "pdh", date(2026, 3, 19), 5, "20260320T150000Z-z3")
     assert retested_from_json(_retested_json(r)) == r
+
+
+
+# --- second review (2026-11-01, SPEC §13 Q-step11h) ---------------------------------------------------------------
+
+def test_candidate_merge_is_the_same_whatever_order_sessions_arrive():
+    # A, B, C each 3 ticks apart (A and C 6 ticks: two extremes): merged at once -> {A, C}; the checkpoints keep the
+    # candidates as they come and merge only when used, so session-by-session arrival gives the same
+    d1, d2, d3 = date(2026, 3, 16), date(2026, 3, 17), date(2026, 3, 18)
+    A, B, C = (sl.Candidate(20_000.0, "on_high", d1), sl.Candidate(20_000.75, "on_high", d2),
+               sl.Candidate(20_001.5, "on_high", d3))
+    assert [c.price for c in sl.dedupe_candidates([A, B, C], 4)] == [20_000.0, 20_001.5]
+    tape = tape_of([(at(10, 0), 100.0), (at(10, 1), 100.0)])
+    fake = SimpleNamespace(f={"retest_lookback_sessions": 10, "retest_tol_ticks": 4}, end_ns=int(tape.ts[-1]) + 1,
+                           nq_levels={}, retested_today=[], records=[], day=d3, eod=lambda: None,
+                           _candidates=lambda: [C],
+                           c=SimpleNamespace(retested=[], history=[], sessions=[d1, d2, d3], retest_candidates=[A, B]))
+    kept = SessionFeatures.end_state(fake)["retest_candidates"]
+    assert sorted(x["price"] for x in kept) == [20_000.0, 20_000.75, 20_001.5]     # raw: merged at use only
+
+
+def test_zone_book_flip_after_a_parameter_switch():
+    # the confluence tolerance rises from 4 to 8 at trade 5; a moving line 10 from a level until trade 12, then 7: the
+    # merge at trade 12 exists only under the new tolerance, so the flip must be judged with the parameters in force
+    # then (judged with the span's first ones, no candidate instant appeared there)
+    ts = at(10, 0) + np.arange(20, dtype=np.int64) * NS
+    tape = Tape.from_arrays(DAY, ts, np.full(20, 100.0))
+    c = np.where(np.arange(20) >= 12, 99.0, 96.0)
+    mv = TradeBand(tape, c, 0.5, int(ts[0]))
+    L = StepBand.const(tape, int(ts[0]), 105.5, 106.5)
+    end = int(ts[-1]) + NS
+    switch = int(ts[5])
+
+    def mk():
+        return ZoneBook([zn.BookLevel("V", mv, [(int(ts[0]), end)]),
+                         zn.BookLevel("L", L, [(int(ts[0]), end)], change_times=L.times)], tape,
+                        lambda t: (8.0 if t >= switch else 4.0, 60.0), param_times=(switch,), end_ns=end)
+    fast, ref = mk().run(), mk().run(every_trade=True)
+    for t in ts.tolist():
+        assert fast.zones_at(t) == ref.zones_at(t)
+    assert len(fast.zones_at(int(ts[12]))) == 1 and len(fast.zones_at(int(ts[11]))) == 2

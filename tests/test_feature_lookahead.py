@@ -22,7 +22,7 @@ from nqbot.features import session_tape as st
 from nqbot.features.boards import MapBoards
 from nqbot.features.node_levels import Scale
 from nqbot.features.freshness import TouchRecord
-from nqbot.features.session_features import SessionContext, SessionFeatures
+from nqbot.features.session_features import MAX_ALT_BUILDS, SessionContext, SessionFeatures
 from nqbot.features.session_levels import Candidate
 from nqbot.features.skylit_session import Context, SkylitSession
 from tests.test_chart_levels import DAY, carry_for, synthetic_tape
@@ -323,14 +323,22 @@ def test_own_label_never_reaches_own_features(full, shard):
             continue
         times = _decision_times(sf, e)
         want = [sf.row(e, t) for t in times]
-        lab, rec = sf.labels[e.event_id], sf.records[k]
-        other = "broke" if lab.label == "held" else "held"
-        sf.labels[e.event_id] = replace(lab, label=other, t_resolved=e.t + 1, run_pts=lab.run_pts + 7.0)
-        sf.records[k] = replace(rec, label=other, t_resolved=e.t + 1)
+        # the label is replaced in this session and in every session the event's rows are read from (the one
+        # without its own retested extreme, after that level's creation)
+        worlds = {id(w): (w, we) for w, we in (sf.world(e, t) for t in times)}
+        saved = []
+        for w, we in worlds.values():
+            j = w.events.index(we)
+            lab, rec = w.labels[we.event_id], w.records[j]
+            saved.append((w, we, j, lab, rec))
+            other = "broke" if lab.label == "held" else "held"
+            w.labels[we.event_id] = replace(lab, label=other, t_resolved=we.t + 1, run_pts=lab.run_pts + 7.0)
+            w.records[j] = replace(rec, label=other, t_resolved=we.t + 1)
         try:
             same(want, [sf.row(e, t) for t in times], f"{e.event_id}")
         finally:
-            sf.labels[e.event_id], sf.records[k] = lab, rec
+            for w, we, j, lab, rec in saved:
+                w.labels[we.event_id], w.records[j] = lab, rec
 
 
 def test_own_retested_extreme_never_reaches_own_features(full):
@@ -352,3 +360,8 @@ def test_own_retested_extreme_never_reaches_own_features(full):
         e = sf.by_id[src]
         times = _decision_times(sf, e)
         same([sf.row(e, t) for t in times], [alt.row(alt.by_id[src], t) for t in times], src)
+        ea = alt.by_id[src]
+        same([sf.zone_edges(e, t) for t in times], [alt.zone_edges(ea, t) for t in times], src)
+        same([sorted(x.uid for x in sf.members_at(e, t)) for t in times],
+             [sorted(x.uid for x in alt.members_at(ea, t)) for t in times], src)
+        assert len(sf._alts) <= MAX_ALT_BUILDS
