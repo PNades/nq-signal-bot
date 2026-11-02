@@ -14,8 +14,19 @@ from nqbot import clock, keys_check, preflight, status_push, testrun
 from nqbot.secrets import MissingSecret, Secret
 
 
-def _reader(tz="Eastern Standard Time", sync="NTP"):
-    return lambda path, name: {"TimeZoneKeyName": tz, "Type": sync}[name]
+def _reader(tz="Eastern Standard Time", sync="NTP", dst_off=0):
+    return lambda path, name: {"TimeZoneKeyName": tz, "Type": sync, "DynamicDaylightTimeDisabled": dst_off}[name]
+
+
+def test_clock_checks_warn_when_daylight_saving_is_not_adjusted(settings):
+    """Owner 2026-11-02: scheduled tasks run at local wall time, so Windows must switch to and from daylight saving
+    by itself; with it off local time is EST all year and every task is an hour late in summer."""
+    warn, ok = clock.clock_checks(settings, measure=lambda: (40.0, 12.0), read=_reader(dst_off=1),
+                                  service=lambda: "running")
+    assert len(warn) == 1 and "daylight saving time is not adjusted automatically" in warn[0]
+    warn, _ = clock.clock_checks(settings, measure=lambda: (40.0, 12.0), read=lambda p, n: {
+        "TimeZoneKeyName": "Eastern Standard Time", "Type": "NTP"}.get(n), service=lambda: "running")
+    assert warn == []   # the value missing (older Windows): automatic, as Windows treats it
 
 
 def test_clock_checks_all_good(settings):

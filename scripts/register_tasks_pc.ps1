@@ -18,8 +18,12 @@
 # uv (owner 2026-10-30): -Uv <path> if given, else the uv this PowerShell finds on PATH ((Get-Command uv).Source; on
 # the PC winget's ...\WinGet\Links\uv.exe); the path used is printed first. -ResolveUvOnly prints it and stops
 # (no admin needed; used by the tests).
+#
+# Times (owner 2026-11-02): every trigger is stored as local wall time (scripts/task_time.ps1), so 07:35 stays 07:35
+# ET across the daylight-saving switches. -ShowTriggersOnly prints each task's triggers and stops (no admin needed;
+# used by the tests). Tasks registered before 2026-11-02 were anchored to UTC: run this script again once.
 param([string]$Repo = (Join-Path $env:USERPROFILE "code\nq-signal-bot"), [string]$LogDir = "D:\nqbot\logs",
-      [string]$Uv = "", [switch]$ResolveUvOnly)
+      [string]$Uv = "", [switch]$ResolveUvOnly, [switch]$ShowTriggersOnly)
 
 $ErrorActionPreference = "Stop"
 if ($Uv) {
@@ -35,6 +39,28 @@ if ($Uv) {
     "uv: $Uv (found on PATH; pass -Uv <path> to use another)"
 }
 if ($ResolveUvOnly) { exit 0 }
+. (Join-Path $PSScriptRoot "task_time.ps1")
+
+function Hourly([int]$Minute) {  # every hour from the next HH:<Minute>, indefinitely
+    $start = (Get-Date).Date.AddHours((Get-Date).Hour + 1).AddMinutes($Minute)
+    New-ScheduledTaskTrigger -Once -At $start -RepetitionInterval (New-TimeSpan -Hours 1)
+}
+
+$boot = New-ScheduledTaskTrigger -AtStartup
+$boot.Delay = "PT2M"  # let the SSD mount first (the wrapper also waits up to 30 s for it)
+$triggers = [ordered]@{
+    "nqbot resume"      = @($boot, (New-ScheduledTaskTrigger -Daily -At "07:35"), (Hourly 5)) | ConvertTo-LocalTrigger
+    "nqbot preflight"   = @(New-ScheduledTaskTrigger -Daily -At "07:40") | ConvertTo-LocalTrigger
+    "nqbot status push" = @(Hourly 15) | ConvertTo-LocalTrigger
+}
+if ($ShowTriggersOnly) {
+    foreach ($name in $triggers.Keys) {
+        foreach ($t in $triggers[$name]) {
+            "$name|$($t.CimClass.CimClassName)|$($t.StartBoundary)|$($t.Repetition.Interval)"
+        }
+    }
+    exit 0
+}
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) { throw "run this from an admin PowerShell (right-click > Run as administrator)" }
@@ -66,18 +92,11 @@ function Add-NqbotTask([string]$Name, [string]$LogName, [string]$NqbotArgs, $Tri
     "registered: $Name  logon=$($t.Principal.LogonType)  next=$(($t | Get-ScheduledTaskInfo).NextRunTime)"
 }
 
-function Hourly([int]$Minute) {  # every hour from the next HH:<Minute>, indefinitely
-    $start = (Get-Date).Date.AddHours((Get-Date).Hour + 1).AddMinutes($Minute)
-    New-ScheduledTaskTrigger -Once -At $start -RepetitionInterval (New-TimeSpan -Hours 1)
-}
-
-$boot = New-ScheduledTaskTrigger -AtStartup
-$boot.Delay = "PT2M"  # let the SSD mount first (the wrapper also waits up to 30 s for it)
-Add-NqbotTask "nqbot resume" "resume" "resume" @($boot, (New-ScheduledTaskTrigger -Daily -At "07:35"), (Hourly 5)) `
-    ([TimeSpan]::Zero)
-Add-NqbotTask "nqbot preflight" "preflight" "preflight" (New-ScheduledTaskTrigger -Daily -At "07:40") (New-TimeSpan -Hours 1)
-Add-NqbotTask "nqbot status push" "status_push" "status-push" (Hourly 15) (New-TimeSpan -Minutes 10)
+Add-NqbotTask "nqbot resume" "resume" "resume" $triggers["nqbot resume"] ([TimeSpan]::Zero)
+Add-NqbotTask "nqbot preflight" "preflight" "preflight" $triggers["nqbot preflight"] (New-TimeSpan -Hours 1)
+Add-NqbotTask "nqbot status push" "status_push" "status-push" $triggers["nqbot status push"] (New-TimeSpan -Minutes 10)
 
 "--- nqbot tasks on this machine:"
 Get-ScheduledTask | Where-Object { $_.TaskName -like "nqbot*" } | ForEach-Object {
-    "  $($_.TaskName)  state=$($_.State)  logon=$($_.Principal.LogonType)  next=$(($_ | Get-ScheduledTaskInfo).NextRunTime)" }
+    "  $($_.TaskName)  state=$($_.State)  logon=$($_.Principal.LogonType)  next=$(($_ | Get-ScheduledTaskInfo).NextRunTime)"
+    foreach ($t in $_.Triggers) { if ($t.StartBoundary) { "    start $($t.StartBoundary)" } } }

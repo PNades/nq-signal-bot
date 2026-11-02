@@ -103,6 +103,11 @@ def clock_checks(settings: dict, *, measure=None, read=None, service=None) -> tu
         warn.append(f"the Windows time zone is {tz!s}, not {EASTERN_TZ} (Settings > Time & language > Date & time)")
     else:
         ok.append(f"time zone {EASTERN_TZ}")
+    # owner 2026-11-02: scheduled tasks run at local wall time, so the switch to and from daylight saving must be on
+    if str(read(TZ_KEY, "DynamicDaylightTimeDisabled") or 0) == "1":
+        warn.append("daylight saving time is not adjusted automatically, so local time (and every scheduled task) "
+                    "is an hour off in summer (Settings > Time & language > Date & time > \"Adjust for daylight "
+                    "saving time automatically\")")
     sync = read(W32TIME_KEY, "Type")
     if sync is None:
         warn.append("couldn't read the automatic time sync setting (Windows Time service)")

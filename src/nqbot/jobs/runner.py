@@ -86,13 +86,17 @@ class RunResult:
 
 
 def parse_until(text: str, now: datetime) -> datetime:
-    """The next HH:MM (America/New_York) after `now`."""
+    """The next HH:MM (America/New_York) after `now`. Compared as instants (owner 2026-11-02): two datetimes with the
+    same tzinfo compare by wall clock, so in the hour repeated when the clocks go back a target could come out in the
+    past; both occurrences of a repeated time are candidates, the first after `now` wins."""
     hh, mm = (int(x) for x in text.split(":"))
     local = now.astimezone(ET)
-    target = datetime.combine(local.date(), dtime(hh, mm), tzinfo=ET)
-    if target <= local:
-        target = datetime.combine(local.date() + timedelta(days=1), dtime(hh, mm), tzinfo=ET)
-    return target
+    for day in (local.date(), local.date() + timedelta(days=1)):
+        for fold in (0, 1):
+            target = datetime.combine(day, dtime(hh, mm, fold=fold), tzinfo=ET)
+            if target.timestamp() > now.timestamp():
+                return target
+    raise AssertionError("unreachable: tomorrow's HH:MM is always after now")
 
 
 def p90(durations: list[float]) -> float:
@@ -199,7 +203,7 @@ def run_job(
     deadline = until
     if window:
         window_start = next_window_start(now(), window, is_trading_day)
-        if window_start is not None and window_start < deadline:
+        if window_start is not None and window_start.timestamp() < deadline.timestamp():
             deadline = window_start
 
     stop_file = stop_request_path(paths, job.name)
@@ -210,7 +214,7 @@ def run_job(
             return stop[1]
         if stop_file.exists():
             return STOP_REASON
-        if now() >= deadline:
+        if now().timestamp() >= deadline.timestamp():
             return f"reached {deadline:%H:%M}"
         return None
 
@@ -276,7 +280,8 @@ def run_job(
         started = hook("at_start")
         for chunk in pending if started else []:
             stop = refusal() or (("stopped", STOP_REASON) if stop_file.exists() else None)
-            if stop is None and now() + timedelta(seconds=p90([d["sec"] for d in done.values()])) > deadline:
+            # instants, not wall clock (owner 2026-11-02): ET datetimes add and compare by wall time across a switch
+            if stop is None and now().timestamp() + p90([d["sec"] for d in done.values()]) > deadline.timestamp():
                 stop = ("until", f"next chunk would not finish before {deadline:%H:%M}")
             if stop is not None:
                 result.status, result.message = stop
@@ -285,7 +290,7 @@ def run_job(
             t0 = now()
             try:
                 out = job.run_chunk(chunk, ctx)
-                sec = (now() - t0).total_seconds()
+                sec = now().timestamp() - t0.timestamp()   # real seconds, also across 02:00 on a switch night
                 # a chunk run in its own process reports that process's peak (it is not this process's)
                 child = out.get("peak_gb") if isinstance(out, dict) else None
                 peaks_now = [p for p in (_peak_gb(), child) if p]

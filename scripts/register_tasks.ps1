@@ -19,10 +19,30 @@
 #   nqbot stream-drops 10-19    Tue 10-20 08:50   (the same for the 10-19 recording)
 # Owner 2026-10-17: replaces the 10-16 tasks (late-prints, recording) and the 10-19 sigma runs.
 # Every task: wake the computer, start when available if missed, run on battery, one instance at a time.
+# Times (owner 2026-11-02): every trigger is stored as local wall time (scripts/task_time.ps1), so 08:20 stays 08:20
+# ET across the daylight-saving switches (New-ScheduledTaskTrigger alone anchors it to UTC: an hour off after a
+# switch). -ShowTriggersOnly prints each task's triggers and stops (no admin needed; used by the tests).
 param([string]$Repo = "C:\Users\premn\code\nq-signal-bot", [string]$LogDir = "D:\nqbot\logs",
-      [string]$Uv = "C:\Users\premn\.local\bin\uv.exe")
+      [string]$Uv = "C:\Users\premn\.local\bin\uv.exe", [switch]$ShowTriggersOnly)
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "task_time.ps1")
+$triggers = [ordered]@{
+    "nqbot preflight"          = @(New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, `
+                                       Friday -At "08:20") | ConvertTo-LocalTrigger
+    "nqbot recording 10-19"    = @(New-ScheduledTaskTrigger -Once -At "2026-10-19 09:27") | ConvertTo-LocalTrigger
+    "nqbot sigma check"        = @(foreach ($d in "2026-10-20", "2026-10-21", "2026-10-22") {
+                                       New-ScheduledTaskTrigger -Once -At "$d 09:05"
+                                       New-ScheduledTaskTrigger -Once -At "$d 12:00" }) | ConvertTo-LocalTrigger
+    "nqbot stream-drops 10-16" = @(New-ScheduledTaskTrigger -Once -At "2026-10-19 08:50") | ConvertTo-LocalTrigger
+    "nqbot stream-drops 10-19" = @(New-ScheduledTaskTrigger -Once -At "2026-10-20 08:50") | ConvertTo-LocalTrigger
+}
+if ($ShowTriggersOnly) {
+    foreach ($name in $triggers.Keys) {
+        foreach ($t in $triggers[$name]) { "$name|$($t.CimClass.CimClassName)|$($t.StartBoundary)" }
+    }
+    exit 0
+}
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) { throw "run this from an admin PowerShell (right-click > Run as administrator)" }
@@ -56,17 +76,14 @@ function Add-NqbotTask([string]$Name, [string]$LogName, [string]$NqbotArgs, $Tri
     "registered: $Name  logon=$($t.Principal.LogonType)  next=$(($t | Get-ScheduledTaskInfo).NextRunTime)"
 }
 
-$weekdays = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday -At "08:20"
-Add-NqbotTask "nqbot preflight" "preflight" "preflight" $weekdays 1
+Add-NqbotTask "nqbot preflight" "preflight" "preflight" $triggers["nqbot preflight"] 1
 Add-NqbotTask "nqbot recording 10-19" "stream_session" "step7 stream-session --maps NDXP,QQQ,SPY --fallback-local" `
-    (New-ScheduledTaskTrigger -Once -At "2026-10-19 09:27") 8
-$sigma = foreach ($d in "2026-10-20", "2026-10-21", "2026-10-22") {
-    New-ScheduledTaskTrigger -Once -At "$d 09:05"; New-ScheduledTaskTrigger -Once -At "$d 12:00" }
-Add-NqbotTask "nqbot sigma check" "sigma_check" "step7 sigma-check" $sigma 1
+    $triggers["nqbot recording 10-19"] 8
+Add-NqbotTask "nqbot sigma check" "sigma_check" "step7 sigma-check" $triggers["nqbot sigma check"] 1
 Add-NqbotTask "nqbot stream-drops 10-16" "stream_drops" "step7 stream-drops --session 2026-10-16" `
-    (New-ScheduledTaskTrigger -Once -At "2026-10-19 08:50") 1
+    $triggers["nqbot stream-drops 10-16"] 1
 Add-NqbotTask "nqbot stream-drops 10-19" "stream_drops" "step7 stream-drops --session 2026-10-19" `
-    (New-ScheduledTaskTrigger -Once -At "2026-10-20 08:50") 1
+    $triggers["nqbot stream-drops 10-19"] 1
 
 "--- recording tasks firing on 2026-10-19 (must be exactly one):"
 Get-ScheduledTask | Where-Object { $_.TaskName -like "nqbot*" -and $_.Actions.Arguments -match "stream-session" } |
