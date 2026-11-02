@@ -688,7 +688,7 @@ The golden zone (F10) and gameplan zones (F8) never merge. Levels whose bands ov
   - `minutes_since_last_test`.
 - Zone features: min, max and mean over members, plus the zone's own test count (by `zone_id`).
 - *Test:* touch 1 at 10:00 resolves held at 10:20. At a touch at 10:10, `holds_so_far` = 0 and `pending_tests` = 1.
-- At a pair's later `decision_ts` (owner 2026-11-01, SPEC §13 Q-step11g (2)): only the touches before the event's own touch count (their labels if resolved by t); never the event's own touch or label, nor a retested extreme its own held label made.
+- At a pair's later `decision_ts` (owner 2026-11-01, SPEC §13 Q-step11g (2)): only the touches before the event's own touch count (their labels if resolved by t); never the event's own touch or label, nor a retested extreme its own held label made, nor one made by another event of its touch group (owner 2026-11-01, SPEC §13 Q-step11h (2): the touch group is the event's own; built at step 13). Step 13 builds no pair whose `decision_ts` is at or after its event's own label resolution (Q-step11h (1)).
 
 ### F5.12 Day memory
 At t, among today's events touched before the event's own touch (owner 2026-11-01, SPEC §13 Q-step11g (2): never the event's own label, also at a later `decision_ts`) whose structure labels resolved ≤ t: `held_today`, `broke_today`, `timeout_today` and the held rate. Also `yesterday_day_type`, the previous session's EOD day-type label (F11.6).
