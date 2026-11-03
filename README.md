@@ -9,9 +9,9 @@
   <img alt="use" src="https://img.shields.io/badge/use-personal%20only-f87171?style=flat-square">
 </p>
 
-A supervised machine-learning bot for **Nasdaq-100 futures (NQ)**. Every time price touches a key level during the New York session, it estimates **the probability that the target is hit before the stop**, picks the entry, a structural stop, the target, the size and the breakeven rule, and sends the trade automatically through **TradersPost → Tradovate**: a demo account first, then prop-firm accounts. A local **Control Panel** and a **Discord** remote keep a human in the loop.
+A supervised ML bot for **Nasdaq-100 futures (NQ)**. Every time price touches a key level during the New York session, it estimates **the probability that the target is hit before the stop**, picks the entry, a structural stop, the target, the size and the breakeven rule, and sends the trade automatically through **TradersPost → Tradovate**. A local **Control Panel** and a **Discord** remote are used to monitor the bot.
 
-> **Source of truth:** [`docs/SPEC.md`](docs/SPEC.md) defines how everything works, and [`docs/feature_spec.md`](docs/feature_spec.md) defines every feature exactly. [`CLAUDE.md`](CLAUDE.md) holds the working rules and the current status. This README is the overview.
+> **Source of truth:** [`docs/SPEC.md`](docs/SPEC.md) defines how everything works, and [`docs/feature_spec.md`](docs/feature_spec.md) defines every feature exactly. [`CLAUDE.md`](CLAUDE.md) holds the working rules and the current status.
 
 ---
 
@@ -35,15 +35,15 @@ A supervised machine-learning bot for **Nasdaq-100 futures (NQ)**. Every time pr
 
 <img src="docs/readme/architecture.png" alt="Architecture: data → features → models → decision → execution, with supervision" width="100%">
 
-**The core idea:** options dealers' gamma exposure (**GEX**) creates price levels where the market tends to react. The bot maps those levels from the option chains (QQQ, NDXP, SPY, SPX) onto the NQ and ES futures charts. It combines them with classic auction levels (VWAP, volume-profile POC and value area, single prints, prior highs and lows, the initial balance, the opening-range golden zone) and reads the **order flow** at each touch to judge whether the level holds.
+**The core idea:** options dealers' gamma exposure (**GEX**) creates price levels where the market tends to react. The bot maps those levels from the option chains (QQQ, NDXP, SPY, SPX) onto the NQ and ES futures charts. It combines them with classic auction levels (VWAP, volume-profile POC and value area, single prints, prior highs and lows, the initial balance, the opening-range golden zone) and reads the **order flow** at each touch to determine whether to enter or not.
 
 | Source | What the bot uses |
 |---|---|
 | **Skylit** | 0DTE gamma per strike (intraday boards), multi-expiration snapshots, Tempest daily volatility, dark-pool prints (not in the first model) |
 | **Databento (CME)** | NQ, ES and MNQ trades with the aggressor side, NQ top of book (`mbp-1`), 1-second bars, contract rolls |
-| **Context** | high-impact news calendar, the morning gameplan (parsed by an LLM), holidays and early closes |
+| **Context** | high-impact news calendar, a morning gameplan (parsed by an LLM), holidays and early closes |
 
-**One code path:** the backtest and the live engine run *the same* feature and decision code. A replay test (step 23) proves it.
+**One code path:** the backtest and the live engine run *the same* feature and decision code.
 
 ---
 
@@ -76,7 +76,7 @@ A settled **5-minute** bar past the margin **flips** a level: broken resistance 
 
 | Model | Predicts | Notes |
 |---|---|---|
-| **Structure** | will the level hold or break? | LightGBM, with a logistic-regression baseline as a cheat detector |
+| **Structure** | will the level hold or break? | LightGBM, with a logistic-regression baseline for comparison |
 | **Day type** | trend vs range day, through the session | regularised logistic regression on 8 fixed inputs, a snapshot every 15 minutes from 10:00 |
 | **Trigger** | quality of an order-flow firing at the zone | absorption, exhaustion, delta divergence, imbalance (step 19) |
 | **Pair scorer** | **P(target before stop)** for each entry × stop × target | the final model; calibrated; drives the decision |
