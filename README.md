@@ -102,10 +102,10 @@ Entry styles: **(a)** absorption, **(b)** another order-flow trigger, **(c)** a 
 
 ## Honest testing
 
-<img src="docs/readme/ledger.png" alt="Month ledger: development 1–6, walk-forward 7–9, sealed 10–12" width="100%">
+<img src="docs/readme/ledger.png" alt="Month ledger, October 2025 to September 2026: warm-up (state only), development 1–6, walk-forward test 7–9, sealed 10–12 plus the top-up months" width="100%">
 
 - **No lookahead.** A feature at time *t* uses only data up to *t*. The test suite changes or removes everything after *t* and checks that nothing at *t* moves, and a **planted leak** proves the check would catch one.
-- **Purged walk-forward.** Every test month is predicted by models trained only on earlier months.
+- **Purged walk-forward.** Every test month is predicted by models trained only on earlier months; folds are cut in whole days with a gap, so overlapping trades can't leak across the train/test boundary.
 - **Sealed months** are kept out of every report until step 20, then scored **once** by the model that goes live.
 - **Gates with fixed rules.** Each gate's pass criteria are written in SPEC §12 before any result exists, its numbers in `config/settings.yaml` → `gates` (e.g. at step 16 the bootstrap lower bound on R per trade must clear zero, the system must beat a fixed 1 : 2.5 baseline, and calibration error must stay under `gate_calib_max`). Every passed gate is recorded in `config/gate_record.json`.
 - **Feature freeze** until gate 16. New ideas wait in SPEC §13 (Q-v2).
@@ -116,7 +116,7 @@ Entry styles: **(a)** absorption, **(b)** another order-flow trigger, **(c)** a 
 
 <img src="docs/readme/roadmap.png" alt="Roadmap: 29 steps in SPEC phases A–H, with their gates" width="100%">
 
-**Now:** step 11 (features) is built and its full 12-month feature build (`feature_build`, about 10 hours) is running on the build PC. Next is the step-12 visual check of the chart levels against Deepcharts (a ✅ gate). The live status is always in [`CLAUDE.md`](CLAUDE.md) → *Status*.
+**Now:** step 11 (features) is done: the full 12-month feature build (`feature_build`, 251 sessions, about 15½ hours over two runs on the build PC) finished on 2026-11-02 (the roadmap image above still marks step 11 as current). Next is the step-12 visual check of the chart levels against Deepcharts (a ✅ gate). The live status is always in [`CLAUDE.md`](CLAUDE.md) → *Status*.
 
 ---
 
