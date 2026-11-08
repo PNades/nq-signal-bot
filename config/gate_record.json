@@ -12,6 +12,12 @@
       "passed": "2026-10-28",
       "commit": "7d7c4775d590485b4c16647dbcd4ea9a997eef76",
       "what": "level-mapping precision: (a) bias, (b) estimator within 10% of the best R and the alignment check pass for QQQ, SPY and SPX on the 22 development days (step8b_gate re-run 2026-10-19 with the frozen values); NDXP QQQ x k N = 20 by ndxp-select on the recordings, floor 6.50 frozen; the owner's Atlas replay check all match (2026-10-28); report <reports_dir>/step8b/mapping_gate.md"
+    },
+    {
+      "gate": "12",
+      "passed": "2026-11-08",
+      "commit": "50e730b6f129cfcefcebf06862ae8021be34a52d",
+      "what": "visual check: chart levels against Deepcharts on five development days (2026-03-06, 03-11, 03-17, 03-24, 03-26) read on Manual 4-tick grouping; compare.md 514 ok, 21 misses (8 roll-day definition, the rest POC/VA row-size misses covered by the step-13 1-pt-row correction plus small VA rounding); row-size rule (i) 34 of 39 outside the roll day (30 of 32 without the likely-typed readings) vs 26 now; 03-11 golden zone confirmed; the owner's held/broke marker spot check on all five days; node answers -> node_relevance_top_n variant; Q-density closed (SPEC §12 step 12, §13 Q-step12); recorded in CLAUDE.md Status by the step-12 commit"
     }
   ]
 }

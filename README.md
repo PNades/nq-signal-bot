@@ -116,7 +116,7 @@ Entry styles: **(a)** absorption, **(b)** another order-flow trigger, **(c)** a 
 
 <img src="docs/readme/roadmap.png" alt="Roadmap: 29 steps in SPEC phases A–H, with their gates" width="100%">
 
-**Now:** step 11 (features) is done: the full 12-month feature build (`feature_build`, 251 sessions, about 15½ hours over two runs on the build PC) finished on 2026-11-02 (the roadmap image above still marks step 11 as current). Next is the step-12 visual check of the chart levels against Deepcharts (a ✅ gate). The live status is always in [`CLAUDE.md`](CLAUDE.md) → *Status*.
+**Now:** step 12 (the visual check of the chart levels against Deepcharts) passed its ✅ gate on 2026-11-08. Next is step 13 (events and labels), not started yet. The live status is always in [`CLAUDE.md`](CLAUDE.md) → *Status*.
 
 ---
 

@@ -134,6 +134,7 @@ def _main(argv: list[str] | None = None) -> int:
     _add_step7(sub)
     _add_step8b(sub)
     _add_step11(sub)
+    _add_step12(sub)
     _add_features(sub)
     _add_skylit(sub)
     _add_databento(sub)
@@ -257,6 +258,8 @@ def _main(argv: list[str] | None = None) -> int:
         return _run_step8b(args, settings, paths, log)
     if args.command == "step11":
         return _run_step11(args, settings, paths, log)
+    if args.command == "step12":
+        return _run_step12(args, settings, paths, log)
     if args.command == "features":
         return _run_features(args, settings, paths, log)
     if args.command == "skylit":
@@ -828,6 +831,57 @@ def _run_step11(args: argparse.Namespace, settings, paths, log) -> int:
                 return EXIT_REFUSED
     except (LedgerMissing, NotDevelopmentMonth, step11.Refused, step11.cl.RollSpreadMissing,
             step11.BoardsRefused) as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return EXIT_REFUSED
+    return 0
+
+
+def _add_step12(sub: argparse._SubParsersAction) -> None:
+    """`nqbot step12 <check>`: the step-12 visual check on stored data (read-only, $0, no lock; development months)."""
+    s12 = sub.add_parser("step12", help="step-12 visual check: plots, Deepcharts reading tables, LVN lifetimes, "
+                                        "node types, single prints (read-only)").add_subparsers(dest="check",
+                                                                                                required=True)
+    s12.add_parser("scan", help="which sample day has a 10:30 redraw / a flip; else the earliest development day")
+    p = s12.add_parser("day", help="one day: reading table (CSV), plots (PNG + HTML) with events by label, day report")
+    p.add_argument("date", type=_date, help="a sample day or a day the scan added (YYYY-MM-DD)")
+    p = s12.add_parser("lvn", help="every daily / weekly LVN span of one development day with its lifetime")
+    p.add_argument("date", type=_date, help="a development-month session (YYYY-MM-DD)")
+    s12.add_parser("nodetype", help="node-type agreement on the stored step-7 instants (confusion tables)")
+    s12.add_parser("single-prints", help="single-print counts over months 1-6 at sp_min_ticks 4 / 6 / 8 (report only)")
+    s12.add_parser("compare", help="the owner's Deepcharts values against the bot's (after the CSVs are filled in)")
+    s12.add_parser("events-breakdown", help="months 1-6 events by session part and zone makeup, LVN ages, held paths "
+                                            "(report only)")
+    s12.add_parser("all", help="scan, every day (own process), LVN lists, nodetype, single prints, summary")
+
+
+def _run_step12(args: argparse.Namespace, settings, paths, log) -> int:
+    from nqbot import calendar as cal_mod
+    from nqbot.checks import feature_build as fb
+    from nqbot.checks import session_build as sb
+    from nqbot.checks import step12
+    from nqbot.checks.step8b import Env
+    from nqbot.config import load_features
+    from nqbot.months import LedgerMissing, NotDevelopmentMonth
+
+    env = Env(settings=settings, features=load_features(), paths=paths, log=log, cal=cal_mod.load())
+    try:
+        if args.check == "scan":
+            step12.scan(env)
+        elif args.check == "day":
+            step12.day_cmd(env, args.date)
+        elif args.check == "lvn":
+            step12.lvn_cmd(env, args.date)
+        elif args.check == "nodetype":
+            return step12.nodetype_report(env)
+        elif args.check == "single-prints":
+            step12.single_prints(env)
+        elif args.check == "compare":
+            step12.compare(env)
+        elif args.check == "events-breakdown":
+            step12.events_breakdown(env)
+        elif args.check == "all":
+            return step12.all_cmd(env)
+    except (LedgerMissing, NotDevelopmentMonth, step12.Refused, fb.BuildRefused, sb.Refused) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
     return 0
