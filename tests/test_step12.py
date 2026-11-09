@@ -141,8 +141,11 @@ def test_compare_lvn_owner_row_far_from_any_bot_lvn():
 
 # --- POC near-ties (owner 2026-11-07) -------------------------------------------------------------------------------
 
-def test_profile_volume_matches_the_developing_profile():
+def test_profile_volume_matches_the_developing_profile(monkeypatch):
     from nqbot.features import profile as pf
+    # the step-12 tools read the features_version 36 build, whose POC / VAH / VAL were single ticks (the step-13 rows,
+    # SPEC §13 Q-step12 (4), are 1-pt): the profile is built on single ticks here, as that build's was
+    monkeypatch.setattr(pf, "PROFILE_ROW_TICKS", 1)
     start = st.cme_start_ns(DAY)
     rng = np.random.default_rng(7)
     ts = np.sort(rng.integers(start, ns(10, 3), 400))
