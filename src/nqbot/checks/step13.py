@@ -330,9 +330,10 @@ def _et(t_ns: int) -> str:
 
 def jump_plot(env: Env) -> Path:
     """2025-11-18 with every correction on (the `neutral` run): the weekly POC's old level ends at its first jump in the
-    window, each later piece is a new level, and the zone the old one belonged to carries on with its other members (it
-    never follows the POC onto price). Jump times, prices and the zone's edges are read from the build; the legend sits
-    below the chart so it hides no band (owner 2026-11-04, Q-step12b (e))."""
+    window, a jump to a band no earlier piece of the week held is a new level, a jump back onto an earlier piece's band
+    returns to that piece's level (owner 2026-11-09, Q-step13-0 (d1)), and the zone the old one belonged to carries on
+    with its other members (it never follows the POC onto price). Jump and return times, prices and the zone's edges are
+    read from the build; the legend sits below the chart so it hides no band (owner 2026-11-04, Q-step12b (e))."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -357,7 +358,12 @@ def jump_plot(env: Env) -> Path:
         if np.isfinite(lo).any():
             shown.append((x, lo, hi))
     colors = ["#c0392b", "#2471a3", "#7d3c98", "#1e8449", "#b9770e", "#17a589", "#884ea0"]
-    jumps = [int(x.band.start_ns) for x, _, _ in shown if "@" in x.level_id and a <= int(x.band.start_ns) < z]
+    wj = [j for j in sf.c.cs_nq.jumps if j["sub_type"] == "poc_weekly" and a <= int(j["t"]) < z]
+    jumps = sorted(int(j["t"]) for j in wj if not j.get("returned_to"))      # to a band no earlier piece held
+    rets = sorted((int(j["t"]), j["returned_to"]) for j in wj if j.get("returned_to"))
+    back = {}
+    for t, lid in rets:
+        back.setdefault(lid, []).append(t)
     first_jump = min(jumps) if jumps else None
     for k, (x, lo, hi) in enumerate(shown):
         ok = np.isfinite(lo)
@@ -367,6 +373,9 @@ def jump_plot(env: Env) -> Path:
                     + (f"; ends at the {hhmm(first_jump)} jump without a cross" if first_jump else "") + ")")
         else:
             what = f"weekly POC band {px}, new level from the {hhmm(int(x.band.start_ns))} jump (fresh state, approach role)"
+        if back.get(x.level_id):
+            what += (f"; back at {', '.join(hhmm(t) for t in back[x.level_id])} (a return to this level: frozen while "
+                     "away, its state kept)")
         ax.fill_between(mins(ts), lo, hi, where=ok, color=colors[k % len(colors)], alpha=0.45, lw=0, label=what)
     if first_jump is not None:
         old = shown[0][0]
@@ -387,14 +396,20 @@ def jump_plot(env: Env) -> Path:
             ax.plot(mins(ts), hi, color="#d68910", lw=1.4, ls="--")
             env.echo(f"zone {zid}: before the jump {fmt(before[-1]) if before else '-'}, "
                      f"after {fmt(after[0]) if after else '-'}")
-        for k, u in enumerate(sorted(jumps)):
+        for k, u in enumerate(jumps):
             ax.axvline(mins(u), color="k", lw=0.8, ls=":",
-                       label=(f"weekly POC jumps: {', '.join(hhmm(v) for v in sorted(jumps))}" if k == 0 else None))
-    env.echo(f"weekly POC pieces in 12:30-14:30: {len(shown)}; jumps at "
-             f"{', '.join(hhmm(v) for v in sorted(jumps)) or 'none'}")
+                       label=(f"weekly POC jumps to a new band (new levels): {', '.join(hhmm(v) for v in jumps)}"
+                              if k == 0 else None))
+        for k, (u, _) in enumerate(rets):
+            ax.axvline(mins(u), color="#7f8c8d", lw=1.0, ls="-.",
+                       label=(f"weekly POC jumps back to an earlier band (returns): {', '.join(hhmm(v) for v, _ in rets)}"
+                              if k == 0 else None))
+    env.echo(f"weekly POC levels in 12:30-14:30: {len(shown)}; new-band jumps at "
+             f"{', '.join(hhmm(v) for v in jumps) or 'none'}; returns at {', '.join(hhmm(v) for v, _ in rets) or 'none'}")
     ax.set_xlabel("minutes after 12:30 ET")
     ax.set_ylabel("NQ")
-    ax.set_title("2025-11-18: each weekly POC jump starts a new level (step 13, SPEC §13 Q-step12b (a), (e))")
+    ax.set_title("2025-11-18: a weekly POC jump to a new band starts a new level, a jump back returns to the earlier "
+                 "level\n(step 13, SPEC §13 Q-step12b (a), (e), Q-step13-0 (d1))")
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.09), fontsize=8, ncol=1, frameon=False)
     out = report_dir(env) / "plots" / f"{JUMP_DAY.isoformat()}_weekly_poc_jump.png"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -466,6 +481,11 @@ def report(env: Env) -> Path:
                  f"{rel} |")
     L += ["", "The parameterised runs (join5 ... lookback5) are each one correction on top of `neutral`: compare them "
           "with the `neutral` row; the legacy+<fix> runs are one fix on top of `legacy`.", "",
+          f"**{', '.join(PRE_REUSE_RUNS)} predate the return rule** (owner 2026-11-09, Q-step13-0 (d1); built on 9931af4, "
+          f"before b9eac19) and were not re-built (owner 2026-11-09): their rows are informational only, and their "
+          f"differences from today's `neutral` row include the return rule. Re-built on the return rule: "
+          f"{', '.join(REUSE_RUNS + POST_REUSE_RUNS)}; the other legacy+<fix> runs have jump splitting off, so the return "
+          f"rule never acts in them.", "",
           "Added / removed events by member type (all days; an event with several member types counts for each):", "",
           "| run | added by type | removed by type |", "|---|---|---|"]
     for r in RUNS:
@@ -536,6 +556,37 @@ def before_dir(env: Env) -> Path:
 
 
 REUSE_RUNS = ("neutral", "start", "start_again", "legacy+jump")   # re-built after Q-step13-0 (d1)
+POST_REUSE_RUNS = ("legacy",)   # re-built on the wrap-up commit (the legacy = v36 check on the final code)
+# the single-setting runs on top of `neutral`, built before the return rule and kept as they are (owner 2026-11-09)
+PRE_REUSE_RUNS = ("join5", "qual5", "debounce", "hold30", "topn5", "strike_side", "lookback3", "lookback5")
+
+
+def group_membership(before: Path, after: Path, day: date) -> dict[str, Any]:
+    """Touch groups before vs after (owner 2026-11-09): on the events present in both builds (same event_id, or one
+    unique (touch time, direction, member types) signature on each side), the partition into touch groups must be the
+    same; only the numbering may differ. Returns the counts and up to 5 differing groups as before-event-id lists."""
+    b_rows, a_rows = _read(before, "touches", day), _read(after, "touches", day)
+    b_by, a_by = {r["event_id"]: r for r in b_rows}, {r["event_id"]: r for r in a_rows}
+    m = {k: k for k in set(b_by) & set(a_by)}
+    b_sig: dict[str, list] = {}
+    a_sig: dict[str, list] = {}
+    for k in set(b_by) - set(a_by):
+        b_sig.setdefault(signature(b_by[k]), []).append(k)
+    for k in set(a_by) - set(b_by):
+        a_sig.setdefault(signature(a_by[k]), []).append(k)
+    for sg, ks in b_sig.items():
+        if len(ks) == 1 and len(a_sig.get(sg, [])) == 1:
+            m[ks[0]] = a_sig[sg][0]
+    gb: dict[Any, set] = {}
+    ga: dict[Any, set] = {}
+    for k, v in m.items():
+        gb.setdefault(b_by[k]["touch_group_id"], set()).add(k)
+        ga.setdefault(a_by[v]["touch_group_id"], set()).add(k)
+    pb, pa = {frozenset(x) for x in gb.values()}, {frozenset(x) for x in ga.values()}
+    diff = sorted((sorted(g) for g in pb ^ pa), key=lambda g: g[0])
+    return {"events_before": len(b_rows), "events_after": len(a_rows), "matched": len(m), "groups": len(pb),
+            "renumbered": sum(1 for k, v in m.items() if b_by[k]["touch_group_id"] != a_by[v]["touch_group_id"]),
+            "differing_groups": len(diff), "examples": diff[:5]}
 
 
 def _poc_new(x: dict, d: date) -> dict[tuple[str, str], int]:
@@ -585,7 +636,22 @@ def _reuse_section(env: Env, res: dict, days: list[date]) -> list[str]:
         L.append(f"- `{r}`: events {t['before']} -> {t['after']} ({t['after'] - t['before']:+d}); new daily POC levels "
                  f"per session median {median(t['new_b']):g} -> {median(t['new_a']):g}, max {max(t['new_b'])} -> "
                  f"{max(t['new_a'])}.")
-    L.append("")
+    L += ["", "Touch groups (owner 2026-11-09): on the events present before and after (same id, or one matching touch "
+          "time + direction + member types), which events share a touch group must not change; only the numbering may.",
+          "", "| day | run | events before -> after | matched | groups | matched events renumbered | groups that differ |",
+          "|---|---|---|---|---|---|---|"]
+    n_diff = 0
+    for r in ("neutral", "start"):
+        for d in days:
+            if not (b / r / "touches" / f"{d.isoformat()}.parquet").exists():
+                continue
+            g = group_membership(b / r, scratch(env) / r, d)
+            n_diff += g["differing_groups"]
+            ex = f" e.g. {g['examples'][:2]}" if g["examples"] else ""
+            L.append(f"| {d} | {r} | {g['events_before']} -> {g['events_after']} | {g['matched']} | {g['groups']} | "
+                     f"{g['renumbered']} | {g['differing_groups']}{ex} |")
+    L += ["", f"**Touch-group membership unchanged on the matched events: {'YES' if n_diff == 0 else 'NO'}** "
+          "(a changed `touch_group_id` on them is numbering only).", ""]
     return L
 
 

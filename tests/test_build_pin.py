@@ -126,3 +126,26 @@ def test_redo_marks_only_the_named_runs_the_plot_and_the_report(paths):
     assert all(c not in left for c in gone) and "start_again:2026-03-06" in left and "legacy:2026-03-06" in left
     with pytest.raises(s13.Refused, match="unknown run"):
         s13.redo(paths, ["nope"])
+
+
+def test_group_membership_ignores_renumbering_and_catches_a_regrouping(tmp_path):
+    """Owner 2026-11-09 (Q-step13-0 (d1) wrap-up): on the events present in both builds the touch-group partition must
+    be the same; a new numbering alone is no difference, a matched event moved into another group is."""
+    from nqbot.checks import feature_build as fb
+
+    def rows(spec):
+        return [{"event_id": e, "ts": ts, "direction": 1, "n_poc_daily": 1, "touch_group_id": g} for e, ts, g in spec]
+
+    day = date(2026, 3, 6)
+    a, b, c = tmp_path / "a", tmp_path / "b", tmp_path / "c"
+    fb.write_rows(a / "touches" / "2026-03-06.parquet", rows([("e1", 10, 0), ("e2", 10, 0), ("e3", 20, 1),
+                                                                ("e9", 30, 2)]), {})
+    # renumbered, e9 gone, e2 renamed (same touch), a new event e5 in its own group
+    fb.write_rows(b / "touches" / "2026-03-06.parquet", rows([("e1", 10, 7), ("e2x", 10, 7), ("e3", 20, 8),
+                                                                ("e5", 25, 9)]), {})
+    g = s13.group_membership(a, b, day)
+    assert (g["matched"], g["groups"], g["renumbered"], g["differing_groups"]) == (3, 2, 3, 0)
+    # e3 joins e1's group: a membership difference
+    fb.write_rows(c / "touches" / "2026-03-06.parquet", rows([("e1", 10, 0), ("e2", 10, 0), ("e3", 20, 0)]), {})
+    g = s13.group_membership(a, c, day)
+    assert g["differing_groups"] == 3 and g["examples"][0] == ["e1", "e2"]
