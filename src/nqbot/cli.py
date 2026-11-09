@@ -136,6 +136,10 @@ def _main(argv: list[str] | None = None) -> int:
     _add_step11(sub)
     _add_step12(sub)
     _add_features(sub)
+    _add_step13(sub)
+    bp = sub.add_parser("build-pin", help="the build worktree pin (Q-dryrun13 (1)): set (run inside the worktree, by "
+                                          "scripts/build_worktree.ps1), show, clear")
+    bp.add_argument("action", choices=("set", "show", "clear", "can-move"))
     _add_skylit(sub)
     _add_databento(sub)
     _add_gameplan(sub)
@@ -262,6 +266,29 @@ def _main(argv: list[str] | None = None) -> int:
         return _run_step12(args, settings, paths, log)
     if args.command == "features":
         return _run_features(args, settings, paths, log)
+    if args.command == "step13":
+        return _run_step13(args, settings, paths, log)
+    if args.command == "build-pin":
+        from nqbot import build_pin
+
+        try:
+            if args.action == "set":
+                build_pin.set_pin(paths)
+            elif args.action == "clear":
+                build_pin.clear_pin(paths)
+            elif args.action == "can-move":   # scripts/build_worktree.ps1 asks before it touches the worktree
+                held = build_pin._live_locks(paths)
+                if held:
+                    raise build_pin.PinRefused(f"a job is running ({', '.join(held)}): the pin moves only between jobs")
+                print("no job running: the build worktree may move")
+            else:
+                pin = build_pin.read_pin(paths)
+                print("no build pin" if pin is None else f"build pin: {pin['path']} at {pin['commit'][:7]} on "
+                                                          f"{pin['host']} ({build_pin.check(paths).message})")
+        except build_pin.PinRefused as e:
+            print(f"refused: {e}", file=sys.stderr)
+            return EXIT_REFUSED
+        return 0
     if args.command == "skylit":
         return _run_skylit(args, settings, paths, log)
     if args.command == "databento":
@@ -895,10 +922,53 @@ def _add_features(sub: argparse._SubParsersAction) -> None:
                                    "feature_build --until 07:30)")
     p.add_argument("--months", required=True, help="ledger months, e.g. 1-12 or 1-4")
     p.add_argument("--batch", type=int, default=None, help="pass-2 sessions per chunk (default: all cores but 2)")
+    p.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE",
+                   help="a run-time override of a features.yaml value for this build only (step-13 tuning on ledger "
+                        "months 1-4 only; stored in the plan and in its key; a.b=v sets one entry of a mapping)")
     fe.add_parser("build-warmup", help="the full warm-up before the plan's first session (the job's chunk p0)")
     p = fe.add_parser("build-day", help="one session of the plan (the job runs this in its own process)")
     p.add_argument("date", type=_date)
     p.add_argument("--pass", dest="pass_no", type=int, choices=(1, 2), required=True)
+
+
+def _add_step13(sub: argparse._SubParsersAction) -> None:
+    """`nqbot step13 <check-plan|check-day|jump-plot|check-report>`: step 13-0's check of the corrections code
+    (development days only, the stored v36 build read-only; owner 2026-11-09)."""
+    s13 = sub.add_parser("step13", help="step 13-0: the corrections check on the development days (then: nqbot run "
+                                        "step13_check --until HH:MM)").add_subparsers(dest="check", required=True)
+    s13.add_parser("check-plan", help="record the check's chunks (runs x days, the jump plot, the report)")
+    p = s13.add_parser("check-day", help="one (run, day): build from the v36 start state, write to the scratch "
+                                         "folder, diff with v36 (the job runs this in its own process)")
+    p.add_argument("date", type=_date)
+    p.add_argument("--run", required=True)
+    s13.add_parser("jump-plot", help="the 2025-11-18 weekly POC jump plot with the fixed legend (Q-step12b (e))")
+    s13.add_parser("check-report", help="the report from the chunks done so far")
+
+
+def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
+    from nqbot import calendar as cal_mod
+    from nqbot.checks import session_build as sb
+    from nqbot.checks import step13 as s13
+    from nqbot.checks.step8b import CheckRefused, Env
+    from nqbot.config import load_features
+    from nqbot.jobs.runner import record_plan
+    from nqbot.months import NotDevelopmentMonth
+
+    env = Env(settings=settings, features=load_features(), paths=paths, log=log, cal=cal_mod.load())
+    try:
+        if args.check == "check-plan":
+            done, total = record_plan(paths, s13.JOB, s13.chunk_ids())
+            print(f"{s13.JOB}: {done}/{total} chunks done; run: uv run nqbot run {s13.JOB} --until HH:MM")
+        elif args.check == "check-day":
+            s13.check_day(env, args.date, args.run)
+        elif args.check == "jump-plot":
+            s13.jump_plot(env)
+        else:
+            s13.report(env)
+    except (s13.Refused, sb.Refused, CheckRefused, NotDevelopmentMonth) as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return EXIT_REFUSED
+    return 0
 
 
 def _run_features(args: argparse.Namespace, settings, paths, log) -> int:
@@ -914,7 +984,7 @@ def _run_features(args: argparse.Namespace, settings, paths, log) -> int:
     env = Env(settings=settings, features=load_features(), paths=paths, log=log, cal=cal_mod.load())
     try:
         if args.action == "plan":
-            fb.make_plan(env, fb.parse_months(args.months), args.batch)
+            fb.make_plan(env, fb.parse_months(args.months), args.batch, fb.parse_overrides(args.overrides))
             return 0
         if args.action == "build-warmup":
             return fb.build_warmup_cmd(env)

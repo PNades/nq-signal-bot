@@ -17,11 +17,12 @@ Zones, touches and events are part 3; GEX nodes part 2. `start_session` / `fold_
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 from typing import Any
 
 import numpy as np
 
+from nqbot.features import bands
 from nqbot.features import expected_move as emod
 from nqbot.features import level_state as ls
 from nqbot.features import opening_range as orm
@@ -110,6 +111,8 @@ class ChartSession:
         f = inp.features
         self.f = f
         self.levels: dict[str, list[LevelRecord]] = {}
+        self.jumps: list[dict] = []                 # level jumps (Q-step12b (a)), for the build report
+        self.level_alias_out: dict[str, dict] = {}  # multi-day levels' current id and last band (the next session's carry)
         self.start_ns, self.end_ns = cme_start_ns(self.day), cme_end_ns(self.day)
         self.open_ns, self.close_ns = rth_open_ns(self.day), rth_close_ns(self.day, inp.cal)
         self.bars_1m = bars(tape, 1)
@@ -141,15 +144,49 @@ class ChartSession:
 
     def _add(self, level_id: str, sub_type: str, band, multi_day: bool, end_ns: int | None = None,
              params_from: list | None = None, params: ls.Params | None = None, initial_role: str | None = None) -> None:
+        """One level, or, after a level jump (Q-step12b (a): a recomputed band that no longer overlaps its previous
+        band), one level per piece: the first keeps `level_id` (a multi-day level its carried id, `CarryState.level_alias`,
+        if today's first band overlaps the carried last one), each later piece is a new level `<level_id>@<UTC time>`
+        with a fresh machine whose role comes from the approach rule (F2.6 step 1)."""
         key = SUBTYPE_KEY[sub_type]
-        # a level that ends (an LVN span, a moved IB, a filled single print) stops its machine there
-        stop = end_ns or getattr(band, "end_ns", None) or self.end_ns
-        st = ls.LevelState(level_id, kind_of(key, self.f), self.tape, band,
-                           params or ls.Params.from_features(self.f, key), self.bars_1m, self.bars_flip,
-                           normals=self.normals, end_ns=min(stop, self.end_ns), params_from=params_from or [],
-                           initial_role=initial_role,
-                           natural_role=None if initial_role else NATURAL_ROLE.get(sub_type))
-        self.levels.setdefault(level_id, []).append(LevelRecord(level_id, sub_type, key, self.root, multi_day, st.run()))
+        pieces = bands.split_jumps(band)
+        first_id = level_id
+        alias = self.carry.level_alias.get(level_id) if multi_day else None
+        if alias is not None:
+            b0 = bands.first_band(pieces[0])
+            if b0 is None or (b0[0] <= alias["hi"] and b0[1] >= alias["lo"]):
+                first_id = alias["id"]
+            elif bands.SPLIT_JUMPS:   # jumped between sessions (e.g. a weekly POC moved at the 18:00 open)
+                first_id = self._jump_id(level_id, int(pieces[0].start_ns))
+                self.jumps.append({"sub_type": sub_type, "key": key, "level_id": level_id,
+                                   "t": int(pieces[0].start_ns), "at_session_start": True})
+        lid = first_id
+        for k, piece in enumerate(pieces):
+            last = k == len(pieces) - 1
+            if k > 0:
+                lid = self._jump_id(level_id, int(piece.start_ns))
+                self.jumps.append({"sub_type": sub_type, "key": key, "level_id": level_id,
+                                   "t": int(piece.start_ns), "at_session_start": False})
+            # a level that ends (an LVN span, a moved IB, a filled single print, a jump) stops its machine there
+            stop = (end_ns if last else None) or getattr(piece, "end_ns", None) or self.end_ns
+            role = initial_role if k == 0 else None
+            st = ls.LevelState(lid, kind_of(key, self.f), self.tape, piece,
+                               params or ls.Params.from_features(self.f, key), self.bars_1m, self.bars_flip,
+                               normals=self.normals, end_ns=min(stop, self.end_ns), params_from=params_from or [],
+                               initial_role=role,
+                               natural_role=None if (role or k > 0) else NATURAL_ROLE.get(sub_type))
+            self.levels.setdefault(lid, []).append(LevelRecord(lid, sub_type, key, self.root, multi_day, st.run()))
+        if multi_day:
+            lb = bands.last_band(pieces[-1])
+            if lb is not None:
+                self.level_alias_out[level_id] = {"id": lid, "lo": lb[0], "hi": lb[1]}
+
+    def _jump_id(self, level_id: str, t_ns: int) -> str:
+        base = f"{level_id}@{datetime.fromtimestamp(t_ns // NS, timezone.utc):%Y%m%dT%H%M%SZ}"
+        lid, n = base, 1
+        while lid in self.levels:
+            lid, n = f"{base}.{n}", n + 1
+        return lid
 
     def _const(self, level_id: str, sub_type: str, price: float | None, start_ns: int, multi_day: bool,
                end_ns: int | None = None, initial_role: str | None = None) -> None:
@@ -190,7 +227,12 @@ class ChartSession:
         # F3.2b previous session's profile
         anchor_name = f["prev_profile_anchor"]
         if c.prev_profile is not None and c.prev_profile.get(anchor_name):
-            self.prev_prof = c.prev_profile[anchor_name]
+            self.prev_prof = dict(c.prev_profile[anchor_name])
+            # POC / VAH / VAL from the carried volume by today's rules (1-pt rows, Q-step12 (4)), so a carry written
+            # by an older build gives the same levels as one written now
+            again = ps.profile_from_volume(self.prev_prof.get("volume") or {})
+            if again is not None:
+                self.prev_prof.update({k: again[k] for k in ("poc", "vah", "val", "high", "low")})
             self.prev_naked_at_start = bool(self.prev_prof.get("naked_at_start", True))
             pd = c.prev_profile["day"]
             for st_, k in (("prev_poc", "poc"), ("prev_vah", "vah"), ("prev_val", "val")):
@@ -407,8 +449,10 @@ def ib_width(tape: Tape, features: dict) -> float | None:
 
 def fold_session(carry: CarryState, tape: Tape, features: dict, cal: dict | None, *, dropped: bool = False,
                  single_prints: list | None = None, weekly_end_volume: dict | None = None,
-                 retest_candidates: list | None = None) -> None:
+                 retest_candidates: list | None = None, level_alias: dict | None = None) -> None:
     """After a session: hand its levels and statistics to the next one."""
+    if level_alias is not None:   # multi-day levels' current ids after their jumps (Q-step12b (a))
+        carry.level_alias = {k: dict(v) for k, v in level_alias.items()}
     d = tape.day
     s = sl.day_stats(tape, cal)
     if s["rth_close"] is not None:

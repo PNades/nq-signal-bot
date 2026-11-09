@@ -97,6 +97,9 @@ def _eod_of_tape(tape: st.Tape, features: dict, cal) -> str | None:
 
 def fold_only(env: Env, pl, d: date, state: DayState, damage: dict) -> DayState:
     """One session folded carry-only (no level machines, no zones): the levels and statistics handed on."""
+    from nqbot.features import diagnostics
+
+    diagnostics.require_defaults()   # every build path (owner 2026-11-09)
     f, cal = env.features, env.cal
     rolls = env.db.rolls()
     out = {}
@@ -151,8 +154,15 @@ class Built:
     info: dict
 
 
-def build_day(env: Env, day: date, state: DayState, pl, sessions: list[date], damage: dict) -> Built:
-    """Build `day` from `state` (the state after the previous session); returns the session and the next state."""
+def build_day(env: Env, day: date, state: DayState, pl, sessions: list[date], damage: dict, *,
+              allow_diagnostic_switches: bool = False) -> Built:
+    """Build `day` from `state` (the state after the previous session); returns the session and the next state.
+    Refuses unless the step-13-0 diagnostic switches are at their defaults (`features.diagnostics`); only the step-13
+    check harness passes `allow_diagnostic_switches` (owner 2026-11-09)."""
+    from nqbot.features import diagnostics
+
+    if not allow_diagnostic_switches:
+        diagnostics.require_defaults()
     f, cal, sett = env.features, env.cal, env.settings
     carry_nq, carry_es = CarryState.from_json(state.nq), CarryState.from_json(state.es)
     minute_vols = {date.fromisoformat(k): np.asarray(v, float) for k, v in state.minute_vols.items()}
@@ -198,7 +208,8 @@ def build_day(env: Env, day: date, state: DayState, pl, sessions: list[date], da
                         if c_s.sp is not None else tpo.SinglePrints(f["tpo_tick_pts"], f["sp_min_ticks"],
                                                                      f["max_zone_width"]).run_session(
                             tapes[root], day, [tpo.Run.from_json(r) for r in carry.single_prints]).carry(),
-                        retest_candidates=end["retest_candidates"] if root == "NQ" else None)
+                        retest_candidates=end["retest_candidates"] if root == "NQ" else None,
+                        level_alias=c_s.level_alias_out)
     carry_nq.retested = end["retested"]
     carry_nq.touch_history = end["history"]
     carry_nq.yesterday_day_type = end["yesterday_day_type"]
@@ -208,7 +219,13 @@ def build_day(env: Env, day: date, state: DayState, pl, sessions: list[date], da
     out = DayState(day.isoformat(), carry_nq.to_json(), carry_es.to_json(), {k: vols[k] for k in keep})
     info = {"nq_symbol": tapes["NQ"].symbol, "es_symbol": tapes["ES"].symbol, "roll": roll_info,
             "nq_trades": len(tapes["NQ"]), "es_trades": len(tapes["ES"]), "skylit": sky_note,
-            "have_normals": normals is not None, "gameplan": ctx.gameplan is not None}
+            "have_normals": normals is not None, "gameplan": ctx.gameplan is not None,
+            # step-13 counts (owner 2026-11-03/09): level jumps by type, node-band jumps (counted, a node keeps its
+            # (map, strike) identity), zones armed by a member's own re-arm, formation touches
+            "level_jumps": [{**j, "root": root} for root in ("NQ", "ES") for j in cs[root][0].jumps],
+            "node_jumps": {} if sky is None else {m: [[float(k), int(t)] for k, t in mn.jumps]
+                                                  for m, mn in sky.nodes.items()},
+            **sf.touch_stats}
     return Built(sf, out, info)
 
 

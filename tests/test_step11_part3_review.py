@@ -146,7 +146,7 @@ def test_golden_history_counts_earlier_touches_only():
     prev, e, nxt = mk(50, "a"), mk(100, "b"), mk(150, "c")
     labels = {"a": slab.Label("a", "held", 60, 0, 5.0, "held"), "b": slab.Label("b", "broke", 120, 0, 0, "broke"),
               "c": slab.Label("c", "held", 160, 0, 0, "held")}
-    fake = SimpleNamespace(events=[prev, e, nxt], labels=labels, zone_edges=lambda *_: None,
+    fake = SimpleNamespace(events=[prev, e, nxt], labels=labels, hist_labels=labels, zone_edges=lambda *_: None,
                            nq=SimpleNamespace(last_price_at=lambda t: 1.0), es=SimpleNamespace(last_price_at=lambda t: 1.0),
                            c=SimpleNamespace(sky=None))
     out = SessionFeatures._golden(fake, e, 200, [])     # a pair's decision_ts after its own label and a later touch
@@ -196,6 +196,7 @@ class _NewRetests(SessionFeatures):
         self.events = [tch.Touch("z1", t, k, p, 1, (), p - 1, p + 1, event_id=f"e{k}") for k, (t, p) in
                        enumerate(touches)]
         self.labels = {e.event_id: slab.Label(e.event_id, "held", e.t + 10, 0, 0, "held") for e in self.events}
+        self.retest_labels = self.labels   # F3.8 reads the label at retest_hold_pts (Q-density (c))
 
 
 def test_no_retested_extreme_at_a_high_or_low_already_there():

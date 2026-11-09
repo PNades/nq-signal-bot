@@ -29,7 +29,7 @@ import numpy as np
 from nqbot.features import level_state as ls
 from nqbot.features import node_switch as nsw
 from nqbot.features import rolls as rl
-from nqbot.features.bands import StepBand
+from nqbot.features.bands import StepBand, _jump_rows
 from nqbot.features.map_state import MapState
 from nqbot.features.session_tape import MIN_NS, NS, Bars, Tape
 from nqbot.features.trinity import RoleTrack
@@ -56,6 +56,7 @@ class NodeLevel:
     track: RoleTrack
     beach: list = field(default_factory=list)   # [{'t_cross', 't_reclaim', 'depth', 'sec_beyond'}]
     not_relevant: list = field(default_factory=list)  # [(start, end)]: not relevant (a missing board keeps the state)
+    level_spans: list | None = None   # node_relevance_top_n (Q-step12 (2)): [(start, end)] as an NQ level; None = off
 
     def relevant_since(self, t_ns: int) -> int:
         """The start of the relevant stretch holding t (F2.4 `minutes_since_relevant`)."""
@@ -97,10 +98,20 @@ class MapNodes:
             raise ValueError(f"{self.name}: the ES ÷ NQ ratio at the open is needed for the ES parameters (F0.11)")
         self.scale = scale if scale is not None else Scale()
         self.half = float(features["node_band"][self.name])
+        # Q-step12a (4): only QQQ / NDXP nodes (NQ levels) take a strike-side formation role
+        self.formation_prox = (float(features["zone_proximity"]) if self.name not in SP_MAPS and
+                               features.get("node_role_at_formation", "approach") == "strike_side" else None)
+        if features.get("node_role_at_formation", "approach") not in ("approach", "strike_side"):
+            raise ValueError(f"node_role_at_formation must be approach or strike_side, "
+                             f"not {features.get('node_role_at_formation')!r}")
         self.levels: dict[float, NodeLevel] = {}
+        self.jumps: list[tuple[float, int]] = []   # (strike, t): band jumps (counted only: identity is (map, strike))
         self._build_levels(bars_1m, bars_flip, normals)
         self.ceiling = MapRolls(self, +1)
         self.floor = MapRolls(self, -1)
+        top_n = features.get("node_relevance_top_n")
+        if top_n is not None and self.name not in SP_MAPS:
+            self._rank_levels(int(top_n))
 
     # --- node levels --------------------------------------------------------------------------------------------
     def _params(self):
@@ -145,12 +156,56 @@ class MapNodes:
             carried = on[idx]
             t = mb.t_apply[first:]
             band = StepBand(self.tape, t.astype(np.int64), lo, hi)
+            self.jumps += [(float(strike), int(t[r])) for r in _jump_rows(lo, hi)]
             freezes = spans_from_mask(t, ~on, self.end_ns)
+            not_rel = spans_from_mask(t, ~carried, self.end_ns)
+            # Q-step12a (4): strike_side formation role at the node's first relevant board and each return to relevance
+            form = self.formation_prox
+            ftimes = [int(t[0])] + [int(z) for _, z in not_rel if z < self.end_ns] if form is not None else []
             lv = ls.LevelState(f"{self.name}-{strike:g}", ls.NODE, self.tape, band, params, bars_1m, bars_flip,
                                normals=normals, blocks=list(self.blocks), end_ns=self.end_ns, params_from=params_from,
-                               freezes=freezes, node_series=(t.astype(np.int64), pct, sign)).run()
-            self.levels[float(strike)] = NodeLevel(float(strike), lv, _track(lv), _beach(lv, self.tape),
-                                                   spans_from_mask(t, ~carried, self.end_ns))
+                               freezes=freezes, node_series=(t.astype(np.int64), pct, sign),
+                               formation_prox=form, formation_times=ftimes).run()
+            self.levels[float(strike)] = NodeLevel(float(strike), lv, _track(lv), _beach(lv, self.tape), not_rel)
+
+    def _rank_levels(self, top_n: int) -> None:
+        """`node_relevance_top_n` (Q-step12 (2)): each node's stretches as an NQ level (`node_rank.level_relevant`);
+        the confirmed King, ceiling and floor of each board are protected at any rank."""
+        from nqbot.features import node_rank
+
+        ms, mb, f = self.ms, self.ms.mb, self.f
+        n = len(mb)
+        if n == 0:
+            return
+        b, k = mb.s_board, mb.s_strike
+        ck = np.asarray(ms.board["confirmed_king"], dtype=float)
+        ceil = np.array([_confirmed(self.ceiling.at(int(t))) for t in mb.t_apply], dtype=float)
+        flo = np.array([_confirmed(self.floor.at(int(t))) for t in mb.t_apply], dtype=float)
+        prot = (k == ck[b]) | (k == ceil[b]) | (k == flo[b])
+        lvl = node_rank.level_relevant(b, k, mb.s_value, ms.pct, ms.relevant, mb.spot, mb.t_apply, prot, top_n,
+                                       int(f["node_relevance_top_n_leave_rank"]), float(f["node_relevance_min_sec"]),
+                                       float(f["node_relevance_fast_pct"]))
+        for strike, nl in self.levels.items():
+            rows = np.flatnonzero(k == strike)
+            first = int(b[rows][ms.relevant[rows]].min())
+            on = np.zeros(n - first, dtype=bool)
+            present = np.zeros(n - first, dtype=bool)
+            keep = b[rows] >= first
+            on[b[rows][keep] - first] = lvl[rows[keep]]
+            present[b[rows][keep] - first] = True
+            idx = np.where(present, np.arange(n - first), 0)
+            np.maximum.accumulate(idx, out=idx)
+            carried = on[idx]
+            t = mb.t_apply[first:]
+            off = spans_from_mask(t, ~carried, self.end_ns)
+            spans, cur = [], int(t[0])
+            for a, z in off:
+                if a > cur:
+                    spans.append((cur, a))
+                cur = z
+            if cur < self.end_ns:
+                spans.append((cur, self.end_ns))
+            nl.level_spans = spans
 
     def node_at(self, strike: float, t_ns: int, atr: float | None = None, em: float | None = None) -> dict | None:
         nl = self.levels.get(float(strike))
@@ -180,6 +235,10 @@ class MapNodes:
     def blocked(self, t_ns: int) -> bool:
         """Outputs: null on the closed span [a, z], the guard's own convention (`disloc_guard.in_block`)."""
         return any(a <= t_ns <= z for a, z in self.blocks)
+
+
+def _confirmed(snap: dict | None) -> float:
+    return np.nan if snap is None or snap.get("confirmed") is None else float(snap["confirmed"])
 
 
 def _track(lv: ls.LevelState) -> RoleTrack:

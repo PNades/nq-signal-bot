@@ -34,6 +34,13 @@ Cross features (F2.6b), per episode from the cross, trades on the level's own ta
 `xb_settled_1m`, `xb_settled_5m` (by >= `flip_margin`), `xb_reentries`, `cross_count_today`, `minutes_since_cross`.
 They are reported only while the level is in a post-cross role (provisional or flipped).
 
+Formation role (step-13 variant `node_role_at_formation` = `strike_side`, owner 2026-11-04, SPEC §13 Q-step12a (4);
+the touch at the next trade, owner 2026-11-09): a node with `formation_prox` set, at each of its `formation_times` (its
+first relevant board and each return to relevance, F2.4), takes its role from the first trade at or after that
+instant if that trade is inside its touch band (band ± `formation_prox`): below the strike centre a ceiling, above a
+floor, the state otherwise fresh (no cross, armed); exactly on the centre, or outside the touch band, step 1 decides.
+`formations` records (t, trade index, role) for the formation touch (`touches.py`).
+
 The whole session runs in one causal pass; `at(t)` reads the last snapshot <= t and rolls the accumulators forward
 over the trades in between (no transition happens between snapshots by construction).
 
@@ -129,6 +136,7 @@ class State:
     x_pct: float | None = None         # pct_of_king at the cross (node_series)
     x_sign: float | None = None        # node sign at the cross (node_series)
     pending_natural: bool = False      # the natural role waits for the first known price (Q-step11c (1))
+    pending_formation: bool = False    # the formation role waits for the next trade (Q-step12a (4))
 
     def copy(self) -> State:
         return replace(self, episode=None if self.episode is None else replace(self.episode),
@@ -159,6 +167,9 @@ class LevelState:
                                                      # open use the previous session's ES/NQ ratio, F0.11)
     freezes: list = field(default_factory=list)  # [(start_ns, end_ns)]: the state is frozen inside (F2.1, F2.4)
     node_series: Any = None             # (t_ns array, pct_of_king array, sign array) per applied board, or None
+    formation_prox: float | None = None  # strike_side formation role (Q-step12a (4)): the touch band's proximity
+    formation_times: list = field(default_factory=list)  # instants the node becomes relevant (F2.4)
+    formations: list = field(default_factory=list)       # (t_ns, trade index, role) formation roles taken
     events: list = field(default_factory=list)   # (t_ns, name) transitions, for reports and tests
     _snaps_t: list = field(default_factory=list)
     _snaps: list = field(default_factory=list)
@@ -181,6 +192,9 @@ class LevelState:
         start = int(self.band.start_ns)
         end = self.end_ns if self.end_ns is not None else (int(tape.ts[-1]) + 1 if len(tape) else start)
         s = State(in_block=self._blocked(start), frozen=self._frozen(start))
+        ftimes = {int(x) for x in self.formation_times} if self.formation_prox is not None else set()
+        if start in ftimes and not s.frozen:
+            s.pending_formation = True
         if self.initial_role is not None:
             s.role = s.orig_role = self.initial_role
             s.armed = True
@@ -203,6 +217,8 @@ class LevelState:
             i = self._trades(s, i, j)
             if b in fcuts:
                 self._freeze_edge(s, b, i)
+                if b in ftimes and not s.frozen:
+                    s.pending_formation = True
             if b in cuts:
                 self._block_edge(s, b, i)
             if b % MIN_NS == 0:
@@ -248,6 +264,19 @@ class LevelState:
             lo0, hi0 = self.band.at_trades(i, i + 1)
             if not np.isnan(lo0[0]) and self._natural(s, float(self.tape.price[i]), float(lo0[0]), float(hi0[0])):
                 self._event(s, int(self.tape.ts[i]), i, "natural_role")
+        if s.pending_formation:
+            s.pending_formation = False
+            lo0, hi0 = self.band.at_trades(i, i + 1)
+            if not np.isnan(lo0[0]):
+                px, lo_, hi_ = float(self.tape.price[i]), float(lo0[0]), float(hi0[0])
+                c, pr = (lo_ + hi_) / 2.0, float(self.formation_prox)
+                if lo_ - pr <= px <= hi_ + pr and px != c:
+                    role = CEILING if px < c else FLOOR
+                    s.role = s.orig_role = role
+                    s.crossed = s.broken_back = s.prov_armed = s.reclaimed = False
+                    s.armed, s.episode, s.unresolved = True, None, None
+                    self.formations.append((int(self.tape.ts[i]), int(i), role))
+                    self._event(s, int(self.tape.ts[i]), i, "formation_role")
         tape = self.tape
         lo, hi = self.band.at_trades(i, j)
         p = tape.price[i:j]

@@ -140,10 +140,22 @@ def node_levels(sess, maps: tuple, day_iso: str, end_ns: int) -> list[RegLevel]:
         for k, nl in sorted(mn.levels.items()):
             lid = f"{m.lower()}_node-{day_iso}-{k:g}"
             st = nl.state
+            spans = active_spans(st, st.band, end_ns)
+            if nl.level_spans is not None:   # node_relevance_top_n (Q-step12 (2)): an NQ level only while ranked
+                spans = _intersect(spans, nl.level_spans)
             out.append(RegLevel(lid, lid, NODE_SUBTYPE[m], FLIP_KEY[m], GEX_NODE, CHAIN_ROOT[m], ls.NODE, False,
-                                st.band, st, nl.track, chain=m, strike=float(k),
-                                spans=active_spans(st, st.band, end_ns)))
+                                st.band, st, nl.track, chain=m, strike=float(k), spans=spans))
     return out
+
+
+def _intersect(a: list, b: list) -> list[tuple[int, int]]:
+    out = []
+    for a0, a1 in a:
+        for b0, b1 in b:
+            lo, hi = max(a0, b0), min(a1, b1)
+            if lo < hi:
+                out.append((lo, hi))
+    return sorted(out)
 
 
 def container(level_id: str, sub_type: str, tape, lo: float, hi: float, start_ns: int, end_ns: int,

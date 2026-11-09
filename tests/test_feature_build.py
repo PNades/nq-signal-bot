@@ -8,6 +8,7 @@ import json
 from datetime import date, timedelta
 from types import SimpleNamespace
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
@@ -395,3 +396,64 @@ def test_build_key_follows_the_code(env, monkeypatch):
     k0 = fb.build_key(env)
     monkeypatch.setattr(fb, "code_digest", lambda: "other")
     assert fb.build_key(env) != k0
+
+
+# --- step 13-0 (owner 2026-11-09, SPEC §13 Q-dryrun13 (2), (6), (7)) -----------------------------------------------
+
+def test_run_time_overrides_are_stored_keyed_and_applied(env):
+    days = trading_days(date(2025, 10, 1), date(2026, 1, 31), env.cal)
+    write_backfill_plan(env, days)
+    base = fb.make_plan(env, [1, 2], batch=4)
+    env.features = load_features()
+    doc = fb.make_plan(env, [1, 2], batch=4, overrides=fb.parse_overrides(["zone_proximity=8", "flip_margin.vwap=2"]))
+    assert doc["overrides"] == {"zone_proximity": 8, "flip_margin.vwap": 2} and doc["key"] != base["key"]
+    assert (fb.build_plan_copy(env, doc["key"])).exists()
+    fresh = Env(settings=env.settings, features=load_features(), paths=env.paths, log=env.log, cal=env.cal,
+                echo=lambda *_: None)
+    assert fb.load_plan(fresh)["key"] == doc["key"]                        # every session applies the plan's overrides
+    assert fresh.features["zone_proximity"] == 8 and fresh.features["flip_margin"]["vwap"] == 2
+    assert load_features()["zone_proximity"] == 5                          # the committed config is untouched
+
+
+@pytest.mark.parametrize("bad", [["nope=1"], ["features_version=99"], ["tune_grids_13=1"], ["flip_margin.nope=1"],
+                                 ["zone_proximity"]])
+def test_bad_overrides_are_refused(env, bad):
+    write_backfill_plan(env, trading_days(date(2025, 10, 1), date(2025, 11, 30), env.cal))
+    with pytest.raises(fb.BuildRefused):
+        fb.make_plan(env, [1, 2], overrides=fb.parse_overrides(bad))
+
+
+def test_overrides_only_for_the_tuning_months(env):
+    write_backfill_plan(env, trading_days(date(2025, 10, 1), date(2026, 3, 31), env.cal))
+    with pytest.raises(fb.BuildRefused, match="months 1-4"):
+        fb.make_plan(env, [1, 2, 3, 4, 5], overrides={"zone_proximity": 8})
+    fb.make_plan(env, [1, 2, 3, 4, 5])                                     # without overrides: fine
+
+
+def test_build_key_leaves_out_execution_settings(env):
+    k0 = fb.build_key(env)
+    for key, value in (("exit_slippage_ticks", 3), ("stop_buffer", 8), ("entry_ttl_sec", {"a": 5, "b": 5, "c": 30, "d": 30}),
+                       ("lgbm_grid", {}), ("gates", {})):
+        env.settings = {**env.settings, key: value}
+        assert fb.build_key(env) == k0, key
+    env.features = {**env.features, "tune_grids_13": {}}
+    assert fb.build_key(env) == k0
+    env.features = {**env.features, "zone_proximity": 8}
+    assert fb.build_key(env) != k0
+    env.settings = {**env.settings, "map_latency_sec": 2.0}
+    assert fb.build_key(fb_env := env) != k0 and fb_env
+
+
+def test_output_folders_per_key(env):
+    a, b = fb.out_dir(env, "aaa"), fb.out_dir(env, "bbb")
+    assert a != b and fb.events_dir(env, "aaa").parent == a and fb.pairs_dir(env, "aaa").name == "pairs"
+    assert fb.paths_dir(env, "bbb").parent == b
+
+
+def test_write_rows_keeps_list_columns(tmp_path):
+    p = tmp_path / "x.parquet"
+    fb.write_rows(p, [{"event_id": "a", "founding_level_ids": ["l1", "l2"], "touch_idx": 3},
+                      {"event_id": "b", "founding_level_ids": [], "touch_idx": 4}], {})
+    t = fb.read_rows([p])
+    assert t.column("founding_level_ids").to_pylist() == [["l1", "l2"], []]
+    assert t.column("touch_idx").type == pa.int64()

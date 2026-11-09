@@ -54,6 +54,32 @@ ID_COLS = {"ts", "t"}
 NS_FLOAT_OK: frozenset = frozenset()   # float columns that must stay float64 (none: every time column is an integer)
 
 
+# Q-dryrun13 (6) (owner 2026-11-09): the key covers only the configuration the build reads. These settings are read
+# by the simulators, the models, the gates or live trading (execution costs and parameters are applied in the simulator,
+# never stored in the build), so changing them never renames a build; `tests/test_feature_build.py` fails if the build
+# reads one of them.
+NON_BUILD_FEATURE_KEYS = frozenset({"tune_grids_13", "tune_grids_19"})
+NON_BUILD_SETTING_KEYS = frozenset({
+    "min_free_gb", "min_free_gb_live", "backup", "min_month1_sessions", "min_new_sealed_months", "grid_sample_frac",
+    "ops", "archive_time", "heartbeat_min", "inactivity_alert_days", "retrain_every_months",
+    "default_risk_usd", "max_entry_slip_ticks", "exit_slippage_ticks", "default_commission_per_mini_rt",
+    "default_commission_per_micro_rt", "exit_retry_window_sec", "flat_retry_min", "flat_alert_sec",
+    "unknown_alert_min", "webhook_timeout_sec", "entry_ttl_sec", "stop_buffer", "stop_buffer_floor", "entry_order_type",
+    "enabled_entry_styles", "style_tie_ev_r", "lives_dust_usd", "max_loss_run_rate", "be_trigger", "be_offset_ticks",
+    "guard_check_sec", "guard_flat_grace_sec", "max_engine_restarts", "guard_port", "engine_port", "ui_port",
+    "sleep_detect_sec", "clock_max_offset_ms", "clock_max_rtt_ms", "clock_check_min", "ntp_server", "feed_stale_sec",
+    "feed_lag_max_ms", "feed_recovery_sec", "deadman_url", "power_poll_sec", "battery_warn_step_pct",
+    "battery_entry_floor_pct", "skylit_credit_warn", "skylit_reach_margin_min", "skylit_max_failures_in_row",
+    "skylit_dropped_extra_tries", "skylit_dropped_retry_credits_per_night", "skylit_alongside_reserve_credits",
+    "skylit_pack_margin", "skylit_credit_packs", "calendar_poll_min", "calendar_feed_url", "gameplan_model",
+    "gameplan_effort", "gameplan_max_tokens", "gameplan_usd_per_mtok", "gameplan_max_usd_per_file", "tuning_start",
+    "threshold_grid", "last_life_grid", "profile_ev_quantiles", "profile_risk_multiplier", "style_set_grid",
+    "recency_halflife_months", "lgbm_grid", "ablation_groups", "bootstrap_paths", "default_max_three_loss_rate",
+    "gate_account", "gates"})
+# Q-dryrun13 (2): run-time overrides are for the step-13 tuning on months 1-4 only; the full-window build has none
+OVERRIDE_MONTHS = frozenset({1, 2, 3, 4})
+
+
 class BuildRefused(Exception):
     pass
 
@@ -78,16 +104,78 @@ def code_digest() -> str:
     return h.hexdigest()
 
 
+def key_config(env: Env) -> dict[str, Any]:
+    """The configuration the build key covers (Q-dryrun13 (6)): features.yaml without the tuning grids, settings.yaml
+    without the per-machine keys and the keys only the simulators, models, gates and live trading read."""
+    feats = {k: v for k, v in env.features.items() if k not in NON_BUILD_FEATURE_KEYS}
+    sett = {k: v for k, v in env.settings.items() if k not in LOCAL_SETTING_KEYS and k not in NON_BUILD_SETTING_KEYS}
+    return {"features": feats, "settings": sett}
+
+
 def build_key(env: Env) -> str:
-    sett = {k: v for k, v in env.settings.items() if k not in LOCAL_SETTING_KEYS}
     cal = env.cal if env.cal is not None else cal_mod.load()
-    blob = json.dumps({"features": env.features, "settings": sett, "calendar": cal, "build": BUILD_VERSION,
-                       "code": code_digest()}, sort_keys=True, default=str)
+    blob = json.dumps({**key_config(env), "calendar": cal, "build": BUILD_VERSION, "code": code_digest()},
+                      sort_keys=True, default=str)
     return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
 
 def out_dir(env: Env, key: str) -> Path:
+    """Every build key has its own folder (Q-dryrun13 (7)): state, touches, day types, outcomes and, from step 13b,
+    events, pairs and paths, so variant runs never overwrite each other."""
     return env.paths.data_dir / "processed" / "features" / f"v{env.features['features_version']}_{key}"
+
+
+def events_dir(env: Env, key: str) -> Path:
+    return out_dir(env, key) / "events"
+
+
+def pairs_dir(env: Env, key: str) -> Path:
+    return out_dir(env, key) / "pairs"
+
+
+def paths_dir(env: Env, key: str) -> Path:
+    return out_dir(env, key) / "paths"
+
+
+def build_plan_copy(env: Env, key: str) -> Path:
+    """The plan as made, kept in the build's own folder: a build is found by its key, not by the job's one plan."""
+    return out_dir(env, key) / "build_plan.json"
+
+
+# --- run-time overrides (Q-dryrun13 (2), owner 2026-11-09) --------------------------------------------------------
+
+def parse_overrides(items: list[str] | None) -> dict[str, Any]:
+    """`key=value` (value read as YAML; `a.b=v` sets one entry of a mapping, e.g. `flip_margin.vwap=2`)."""
+    from ruamel.yaml import YAML
+
+    yaml = YAML(typ="safe")
+    out: dict[str, Any] = {}
+    for it in items or []:
+        k, sep, v = it.partition("=")
+        if not sep or not k.strip():
+            raise BuildRefused(f"an override is key=value, not {it!r}")
+        out[k.strip()] = yaml.load(v)
+    return out
+
+
+def apply_overrides(features: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    """A copy of `features` with the overrides applied; refuses an unknown key, the version, or a tuning grid."""
+    import copy
+
+    f = copy.deepcopy(features)
+    for k, v in (overrides or {}).items():
+        top, _, sub = k.partition(".")
+        if top not in f:
+            raise BuildRefused(f"override {k!r}: no such key in features.yaml")
+        if top == "features_version" or top in NON_BUILD_FEATURE_KEYS:
+            raise BuildRefused(f"override {k!r}: not a build parameter")
+        if sub:
+            if not isinstance(f[top], dict) or sub not in f[top]:
+                raise BuildRefused(f"override {k!r}: {top} has no entry {sub!r}")
+            f[top][sub] = v
+        else:
+            f[top] = v
+    return f
 
 
 def plan_path(env: Env) -> Path:
@@ -125,9 +213,19 @@ def parse_months(text: str) -> list[int]:
     return sorted(out)
 
 
-def make_plan(env: Env, months: list[int], batch: int | None = None) -> dict[str, Any]:
+def make_plan(env: Env, months: list[int], batch: int | None = None,
+              overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+    """`overrides` (Q-dryrun13 (2)): run-time changes of features.yaml values for this build only, stored in the plan,
+    covered by its key and applied by every session; the committed config is untouched. Only for builds of the step-13
+    tuning months 1-4 (the full-window build refuses any)."""
     from nqbot.jobs.runner import record_plan
 
+    overrides = dict(overrides or {})
+    if overrides and not set(months) <= OVERRIDE_MONTHS:
+        raise BuildRefused(f"run-time overrides are for the step-13 tuning on ledger months 1-4 only (months {months}); "
+                           "a full-window build uses the committed configuration")
+    if overrides:
+        env.features = apply_overrides(env.features, overrides)
     if months != list(range(min(months), max(months) + 1)):
         # each session starts from the previous session's state: a gap would chain across it
         raise BuildRefused(f"ledger months {months} are not consecutive: the build chains each session's state "
@@ -148,8 +246,9 @@ def make_plan(env: Env, months: list[int], batch: int | None = None) -> dict[str
     key = build_key(env)
     doc = {"months": months, "sessions": [d.isoformat() for d in sessions], "key": key, "batch": batch,
            "features_version": env.features["features_version"], "build_version": BUILD_VERSION,
-           "not_planned": len(gaps)}
+           "not_planned": len(gaps), "overrides": overrides}
     atomic_write_json(plan_path(env), doc)
+    atomic_write_json(build_plan_copy(env, key), doc)
     record_plan(env.paths, JOB, chunk_ids(doc))
     by_month: dict[int, int] = {}
     for d in sessions:
@@ -159,6 +258,8 @@ def make_plan(env: Env, months: list[int], batch: int | None = None) -> dict[str
              f"({', '.join(f'{k}: {n}' for k, n in sorted(by_month.items()))}); key {key}, pass-2 batches of {batch}")
     if gaps:
         env.echo(f"  {len(gaps)} trading days of those months have no planned Databento session (not built)")
+    if overrides:
+        env.echo(f"  run-time overrides (this build only): {json.dumps(overrides, sort_keys=True)}")
     env.echo(f"  outputs: {out_dir(env, key)}")
     env.echo(f"  run: uv run nqbot run {JOB} --until 07:30")
     return doc
@@ -182,6 +283,8 @@ def load_plan(env: Env) -> dict[str, Any]:
     if not p.exists():
         raise BuildRefused(f"no feature-build plan: run `uv run nqbot features plan --months 1-12` first ({p})")
     doc = json.loads(p.read_text(encoding="utf-8"))
+    if doc.get("overrides"):   # the plan's run-time overrides apply to every session of it (Q-dryrun13 (2))
+        env.features = apply_overrides(env.features, doc["overrides"])
     key = build_key(env)
     if doc["key"] != key:
         raise BuildRefused(f"the configuration changed since the plan (key {doc['key']} -> {key}): re-plan with "

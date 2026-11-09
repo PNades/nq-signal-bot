@@ -87,9 +87,13 @@ class MapState:
         b, k, v = mb.s_board, mb.s_strike, mb.s_value
         self.pct = mp.pct_of_king(b, v, n) if len(b) else np.zeros(0)
         ok = np.ones(n, dtype=bool)
-        self.relevant, self.held = nodes.relevance(b, k, self.pct, ok, f["min_node_pct_of_king"], f["node_drop_pct"])
+        # F2.4 with the step-13 debounce (Q-step12a (3)), on every map and for the pika cloud (owner 2026-11-09)
+        deb = dict(board_t=mb.t_apply, min_sec=float(f["node_relevance_min_sec"]),
+                   fast=float(f["node_relevance_fast_pct"]))
+        self.relevant, self.held = nodes.relevance(b, k, self.pct, ok, f["min_node_pct_of_king"], f["node_drop_pct"],
+                                                   **deb)
         self.sign = np.sign(v)
-        pika_in, _ = nodes.relevance(b, k, self.pct, ok, f["pika_cloud_min_pct"], f["node_drop_pct"])
+        pika_in, _ = nodes.relevance(b, k, self.pct, ok, f["pika_cloud_min_pct"], f["node_drop_pct"], **deb)
         self.pika_member = pika_in & (v > 0)
         # F2.8: the same strike on the latest board with τ′ <= τ − lookback (same session)
         self.vel = np.full(len(b), np.nan)

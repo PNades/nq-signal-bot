@@ -13,6 +13,10 @@ and the zones in force just before it:
    members qualifies) merge if the width allows, nearest pair first (ties: the older pair), the older `zone_id`
    surviving with its founding anchors;
 3. the result depends only on the set of levels, never on their order (tested).
+**Hysteresis (step 13, owner 2026-11-04, SPEC §13 Q-step12a (2)):** `zone_join_buffer` (jb): in (c) and (d) a join or a
+merge needs the merged width <= `max_zone_width` - jb; `zone_qualify_buffer` (qb): in (b) a kept member stays while it
+qualifies with another kept member within qb more (bands <= qb apart, or centres <= `confluence_tol` + qb). The release
+rule and the hard cap `max_zone_width` are unchanged, so no zone is ever wider than it. Both 0 = the rule above.
 Containers (golden zone, gameplan zones) never merge and are not passed here (F5.9).
 
 **Edges (F5.4)** — the union of the active members' bands at t. A member that is crossed by its own rule is no longer
@@ -28,8 +32,10 @@ move on every trade — when a pairwise relation the merge reads (qualify; pair 
 are the candidate times; at each the relations are recomputed (as of t: after every update with time <= t) and the
 merge runs only if the active set or a relation changed (the merge's result is a function of the relations given the
 previous zones, and its output is a fixed point). Pair hulls are enough for the width test: the hull of a set is the
-largest hull of any pair in it. The flip times of moving bands are found per pair over the trades, vectorised; a
-parity test checks the book against recomputing at every trade (`tests/test_zones.py`).
+largest hull of any pair in it. The flip times of moving bands are found per pair over the trades, vectorised, and
+(step 13, owner 2026-11-04, Q-step12a (1)) also at the partner's own step times between trades: a relation that flips at
+a band step and back at the next trade makes that next trade a candidate (2026-03-17 09:35:09). A parity test checks the
+book against recomputing at every trade (`tests/test_zones.py`).
 """
 
 from __future__ import annotations
@@ -45,6 +51,10 @@ from nqbot.features.bands import TradeBand, values_at
 
 EPS = 1e-9
 BLOCK = 2048   # candidate instants evaluated at once (memory: levels x BLOCK floats per array)
+# Q-step12a (1) (owner 2026-11-04): pairs also checked at the partner's step times. A diagnostic switch of the
+# step-13-0 check only (False = features_version <= 36); every feature build refuses another value
+# (`features.diagnostics.require_defaults`).
+STEP_TIME_CANDIDATES = True
 
 
 # --- the pure merge ----------------------------------------------------------------------------------------------
@@ -70,8 +80,10 @@ class Zone:
     seq: int                 # creation order (smaller = older)
 
 
-def qualify(a: Geom, b: Geom, tol: float) -> bool:
-    return (a.lo <= b.hi + EPS and b.lo <= a.hi + EPS) or abs(a.centre - b.centre) <= tol + EPS
+def qualify(a: Geom, b: Geom, tol: float, buf: float = 0.0) -> bool:
+    """F5.3 rule 1 (bands overlap, touching counts, or centres <= tol apart); `buf` widens both tests (the qualify
+    buffer for kept members, Q-step12a (2))."""
+    return (a.lo <= b.hi + buf + EPS and b.lo <= a.hi + buf + EPS) or abs(a.centre - b.centre) <= tol + buf + EPS
 
 
 def _width(gs: Iterable[Geom]) -> float:
@@ -97,9 +109,10 @@ class IdSource:
         return f"z{self.n}", self.n
 
 
-def merge(levels: list[Geom], prev: list[Zone], tol: float, max_width: float, ids: IdSource
-          ) -> tuple[list[Zone], dict[str, str]]:
+def merge(levels: list[Geom], prev: list[Zone], tol: float, max_width: float, ids: IdSource,
+          join_buf: float = 0.0, qual_buf: float = 0.0) -> tuple[list[Zone], dict[str, str]]:
     """F5.3 at one timestamp. Returns (zones, absorbed: {younger zone_id: survivor zone_id})."""
+    join_width = max_width - join_buf
     by_id = {g.level_id: g for g in levels}
     zones: list[Zone] = []
     placed: set[str] = set()
@@ -109,7 +122,7 @@ def merge(levels: list[Geom], prev: list[Zone], tol: float, max_width: float, id
         while len(kept) >= 2:
             gs = [by_id[m] for m in kept]
             ok_width = _width(gs) <= max_width + EPS
-            ok_q = all(any(qualify(by_id[a], by_id[b], tol) for b in kept if b != a) for a in kept)
+            ok_q = all(any(qualify(by_id[a], by_id[b], tol, qual_buf) for b in kept if b != a) for a in kept)
             if ok_width and ok_q:
                 break
             founders = [by_id[a] for a in z.anchors if a in by_id and a in kept]
@@ -129,7 +142,7 @@ def merge(levels: list[Geom], prev: list[Zone], tol: float, max_width: float, id
             gs = [by_id[x] for x in z.members]
             if not any(qualify(g, h, tol) for h in gs):
                 continue
-            if _width(gs + [g]) > max_width + EPS:
+            if _width(gs + [g]) > join_width + EPS:
                 continue
             key = (abs(_centre(gs) - g.centre), -_pct(gs), z.seq)
             if best is None or key < best[0]:
@@ -148,7 +161,7 @@ def merge(levels: list[Geom], prev: list[Zone], tol: float, max_width: float, id
                 gb = [by_id[x] for x in b.members]
                 if not any(qualify(x, y, tol) for x in ga for y in gb):
                     continue
-                if _width(ga + gb) > max_width + EPS:
+                if _width(ga + gb) > join_width + EPS:
                     continue
                 key = (abs(_centre(ga) - _centre(gb)), min(a.seq, b.seq), max(a.seq, b.seq))
                 if cand is None or key < cand[0]:
@@ -209,7 +222,8 @@ class BookLevel:
 class ZoneBook:
     levels: list                         # BookLevel
     tape: Any                            # the levels' instrument tape (trades = the moving bands' clock)
-    params: Callable[[int], tuple]       # t -> (confluence_tol, max_zone_width) in force (ES: × ES ÷ NQ, F0.11)
+    params: Callable[[int], tuple]       # t -> (confluence_tol, max_zone_width[, zone_join_buffer, zone_qualify_buffer])
+                                         # in force (ES: × ES ÷ NQ, F0.11); the buffers default to 0
     param_times: tuple = ()              # instants the params change
     end_ns: int | None = None
     times: list = field(default_factory=list)          # snapshot instants (membership changed)
@@ -221,6 +235,10 @@ class ZoneBook:
     recomputes: int = 0
     candidates: int = 0
     _segs: dict | None = None
+
+    def _p(self, t: int) -> tuple[float, float, float, float]:
+        p = tuple(self.params(t))
+        return (p + (0.0, 0.0))[:4] if len(p) < 4 else p[:4]
 
     def run(self, every_trade: bool = False) -> ZoneBook:
         """`every_trade`: recompute at every trade too (the parity test's reference).
@@ -242,8 +260,8 @@ class ZoneBook:
             ok, lo, hi, pk = _evaluate(lv, tb)
             for j, t in enumerate(tb.tolist()):
                 act = np.flatnonzero(ok[j])
-                tol, maxw = self.params(t)
-                key = (act.tobytes(), _relations_arr(lo[j, act], hi[j, act], tol, maxw), tol, maxw)
+                tol, maxw, jb, qb = self._p(t)
+                key = (act.tobytes(), _relations_arr(lo[j, act], hi[j, act], tol, maxw, jb, qb), tol, maxw, jb, qb)
                 if key == last_key:
                     continue
                 last_key = key
@@ -251,7 +269,7 @@ class ZoneBook:
                 geoms = [Geom(names[i], float(lo[j, i]), float(hi[j, i]),
                               None if lv[i].pct_of_king is None or np.isnan(pk[j, i]) else float(pk[j, i]))
                          for i in act.tolist()]
-                zones, absorbed = merge(geoms, prev, tol, maxw, ids)
+                zones, absorbed = merge(geoms, prev, tol, maxw, ids, jb, qb)
                 new = {z.zone_id: tuple(z.members) for z in zones}
                 for z in zones:
                     if z.zone_id not in self.created:
@@ -308,19 +326,27 @@ class ZoneBook:
                         continue
                     a0 = int(tape.ts[s0]) if s0 < i0 else a
                     bm, bo = m.bounds(a0, z), o.bounds(a0, z)
-                    pad = max(self.params(a)) + 1.0
+                    tol, maxw, jb, qb = self._p(a)
+                    pad = max(tol + qb, maxw) + 1.0
                     if bm is None or bo is None or bm[1] < bo[0] - pad or bo[1] < bm[0] - pad:
                         continue   # never within a zone width of each other on [a, z): no relation can flip
                     lo1, hi1 = m.band.at_trades(s0, i1)
                     lo2, hi2 = o.band.at_trades(s0, i1)
-                    ok = np.isfinite(lo1) & np.isfinite(lo2)
                     ts = tape.ts[s0:i1]
-                    tol, maxw = self.params(a)
-                    c1, c2 = (lo1 + hi1) / 2, (lo2 + hi2) / 2
-                    with np.errstate(invalid="ignore"):
-                        q = ((lo1 <= hi2 + EPS) & (lo2 <= hi1 + EPS)) | (np.abs(c1 - c2) <= tol + EPS)
-                        w = (np.maximum(hi1, hi2) - np.minimum(lo1, lo2)) <= maxw + EPS
-                    code = np.where(ok, q.astype(np.int8) * 2 + w.astype(np.int8), -1)
+                    steps = o.change_times if (STEP_TIME_CANDIDATES and o.change_times is not None) else None
+                    if steps is not None:
+                        steps = np.asarray(steps, dtype=np.int64)
+                        steps = steps[(steps > ts[0]) & (steps < z)]
+                    if steps is not None and len(steps):
+                        # the partner's step times between trades (Q-step12a (1)): the bands as of each step (after
+                        # every update <= it) join the trade sequence, a step placed after the trades of its timestamp
+                        s_lo1, s_hi1 = values_at(m.band, steps)
+                        s_lo2, s_hi2 = values_at(o.band, steps)
+                        order = np.lexsort((np.r_[np.zeros(len(ts)), np.ones(len(steps))], np.r_[ts, steps]))
+                        ts = np.r_[ts, steps][order]
+                        lo1, hi1 = np.r_[lo1, s_lo1][order], np.r_[hi1, s_hi1][order]
+                        lo2, hi2 = np.r_[lo2, s_lo2][order], np.r_[hi2, s_hi2][order]
+                    code = _pair_codes(lo1, hi1, lo2, hi2, tol, maxw, jb, qb)
                     ch = np.flatnonzero(code[1:] != code[:-1]) + 1
                     if len(ch):
                         out.append(ts[ch])
@@ -372,8 +398,25 @@ class ZoneBook:
         return sorted(self.created, key=lambda z: int(z[1:]))
 
 
-def _relations(geoms: list[Geom], tol: float, maxw: float) -> bytes:
-    return _relations_arr(np.array([g.lo for g in geoms]), np.array([g.hi for g in geoms]), tol, maxw)
+def _pair_codes(lo1, hi1, lo2, hi2, tol: float, maxw: float, jb: float = 0.0, qb: float = 0.0) -> np.ndarray:
+    """Per instant, the relations of one pair the merge reads, packed in one code (-1 where a band is missing):
+    qualify, hull <= max width, and with the hysteresis (Q-step12a (2)) qualify within qb and hull <= max width - jb."""
+    ok = np.isfinite(lo1) & np.isfinite(lo2)
+    c1, c2 = (lo1 + hi1) / 2, (lo2 + hi2) / 2
+    with np.errstate(invalid="ignore"):
+        q = ((lo1 <= hi2 + EPS) & (lo2 <= hi1 + EPS)) | (np.abs(c1 - c2) <= tol + EPS)
+        hull = np.maximum(hi1, hi2) - np.minimum(lo1, lo2)
+        w = hull <= maxw + EPS
+        code = q.astype(np.int8) * 2 + w.astype(np.int8)
+        if jb or qb:
+            qq = ((lo1 <= hi2 + qb + EPS) & (lo2 <= hi1 + qb + EPS)) | (np.abs(c1 - c2) <= tol + qb + EPS)
+            wj = hull <= maxw - jb + EPS
+            code = code + qq.astype(np.int8) * 8 + wj.astype(np.int8) * 4
+    return np.where(ok, code, -1)
+
+
+def _relations(geoms: list[Geom], tol: float, maxw: float, jb: float = 0.0, qb: float = 0.0) -> bytes:
+    return _relations_arr(np.array([g.lo for g in geoms]), np.array([g.hi for g in geoms]), tol, maxw, jb, qb)
 
 
 @lru_cache(maxsize=512)
@@ -381,8 +424,9 @@ def _triu(n: int):
     return np.triu_indices(n, 1)
 
 
-def _relations_arr(lo: np.ndarray, hi: np.ndarray, tol: float, maxw: float) -> bytes:
-    """The pairwise relations the merge reads (qualify; pair hull <= max width), packed."""
+def _relations_arr(lo: np.ndarray, hi: np.ndarray, tol: float, maxw: float, jb: float = 0.0, qb: float = 0.0) -> bytes:
+    """The pairwise relations the merge reads (qualify; pair hull <= max width; with the hysteresis also qualify within
+    qb and hull <= max width - jb), packed."""
     n = len(lo)
     if n < 2:
         return b""
@@ -391,7 +435,13 @@ def _relations_arr(lo: np.ndarray, hi: np.ndarray, tol: float, maxw: float) -> b
         (np.abs(c[:, None] - c[None, :]) <= tol + EPS)
     w = (np.maximum(hi[:, None], hi[None, :]) - np.minimum(lo[:, None], lo[None, :])) <= maxw + EPS
     iu = _triu(n)
-    return np.packbits(np.concatenate([q[iu], w[iu]])).tobytes()
+    parts = [q[iu], w[iu]]
+    if jb or qb:
+        qq = ((lo[:, None] <= hi[None, :] + qb + EPS) & (lo[None, :] <= hi[:, None] + qb + EPS)) | \
+            (np.abs(c[:, None] - c[None, :]) <= tol + qb + EPS)
+        wj = (np.maximum(hi[:, None], hi[None, :]) - np.minimum(lo[:, None], lo[None, :])) <= maxw - jb + EPS
+        parts += [qq[iu], wj[iu]]
+    return np.packbits(np.concatenate(parts)).tobytes()
 
 
 def _evaluate(levels: list, ts: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:

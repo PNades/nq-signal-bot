@@ -8,9 +8,13 @@
 - **POC** = the price with the largest volume; ties go to the price nearest the midpoint of the profile's high-low
   range, then to the price nearer the volume median (the price with half the volume at or below it), then the lower
   price (owner 2026-10-05).
-- **Value area** = from the POC outward until >= 70% of the volume is included, one tick at a time: add whichever of the
-  next price above / below has the larger volume; on a tie add both; once one side reaches the profile edge keep adding
-  the other (owner 2026-10-05, FQ-08, §13 Q40). VAH / VAL = its highest / lowest price. **VAH zone** = [VAH, high],
+- **Value area** = from the POC outward until >= 70% of the volume is included, one row at a time: add whichever of the
+  next row above / below has the larger volume; on a tie add both; once one side reaches the profile edge keep adding
+  the other (owner 2026-10-05, FQ-08, §13 Q40). VAH / VAL = its highest / lowest row.
+- **Rows (step 13, owner 2026-11-08, SPEC §13 Q-step12 (4)):** POC and the value area are built on 1-pt rows of
+  `PROFILE_ROW_TICKS` (4) ticks starting at whole points (a row = [floor(price), floor(price) + 0.75]), summed from the
+  same per-tick volume; the tie rules above apply to rows. POC, VAH and VAL each sit on their row's low (the whole
+  point), clipped to the profile's traded range, so VAL <= POC <= VAH. LVNs read the per-tick volume, unchanged. **VAH zone** = [VAH, high],
   **VAL zone** = [low, VAL]: context and order-flow areas, not levels.
 - **LVN** = a local minimum m of the Gaussian-smoothed profile (σ = `lvn_smooth_ticks` / 2 ticks, truncated at
   ±`lvn_gauss_trunc_sigma` σ) with s(m) <= `lvn_max_pct` × min(peak_left, peak_right), each peak = the highest smoothed
@@ -27,6 +31,10 @@ import numpy as np
 from nqbot.features.session_tape import NS, TICK, Tape
 
 VALUE_AREA_SHARE = 0.70   # owner's fixed definitional constant (feature_spec "Values"; F3.3)
+# SPEC §13 Q-step12 (4) (owner 2026-11-08): POC / VAH / VAL on 1-pt rows of 4 ticks. A diagnostic switch of the step-13-0
+# check only (1 = the single ticks of features_version <= 36); every feature build refuses any other value
+# (`features.diagnostics.require_defaults`).
+PROFILE_ROW_TICKS = 4
 
 
 def to_tick(price) -> np.ndarray:
@@ -132,9 +140,32 @@ class ProfileStats:
     volume: float
 
 
+def to_rows(vol: np.ndarray, lo_tick: int, row_ticks: int) -> tuple[np.ndarray, int]:
+    """Per-tick volume over [lo_tick, lo_tick + len) summed into rows of `row_ticks` ticks aligned at multiples of
+    `row_ticks` (whole points for 4): (row volumes, the first row's low tick)."""
+    first, last = lo_tick // row_ticks, (lo_tick + len(vol) - 1) // row_ticks
+    off = lo_tick - first * row_ticks
+    padded = np.zeros((last - first + 1) * row_ticks)
+    padded[off:off + len(vol)] = vol
+    return padded.reshape(-1, row_ticks).sum(axis=1), first * row_ticks
+
+
+def poc_va_prices(vol: np.ndarray, lo_tick: int, row_ticks: int | None = None) -> tuple[float, float, float]:
+    """(POC, VAL, VAH) prices: on rows, each at its row's low, clipped to the traded range (Q-step12 (4))."""
+    rt = PROFILE_ROW_TICKS if row_ticks is None else int(row_ticks)
+    rows, row0 = to_rows(vol, lo_tick, rt)
+    p = poc_index(rows)
+    a, b = value_area(rows, p)
+    lo_t, hi_t = lo_tick, lo_tick + len(vol) - 1
+
+    def price(k: int) -> float:
+        return min(max(row0 + k * rt, lo_t), hi_t) * TICK
+
+    return price(p), price(a), price(b)
+
+
 def stats(vol: np.ndarray, lo_tick: int, t_ns: int, lvn_params: dict | None) -> ProfileStats:
-    p = poc_index(vol)
-    a, b = value_area(vol, p)
+    poc, val, vah = poc_va_prices(vol, lo_tick)
     lvns: tuple = ()
     if lvn_params is not None:
         s = smooth(vol, lvn_params["lvn_smooth_ticks"], lvn_params["lvn_gauss_trunc_sigma"])
@@ -146,8 +177,7 @@ def stats(vol: np.ndarray, lo_tick: int, t_ns: int, lvn_params: dict | None) -> 
             if ident not in found or s[m] < found[ident][1]:   # two minima on one identity: the deeper one
                 found[ident] = (price, s[m])
         lvns = tuple(sorted((k, v[0]) for k, v in found.items()))
-    return ProfileStats(t_ns, lo_tick * TICK, (lo_tick + len(vol) - 1) * TICK, (lo_tick + p) * TICK,
-                        (lo_tick + a) * TICK, (lo_tick + b) * TICK, lvns, float(vol.sum()))
+    return ProfileStats(t_ns, lo_tick * TICK, (lo_tick + len(vol) - 1) * TICK, poc, val, vah, lvns, float(vol.sum()))
 
 
 # --- a developing profile over one session -------------------------------------------------------------------

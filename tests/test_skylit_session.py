@@ -14,7 +14,9 @@ from nqbot.features.node_levels import Scale
 from nqbot.features.skylit_session import Context, SkylitSession
 from tests.test_map_state import DAY, NS, T0
 
-F = load_features()
+# these hand-built boards test F2.4's hysteresis and the rules built on it; the step-13 relevance debounce
+# (node_relevance_min_sec, Q-step12a (3)) has its own tests (tests/test_relevance_debounce.py)
+F = {**load_features(), "node_relevance_min_sec": 0}
 S = load_settings()
 CEIL, FLOOR = ls.CEILING, ls.FLOOR
 

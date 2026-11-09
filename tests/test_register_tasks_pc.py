@@ -87,3 +87,38 @@ def test_laptop_tasks_keep_their_et_wall_times():
     assert starts["nqbot recording 10-19"] == ["2026-10-19T09:27:00"]
     assert sorted(s[11:16] for s in starts["nqbot sigma check"]) == ["09:05"] * 3 + ["12:00"] * 3
     assert all(_local(s) for _, _, s in rows)
+
+
+# --- the build worktree (owner 2026-11-09, SPEC §13 Q-dryrun13 (1)) -------------------------------------------------
+
+def _repo(*args: str) -> subprocess.CompletedProcess:
+    windir = Path(os.environ.get("SystemRoot", r"C:\Windows"))
+    ps = windir / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    return subprocess.run([str(ps), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(SCRIPT), "-ShowRepoOnly",
+                           *args], capture_output=True, text=True, timeout=120)
+
+
+def test_tasks_start_in_the_pinned_build_worktree(tmp_path):
+    import json
+    import socket
+
+    pin = tmp_path / "build_pin.json"
+    r = _repo("-PinFile", str(pin))
+    assert r.returncode == 0 and "the main folder: no build pin" in r.stdout
+    pin.write_text(json.dumps({"path": r"C:\nqb\build", "commit": "a" * 40, "host": socket.gethostname()}))
+    r = _repo("-PinFile", str(pin))
+    assert r.returncode == 0 and r.stdout.strip().startswith(r"repo: C:\nqb\build (the build worktree pinned at aaaaaaa")
+    pin.write_text(json.dumps({"path": r"C:\nqb\build", "commit": "a" * 40, "host": "OTHER-MACHINE"}))
+    assert "the main folder" in _repo("-PinFile", str(pin)).stdout                 # another machine's pin
+    assert _repo("-PinFile", str(pin), "-Repo", r"C:\x").stdout.strip() == r"repo: C:\x (from -Repo)"
+
+
+def test_build_worktree_dry_run_names_the_steps():
+    windir = Path(os.environ.get("SystemRoot", r"C:\Windows"))
+    ps = windir / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    script = SCRIPT.parent / "build_worktree.ps1"
+    r = subprocess.run([str(ps), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Commit", "HEAD",
+                        "-Path", r"C:\nqb\never_created_by_tests", "-Uv", "uv.exe", "-DryRun"],
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    assert "git worktree add --detach" in r.stdout and "build-pin set" in r.stdout and "commit: " in r.stdout

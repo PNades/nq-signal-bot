@@ -66,12 +66,78 @@ def test_vwap_anchor_excludes_earlier_trades_and_updates_every_trade():
 # --- F3.2 POC and its instants -------------------------------------------------------------------------------
 
 def test_poc_waits_for_the_next_profile_instant():
-    """Trades at 100.00 x5, 100.25 x3 before 10:01:00 and 100.25 x4 at 10:01:00.5 -> POC 100.00 at 10:01:00."""
-    t = tape([100.0, 100.25, 100.25], [5, 3, 4], secs=[10, 20, 60.5])
+    """Trades at 100.00 x5, 101.00 x3 before 10:01:00 and 101.00 x4 at 10:01:00.5 -> POC 100 at 10:01:00 (two 1-pt rows,
+    Q-step12 (4))."""
+    t = tape([100.0, 101.0, 101.0], [5, 3, 4], secs=[10, 20, 60.5])
     p = pf.DevelopingProfile.build("daily", t, T0, T0, T0 + 120 * NS, 60, None)
     assert p.at(T0 + 60 * NS).poc == 100.0
     assert p.at(T0 + 60 * NS + 600_000_000).poc == 100.0     # 10:01:00.6: still the 10:01:00 instant
-    assert p.at(T0 + 120 * NS).poc == 100.25
+    assert p.at(T0 + 120 * NS).poc == 101.0
+
+
+# --- 1-pt rows (step 13, owner 2026-11-08, SPEC §13 Q-step12 (4)) -------------------------------------------------
+
+def dense(volume: dict[float, float]) -> tuple[np.ndarray, int]:
+    ticks = {int(round(k / st.TICK)): v for k, v in volume.items()}
+    lo, hi = min(ticks), max(ticks)
+    vol = np.zeros(hi - lo + 1)
+    for k, v in ticks.items():
+        vol[k - lo] = v
+    return vol, lo
+
+
+def test_rows_are_whole_points_and_prices_their_row_low():
+    """100.00-100.75 is one row: the busiest single tick 100.50 lies in it, and the POC is the row low 100."""
+    vol, lo = dense({100.0: 1, 100.25: 1, 100.5: 6, 100.75: 1, 101.0: 4, 101.25: 4})
+    rows, row0 = pf.to_rows(vol, lo, 4)
+    assert list(rows) == [9, 8] and row0 * st.TICK == 100.0
+    s = pf.stats(vol, lo, 0, None)
+    assert (s.poc, s.val, s.vah) == (100.0, 100.0, 101.0)
+    # the single-tick rule (features_version <= 36) for comparison: busiest tick 100.50
+    assert pf.poc_va_prices(vol, lo, 1)[0] == 100.5
+
+
+def test_row_ties_follow_the_tick_rules():
+    """Rows 100, 101, 102 with 5, 1, 5: equal rows, the one nearest the midpoint of the row range... both are equally
+    far, so the volume-median row (101 here holds the half) decides, then the lower row."""
+    vol, lo = dense({100.0: 5, 101.0: 1, 102.0: 5})
+    assert pf.stats(vol, lo, 0, None).poc == 100.0       # equal distance from row 101, median row 101: the lower
+    vol, lo = dense({100.0: 5, 101.0: 5, 102.0: 1, 103.0: 5, 104.0: 1})
+    assert pf.stats(vol, lo, 0, None).poc == 101.0       # nearest the midpoint row (102) among 100, 101, 103
+
+
+def test_value_area_on_rows():
+    """Rows 100..104 = 1, 10, 20, 10, 1 (42): 70% = 29.4 -> POC row 102, then 101 and 103 together (tie) = 40."""
+    vol, lo = dense({100.0: 1, 101.0: 10, 102.0: 20, 103.0: 10, 104.0: 1})
+    s = pf.stats(vol, lo, 0, None)
+    assert (s.val, s.poc, s.vah) == (101.0, 102.0, 103.0)
+
+
+def test_edge_row_partly_traded_is_clipped_to_the_traded_range():
+    """Trades only at 100.50 and 100.75 (the 100 row partly traded) and 101.25: every price stays inside
+    [low 100.50, high 101.25], so VAL <= POC <= VAH even when the POC row is the bottom row."""
+    vol, lo = dense({100.5: 6, 100.75: 6, 101.25: 1})
+    s = pf.stats(vol, lo, 0, None)
+    assert s.low == 100.5 and s.poc == 100.5 and s.val == 100.5 and s.vah <= s.high
+    assert s.val <= s.poc <= s.vah
+
+
+def test_one_row_profile():
+    vol, lo = dense({100.25: 3, 100.5: 2})
+    s = pf.stats(vol, lo, 0, None)
+    assert s.poc == s.val == s.vah == 100.25
+
+
+def test_invariant_val_poc_vah_on_random_profiles():
+    rng = np.random.default_rng(7)
+    for _ in range(300):
+        n = int(rng.integers(1, 60))
+        vol = rng.integers(0, 5, n).astype(float)
+        vol[0] = vol[-1] = max(vol[0], 1.0)
+        lo = int(rng.integers(40_000, 40_010))
+        s = pf.stats(vol, lo, 0, None)
+        assert s.low <= s.val <= s.poc <= s.vah <= s.high
+        assert (s.poc / 1.0).is_integer() or s.poc == s.low   # a whole point, or the clipped low
 
 
 def test_poc_ties_midpoint_then_volume_median_then_lower():

@@ -7,6 +7,7 @@ from typing import Callable
 from nqbot.backup import SkylitBackupJob
 from nqbot.checks.feature_build import FeatureBuildJob
 from nqbot.checks.step8b_disloc import DislocationsJob
+from nqbot.checks.step13 import CheckJob as Step13CheckJob
 from nqbot.checks.step8b_gate import GateJob
 from nqbot.clients.databento_pull import DatabentoPullJob
 from nqbot.clients.skylit_backfill import SkylitBackfillJob
@@ -29,6 +30,7 @@ JOBS: dict[str, Callable[[], Job]] = {
     "skylit_multiexp": MultiExpJob,  # owner 2026-10-23: multi-expiration snapshots, raw only (plan: skylit multiexp-plan)
     "step8b_gate": GateJob,  # step 8b: bias, estimator, alignment on the 22 development days, a day per chunk
     "feature_build": FeatureBuildJob,  # step 11 part 3: the two-pass feature build (plan: nqbot features plan)
+    "step13_check": Step13CheckJob,  # step 13-0: the corrections check on the development days (owner 2026-11-09)
 }
 
 

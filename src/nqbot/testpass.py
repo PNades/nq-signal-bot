@@ -132,4 +132,14 @@ def require(paths: Paths, echo: Callable[[str], None], what: str) -> bool:
         return False
     if v.ok is None:
         echo(f"WARNING: {what} starts unchecked: {v.message}")
+    from nqbot import build_pin   # owner 2026-11-09 (Q-dryrun13 (1)): long jobs run from the pinned build worktree
+
+    try:
+        pv = build_pin.check(paths)
+    except (OSError, ValueError, KeyError) as e:
+        echo(f"WARNING: {what}: can't read the build pin ({e})")
+        return True
+    if not pv.ok:
+        echo(f"refused: {what}: {pv.message}")
+        return False
     return True

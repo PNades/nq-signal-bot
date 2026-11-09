@@ -12,7 +12,9 @@ from nqbot.features import session_tape as st
 from nqbot.features.boards import MapBoards
 from nqbot.features.map_state import MapState
 
-F = load_features()
+# these hand-built boards test F2.4's hysteresis and the rules built on it; the step-13 relevance debounce
+# (node_relevance_min_sec, Q-step12a (3)) has its own tests (tests/test_relevance_debounce.py)
+F = {**load_features(), "node_relevance_min_sec": 0}
 DAY = date(2026, 3, 20)
 NS = st.NS
 T0 = st.et_ns(DAY, time(10, 0))

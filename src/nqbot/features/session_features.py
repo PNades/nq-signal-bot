@@ -6,7 +6,10 @@ feature_spec F5.1-F5.13, F5.16, F5.18, F8, F10, F11.4, F11.7).
    the gameplan containers; the golden zones come from part 1's `OpeningRange`;
 2. the zone books (`zones.ZoneBook`; ES with the NQ parameters × ES ÷ NQ at the open, F0.11);
 3. touches (`touches.py`: level zones, gameplan zones, golden zones), touch groups and event ids;
-4. structure labels (`structure_label.py`);
+4. structure labels (`structure_label.py`), each evaluated at the distances the session reads (owner 2026-11-06, SPEC §13
+   Q-density (c)): `hold_reaction_pts` (the structure label, 30), `history_hold_pts` (the outcome-history features:
+   freshness, day memory, golden-zone history, 30), `retest_hold_pts` (F3.8, 20) and `pair_end_hold_pts` (the pair
+   cut, Q-step11h (1): no pair at or after the event's own resolution at this distance, 20);
 5. retested extremes (F3.8): a held touch within `retest_tol_ticks` of an earlier session's high/low creates a
    `retested_extreme` level at the label's resolution time; a new level can only change what happens after its
    creation, so each pass accepts only the earliest new retest(s) and the steps above are re-run until no new level
@@ -53,8 +56,10 @@ MAPS = ("QQQ", "NDXP", "SPY", "SPX")
 NQ_SUBTYPES = tuple(sorted(SUBTYPE_KEY)) + ("qqq_node", "ndxp_node")
 RTYPES = ("gex_node", "vwap", "volume_profile", "session_hl", "opening_range", "expected_move")
 MAX_RETEST_PASSES = 64   # a guard: one pass per distinct retest creation time in the session, plus one
-MAX_ALT_BUILDS = 2       # sessions built without one event's own retested extreme kept at once (memory, §11 Low memory)
+MAX_ALT_BUILDS = 2       # sessions built without one touch group's own retested extremes kept at once (§11 Low memory)
 NODE_TYPES = ("king", "gatekeeper", "significant", "normal")
+# the F11.4 distances (owner 2026-11-06, SPEC §13 Q-density (c)): structure label, history features, F3.8, pair cut
+HOLD_KEYS = ("hold_reaction_pts", "history_hold_pts", "retest_hold_pts", "pair_end_hold_pts")
 
 
 @dataclass
@@ -104,11 +109,13 @@ class FixedBook:
 
 
 class SessionFeatures:
-    def __init__(self, ctx: SessionContext, exclude_source: str | None = None):
-        """`exclude_source`: build the session as if that event's held label had made no retested extreme (the world
-        its own rows are read from after that level appears, Q-step11g (2))."""
+    def __init__(self, ctx: SessionContext, exclude_source: str | frozenset | None = None):
+        """`exclude_source`: build the session as if the held labels of those events (one event id, or a touch group's
+        event ids) had made no retested extreme: the world a touch group's rows are read from after such a level
+        appears (Q-step11g (2); the whole touch group is the event's own, owner 2026-11-01, SPEC §13 Q-step11h (2))."""
         self.c = ctx
-        self.exclude_source = exclude_source
+        self.exclude_source = (None if exclude_source is None else frozenset([exclude_source])
+                               if isinstance(exclude_source, str) else frozenset(exclude_source))
         self._alts: dict[str, SessionFeatures] = {}
         self._mine_uids: set[str] = set()
         self.f, self.day = ctx.features, ctx.day
@@ -162,17 +169,23 @@ class SessionFeatures:
         self.nq_levels = {x.uid: x for x in nq_levels}
         self.es_levels = {x.uid: x for x in es_levels}
         tol, maxw = float(f["confluence_tol"]), float(f["max_zone_width"])
-        self.book = ZoneBook([x.book_level() for x in nq_levels], self.nq, lambda t: (tol, maxw),
+        jb, qb = float(f["zone_join_buffer"]), float(f["zone_qualify_buffer"])   # Q-step12a (2)
+        self.book = ZoneBook([x.book_level() for x in nq_levels], self.nq, lambda t: (tol, maxw, jb, qb),
                              end_ns=self.end_ns).run()
         sw = (self._es_switch(),)
 
         def es_params(t):
-            k = self.es_ratio(t)
-            return tol * k, maxw * k
+            k = self.es_ratio(t)   # every NQ-point parameter × ES ÷ NQ at the open (F0.11)
+            return tol * k, maxw * k, jb * k, qb * k
+        self.absorbed: dict[str, list] = {}   # survivor zone_id -> [(t, absorbed zone_id)] (Q-step12b (b))
+        for young, (tm, old) in self.book.merged_into.items():
+            self.absorbed.setdefault(old, []).append((int(tm), young))
         self.es_book = ZoneBook([x.book_level() for x in es_levels], self.es, es_params, param_times=sw,
                                 end_ns=self.end_ns).run()
         prox, rearm = float(f["zone_proximity"]), float(f["rearm_dist"])
-        level_t = tch.ZoneTouches(self.nq, self.book, self.nq_levels, prox, rearm).run().touches
+        zt = tch.ZoneTouches(self.nq, self.book, self.nq_levels, prox, rearm).run()
+        level_t = zt.touches
+        self.touch_stats = {"own_arms": zt.own_arms, "formation_touches": zt.formation_touches}
         cont = {x.uid: x for x in self.containers}
         gp_t = tch.ZoneTouches(self.nq, FixedBook(self.containers, self.end_ns), cont, prox, rearm).run().touches
         for x in gp_t:
@@ -180,7 +193,15 @@ class SessionFeatures:
         gold = tch.golden_touches(c.cs_nq.opening, self.nq) if c.cs_nq.opening is not None else []
         self.events = tch.assign_groups(level_t + gp_t + gold)
         self.by_id = {e.event_id: e for e in self.events}
-        self.labels = {e.event_id: self._label(e) for e in self.events}
+        self.groups: dict[int, frozenset] = {}
+        for e in self.events:
+            self.groups[e.group] = self.groups.get(e.group, frozenset()) | {e.event_id}
+        at = {e.event_id: self._labels(e) for e in self.events}
+        hold, hist, ret, pend = (float(f[k]) for k in HOLD_KEYS)
+        self.labels = {k: v[hold] for k, v in at.items()}            # the structure label (F11.4), an outcome
+        self.hist_labels = {k: v[hist] for k, v in at.items()}       # what freshness / day memory / gz history read
+        self.retest_labels = {k: v[ret] for k, v in at.items()}      # F3.8
+        self.pair_end = {k: v[pend] for k, v in at.items()}          # Q-step11h (1): pairs end at its resolution
         self.records = [self._record(e) for e in self.events]
 
     def _es_switch(self) -> int:
@@ -192,7 +213,8 @@ class SessionFeatures:
         inp = self.c.cs_es.inp
         return float(inp.scale_today if t >= self._es_switch() else inp.scale_prev)
 
-    def _label(self, e: tch.Touch) -> slab.Label:
+    def _labels(self, e: tch.Touch) -> dict[float, slab.Label]:
+        """The F11.4 label of `e` at every distance the session reads (the cross is the same for all)."""
         f = self.f
         t_end = slab.window_end(e.t, float(f["hold_window_min"]), self.flat_ns, self.end_ns)
         if e.kind == "level":
@@ -204,7 +226,7 @@ class SessionFeatures:
             cross = slab.container_cross(next(x for x in self.containers if x.uid == e.zone_id), e.role, e.t, t_end)
         else:
             cross = slab.golden_cross(self.c.cs_nq.opening, int(e.zone_id[1:]), e.t, t_end)
-        return slab.label(e, self.nq, cross, t_end, float(f["hold_reaction_pts"]))
+        return {d: slab.label(e, self.nq, cross, t_end, d) for d in sorted({float(f[k]) for k in HOLD_KEYS})}
 
     def _level_ids(self, e: tch.Touch) -> tuple:
         if e.kind == "level":
@@ -212,20 +234,20 @@ class SessionFeatures:
         return (e.zone_id,)
 
     def _record(self, e: tch.Touch) -> TouchRecord:
-        lab = self.labels[e.event_id]
+        lab = self.hist_labels[e.event_id]
         return TouchRecord(e.t, self._level_ids(e), e.zone_id, e.role, lab.t_resolved, lab.label)
 
     def _new_retests(self) -> list:
         f = self.f
         tol = int(f["retest_tol_ticks"])
         in_force = {r.level_id for r in self.c.retested} | {r.level_id for r in self.retested_today}
-        touches = [{"price": e.price, "t_resolved": self.labels[e.event_id].t_resolved,
-                    "label": self.labels[e.event_id].label, "event_id": e.event_id} for e in self.events]
+        touches = [{"price": e.price, "t_resolved": self.retest_labels[e.event_id].t_resolved,
+                    "label": self.retest_labels[e.event_id].label, "event_id": e.event_id} for e in self.events]
         cands = sl.dedupe_candidates(self.c.retest_candidates, tol)
         found = sl.retests_from_touches(cands, touches, self.day, self.c.sessions, tol,
                                         int(f["retest_lookback_sessions"]))
         if self.exclude_source is not None:
-            found = [r for r in found if r.source != self.exclude_source]
+            found = [r for r in found if r.source not in self.exclude_source]
         out = []
         for r in sorted((r for r in found if r.level_id not in in_force), key=lambda r: (r.created_ns, r.level_id)):
             # one level per price (owner 2026-11-01, Q-step11g (1)): none within the tolerance of a high/low level
@@ -244,23 +266,30 @@ class SessionFeatures:
                     return True
         return False
 
+    def group_of(self, e: tch.Touch) -> frozenset:
+        """The event ids of `e`'s touch group (F5.10): the event's own, as for day memory (Q-step11h (2))."""
+        return self.groups.get(e.group, frozenset({e.event_id}))
+
     def _own(self, e: tch.Touch, x) -> bool:
-        """A retested extreme made by `e`'s own held label (never part of `e`'s own rows, Q-step11g (2))."""
-        return self.retest_source.get(x.level_id) == e.event_id
+        """A retested extreme made by the held label of `e` or of a touch-group mate (never part of `e`'s rows,
+        Q-step11g (2), Q-step11h (2))."""
+        return self.retest_source.get(x.level_id) in self.group_of(e)
 
     # --- queries -------------------------------------------------------------------------------------------------
     def world(self, e: tch.Touch, t: int) -> tuple[SessionFeatures, tch.Touch]:
-        """The session `e`'s rows at t are read from: this one, or, once `e`'s own held label has made a retested
-        extreme by t, the session as it would be without that level (it can merge zones and change later labels;
-        owner 2026-11-01, SPEC §13 Q-step11g (2)). The feature build's rows are at the touch, always before it; step 13
-        reads its `decision_ts` rows, zone edges and members through here too."""
-        own_t = min((r.created_ns for r in self.retested_today if r.source == e.event_id), default=None)
+        """The session `e`'s rows at t are read from: this one, or, once the held label of `e` or of a touch-group mate
+        has made a retested extreme by t, the session as it would be without those levels (they can merge zones and
+        change later labels; owner 2026-11-01, SPEC §13 Q-step11g (2), Q-step11h (2)). The feature build's rows are at
+        the touch, always before it; step 13 reads its `decision_ts` rows, zone edges and members through here too
+        (and builds no pair at or after the event's own `t_pair_end`, Q-step11h (1))."""
+        grp = self.group_of(e)
+        own_t = min((r.created_ns for r in self.retested_today if r.source in grp), default=None)
         if own_t is None or t < own_t:
             return self, e
-        alt = self._alts.pop(e.event_id, None)
+        alt = self._alts.pop(grp, None)
         if alt is None:
-            alt = SessionFeatures(self.c, exclude_source=e.event_id).build()
-        self._alts[e.event_id] = alt               # most recently used last
+            alt = SessionFeatures(self.c, exclude_source=grp).build()
+        self._alts[grp] = alt                      # most recently used last
         while len(self._alts) > MAX_ALT_BUILDS:
             self._alts.pop(next(iter(self._alts)))
         return alt, alt.by_id[e.event_id]
@@ -310,18 +339,23 @@ class SessionFeatures:
         members = self.members_at(e, t)
         # outcomes: only touches before this event's own touch, their labels if resolved by t; never the event's own
         # touch or label (owner 2026-11-01, SPEC §13 Q-step11g (2)), also at a pair's later decision_ts
-        lab_ok = [lb for eid, lb in self.labels.items() if lb.t_resolved <= t and self.by_id[eid].t < e.t]
+        lab_ok = [lb for eid, lb in self.hist_labels.items() if lb.t_resolved <= t and self.by_id[eid].t < e.t]
         out: dict[str, Any] = {"event_id": e.event_id, "zone_id": e.zone_id, "touch_group_id": f"{self.day}-{e.group}",
                                "day": self.day.isoformat(), "ts": int(e.t), "t": int(t), "event_type": e.kind,
                                "direction": d, "role": e.role, "touch_price": e.price, "price": price,
                                "in_golden_zone": e.kind == "golden", "golden_zone_part": e.part,
-                               "tradeable": self._tradeable(e, t, members)}
+                               "tradeable": self._tradeable(e, t, members),
+                               # event identity across builds (owner 2026-11-09, SPEC §13 Q-dryrun13 (5)): the touching
+                               # trade, the zone's founding members (F5.5) and the zone's edges at the touch
+                               "touch_idx": int(e.idx), "founding_level_ids": self._founding(e),
+                               "touch_zone_lo": float(e.lo), "touch_zone_hi": float(e.hi)}
         out.update(self._geometry(e, t, edges, members, price))
         out.update(self._makeup(members, t))
         ids = sorted({m.level_id for m in members}) if e.kind == "level" else [e.zone_id]
         today = [r for r in self.records if r.t_touch < e.t]
         hist = [r for r in c.history if r.t_touch < e.t] + today
-        out.update(zone_freshness(hist, ids, e.role, e.zone_id, t, zone_touches=today))
+        out.update(zone_freshness(hist, ids, e.role, e.zone_id, t, zone_touches=today,
+                                  absorbed=self.absorbed if e.kind == "level" else None))
         out.update(self._day_memory(t, lab_ok))
         out.update(_flat(c.cs_nq.features_at(t, d)))
         if c.sky is not None:
@@ -353,6 +387,12 @@ class SessionFeatures:
             out.update(self._golden(e, t, members))
         out["skylit_missing"] = c.sky is None
         return out
+
+    def _founding(self, e: tch.Touch) -> list[str]:
+        """The founding members' `level_id`s of a level event's zone (F5.5); containers have none."""
+        if e.kind != "level":
+            return []
+        return sorted({self.nq_levels[u].level_id for u in self.book.anchors.get(e.zone_id, ()) if u in self.nq_levels})
 
     def _tradeable(self, e: tch.Touch, t: int, members: list) -> bool:
         start = self.golden_from if e.kind == "golden" else self.all_from
@@ -567,7 +607,7 @@ class SessionFeatures:
         # earlier touches of the same golden zone (F10: "earlier touches' outcomes"): touched before this event, so at
         # a pair's decision_ts neither the event itself nor a later touch counts
         mine = [x for x in self.events if x.zone_id == e.zone_id and x.t < e.t]
-        res = [self.labels[x.event_id] for x in mine if self.labels[x.event_id].t_resolved <= t]
+        res = [self.hist_labels[x.event_id] for x in mine if self.hist_labels[x.event_id].t_resolved <= t]
         last = mine[-1] if mine else None
         out = {"gz_touch_number": len(mine) + 1,
                "gz_prev_held": sum(1 for r in res if r.label == slab.HELD),
@@ -612,8 +652,12 @@ class SessionFeatures:
         return out
 
     def outcome_rows(self) -> list[dict[str, Any]]:
-        return [{"event_id": e.event_id, "day": self.day.isoformat(), **{k: v for k, v in
-                 asdict(self.labels[e.event_id]).items() if k != "event_id"}} for e in self.events]
+        """The structure label (F11.4 at `hold_reaction_pts`) and the pair cut: `t_pair_end` / `pair_end_label` = the
+        same rule at `pair_end_hold_pts` (Q-step11h (1): no pair at or after `t_pair_end`, `slab.pair_allowed`)."""
+        return [{"event_id": e.event_id, "day": self.day.isoformat(),
+                 **{k: v for k, v in asdict(self.labels[e.event_id]).items() if k != "event_id"},
+                 "t_pair_end": int(self.pair_end[e.event_id].t_resolved),
+                 "pair_end_label": self.pair_end[e.event_id].label} for e in self.events]
 
     def eod(self) -> dict[str, Any] | None:
         return self.dt.eod()

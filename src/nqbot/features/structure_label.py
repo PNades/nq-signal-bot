@@ -142,3 +142,9 @@ def label(touch: Touch, tape: Tape, cross: tuple[int, str] | None, t_end: int, h
 def window_end(t0: int, hold_window_min: float, flat_by_ns: int, day_end_ns: int) -> int:
     cap = flat_by_ns if t0 < flat_by_ns else day_end_ns
     return int(min(t0 + int(hold_window_min * MIN_NS), cap))
+
+
+def pair_allowed(decision_ts: int, t_pair_end: int) -> bool:
+    """Owner 2026-11-01 (SPEC §13 Q-step11h (1)): a pair exists only if its `decision_ts` is before its event's own
+    label resolution at `pair_end_hold_pts` (`t_pair_end`): once the level has held or broken the setup is over."""
+    return int(decision_ts) < int(t_pair_end)

@@ -15,7 +15,16 @@ that trade (the union of its members' bands, F5.4, F5.17):
   `sweep_max_depth`; a chart level beyond its band without a settled 1-minute bar; a provisional role being crossed
   back the same way), trades on that far side don't re-arm the zone, so coming back inside is the same event;
 - a zone founded (or moved) on top of price starts unarmed; an absorbed zone's arming state ends with it; a merge
-  survivor keeps its own.
+  survivor keeps its own;
+- **own re-arm (step 13, owner 2026-11-03, SPEC §13 Q-step12b (c), (d)):** a crossed member in its provisional role
+  (crossed, not broken back) also arms the zone, on its crossed side, at the first trade >= `rearm_dist` beyond its
+  own band there (after the zone was last disarmed): a post-cross retest needs only the member's own re-arm, not the
+  zone's. Armed that way (and not also by the zone's own re-arm band), the touch, "onto" and "across" tests read that
+  member's touch band (its band ± `zone_proximity`), so a merged zone already holding price doesn't disarm it: the
+  retest is price coming back to the member (the zone's event, its edges and members as usual);
+- **formation touch (`node_role_at_formation` = `strike_side`, Q-step12a (4); owner 2026-11-09):** the trade at which
+  a node member took its strike-side formation role (`level_state` `formations`: the first trade after the node
+  became relevant, inside its touch band) is a touch of the zone in that role, armed or not; it groups like any touch.
 Containers: gameplan zones use the same rule (single-member zones that never merge); the golden zones use
 `golden_zone.GoldenTouches` (owner 2026-10-27), recorded by `OpeningRange`.
 
@@ -38,6 +47,9 @@ from nqbot.features.session_tape import MIN_NS, NS, Tape
 
 CEILING, FLOOR = ls.CEILING, ls.FLOOR
 MAX_STEPS = 1_000_000   # a guard on the per-zone loop
+# Q-step12b (c) (owner 2026-11-03): the member's own re-arm. A diagnostic switch of the step-13-0 check only (False =
+# features_version <= 36); every feature build refuses another value (`features.diagnostics.require_defaults`).
+OWN_REARM = True
 
 
 def event_id(t_ns: int, zone_id: str) -> str:
@@ -86,6 +98,8 @@ class ZoneTouches:
     rearm: float
     touches: list = field(default_factory=list)
     disarms: list = field(default_factory=list)     # (zone_id, t, reason) for reports
+    own_arms: int = 0                                # zones armed by a member's own re-arm (reports)
+    formation_touches: int = 0                       # formation touches recorded (reports)
 
     def run(self) -> ZoneTouches:
         for zid in self.book.zone_ids():
@@ -95,7 +109,7 @@ class ZoneTouches:
 
     def _zone(self, zid: str) -> None:
         tape = self.tape
-        armed, side = False, 0
+        armed, side, via = False, 0, None
         for a, z, members in self.book.segments(zid):
             i, j = tape.idx_before(a), tape.idx_before(z)
             if j <= i:
@@ -104,6 +118,14 @@ class ZoneTouches:
             p = tape.price[i:j]
             prev = np.r_[tape.price[i - 1] if i > 0 else np.nan, p[:-1]]
             pr, rd = self.prox, self.rearm
+            own = self._own_rearm(members, i, j) if OWN_REARM else {}
+            own_up = own_dn = None
+            if own:
+                own_up = np.logical_or.reduce([u for u, _, _, _ in own.values()])
+                own_dn = np.logical_or.reduce([d for _, d, _, _ in own.values()])
+            if via is not None and via not in own:
+                via = None   # the member that armed the zone left it or is no longer provisional
+            forms = self._formations(members, i, j)     # [(segment index, role)], sorted
             k = 0
             steps = 0
             held = {1: 0, -1: 0}   # per side: the segment index before which that side can't arm (an unresolved break)
@@ -112,13 +134,20 @@ class ZoneTouches:
                 if steps > MAX_STEPS:
                     raise RuntimeError(f"zone {zid}: no progress")
                 pk, lk, hk, qk = p[k:], lo[k:], hi[k:], prev[k:]
+                fk = next((f for f in forms if f[0] >= k), None)
                 with np.errstate(invalid="ignore"):
                     if not armed:
-                        up = np.flatnonzero(pk > hk + pr + rd)
-                        dn = np.flatnonzero(pk < lk - pr - rd)
+                        up_m, dn_m = pk > hk + pr + rd, pk < lk - pr - rd
+                        if own_up is not None:
+                            up_m, dn_m = up_m | own_up[k:], dn_m | own_dn[k:]
+                        up = np.flatnonzero(up_m)
+                        dn = np.flatnonzero(dn_m)
                         up = up[up + k >= held[1]]
                         dn = dn[dn + k >= held[-1]]
                         e = min((x[0] for x in (up, dn) if len(x)), default=None)
+                        if fk is not None and (e is None or fk[0] - k <= e):
+                            k = self._formation_touch(zid, fk, i, p, lo, hi, members)
+                            continue
                         if e is None:
                             break
                         s = 1 if len(up) and up[0] == e else -1
@@ -129,15 +158,25 @@ class ZoneTouches:
                             held[s] = max(k + e + 1, tape.idx_before(hold) - i)
                             k += e + 1
                             continue
-                        armed, side = True, s
+                        armed, side, via = True, s, None
+                        if own_up is not None and not ((pk[e] > hk[e] + pr + rd) if s > 0 else (pk[e] < lk[e] - pr - rd)):
+                            # armed by a member's own re-arm only: its band governs the touch (Q-step12b (c))
+                            via = next(m for m, (u, d, _, _) in sorted(own.items()) if (u if s > 0 else d)[k + e])
+                            self.own_arms += 1
                         k += e + 1
                         continue
+                    if via is not None:
+                        lk, hk = own[via][2][k:], own[via][3][k:]
                     inside = (pk >= lk - pr) & (pk <= hk + pr)
                     was_in = (qk >= lk - pr) & (qk <= hk + pr)
                     other = (pk < lk - pr) if side > 0 else (pk > hk + pr)
                     hits = [(np.flatnonzero(inside & ~was_in), "touch"), (np.flatnonzero(inside & was_in), "onto"),
                             (np.flatnonzero(other), "across")]
                     e, what = min(((x[0], w) for x, w in hits if len(x)), default=(None, None))
+                    if fk is not None and (e is None or fk[0] - k <= e):
+                        armed, via = False, None
+                        k = self._formation_touch(zid, fk, i, p, lo, hi, members)
+                        continue
                     if e is None:
                         break
                     idx = i + k + e
@@ -147,19 +186,79 @@ class ZoneTouches:
                                                   float(lo[k + e]), float(hi[k + e])))
                     else:
                         self.disarms.append((zid, t, what))
-                    armed = False
+                    armed, via = False, None
                     k += e + 1
+
+    def _formation_touch(self, zid: str, fk: tuple, i: int, p, lo, hi, members) -> int:
+        """Record a formation touch at segment index fk[0] in role fk[1]; returns the next index to look at."""
+        k = fk[0]
+        side = 1 if fk[1] == FLOOR else -1
+        self.touches.append(Touch(zid, int(self.tape.ts[i + k]), i + k, float(p[k]), side, tuple(members),
+                                  float(lo[k]), float(hi[k])))
+        self.formation_touches += 1
+        return k + 1
+
+    def _formations(self, members, i: int, j: int) -> list[tuple[int, str]]:
+        """The members' formation-role trades inside the segment's trades [i, j), as (index into the segment, role)."""
+        out = []
+        for m in members:
+            for _, idx, role in getattr(self.levels[m].state, "formations", ()):
+                if i <= idx < j:
+                    out.append((idx - i, role))
+        return sorted(set(out))
+
+    def _own_rearm(self, members, i: int, j: int) -> dict:
+        """{member uid: (up, down, lo, hi)} over the trades [i, j) for the members that ever are, there, in their
+        provisional role (crossed, not broken back) >= `rearm_dist` beyond their own band on the crossed side (up: above,
+        a long retest; down: below); lo / hi = the member's band as of each trade."""
+        tape = self.tape
+        ts = tape.ts[i:j]
+        out = {}
+        for m in members:
+            lv = self.levels[m]
+            st = lv.state
+            if lv.kind == ls.CONTAINER:
+                continue
+            cuts = [int(ts[0])] + [int(t) for t, _ in st.events if ts[0] < t <= ts[-1]]
+            if not st.state_at(cuts[0]).crossed and len(cuts) == 1:
+                continue
+            lo_b = hi_b = None
+            up_m = np.zeros(j - i, dtype=bool)
+            dn_m = np.zeros(j - i, dtype=bool)
+            for c0, c1 in zip(cuts, cuts[1:] + [int(ts[-1]) + 1]):
+                x = st.state_at(c0)
+                if not (x.role is not None and x.crossed and not x.broken_back):
+                    continue
+                a = int(np.searchsorted(ts, c0, side="left"))
+                z = int(np.searchsorted(ts, c1, side="left"))
+                if z <= a:
+                    continue
+                if lo_b is None:
+                    lo_b, hi_b = lv.band.at_trades(i, j)
+                d = ls.up(x.orig_role)
+                with np.errstate(invalid="ignore"):
+                    hit = np.nan_to_num(ls.beyond(tape.price[i + a:i + z], lo_b[a:z], hi_b[a:z], d), nan=-np.inf) \
+                        >= self.rearm
+                (up_m if d > 0 else dn_m)[a:z] |= hit
+            if up_m.any() or dn_m.any():
+                out[m] = (up_m, dn_m, lo_b, hi_b)
+        return out
 
     def _suppressed(self, members, s: int, t: int) -> int | None:
         """An unresolved break on side s among the members at t -> when to look again (else None)."""
         until = None
+        px = self.tape.last_price_at(t)
         for m in members:
             lv = self.levels[m]
             st = lv.state.state_at(t)
             hit = False
+            # a chart-level break is unresolved only while price is beyond its band on side s (always so when the zone's
+            # own re-arm band is crossed; not so for a member's own re-arm inside another member, Q-step12b (c))
+            b = lv.band.at(t)
+            beyond = px is not None and b is not None and ls.beyond(px, b[0], b[1], s) > 0
             if lv.kind == ls.SWEEP and st.unresolved is not None and st.unresolved["d"] == s:
                 hit = True
-            elif lv.kind in ls.BAR_CROSS and st.role is not None:
+            elif lv.kind in ls.BAR_CROSS and st.role is not None and beyond:
                 if not st.crossed and ls.up(st.role) == s:
                     hit = True
                 elif st.crossed and not st.broken_back and -ls.up(st.orig_role) == s:

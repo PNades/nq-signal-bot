@@ -4,7 +4,12 @@ A synthetic CME day (NQ and ES trades, the four maps' boards with a dislocation-
 then, a gameplan zone) goes through the part-1, part-2 and part-3 engines. At several times t, everything known at t —
 the events touched by t and their rows (at the touch and at t), labels resolved by t, the zones and ES zones in force,
 the day-type inputs and rows, every level's transitions, the node registry, leans, magnets and pika clouds against a
-zone — must be unchanged when the data after t is removed, shifted one second or one minute later, or changed."""
+zone — must be unchanged when the data after t is removed, shifted one second or one minute later, or changed.
+
+Step 13-0 (owner 2026-11-09): the baseline runs every correction at its config value (zone hysteresis, relevance
+debounce, level jumps, own re-arm, 1-pt profile rows, candidate times); a second baseline (`F_VAR`) also switches the
+step-13 variants on (`node_relevance_top_n` 5, `node_role_at_formation` strike_side) with a structure-label distance
+apart from the retest and pair-cut distances, and goes through the same checks."""
 
 from __future__ import annotations
 
@@ -27,9 +32,13 @@ from nqbot.features.session_levels import Candidate
 from nqbot.features.skylit_session import Context, SkylitSession
 from tests.test_chart_levels import DAY, carry_for, synthetic_tape
 
-# the synthetic day moves less than NQ: a 10-point hold reaction (config 20) gives held labels, so freshness,
-# day memory and retested extremes have something to count
-F = {**load_features(), "hold_reaction_pts": 10.0}
+# the synthetic day moves less than NQ: a 10-point hold reaction (config 30, its history 30, retests and the pair cut
+# 20) gives held labels, so freshness, day memory and retested extremes have something to count
+F = {**load_features(), "hold_reaction_pts": 10.0, "history_hold_pts": 10.0, "retest_hold_pts": 10.0,
+     "pair_end_hold_pts": 10.0}
+# the step-13 variants on, and the label distances apart (structure label / history 12, retests / pair cut 10)
+F_VAR = {**F, "node_relevance_top_n": 5, "node_role_at_formation": "strike_side", "hold_reaction_pts": 12.0,
+         "history_hold_pts": 12.0}
 S = load_settings()
 CAL = cal_mod.load()
 NS = st.NS
@@ -121,8 +130,8 @@ def base_data():
     return nq, es, boards_for(nq, es, rng), gameplan(nq)
 
 
-def build(nq, es, boards, gp, cands=None):
-    f, s = F, S
+def build(nq, es, boards, gp, cands=None, f=None, s=None):
+    f, s = (F if f is None else f), (S if s is None else s)
     inp_nq = cl.SessionInputs(f, s, CAL, np.full(390, 600.0), {"em_1d_pct": 0.8})
     inp_es = cl.SessionInputs(f, s, CAL, None, {"em_1d_pct": 0.8}, scale_today=SCALE, scale_prev=SCALE,
                               scale_from_ns=OPEN)
@@ -223,18 +232,26 @@ def full():
     return nq, es, boards, gp, build(nq, es, boards, gp)
 
 
+@pytest.fixture(scope="session")
+def full_var():
+    """The baseline with the step-13 variants on (F_VAR)."""
+    nq, es, boards, gp = base_data()
+    return nq, es, boards, gp, build(nq, es, boards, gp, f=F_VAR)
+
+
 _VARIANTS: dict = {}
 
 
-def variant(full, t: int, how):
+def variant(full, t: int, how, f=None):
     """The session built from the data with everything after t removed / shifted / changed. The changed build at
     TIMES[2] is kept (the planted-leak check reads it too); the others are built for their one test only."""
     nq, es, boards, gp, _ = full
-    key = (t, how)
+    key = (t, how, id(f))
     if key in _VARIANTS:
         return _VARIANTS[key]
-    sf = build(cut_tape(nq, t, how), cut_tape(es, t, how), {m: cut_boards(mb, t, how) for m, mb in boards.items()}, gp)
-    if key == (TIMES[2], "changed"):
+    sf = build(cut_tape(nq, t, how), cut_tape(es, t, how), {m: cut_boards(mb, t, how) for m, mb in boards.items()}, gp,
+               f=f)
+    if key == (TIMES[2], "changed", id(None)):
         _VARIANTS[key] = sf
     return sf
 
@@ -254,6 +271,31 @@ def test_the_synthetic_day_exercises_the_engine(full):
     late = [r for r in sf.daytype_rows() if r["t"] >= OPEN + 3 * 3600 * NS]
     assert late and all(r["vr_prior"] is not None and r["er_so_far"] is not None and r["er_120"] is not None
                         for r in late)
+    # step 13-0: the corrections are exercised
+    assert sf.touch_stats["own_arms"] > 0, "a post-cross retest armed by its member's own re-arm"
+    assert all(r["touch_idx"] >= 0 for r in rows) and any(r["founding_level_ids"] for r in rows)
+
+
+def test_the_variant_day_exercises_the_corrections(full_var):
+    """F_VAR: formation touches, a debounced relevance change, more than 7 relevant nodes on a board, the label
+    distances apart, and every outcome-only column kept out of the rows."""
+    from nqbot.features import nodes
+
+    *_, sf = full_var
+    assert sf.touch_stats["formation_touches"] > 0
+    ms = sf.c.sky.ms["QQQ"]
+    raw = nodes.relevance(ms.mb.s_board, ms.mb.s_strike, ms.pct, np.ones(len(ms.mb), bool),
+                          F_VAR["min_node_pct_of_king"], F_VAR["node_drop_pct"])[0]
+    assert (raw != ms.relevant).any(), "the debounce changes some relevance"
+    per_board = np.bincount(ms.mb.s_board[ms.relevant], minlength=len(ms.mb))
+    assert per_board.max() > 7, "a board with more relevant nodes than the leave rank"
+    levels = [nl.level_spans for nl in sf.c.sky.nodes["QQQ"].levels.values()]
+    assert all(x is not None for x in levels) and any(x == [] or len(x) > 1 for x in levels), \
+        "top-n keeps some relevant node out of the NQ levels some of the time"
+    assert any(sf.labels[k].label != sf.retest_labels[k].label for k in sf.labels), "the distances differ"
+    rows, outs = sf.touch_rows(), sf.outcome_rows()
+    assert all("t_pair_end" not in r and "label" not in r and "t_resolved" not in r for r in rows)
+    assert all(o["t_pair_end"] == sf.pair_end[o["event_id"]].t_resolved for o in outs)
 
 
 TIMES = [st.et_ns(DAY, time(4, 12, 7)), st.et_ns(DAY, time(10, 1, 3)), st.et_ns(DAY, time(10, 31, 30)),
@@ -269,6 +311,44 @@ def test_no_lookahead(full, t, how):
         assert want["events"] and want["rows_t"]
     got = snapshot(variant(full, t, how), t)
     same(want, got, f"how={how}")
+
+
+@pytest.mark.parametrize("t", TIMES[1:3])
+@pytest.mark.parametrize("how", ["cut", NS, 60 * NS, "changed"])
+def test_no_lookahead_with_the_step13_variants(full_var, t, how):
+    nq, es, boards, gp, sf = full_var
+    want = snapshot(sf, t)
+    assert want["events"] and want["rows_t"]
+    same(want, snapshot(variant(full_var, t, how, f=F_VAR), t), f"how={how}")
+
+
+def test_the_build_reads_only_configuration_its_key_covers():
+    """Q-dryrun13 (6): a build session reading a setting or feature value the build key leaves out fails here."""
+    from nqbot.checks import feature_build as fb
+
+    class Rec(dict):
+        def __init__(self, d):
+            super().__init__(d)
+            self.read: set = set()
+
+        def __getitem__(self, k):
+            self.read.add(k)
+            return super().__getitem__(k)
+
+        def get(self, k, default=None):
+            self.read.add(k)
+            return super().get(k, default)
+
+        def __contains__(self, k):
+            self.read.add(k)
+            return super().__contains__(k)
+
+    f, s = Rec(F_VAR), Rec(S)
+    nq, es, boards, gp = base_data()
+    build(nq, es, boards, gp, f=f, s=s)
+    assert f.read and s.read
+    assert not (f.read & fb.NON_BUILD_FEATURE_KEYS), f.read & fb.NON_BUILD_FEATURE_KEYS
+    assert not (s.read & fb.NON_BUILD_SETTING_KEYS), s.read & fb.NON_BUILD_SETTING_KEYS
 
 
 def test_bar_label_known_at_its_end():
@@ -308,6 +388,7 @@ def _decision_times(sf, e):
 
 
 OWN_SHARDS = 3
+LABEL_DICTS = ("labels", "hist_labels", "retest_labels", "pair_end")
 
 
 @pytest.mark.parametrize("shard", range(OWN_SHARDS))
@@ -329,29 +410,36 @@ def test_own_label_never_reaches_own_features(full, shard):
         saved = []
         for w, we in worlds.values():
             j = w.events.index(we)
-            lab, rec = w.labels[we.event_id], w.records[j]
-            saved.append((w, we, j, lab, rec))
-            other = "broke" if lab.label == "held" else "held"
-            w.labels[we.event_id] = replace(lab, label=other, t_resolved=we.t + 1, run_pts=lab.run_pts + 7.0)
-            w.records[j] = replace(rec, label=other, t_resolved=we.t + 1)
+            labs = {name: getattr(w, name)[we.event_id] for name in LABEL_DICTS}
+            rec = w.records[j]
+            saved.append((w, we, j, labs, rec))
+            for name, lab in labs.items():   # every distance's label (Q-density (c)): the features read hist_labels
+                other = "broke" if lab.label == "held" else "held"
+                getattr(w, name)[we.event_id] = replace(lab, label=other, t_resolved=we.t + 1,
+                                                        run_pts=lab.run_pts + 7.0)
+            w.records[j] = replace(rec, label="broke" if rec.label == "held" else "held", t_resolved=we.t + 1)
         try:
             same(want, [sf.row(e, t) for t in times], f"{e.event_id}")
         finally:
-            for w, we, j, lab, rec in saved:
-                w.labels[we.event_id], w.records[j] = lab, rec
+            for w, we, j, labs, rec in saved:
+                for name, lab in labs.items():
+                    getattr(w, name)[we.event_id] = lab
+                w.records[j] = rec
 
 
 def test_own_retested_extreme_never_reaches_own_features(full):
-    """A retested extreme made by an event's own held label (F3.8): that event's rows are the same as in a build
-    where the level is never made."""
+    """A retested extreme made by the held label of an event or of a touch-group mate (F3.8; the whole touch group is
+    the event's own, owner 2026-11-01, SPEC §13 Q-step11h (2)): that event's rows are the same as in a build where
+    the group's levels are never made."""
     nq, es, boards, gp, sf = full
     sources = {r.source for r in sf.retested_today if r.source in sf.by_id}
     assert sources, "the synthetic day makes a retested extreme from a held touch"
     for src in sorted(sources):
         orig = SessionFeatures._new_retests
+        grp = sf.group_of(sf.by_id[src])
 
-        def without(self, src=src):
-            return [r for r in orig(self) if r.source != src]
+        def without(self, grp=grp):
+            return [r for r in orig(self) if r.source not in grp]
         SessionFeatures._new_retests = without
         try:
             alt = build(nq, es, boards, gp)
