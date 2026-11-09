@@ -41,7 +41,7 @@ JOB = "step13_check"
 STORED_VERSION = 36
 CHECK_DAYS = tuple(date.fromisoformat(d) for d in ("2025-10-01", "2026-03-06", "2026-03-11", "2026-03-17",
                                                      "2026-03-20", "2026-03-24", "2026-03-26"))
-JUMP_DAY = date(2025, 11, 18)          # Q-step12b (a), (e): the weekly POC jump at 13:19:00
+JUMP_DAY = date(2025, 11, 18)          # Q-step12b (a), (e): the weekly POC jump (13:19:00 in v36)
 JUMP_FEW = 3                           # owner 2026-11-09: VWAP / node bands jumping more often in a session -> stop
 NEUTRAL: dict[str, Any] = {"zone_join_buffer": 0, "zone_qualify_buffer": 0, "hold_reaction_pts": 20,
                            "history_hold_pts": 20, "retest_hold_pts": 20, "pair_end_hold_pts": 20,
@@ -329,9 +329,10 @@ def _et(t_ns: int) -> str:
 # --- the jump plot (Q-step12b (e)) -------------------------------------------------------------------------------------
 
 def jump_plot(env: Env) -> Path:
-    """2025-11-18 with every correction at its neutral setting: the weekly POC's old level ends at its 13:19 jump, the
-    new level starts there, and the zone the old one founded carries on with its other members (it never follows the
-    POC 400 pts onto price). The legend says what each band is and why the zone's edges change (owner 2026-11-04)."""
+    """2025-11-18 with every correction on (the `neutral` run): the weekly POC's old level ends at its first jump in the
+    window, each later piece is a new level, and the zone the old one belonged to carries on with its other members (it
+    never follows the POC onto price). Jump times, prices and the zone's edges are read from the build; the legend sits
+    below the chart so it hides no band (owner 2026-11-04, Q-step12b (e))."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -340,49 +341,65 @@ def jump_plot(env: Env) -> Path:
     built, _, _ = build(env, JUMP_DAY, "neutral")   # "neutral" has no switch off
     sf = built.sf
     a, z = et_ns(JUMP_DAY, time(12, 30)), et_ns(JUMP_DAY, time(14, 30))
+    hhmm = lambda ns: datetime.fromtimestamp(ns / NS, ET).strftime("%H:%M:%S")
+    mins = lambda ns: (np.asarray(ns, dtype=np.int64) - a) / NS / 60.0
     tape = sf.nq
     sl = tape.window(a, z)
-    t = (tape.ts[sl] - a) / NS / 60.0
-    fig, ax = plt.subplots(figsize=(13, 6.5))
-    ax.plot(t, tape.price[sl], lw=0.6, color="#555", label="NQ trades")
+    fig, ax = plt.subplots(figsize=(13, 8.5))
+    ax.plot(mins(tape.ts[sl]), tape.price[sl], lw=0.6, color="#555", label="NQ trades")
+    ts = np.arange(a, z, 5 * NS, dtype=np.int64)
     weekly = sorted((x for x in sf.nq_levels.values() if x.sub_type == "poc_weekly"), key=lambda x: x.band.start_ns)
-    colors = ["#c0392b", "#2471a3", "#7d3c98", "#1e8449"]
-    jump_t = None
-    for k, x in enumerate(weekly):
-        ts = np.arange(a, z, 5 * NS, dtype=np.int64)
-        lo = np.array([np.nan if (b := x.band.at(int(u))) is None else b[0] for u in ts])
-        hi = np.array([np.nan if (b := x.band.at(int(u))) is None else b[1] for u in ts])
-        if not np.isfinite(lo).any():
-            continue
-        start = int(x.band.start_ns)
-        if k > 0:
-            jump_t = jump_t or start
-        what = ("weekly POC band, old level (ends at the 13:19 jump; it leaves its zone without a cross)" if "@" not in
-                x.level_id else f"weekly POC band, new level {x.level_id.split('@')[1]} (fresh state, approach role)")
-        ax.fill_between((ts - a) / NS / 60.0, lo, hi, color=colors[k % len(colors)], alpha=0.25, lw=0, label=what)
-    first = weekly[0] if weekly else None
-    zids = sorted({z_ for z_, m in (sf.book.zones_at(int(first.band.start_ns) + NS).items() if first else [])
-                   if first.uid in m})
-    bands = {x.uid: x.band for x in sf.nq_levels.values()}
-    for zid in zids[:1]:
-        ts = np.arange(a, z, 5 * NS, dtype=np.int64)
-        e = [sf.book.edges(zid, int(u), bands) if sf.book.follow(zid, int(u)) == zid else None for u in ts]
-        lo = np.array([np.nan if x is None else x[0] for x in e])
-        hi = np.array([np.nan if x is None else x[1] for x in e])
-        ax.plot((ts - a) / NS / 60.0, lo, color="#d68910", lw=1.2, ls="--",
-                label=f"zone {zid} edges (founded with the weekly POC; after the jump it keeps its other members, "
-                      "so its edges stay at 25,150; drawn while the zone exists)")
-        ax.plot((ts - a) / NS / 60.0, hi, color="#d68910", lw=1.2, ls="--")
-    if jump_t is not None:
-        ax.axvline((jump_t - a) / NS / 60.0, color="k", lw=0.8, ls=":", label="13:19:00 weekly POC jump")
+    shown = []
+    for x in weekly:
+        b = [x.band.at(int(u)) for u in ts]
+        lo = np.array([np.nan if v is None else v[0] for v in b])
+        hi = np.array([np.nan if v is None else v[1] for v in b])
+        if np.isfinite(lo).any():
+            shown.append((x, lo, hi))
+    colors = ["#c0392b", "#2471a3", "#7d3c98", "#1e8449", "#b9770e", "#17a589", "#884ea0"]
+    jumps = [int(x.band.start_ns) for x, _, _ in shown if "@" in x.level_id and a <= int(x.band.start_ns) < z]
+    first_jump = min(jumps) if jumps else None
+    for k, (x, lo, hi) in enumerate(shown):
+        ok = np.isfinite(lo)
+        px = f"{np.nanmin(lo):,.2f}-{np.nanmax(hi):,.2f}"
+        if "@" not in x.level_id or int(x.band.start_ns) < a:
+            what = (f"weekly POC band {px}, level {x.level_id} (in force from before 12:30"
+                    + (f"; ends at the {hhmm(first_jump)} jump without a cross" if first_jump else "") + ")")
+        else:
+            what = f"weekly POC band {px}, new level from the {hhmm(int(x.band.start_ns))} jump (fresh state, approach role)"
+        ax.fill_between(mins(ts), lo, hi, where=ok, color=colors[k % len(colors)], alpha=0.45, lw=0, label=what)
+    if first_jump is not None:
+        old = shown[0][0]
+        bands = {x.uid: x.band for x in sf.nq_levels.values()}
+        zids = sorted(zid for zid, m in sf.book.zones_at(first_jump - NS).items() if old.uid in m)
+        for zid in zids[:1]:
+            e = [sf.book.edges(zid, int(u), bands) if sf.book.follow(zid, int(u)) == zid else None for u in ts]
+            lo = np.array([np.nan if v is None else v[0] for v in e])
+            hi = np.array([np.nan if v is None else v[1] for v in e])
+            before = [v for u, v in zip(ts, e) if v is not None and u < first_jump]
+            after = [v for u, v in zip(ts, e) if v is not None and u >= first_jump]
+            fmt = lambda v: f"{v[0]:,.2f}-{v[1]:,.2f}"
+            lab = (f"zone {zid} edges (holds the old weekly POC before the jump"
+                   + (f": {fmt(before[-1])}" if before else "")
+                   + ("; after it, its other members only" + (f": {fmt(after[0])}" if after else "") if after else
+                      "; it ends at the jump") + ")")
+            ax.plot(mins(ts), lo, color="#d68910", lw=1.4, ls="--", label=lab)
+            ax.plot(mins(ts), hi, color="#d68910", lw=1.4, ls="--")
+            env.echo(f"zone {zid}: before the jump {fmt(before[-1]) if before else '-'}, "
+                     f"after {fmt(after[0]) if after else '-'}")
+        for k, u in enumerate(sorted(jumps)):
+            ax.axvline(mins(u), color="k", lw=0.8, ls=":",
+                       label=(f"weekly POC jumps: {', '.join(hhmm(v) for v in sorted(jumps))}" if k == 0 else None))
+    env.echo(f"weekly POC pieces in 12:30-14:30: {len(shown)}; jumps at "
+             f"{', '.join(hhmm(v) for v in sorted(jumps)) or 'none'}")
     ax.set_xlabel("minutes after 12:30 ET")
     ax.set_ylabel("NQ")
-    ax.set_title("2025-11-18: the weekly POC jump starts a new level (step 13, SPEC §13 Q-step12b (a), (e))")
-    ax.legend(loc="upper left", fontsize=7.5)
+    ax.set_title("2025-11-18: each weekly POC jump starts a new level (step 13, SPEC §13 Q-step12b (a), (e))")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.09), fontsize=8, ncol=1, frameon=False)
     out = report_dir(env) / "plots" / f"{JUMP_DAY.isoformat()}_weekly_poc_jump.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
-    fig.savefig(out, dpi=130)
+    fig.savefig(out, dpi=130, bbox_inches="tight")
     plt.close(fig)
     env.echo(f"jump plot: {out}")
     return out
