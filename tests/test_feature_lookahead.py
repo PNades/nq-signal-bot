@@ -278,7 +278,7 @@ def test_the_synthetic_day_exercises_the_engine(full):
 
 def test_the_variant_day_exercises_the_corrections(full_var):
     """F_VAR: formation touches, a debounced relevance change, more than 7 relevant nodes on a board, the label
-    distances apart, and every outcome-only column kept out of the rows."""
+    distances apart, a POC returning to an earlier piece, and every outcome-only column kept out of the rows."""
     from nqbot.features import nodes
 
     *_, sf = full_var
@@ -293,6 +293,8 @@ def test_the_variant_day_exercises_the_corrections(full_var):
     assert all(x is not None for x in levels) and any(x == [] or len(x) > 1 for x in levels), \
         "top-n keeps some relevant node out of the NQ levels some of the time"
     assert any(sf.labels[k].label != sf.retest_labels[k].label for k in sf.labels), "the distances differ"
+    js = sf.c.cs_nq.jumps
+    assert any(j["returned_to"] for j in js) and any(not j["returned_to"] for j in js),         "a POC jumps to a new band and back to an earlier piece's (Q-step13-0 (d1))"
     rows, outs = sf.touch_rows(), sf.outcome_rows()
     assert all("t_pair_end" not in r and "label" not in r and "t_resolved" not in r for r in rows)
     assert all(o["t_pair_end"] == sf.pair_end[o["event_id"]].t_resolved for o in outs)

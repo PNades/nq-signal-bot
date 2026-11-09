@@ -336,7 +336,7 @@ def _fake_session(tape, alias=None):
     s = SimpleNamespace(f=f, tape=tape, bars_1m=bars(tape, 1), bars_flip=bars(tape, 5), normals=None,
                         end_ns=int(tape.ts[-1]) + MIN_NS, root="NQ", levels={}, jumps=[], level_alias_out={},
                         carry=SimpleNamespace(level_alias=alias or {}))
-    s._jump_id = lambda lid, t: ChartSession._jump_id(s, lid, t)
+    s._jump_id = lambda lid, t, taken=frozenset(): ChartSession._jump_id(s, lid, t, taken)
     return s
 
 
@@ -357,7 +357,7 @@ def test_weekly_poc_jump_20251118_starts_a_new_level():
     assert old.band.at(t_jump) is None and old.band.at(t_jump - 1) == (25_146.0, 25_154.0)
     assert new.band.at(t_jump) == (24_746.0, 24_754.0) and new.state_at(t_jump + NS).flip_count == 0
     assert s.jumps == [{"sub_type": "poc_weekly", "key": "poc", "level_id": "poc_weekly-2025-11-16", "t": t_jump,
-                        "at_session_start": False}]
+                        "at_session_start": False, "returned_to": None}]   # 400 pts: no earlier piece there
     assert s.level_alias_out["poc_weekly-2025-11-16"]["id"] == "poc_weekly-2025-11-16@20251118T181900Z"
     # the zone founded by the weekly POC never follows it 400 pts onto price
     end = int(tape.ts[-1]) + MIN_NS
@@ -384,6 +384,104 @@ def test_multi_day_level_keeps_its_carried_id_unless_it_jumped_overnight():
     s2 = _fake_session(tape, alias)
     ChartSession._add(s2, "poc_weekly-w", "poc_weekly", far, multi_day=True)
     assert len(s2.levels) == 1 and next(iter(s2.levels)).startswith("poc_weekly-w@") and s2.jumps[0]["at_session_start"]
+
+
+# --- Q-step13-0 (d1): a profile level back on an earlier piece's band is that piece's level ----------------------------
+
+D18 = date(2025, 11, 18)
+
+
+def _et(h, m, s=0):
+    from datetime import time as _t
+    return et_ns(D18, _t(h, m, s))
+
+
+def _aba(last_before_return):
+    """Daily POC A = 100 +- 4 from 10:00, B = 130 +- 4 from 10:01, A's band again from 10:05. Price 115 at 10:00 gives A
+    the floor role; while away price settles at 80 for minutes (below A: a cross if A existed); the last trade before
+    the return is `last_before_return`; 112 after."""
+    ts = [_et(10, 0, 1), _et(10, 1, 30), _et(10, 2, 10), _et(10, 2, 50), _et(10, 3, 30), _et(10, 4, 50), _et(10, 5, 1),
+          _et(10, 6)]
+    px = [115.0, 80.0, 80.0, 80.0, 80.0, last_before_return, 112.0, 112.0]
+    tape = Tape.from_arrays(D18, np.array(ts, dtype=np.int64), np.array(px))
+    poc = np.array([100.0, 130.0, 100.0])
+    band = StepBand(tape, np.array([_et(10, 0), _et(10, 1), _et(10, 5)], dtype=np.int64), poc - 4, poc + 4)
+    s = _fake_session(tape)
+    ChartSession._add(s, "poc_daily-x", "poc_daily", band, multi_day=False)
+    return s
+
+
+def test_a_b_a_returns_to_as_id_and_state_and_the_time_away_is_no_cross():
+    s = _aba(110.0)
+    b_id = "poc_daily-x@20251118T150100Z"
+    assert list(s.levels) == ["poc_daily-x", b_id] and len(s.levels["poc_daily-x"]) == 1
+    a = s.levels["poc_daily-x"][0].state
+    assert a.band.at(_et(10, 0, 30)) == (96.0, 104.0) and a.band.at(_et(10, 3)) is None
+    assert a.band.at(_et(10, 5)) == (96.0, 104.0)
+    st = a.state_at(_et(10, 5, 30))
+    assert st.role == ls.FLOOR and not st.crossed and st.cross_count == 0 and st.flip_count == 0
+    assert not any(n in ("cross", "flip", "return_role") for _, n in a.events)
+    assert [j["returned_to"] for j in s.jumps] == [None, "poc_daily-x"]
+    assert s.levels[b_id][0].state.band.at(_et(10, 5)) is None             # B ends where A comes back
+
+
+def test_a_return_with_price_on_the_other_side_takes_its_role_from_price():
+    s = _aba(85.0)
+    a = s.levels["poc_daily-x"][0].state
+    st = a.state_at(_et(10, 5, 0))
+    assert st.role == ls.CEILING and not st.crossed and st.cross_count == 0 and st.armed   # 96 - 85 = 11 >= 10
+    assert [n for t, n in a.events if t == _et(10, 5)] == ["return_role"]
+
+
+def test_the_20251118_switches_return_to_the_most_recent_overlapping_piece():
+    """Weekly POC 25,150 -> 24,780 (13:14) -> 24,770 (13:15) -> 24,750 (13:19) -> 24,775 (13:43) -> 24,750 (13:44):
+    24,775 +- 4 overlaps both 24,780's and 24,770's bands and goes back to 24,770's (active later); 24,750 comes back
+    to its own. Three new levels instead of five."""
+    times = [_et(12, 0), _et(13, 14), _et(13, 15), _et(13, 19), _et(13, 43), _et(13, 44)]
+    tape = Tape.from_arrays(D18, np.array([_et(12, 0, 1), _et(13, 50)], dtype=np.int64), np.array([24_760.0] * 2))
+    poc = np.array([25_150.0, 24_780.0, 24_770.0, 24_750.0, 24_775.0, 24_750.0])
+    s = _fake_session(tape)
+    ChartSession._add(s, "poc_weekly-w", "poc_weekly", StepBand(tape, np.array(times, dtype=np.int64), poc - 4,
+                                                                  poc + 4), multi_day=True)
+    w = "poc_weekly-w@20251118T"
+    assert list(s.levels) == ["poc_weekly-w", w + "181400Z", w + "181500Z", w + "181900Z"]
+    assert [j["returned_to"] for j in s.jumps] == [None, None, None, w + "181500Z", w + "181900Z"]
+    al = s.level_alias_out["poc_weekly-w"]
+    assert al["id"] == w + "181900Z" and [pid for pid, _ in al["pieces"]][-2:] == [w + "181500Z", w + "181900Z"]
+    assert sorted(map(tuple, dict(al["pieces"])[w + "181500Z"])) == [(24_766.0, 24_774.0), (24_771.0, 24_779.0)]
+
+
+def test_a_weekly_level_returns_to_a_piece_of_an_earlier_session_of_the_week():
+    tape = _path([25_200.0] * 3)
+    alias = {"poc_weekly-w": {"id": "poc_weekly-w@20251118T181900Z", "lo": 24_746.0, "hi": 24_754.0,
+                              "pieces": [["poc_weekly-w", [[25_146.0, 25_154.0]]],
+                                         ["poc_weekly-w@20251118T181900Z", [[24_746.0, 24_754.0]]]]}}
+    s = _fake_session(tape, alias)
+    ChartSession._add(s, "poc_weekly-w", "poc_weekly", StepBand.const(tape, int(tape.ts[0]), 25_147.0, 25_155.0),
+                      multi_day=True)
+    assert list(s.levels) == ["poc_weekly-w"]
+    assert s.jumps[0]["at_session_start"] and s.jumps[0]["returned_to"] == "poc_weekly-w"
+    assert [pid for pid, _ in s.level_alias_out["poc_weekly-w"]["pieces"]] == ["poc_weekly-w@20251118T181900Z",
+                                                                               "poc_weekly-w"]
+
+
+def test_a_level_that_is_not_a_profile_level_never_returns():
+    tape = Tape.from_arrays(D18, np.array([_et(10, 0, 1), _et(10, 6)], dtype=np.int64), np.array([115.0, 112.0]))
+    v = np.array([100.0, 130.0, 100.0])
+    s = _fake_session(tape)
+    ChartSession._add(s, "vwap18-x", "vwap18",
+                      StepBand(tape, np.array([_et(10, 0), _et(10, 1), _et(10, 5)], dtype=np.int64), v - 4, v + 4),
+                      multi_day=False)
+    assert len(s.levels) == 3 and all(j["returned_to"] is None for j in s.jumps)
+
+
+def test_the_roll_shifts_the_carried_piece_bands():
+    from nqbot.features.carry import CarryState
+
+    c = CarryState("NQ")
+    c.level_alias = {"poc_weekly-w": {"id": "x", "lo": 1.0, "hi": 9.0, "pieces": [["x", [[1.0, 9.0], [11.0, 19.0]]]]}}
+    c.shift(5.0)
+    assert c.level_alias["poc_weekly-w"]["pieces"] == [["x", [[6.0, 14.0], [16.0, 24.0]]]]
 
 
 # --- Q-step12a (3): relevance debounce ---------------------------------------------------------------------------------

@@ -170,6 +170,8 @@ class LevelState:
     formation_prox: float | None = None  # strike_side formation role (Q-step12a (4)): the touch band's proximity
     formation_times: list = field(default_factory=list)  # instants the node becomes relevant (F2.4)
     formations: list = field(default_factory=list)       # (t_ns, trade index, role) formation roles taken
+    returns: list = field(default_factory=list)  # instants a profile level comes back to a band it held earlier
+                                                 # (owner 2026-11-09, Q-step13-0 (d1)); the time away is a freeze
     events: list = field(default_factory=list)   # (t_ns, name) transitions, for reports and tests
     _snaps_t: list = field(default_factory=list)
     _snaps: list = field(default_factory=list)
@@ -524,6 +526,38 @@ class LevelState:
         for acc in accs:
             acc.last_ts = b
             acc.last_beyond = bool(last is not None and band is not None and beyond(last, *band, acc.d) > 0)
+        if b in self.returns:
+            self._return(s, b, i, last, band)
+
+    def _return(self, s: State, b: int, i: int, last: float | None, band) -> None:
+        """A profile level back on a band it held earlier (owner 2026-11-09, SPEC §13 Q-step13-0 (d1)): the time away
+        never counts as a cross. An open sweep window ends without a verdict. With price (the last trade at or before
+        the return) inside the band, or on the side the state expects (the holding side of an unbroken role, the
+        crossed side of a provisional role, the original side once crossed back), the state carries on. With price on
+        the other side, the role is set from price's side (above: floor, below: ceiling) as a confirmed role, not
+        crossed, armed only if price is `rearm_dist` beyond on that side; its counts (flips, crosses, sweeps, reclaim,
+        the cross / flip times) are kept. A level that never had a role keeps the approach rule."""
+        s.unresolved = None
+        if last is None or band is None or s.role is None:
+            return
+        lo, hi = band
+        side = 1 if last > hi else -1 if last < lo else 0
+        if side == 0:
+            return
+        if not s.crossed:
+            expect = -up(s.role)
+        elif not s.broken_back:
+            expect = up(s.orig_role)
+        else:
+            expect = -up(s.orig_role)
+        if side == expect:
+            return
+        role = FLOOR if side > 0 else CEILING
+        s.role = s.orig_role = role
+        s.crossed = s.broken_back = s.prov_armed = False
+        s.episode = None
+        s.armed = bool(beyond(last, lo, hi, -up(role)) >= self.params.rearm_dist)
+        self._event(s, b, i, "return_role")
 
     def _node_at(self, t: int) -> tuple[float | None, float | None]:
         """pct_of_king and sign of the node from the last board applied <= t (node_series), or (None, None)."""

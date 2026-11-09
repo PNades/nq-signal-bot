@@ -74,7 +74,7 @@ NON_BUILD_SETTING_KEYS = frozenset({
     "skylit_pack_margin", "skylit_credit_packs", "calendar_poll_min", "calendar_feed_url", "gameplan_model",
     "gameplan_effort", "gameplan_max_tokens", "gameplan_usd_per_mtok", "gameplan_max_usd_per_file", "tuning_start",
     "threshold_grid", "last_life_grid", "profile_ev_quantiles", "profile_risk_multiplier", "style_set_grid",
-    "recency_halflife_months", "lgbm_grid", "ablation_groups", "bootstrap_paths", "default_max_three_loss_rate",
+    "recency_halflife_months", "lgbm_grid", "tune_13", "ablation_groups", "bootstrap_paths", "default_max_three_loss_rate",
     "gate_account", "gates"})
 # Q-dryrun13 (2): run-time overrides are for the step-13 tuning on months 1-4 only; the full-window build has none
 OVERRIDE_MONTHS = frozenset({1, 2, 3, 4})

@@ -936,7 +936,9 @@ def _add_step13(sub: argparse._SubParsersAction) -> None:
     (development days only, the stored v36 build read-only; owner 2026-11-09)."""
     s13 = sub.add_parser("step13", help="step 13-0: the corrections check on the development days (then: nqbot run "
                                         "step13_check --until HH:MM)").add_subparsers(dest="check", required=True)
-    s13.add_parser("check-plan", help="record the check's chunks (runs x days, the jump plot, the report)")
+    p = s13.add_parser("check-plan", help="record the check's chunks (runs x days, the jump plot, the report)")
+    p.add_argument("--redo", default=None, help="comma-separated runs to build again (their chunks, the plot and the "
+                                                "report are marked not done)")
     p = s13.add_parser("check-day", help="one (run, day): build from the v36 start state, write to the scratch "
                                          "folder, diff with v36 (the job runs this in its own process)")
     p.add_argument("date", type=_date)
@@ -957,6 +959,9 @@ def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
     env = Env(settings=settings, features=load_features(), paths=paths, log=log, cal=cal_mod.load())
     try:
         if args.check == "check-plan":
+            if args.redo:
+                gone = s13.redo(paths, [r.strip() for r in args.redo.split(",") if r.strip()])
+                print(f"{s13.JOB}: {len(gone)} chunks marked to build again")
             done, total = record_plan(paths, s13.JOB, s13.chunk_ids())
             print(f"{s13.JOB}: {done}/{total} chunks done; run: uv run nqbot run {s13.JOB} --until HH:MM")
         elif args.check == "check-day":

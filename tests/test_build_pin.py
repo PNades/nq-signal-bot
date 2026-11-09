@@ -108,3 +108,21 @@ def test_diff_day_counts_renamed_added_removed_and_labels(tmp_path):
     assert (d["same_id"], d["renamed"], d["removed"], d["added"]) == (1, 1, 1, 1)
     assert d["label_changed"] == 1 and d["resolution_changed"] == 1 and d["columns_changed"] == {"x": 1}
     assert d["added_by_type"] == {"poc_daily": 1} and len(d["diff_signatures"]) == 3
+
+
+def test_redo_marks_only_the_named_runs_the_plot_and_the_report(paths):
+    from nqbot.jobs.runner import load_state, record_plan, state_path
+    from nqbot.storage import atomic_write_json
+
+    record_plan(paths, s13.JOB, s13.chunk_ids())
+    sp = state_path(paths, s13.JOB)
+    st = load_state(sp)
+    st["done"] = {c: {} for c in s13.chunk_ids()}
+    atomic_write_json(sp, st)
+    gone = s13.redo(paths, ["neutral", "start"])
+    left = load_state(sp)["done"]
+    assert sorted(gone) == sorted([c for c in s13.chunk_ids() if c.split(":")[0] in ("neutral", "start")]
+                                  + [s13.PLOT_CHUNK, s13.REPORT_CHUNK])
+    assert all(c not in left for c in gone) and "start_again:2026-03-06" in left and "legacy:2026-03-06" in left
+    with pytest.raises(s13.Refused, match="unknown run"):
+        s13.redo(paths, ["nope"])

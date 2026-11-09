@@ -105,6 +105,12 @@ def preopen_ns(day: date, settings: dict) -> int:
     return et_ns(day, time(h, m))
 
 
+# Profile levels whose jump back onto an earlier piece's band returns to that piece's level (owner 2026-11-09, SPEC §13
+# Q-step13-0 (d1)): the volume-profile POCs and LVNs and the TPO single prints. VWAP lines and bands, node bands and
+# every other level keep Q-step12b (a) (each jump a new level).
+REUSE_SUBTYPES = frozenset({"poc_daily", "poc_weekly", "lvn_daily", "lvn_weekly", "single_print"})
+
+
 class ChartSession:
     def __init__(self, tape: Tape, carry: CarryState, inp: SessionInputs, root: str = "NQ"):
         self.tape, self.carry, self.inp, self.root, self.day = tape, carry, inp, root, tape.day
@@ -147,44 +153,91 @@ class ChartSession:
         """One level, or, after a level jump (Q-step12b (a): a recomputed band that no longer overlaps its previous
         band), one level per piece: the first keeps `level_id` (a multi-day level its carried id, `CarryState.level_alias`,
         if today's first band overlaps the carried last one), each later piece is a new level `<level_id>@<UTC time>`
-        with a fresh machine whose role comes from the approach rule (F2.6 step 1)."""
+        with a fresh machine whose role comes from the approach rule (F2.6 step 1). A profile level (`REUSE_SUBTYPES`)
+        that jumps to a band overlapping one an earlier piece of the same profile period held (the session for a daily
+        level, the week for a weekly one) goes back to that piece's level: its id, and today its machine, frozen while
+        away (owner 2026-11-09, SPEC §13 Q-step13-0 (d1); `LevelState.returns`). Several such pieces: the most recently
+        active one."""
         key = SUBTYPE_KEY[sub_type]
         pieces = bands.split_jumps(band)
-        first_id = level_id
+        reuse = sub_type in REUSE_SUBTYPES and all(isinstance(pc, StepBand) for pc in pieces)
         alias = self.carry.level_alias.get(level_id) if multi_day else None
+        hist: list[list] = []   # [[id, lo array, hi array]], least recently active first
+        if reuse and alias is not None:
+            for pid, bl in alias.get("pieces", []):
+                arr = np.asarray(bl, float).reshape(-1, 2)
+                hist.append([pid, arr[:, 0], arr[:, 1]])
+
+        def back_to(b) -> str | None:
+            if not reuse or b is None:
+                return None
+            for pid, lo, hi in reversed(hist):
+                if len(lo) and bool(np.any((lo <= b[1]) & (hi >= b[0]))):
+                    return pid
+            return None
+
+        def note(pid: str, piece) -> None:
+            lo, hi = bands.distinct_bands(piece)
+            k = next((n for n, h in enumerate(hist) if h[0] == pid), None)
+            if k is not None:
+                _, lo0, hi0 = hist.pop(k)
+                both = np.unique(np.round(np.c_[np.r_[lo0, lo], np.r_[hi0, hi]], 9), axis=0)
+                lo, hi = both[:, 0].copy(), both[:, 1].copy()
+            hist.append([pid, lo, hi])
+
+        taken: set[str] = set()
+        ids: list[str] = []
+        first_id = level_id
         if alias is not None:
             b0 = bands.first_band(pieces[0])
             if b0 is None or (b0[0] <= alias["hi"] and b0[1] >= alias["lo"]):
                 first_id = alias["id"]
             elif bands.SPLIT_JUMPS:   # jumped between sessions (e.g. a weekly POC moved at the 18:00 open)
-                first_id = self._jump_id(level_id, int(pieces[0].start_ns))
+                ret = back_to(b0)
+                first_id = ret or self._jump_id(level_id, int(pieces[0].start_ns), taken)
                 self.jumps.append({"sub_type": sub_type, "key": key, "level_id": level_id,
-                                   "t": int(pieces[0].start_ns), "at_session_start": True})
-        lid = first_id
-        for k, piece in enumerate(pieces):
-            last = k == len(pieces) - 1
-            if k > 0:
-                lid = self._jump_id(level_id, int(piece.start_ns))
-                self.jumps.append({"sub_type": sub_type, "key": key, "level_id": level_id,
-                                   "t": int(piece.start_ns), "at_session_start": False})
+                                   "t": int(pieces[0].start_ns), "at_session_start": True, "returned_to": ret})
+        ids.append(first_id)
+        taken.add(first_id)
+        note(first_id, pieces[0])
+        for piece in pieces[1:]:
+            ret = back_to(bands.first_band(piece))
+            lid = ret or self._jump_id(level_id, int(piece.start_ns), taken)
+            self.jumps.append({"sub_type": sub_type, "key": key, "level_id": level_id,
+                               "t": int(piece.start_ns), "at_session_start": False, "returned_to": ret})
+            ids.append(lid)
+            taken.add(lid)
+            note(lid, piece)
+        for lid in dict.fromkeys(ids):          # each level once, in order of first appearance
+            ks = [k for k, x in enumerate(ids) if x == lid]
+            gaps: list[tuple[int, int]] = []
+            if len(ks) == 1:
+                lb_ = pieces[ks[0]]
+            else:
+                lb_, gaps = bands.join_pieces([pieces[k] for k in ks])
             # a level that ends (an LVN span, a moved IB, a filled single print, a jump) stops its machine there
-            stop = (end_ns if last else None) or getattr(piece, "end_ns", None) or self.end_ns
-            role = initial_role if k == 0 else None
-            st = ls.LevelState(lid, kind_of(key, self.f), self.tape, piece,
+            last = ks[-1] == len(pieces) - 1
+            stop = (end_ns if last else None) or getattr(pieces[ks[-1]], "end_ns", None) or self.end_ns
+            role = initial_role if ks[0] == 0 else None
+            st = ls.LevelState(lid, kind_of(key, self.f), self.tape, lb_,
                                params or ls.Params.from_features(self.f, key), self.bars_1m, self.bars_flip,
                                normals=self.normals, end_ns=min(stop, self.end_ns), params_from=params_from or [],
                                initial_role=role,
-                               natural_role=None if (role or k > 0) else NATURAL_ROLE.get(sub_type))
+                               natural_role=None if (role or ks[0] > 0) else NATURAL_ROLE.get(sub_type),
+                               freezes=list(gaps), returns=[b for _, b in gaps])
             self.levels.setdefault(lid, []).append(LevelRecord(lid, sub_type, key, self.root, multi_day, st.run()))
         if multi_day:
             lb = bands.last_band(pieces[-1])
             if lb is not None:
-                self.level_alias_out[level_id] = {"id": lid, "lo": lb[0], "hi": lb[1]}
+                out = {"id": ids[-1], "lo": lb[0], "hi": lb[1]}
+                if reuse:
+                    out["pieces"] = [[pid, np.c_[lo, hi].tolist()] for pid, lo, hi in hist]
+                self.level_alias_out[level_id] = out
 
-    def _jump_id(self, level_id: str, t_ns: int) -> str:
+    def _jump_id(self, level_id: str, t_ns: int, taken: set | frozenset = frozenset()) -> str:
         base = f"{level_id}@{datetime.fromtimestamp(t_ns // NS, timezone.utc):%Y%m%dT%H%M%SZ}"
         lid, n = base, 1
-        while lid in self.levels:
+        while lid in self.levels or lid in taken:
             lid, n = f"{base}.{n}", n + 1
         return lid
 

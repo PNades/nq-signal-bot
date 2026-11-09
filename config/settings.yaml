@@ -236,6 +236,14 @@ lgbm_grid:                     # F16.7; approved 2026-10-05; searched once per m
     max_bin: 63
     deterministic: true
     seed: 42
+tune_13:                       # step-13 tuning (13c; owner 2026-11-09, SPEC §13 Q-step13-0 (c), §7.1 Tuning detector parameters)
+  provisional_model: {num_leaves: 15, min_data_in_leaf: 500}   # the provisional structure model: one lgbm_grid point
+                                                               # with lgbm_grid.fixed, no search
+  cv_folds: 4                  # day-blocked, one fold per ledger month of months 1-4 (every event gets an out-of-fold value)
+  bootstrap_replicates: 2000   # day-block bootstrap (whole sessions, the same days for both values of a pair): every
+                               # interval and keep-current test of 13c
+  detector_scoring: combined_cd   # detector and variant rows (1-11): one combined (c)+(d) sequential run; each style's
+                                  # execution parameters frozen on its own single-style policy (rows 12-13)
 ablation_groups:               # §7 rule 5; memberships in feature_spec F16.8; approved 2026-10-05
   - trigger_model
   - trinity

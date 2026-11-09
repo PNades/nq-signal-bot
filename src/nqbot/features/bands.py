@@ -152,6 +152,37 @@ def split_jumps(band) -> list:
     return [band]
 
 
+def distinct_bands(band) -> tuple[np.ndarray, np.ndarray]:
+    """A StepBand's distinct existing (lo, hi) values (empty for any other band)."""
+    if not isinstance(band, StepBand):
+        return np.zeros(0), np.zeros(0)
+    ok = np.isfinite(band.lo) & np.isfinite(band.hi)
+    if not ok.any():
+        return np.zeros(0), np.zeros(0)
+    u = np.unique(np.round(np.c_[band.lo[ok], band.hi[ok]], 9), axis=0)
+    return u[:, 0].copy(), u[:, 1].copy()
+
+
+def join_pieces(pieces: list) -> tuple[StepBand, list[tuple[int, int]]]:
+    """One level's StepBand pieces in time order, as one band (owner 2026-11-09, SPEC §13 Q-step13-0 (d1)): between two
+    pieces that aren't consecutive (another level held the profile's POC meanwhile) the band doesn't exist (a NaN row at
+    the earlier piece's end). Returns the band and the gaps [(away_from, back_at)]."""
+    times, lo, hi, gaps = [], [], [], []
+    for k, pc in enumerate(pieces):
+        times.append(np.asarray(pc.times, dtype=np.int64))
+        lo.append(np.asarray(pc.lo, float))
+        hi.append(np.asarray(pc.hi, float))
+        if k + 1 < len(pieces):
+            away, back = int(pc.end_ns), int(pieces[k + 1].times[0])
+            if back > away:
+                times.append(np.array([away], dtype=np.int64))
+                lo.append(np.array([np.nan]))
+                hi.append(np.array([np.nan]))
+                gaps.append((away, back))
+    return (StepBand(pieces[0].tape, np.concatenate(times), np.concatenate(lo), np.concatenate(hi), pieces[-1].end_ns),
+            gaps)
+
+
 def last_band(band) -> tuple[float, float] | None:
     """The band's last existing (finite) value."""
     if isinstance(band, StepBand):

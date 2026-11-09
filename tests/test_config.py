@@ -33,7 +33,7 @@ def test_features_and_accounts_load():
     assert f["golden_zone_upper_fib"] == 0.79 == max(f["golden_fib_levels"]) and min(f["golden_fib_levels"]) == 0.5
     # shallow / deep split (owner 2026-10-27, Q-gzsplit): at a fib level strictly inside the zone
     assert f["golden_zone_split_fib"] == 0.618 and f["golden_zone_split_fib"] in f["golden_fib_levels"][1:-1]
-    assert f["features_version"] == 37  # 37: step 13-0 corrections (owner 2026-11-03..09); 34: Q-step11g review fixes, 35: its answers, 36: Q-step11h; 27: Q-step11a, 28: Q-step11b 1-7, 29: Q-step11b (8), 30: Q-step11c, 31: Q-step11d (1)-(7), 32: Q-step11d (8)-(11) (owner 2026-10-31), 33: Q-step11f (owner 2026-11-01)
+    assert f["features_version"] == 38  # 38: POC returns (owner 2026-11-09, Q-step13-0 (d1)); 37: step 13-0 corrections (owner 2026-11-03..09); 34: Q-step11g review fixes, 35: its answers, 36: Q-step11h; 27: Q-step11a, 28: Q-step11b 1-7, 29: Q-step11b (8), 30: Q-step11c, 31: Q-step11d (1)-(7), 32: Q-step11d (8)-(11) (owner 2026-10-31), 33: Q-step11f (owner 2026-11-01)
     # golden-zone variants (owner 2026-10-26, Q-fibvariants): both start on, the 2 x 2 grid chosen at step 13
     assert f["golden_zone_flip"] is True and f["golden_zone_redraw_1030"] is True
     assert f["tune_grids_13"]["golden_zone_variants"] == {"golden_zone_flip": [True, False],
@@ -168,3 +168,14 @@ def test_step7_measured_values_and_tempest_pre_open():
     # Tempest drafts (owner 2026-10-22): re-pull a draft pre-open row until the cutoff, after the pre-open start
     assert s["tempest_draft_cutoff_et"] == "09:25" and s["tempest_draft_retry_min"] == 5
     assert time.fromisoformat(s["tempest_draft_cutoff_et"]) > TEMPEST_FINAL_FROM_ET
+
+
+def test_step13_tuning_settings():
+    """Owner 2026-11-09 (SPEC §13 Q-step13-0 (c)): the provisional structure model at one lgbm_grid point, 4 month
+    folds, 2,000 day-block bootstrap replicates, one combined (c)+(d) run for the detector and variant rows."""
+    s = load_settings()
+    t = s["tune_13"]
+    assert t["provisional_model"] == {"num_leaves": 15, "min_data_in_leaf": 500}
+    assert t["provisional_model"]["num_leaves"] in s["lgbm_grid"]["search"]["num_leaves"]
+    assert t["provisional_model"]["min_data_in_leaf"] in s["lgbm_grid"]["search"]["min_data_in_leaf"]
+    assert t["cv_folds"] == 4 and t["bootstrap_replicates"] == 2000 and t["detector_scoring"] == "combined_cd"

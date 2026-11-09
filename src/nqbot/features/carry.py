@@ -44,7 +44,10 @@ class CarryState:
     touch_history: list = field(default_factory=list)  # freshness touch records of multi-day levels (F5.11, part 3)
     yesterday_day_type: str | None = None          # the last session's EOD day-type label (F5.12, F11.6)
     level_alias: dict = field(default_factory=dict)  # multi-day levels after a jump (Q-step12b (a)): {base level_id:
-                                                     # {'id': current level_id, 'lo', 'hi': its last band}}
+                                                     # {'id': current level_id, 'lo', 'hi': its last band,
+                                                     # 'pieces': [[level_id, [[lo, hi], ...]], ...] the bands each
+                                                     # level of the period held, least recently active first
+                                                     # (profile levels, owner 2026-11-09, Q-step13-0 (d1))}}
     rth5: list = field(default_factory=list)       # [{'day', 'full', 'r'}]: each session's RTH 5-minute log returns
                                                    # (within the session, contract-free: never roll-shifted; Q-er vr_prior)
 
@@ -85,6 +88,10 @@ class CarryState:
         for al in self.level_alias.values():
             al["lo"] += spread
             al["hi"] += spread
+            for _, bl in al.get("pieces", []):
+                for b in bl:
+                    b[0] += spread
+                    b[1] += spread
         for c in self.retest_candidates:
             c["price"] += spread
         for r in self.retested:

@@ -515,6 +515,7 @@ def report(env: Env) -> Path:
     L += ["", f"**Deterministic: {'YES' if det_ok else 'NO'}.**", ""]
     # level jumps
     L += _jump_section(res, days)
+    L += _reuse_section(env, res, days)
     out = report_dir(env) / "corrections_check.md"
     atomic_write_text(out, "\n".join(L) + "\n")
     env.echo(f"report: {out}")
@@ -529,6 +530,83 @@ def _same_files(a: Path, b: Path, day: date) -> bool:
     return True
 
 
+def before_dir(env: Env) -> Path:
+    """The runs re-built for Q-step13-0 (d1), as they were before it (kept by hand, 2026-11-09)."""
+    return scratch(env).parent / "step13_0_check_before_reuse"
+
+
+REUSE_RUNS = ("neutral", "start", "start_again", "legacy+jump")   # re-built after Q-step13-0 (d1)
+
+
+def _poc_new(x: dict, d: date) -> dict[tuple[str, str], int]:
+    o, c = et_ns(d, time(9, 30)), et_ns(d, time(16, 0))
+    out: dict[tuple[str, str], int] = {}
+    for j in x["info"].get("level_jumps", []):
+        if j["root"] == "NQ" and j["sub_type"] in ("poc_daily", "poc_weekly") and not j.get("returned_to"):
+            k = (j["sub_type"], "RTH" if o <= j["t"] < c else "overnight")
+            out[k] = out.get(k, 0) + 1
+    return out
+
+
+def _reuse_section(env: Env, res: dict, days: list[date]) -> list[str]:
+    """Owner 2026-11-09 (Q-step13-0 (d1)): new daily / weekly POC levels per session and the event counts, before and
+    after a POC's jump back onto an earlier piece's band returns to that piece's level."""
+    b = before_dir(env)
+    if not b.exists():
+        return []
+    L = ["## 6. POC returns (owner 2026-11-09, Q-step13-0 (d1)): before -> after", "",
+         f"Before = the same runs built on the code without the return rule (kept in `{b}`); every jump was then a new "
+         "level. NQ, new levels per session (RTH / overnight).", "",
+         "| day | run | daily POC RTH | daily POC overnight | weekly POC RTH | weekly POC overnight | POC returns | "
+         "events | labels changed vs before | row columns changed vs before |", "|---|---|---|---|---|---|---|---|---|---|"]
+    tot = {}
+    for r in ("neutral", "start"):
+        for d in days:
+            x = res[r][d]
+            p = b / r / "days" / f"{d.isoformat()}.json"
+            if x is None or not p.exists():
+                continue
+            y = json.loads(p.read_text(encoding="utf-8"))
+            nb, na = _poc_new(y, d), _poc_new(x, d)
+            cells = [f"{nb.get(k, 0)} -> {na.get(k, 0)}" for k in (("poc_daily", "RTH"), ("poc_daily", "overnight"),
+                                                                     ("poc_weekly", "RTH"), ("poc_weekly", "overnight"))]
+            rets = sum(1 for j in x["info"].get("level_jumps", []) if j.get("returned_to"))
+            ev = f"{y['diff']['built']} -> {x['diff']['built']}"
+            dd = diff_day(b / r, scratch(env) / r, d)
+            L.append(f"| {d} | {r} | {' | '.join(cells)} | {rets} | {ev} | {dd['label_changed']} | "
+                     f"{len(dd['columns_changed'])} {_top(dd['columns_changed'], 3)} |")
+            t = tot.setdefault(r, {"before": 0, "after": 0, "new_b": [], "new_a": []})
+            t["before"] += y["diff"]["built"]
+            t["after"] += x["diff"]["built"]
+            t["new_b"].append(sum(v for (st, _), v in nb.items() if st == "poc_daily"))
+            t["new_a"].append(sum(v for (st, _), v in na.items() if st == "poc_daily"))
+    L.append("")
+    for r, t in tot.items():
+        L.append(f"- `{r}`: events {t['before']} -> {t['after']} ({t['after'] - t['before']:+d}); new daily POC levels "
+                 f"per session median {median(t['new_b']):g} -> {median(t['new_a']):g}, max {max(t['new_b'])} -> "
+                 f"{max(t['new_a'])}.")
+    L.append("")
+    return L
+
+
+def redo(paths: Any, runs: list[str]) -> list[str]:
+    """Mark every chunk of `runs` (and the plot and the report) not done, so the job builds them again."""
+    from nqbot.jobs.runner import load_state, state_path
+
+    bad = [r for r in runs if r not in RUNS]
+    if bad:
+        raise Refused(f"unknown run(s) {bad}; runs: {list(RUNS)}")
+    spath = state_path(paths, JOB)
+    state = load_state(spath)
+    done = state.get("done") or {}
+    gone = [c for c in list(done) if c in (PLOT_CHUNK, REPORT_CHUNK) or c.rsplit(":", 1)[0] in runs]
+    for c in gone:
+        del done[c]
+    state["done"] = done
+    atomic_write_json(spath, state)
+    return gone
+
+
 def _top(cols: dict[str, int], n: int = 4) -> str:
     if not cols:
         return ""
@@ -539,8 +617,11 @@ def _top(cols: dict[str, int], n: int = 4) -> str:
 def _jump_section(res: dict, days: list[date]) -> list[str]:
     """Owner 2026-11-09: jumps by level type per session (median and max), RTH vs overnight; VWAP lines/bands or node
     bands jumping more than JUMP_FEW times in a session on any check day -> stop and report with examples."""
-    L = ["## 5. Level jumps (the `start` run: every correction at its committed value)", ""]
+    L = ["## 5. Level jumps (the `start` run: every correction at its committed value)", "",
+         "A jump back onto a band an earlier piece of the same profile period held returns to that piece's level "
+         "(owner 2026-11-09, Q-step13-0 (d1)): 'new levels' counts only the jumps to a band no earlier piece had.", ""]
     per: dict[tuple[str, str], list[int]] = {}
+    per_new: dict[tuple[str, str], list[int]] = {}
     examples: dict[str, list[str]] = {}
     flagged = []
     for d in days:
@@ -549,10 +630,13 @@ def _jump_section(res: dict, days: list[date]) -> list[str]:
             continue
         o, c = et_ns(d, time(9, 30)), et_ns(d, time(16, 0))
         counts: dict[tuple[str, str], int] = {}
+        new: dict[tuple[str, str], int] = {}
         for j in x["info"].get("level_jumps", []):
             key = f"{j['root']} {j['sub_type']}"
             part = "RTH" if o <= j["t"] < c else "overnight"
             counts[(key, part)] = counts.get((key, part), 0) + 1
+            if not j.get("returned_to"):
+                new[(key, part)] = new.get((key, part), 0) + 1
             examples.setdefault(key, []).append(f"{d} {_et(j['t'])}{' (session start)' if j.get('at_session_start') else ''}")
         for m, js in (x["info"].get("node_jumps") or {}).items():
             key = f"{m} node band"
@@ -564,15 +648,18 @@ def _jump_section(res: dict, days: list[date]) -> list[str]:
             per.setdefault((key, part), [])
         for kp in per:
             per[kp].append(counts.get(kp, 0))
+            per_new.setdefault(kp, []).append(new.get(kp, 0))
         for key in {k for k, _ in counts}:
             n = counts.get((key, "RTH"), 0) + counts.get((key, "overnight"), 0)
             if n > JUMP_FEW and ("vwap" in key or "node band" in key):
                 flagged.append(f"{d} {key}: {n}")
     n_days = sum(1 for d in days if res["start"][d] is not None)
-    L += ["| level type | part | median per session | max per session |", "|---|---|---|---|"]
+    L += ["| level type | part | jumps: median per session | jumps: max | new levels: median per session | new levels: max |",
+          "|---|---|---|---|---|---|"]
     for (key, part), v in sorted(per.items()):
-        v = v + [0] * (n_days - len(v))
-        L.append(f"| {key} | {part} | {median(v):g} | {max(v)} |")
+        w = per_new.get((key, part), [])
+        v, w = [0] * (n_days - len(v)) + v, [0] * (n_days - len(w)) + w
+        L.append(f"| {key} | {part} | {median(v):g} | {max(v)} | {median(w):g} | {max(w)} |")
     if not per:
         L.append("| (none) | | 0 | 0 |")
     L += ["", "Examples (first 5 per type): " + "; ".join(f"{k}: {', '.join(v[:5])}" for k, v in sorted(examples.items()))
