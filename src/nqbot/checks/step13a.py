@@ -13,7 +13,12 @@ stored trades; writes nothing the build reads. Development months only (§7 rule
   `zone_proximity`, `rearm_dist` and `react_pts` × ES ÷ NQ (F0.11);
 - **reaction:** within `react_minutes` of the approach, price moves ≥ `react_pts` back from the approach's extreme
   (the running deepest point toward and through the line);
-- **reaction distance:** max(0, the deepest point past the line before the reaction), reacted approaches only;
+- **reaction distance (reading B, owner 2026-11-10, SPEC §13 Q-step13a-2):** only an approach that reached the line
+  counts; its distance = the deepest point past the line before the reaction; a reaction before the line is a near
+  miss, left out of the widths (its shortfall is reported for the `zone_proximity` grid); reading D (approach radius
+  `zone_proximity` alone, near misses at 0) is shown beside for information;
+- **return rule (owner 2026-11-10, Q-step13a-2):** price past the line must come back to the approach side after its deepest
+  point within `hold_window_min` of the approach, else the approach is a break ("no_return"), not a reaction;
 - **highs/lows** (the sweep-eligible keys): an approach whose penetration resolves as a break by the sweep rule (F3.9)
   judged against the line, before the reaction, is not a reacted approach ("penetration beyond the sweep window
   excluded"; reading approved by the owner 2026-11-10, SPEC §13 Q-step13a);
@@ -60,7 +65,13 @@ NDXP_CHOICES = (10, 15, 20)       # §5.4b: the NDXP band tested (NDXP $)
 MINUTE_NS = 60 * 10**9
 NODE_CHAINS = {"NQ": ("QQQ", "NDXP"), "ES": ("SPY", "SPX")}
 GROUP_OF_CHAIN = {"QQQ": "qqq_node", "NDXP": "ndxp_node", "SPY": "spy_node", "SPX": "spx_node"}
-DAY_SCHEMA = 1
+DAY_SCHEMA = 2                    # 2: reading B / D rows, near misses and their shortfall (owner 2026-11-10)
+DAY_COLUMNS = pa.schema([("day", pa.string()), ("uid", pa.string()), ("level_id", pa.string()),
+                         ("sub_type", pa.string()), ("group", pa.string()), ("instrument", pa.string()),
+                         ("reading", pa.string()), ("side", pa.int8()), ("t0", pa.int64()), ("rth", pa.bool_()),
+                         ("reacted", pa.bool_()), ("near_miss", pa.bool_()), ("excluded", pa.string()),
+                         ("dist_pts", pa.float64()), ("short_pts", pa.float64()), ("cap_pts", pa.float64()),
+                         ("underlying_per_pt", pa.float64()), ("em_pts", pa.float64())])
 RTH_DIFF_SHARE = 0.20             # owner 2026-11-10 (§13 Q-step13a): flag a width whose RTH-only figure differs from
                                   # the all-hours one by more than this share of it (or rounds to another width)
 
@@ -72,11 +83,15 @@ class Refused(Exception):
 # --- the measurement (pure, on arrays) ------------------------------------------------------------------------------
 
 def measure(ts: np.ndarray, price: np.ndarray, top: np.ndarray, bot: np.ndarray, cap: np.ndarray, prox: np.ndarray,
-            rearm: np.ndarray, react: np.ndarray, react_ns: int, sweep: dict | None = None) -> list[dict[str, Any]]:
+            rearm: np.ndarray, react: np.ndarray, react_ns: int, sweep: dict | None = None,
+            hold_ns: int | None = None) -> list[dict[str, Any]]:
     """F5.14 on one level's trades. `top` / `bot` = the line (equal for a line, the run's edges for a single print;
     NaN where the level isn't measured); `cap`, `prox`, `rearm`, `react` per trade (the ES side scales them).
-    `sweep` = {"depth": array, "bars": int} for highs/lows. Returns one dict per approach: i0 (trade index), side (+1
-    from above, -1 from below), reacted, excluded ("sweep_break" or None), dist (pts; reacted only)."""
+    `sweep` = {"depth": array, "bars": int} for highs/lows; `hold_ns` = the label window (`hold_window_min`) for the
+    return rule (None = not applied). Returns one dict per approach: i0 (trade index), side (+1 from above, -1 from
+    below), reacted (reached the line and reacted, not excluded), near_miss (reacted before reaching the line),
+    excluded ("sweep_break", "no_return" or None), dist (pts past the line; reacted only), short (pts short of the
+    line at the turn; near misses only)."""
     n = len(ts)
     out: list[dict[str, Any]] = []
     if not n:
@@ -104,7 +119,7 @@ def measure(ts: np.ndarray, price: np.ndarray, top: np.ndarray, bot: np.ndarray,
             i0 = _next(near_hi if side == 1 else near_lo, (a if side == 1 else b) + 1)
             if i0 is None:
                 break
-            out.append(_approach(ts, price, u if side == 1 else w, react, react_ns, i0, e, side, sweep))
+            out.append(_approach(ts, price, u if side == 1 else w, react, react_ns, i0, e, side, sweep, hold_ns))
             pos = i0 + 1
     return out
 
@@ -114,21 +129,37 @@ def _next(idx: np.ndarray, pos: int) -> int | None:
     return int(idx[k]) if k < len(idx) else None
 
 
-def _approach(ts, price, x, react, react_ns, i0, e, side, sweep) -> dict[str, Any]:
-    """One approach from trade i0: x = the distance on the approach side (negative = past the line)."""
+def _approach(ts, price, x, react, react_ns, i0, e, side, sweep, hold_ns=None) -> dict[str, Any]:
+    """One approach from trade i0: x = the distance on the approach side (negative = past the line).
+    Reading B (owner 2026-11-10, SPEC §13 Q-step13a-2): only an approach that reached the line (x ≤ 0 before the
+    reaction) is measured; a reaction before the line is a near miss, left out of the widths (its shortfall kept for
+    the report). Return rule (owner 2026-11-10, Q-step13a-2): price past the line must come back to the approach side
+    after its deepest point within `hold_ns` of the approach, else the approach is a break ("no_return"); a moving line
+    (VWAP) can come back to price by itself, which makes the rule a little lenient there."""
     j1 = min(e, int(np.searchsorted(ts, ts[i0] + react_ns, side="left")))
     xs = x[i0:j1]
     m = np.minimum.accumulate(xs)
     hit = np.flatnonzero(xs - m >= react[i0:j1])
-    rec = {"i0": int(i0), "side": side, "reacted": False, "excluded": None, "dist": None}
+    rec = {"i0": int(i0), "side": side, "reacted": False, "near_miss": False, "excluded": None, "dist": None,
+           "short": None}
     if not len(hit):
         return rec
     h = int(hit[0])
+    if m[h] > 0:
+        rec["near_miss"] = True
+        rec["short"] = float(m[h])
+        return rec
     if sweep is not None and _sweep_broke(ts, x, i0, i0 + h, e, sweep):
         rec["excluded"] = "sweep_break"
         return rec
+    if hold_ns is not None and m[h] < 0:
+        k = i0 + int(np.argmin(xs[:h + 1]))                   # the deepest point before the reaction
+        jz = min(e, int(np.searchsorted(ts, ts[i0] + hold_ns, side="right")))
+        if not (x[k:jz] >= 0).any():
+            rec["excluded"] = "no_return"
+            return rec
     rec["reacted"] = True
-    rec["dist"] = float(max(0.0, -m[h]))
+    rec["dist"] = float(-m[h])
     return rec
 
 
@@ -167,7 +198,7 @@ def params(f: dict) -> dict[str, Any]:
             "react_width_q": float(f["react_width_q"]), "cap": dict(f["chart_level_half_width_cap"]),
             "sweep_max_depth": float(f["sweep_max_depth"]), "sweep_reclaim_bars": int(f["sweep_reclaim_bars"]),
             "node_band": dict(f["node_band"]), "va_edge_sweep": bool(f["va_edge_sweep"]),
-            "measure": "f5.14-v1"}
+            "hold_window_min": float(f["hold_window_min"]), "measure": "f5.14-v2"}
 
 
 def params_digest(p: dict) -> str:
@@ -225,7 +256,8 @@ def reactions_day(env: Env, day: date) -> Path:
         del tape
     write_day(day_file(env, key, p, day), out, {"day": day.isoformat(), "key": key, "params": p,
                                                  "schema": DAY_SCHEMA})
-    env.echo(f"{day}: {len(out)} approaches, {sum(1 for r in out if r['reacted'])} reacted")
+    b = [r for r in out if r["reading"] == "B"]
+    env.echo(f"{day}: {len(b)} approaches, {sum(1 for r in b if r['reacted'])} reactions used (reading B)")
     return day_file(env, key, p, day)
 
 
@@ -237,6 +269,7 @@ def _measure_root(tape, rows: list[dict], meta: dict, p: dict, root: str, day: d
     else:
         ratio = np.ones(n)
     react_ns = int(p["react_minutes"] * MINUTE_NS)
+    hold_ns = int(p["hold_window_min"] * MINUTE_NS)
     hw_sp = float(meta["chart_level_half_width"].get("single_print", 0.0))
     em = meta["em_nq"] if root == "NQ" else meta["em_es"]
     out = []
@@ -275,34 +308,31 @@ def _measure_root(tape, rows: list[dict], meta: dict, p: dict, root: str, day: d
         sweep = None
         if r["key"] in HIGHS_LOWS or (r["key"] == "va_edge" and p["va_edge_sweep"]):
             sweep = {"depth": np.full(len(t), p["sweep_max_depth"]), "bars": p["sweep_reclaim_bars"]}
-        res = measure(t, price[i_a:i_z], top, bot, cap, p["zone_proximity"] * rr, p["rearm_dist"] * rr,
-                      p["react_pts"] * rr, react_ns, sweep)
-        for x in res:
-            j = x["i0"]
-            t0 = int(t[j])
-            if any(g0 < t0 + react_ns and g1 > t0 for g0, g1 in gaps):
-                continue        # a damaged stretch inside the reaction window (§3.2): not measured
-            per_unit = None
-            if node:
-                band = float(p["node_band"][r["chain"]])
-                per_unit = band / float(cap[j]) if cap[j] > 0 else None    # underlying $ per futures point
-            out.append({"day": day.isoformat(), "uid": r["uid"], "level_id": r["level_id"], "sub_type": r["sub_type"],
-                        "group": group, "instrument": root, "side": x["side"], "t0": t0,
-                        "rth": bool(int(meta["open_ns"]) <= t0 < int(meta["close_ns"])), "reacted": x["reacted"],
-                        "excluded": x["excluded"], "dist_pts": x["dist"], "cap_pts": float(cap[j]),
-                        "underlying_per_pt": per_unit, "em_pts": em})
+        # reading B (the widths): the F5.14 approach radius (cap + zone_proximity); reading D (information only, owner
+        # 2026-11-10): the radius zone_proximity alone, its near misses counted at 0 in the report
+        for reading, cap_r in (("B", cap), ("D", np.where(np.isfinite(cap), 0.0, cap))):
+            res = measure(t, price[i_a:i_z], top, bot, cap_r, p["zone_proximity"] * rr, p["rearm_dist"] * rr,
+                          p["react_pts"] * rr, react_ns, sweep, hold_ns)
+            for x in res:
+                j = x["i0"]
+                t0 = int(t[j])
+                if any(g0 < t0 + react_ns and g1 > t0 for g0, g1 in gaps):
+                    continue        # a damaged stretch inside the reaction window (§3.2): not measured
+                per_unit = None
+                if node:
+                    band = float(p["node_band"][r["chain"]])
+                    per_unit = band / float(cap[j]) if cap[j] > 0 else None    # underlying $ per futures point
+                out.append({"day": day.isoformat(), "uid": r["uid"], "level_id": r["level_id"],
+                            "sub_type": r["sub_type"], "group": group, "instrument": root, "reading": reading,
+                            "side": x["side"], "t0": t0, "rth": bool(int(meta["open_ns"]) <= t0 < int(meta["close_ns"])),
+                            "reacted": x["reacted"], "near_miss": x["near_miss"], "excluded": x["excluded"],
+                            "dist_pts": x["dist"], "short_pts": x["short"], "cap_pts": float(cap[j]),
+                            "underlying_per_pt": per_unit, "em_pts": em})
     return out
 
 
 def write_day(path: Path, rows: list[dict], meta: dict) -> None:
-    cols = ["day", "uid", "level_id", "sub_type", "group", "instrument", "side", "t0", "rth", "reacted", "excluded",
-            "dist_pts", "cap_pts", "underlying_per_pt", "em_pts"]
-    schema = pa.schema([("day", pa.string()), ("uid", pa.string()), ("level_id", pa.string()),
-                        ("sub_type", pa.string()), ("group", pa.string()), ("instrument", pa.string()),
-                        ("side", pa.int8()), ("t0", pa.int64()), ("rth", pa.bool_()), ("reacted", pa.bool_()),
-                        ("excluded", pa.string()), ("dist_pts", pa.float64()), ("cap_pts", pa.float64()),
-                        ("underlying_per_pt", pa.float64()), ("em_pts", pa.float64())])
-    table = pa.Table.from_pylist([{c: r.get(c) for c in cols} for r in rows], schema=schema)
+    table = pa.Table.from_pylist([{c: r.get(c) for c in DAY_COLUMNS.names} for r in rows], schema=DAY_COLUMNS)
     table = table.replace_schema_metadata({b"nqbot": json.dumps(meta, sort_keys=True, default=str).encode()})
     buf = io.BytesIO()
     pq.write_table(table, buf, compression="zstd")
@@ -351,13 +381,49 @@ def rth_flag(q_all: float | None, q_rth: float | None, w_all: float | None, w_rt
 
 
 def chart_row(t: pa.Table, k: str, q: float, cap: float) -> dict[str, Any]:
-    """One chart-level type: its summary, the proposed width (all hours), the RTH-only width and the RTH flag."""
+    """One chart-level type: its summary (reading B), the proposed width (all hours), the RTH-only width, the RTH flag,
+    the share of measured distances at or above the cap and reading D's width beside it (information only)."""
     s = summarize(t, k, q)
     qk = f"{q:g}"
     s["proposed"] = width_of(s["dist"], q, cap)
     s["proposed_rth"] = width_of(s["dist"][s["rth"]], q, cap)
     s["rth_flag"] = rth_flag(s["q"][qk], s["q_rth"][qk], s["proposed"], s["proposed_rth"], cap)
+    s["outside_cap_share"] = float((s["dist"] > cap).mean()) if len(s["dist"]) else None   # holds the cap leaves out
+    s["width_d"] = width_of(reading_d_dists(t, k), q, cap)
     return s
+
+
+def reading_d_dists(t: pa.Table, group: str, underlying: bool = False) -> np.ndarray:
+    """Reading D (information only, owner 2026-11-10): approaches from `zone_proximity` alone, near misses at 0;
+    `underlying` = nodes in their underlying's $."""
+    d = t.filter(pa.compute.and_(pa.compute.equal(t.column("group"), group),
+                                 pa.compute.equal(t.column("reading"), "D")))
+    reacted = d.column("reacted").to_pylist()
+    near = d.column("near_miss").to_pylist()
+    dist = d.column("dist_pts").to_pylist()
+    per = d.column("underlying_per_pt").to_pylist() if underlying else [1.0] * d.num_rows
+    out = [(x if r else 0.0) * (u if u is not None else np.nan) for x, r, nm, u in zip(dist, reacted, near, per)
+           if r or nm]
+    a = np.asarray(out, float)
+    return a[np.isfinite(a)]
+
+
+def thin_fallback(rows: dict[str, dict], k: str, groups: dict[str, list[str]], caps: dict, q: float,
+                  start: dict) -> dict[str, Any] | None:
+    """A type with fewer than `MIN_REACTED` reactions (owner 2026-11-10): no width frozen from its own few numbers.
+    Proposed fallback from the SPEC: the pooled q of its F16.4 type group (`tune_grids_13.detectors.flip_margin.groups`,
+    the types measured the same way: single prints and dark pools left out), clipped to its cap; else its step-6 start
+    value (§5.4b, F15)."""
+    if rows[k]["reacted"] >= MIN_REACTED:
+        return None
+    for name, members in groups.items():
+        if k in members:
+            mates = [m for m in members if m in rows and m not in ("single_print", "dark_pool")]
+            pooled = np.concatenate([rows[m]["dist"] for m in mates]) if mates else np.zeros(0)
+            if len(pooled) >= MIN_REACTED:
+                return {"group": name, "members": mates, "n": len(pooled),
+                        "width": width_of(pooled, q, float(caps[k])), "start": start[k]}
+    return {"group": None, "members": [], "n": 0, "width": float(start[k]), "start": start[k]}
 
 
 def ndxp_row(s: dict[str, Any], q: float) -> dict[str, Any]:
@@ -380,11 +446,17 @@ def load_days(env: Env, key: str, p: dict, days: list[date]) -> pa.Table:
 
 
 def summarize(t: pa.Table, group: str, q: float) -> dict[str, Any]:
-    g = t.filter(pa.compute.equal(t.column("group"), group))
+    """One type's reading-B summary (the widths): reacted = reached the line and reacted, not excluded."""
+    g = t.filter(pa.compute.and_(pa.compute.equal(t.column("group"), group),
+                                 pa.compute.equal(t.column("reading"), "B")))
     reacted = np.asarray(g.column("reacted").to_pylist(), bool)
     dist = np.asarray([x for x, r in zip(g.column("dist_pts").to_pylist(), reacted) if r], float)
     rth = np.asarray([x for x, r in zip(g.column("rth").to_pylist(), reacted) if r], bool)
-    excl = sum(1 for x in g.column("excluded").to_pylist() if x)
+    excluded = g.column("excluded").to_pylist()
+    excl = sum(1 for x in excluded if x == "sweep_break")
+    no_return = sum(1 for x in excluded if x == "no_return")
+    short = np.asarray([x for x, nm in zip(g.column("short_pts").to_pylist(), g.column("near_miss").to_pylist())
+                        if nm], float)
     em = np.asarray([x for x, r in zip(g.column("em_pts").to_pylist(), reacted) if r], float)
     per = np.asarray([x if x is not None else np.nan for x, r in zip(g.column("underlying_per_pt").to_pylist(), reacted)
                       if r], float)
@@ -392,7 +464,9 @@ def summarize(t: pa.Table, group: str, q: float) -> dict[str, Any]:
     quant = lambda a: {f"{x:g}": (None if not len(a) else float(np.quantile(a, x))) for x in qs}
     under = dist * per
     ok = np.isfinite(under)
-    return {"approaches": g.num_rows, "reacted": int(reacted.sum()), "sweep_breaks": excl,
+    return {"approaches": g.num_rows, "reacted": int(reacted.sum()), "sweep_breaks": excl, "no_return": no_return,
+            "near_misses": len(short), "short_q": {"0.5": float(np.median(short)) if len(short) else None,
+                                                    f"{q:g}": float(np.quantile(short, q)) if len(short) else None},
             "share": (float(reacted.mean()) if len(reacted) else None), "dist": dist, "rth": rth,
             "q": quant(dist), "q_rth": quant(dist[rth]), "q_em": quant(dist / em) if len(em) else quant(em),
             "under": under[ok], "q_under": quant(under[ok]) if ok.any() else None,
@@ -413,8 +487,13 @@ def report(env: Env) -> Path:
     t = load_days(env, key, p, days)
     start = dict(f["chart_level_half_width"])
     rows = {k: chart_row(t, k, q, float(p["cap"][k])) for k in start}
-    proposed = {k: s["proposed"] for k, s in rows.items()}
+    groups = f["tune_grids_13"]["detectors"]["flip_margin"]["groups"]
+    fallbacks = {k: fb_ for k in rows if (fb_ := thin_fallback(rows, k, groups, p["cap"], q, start)) is not None}
+    proposed = {k: (fallbacks[k]["width"] if k in fallbacks else s["proposed"]) for k, s in rows.items()}
     nodes = {g: summarize(t, g, q) for g in ("qqq_node", "ndxp_node", "spy_node", "spx_node")}
+    for g, s in nodes.items():
+        dd = reading_d_dists(t, g, underlying=True)
+        s["q_under_d"] = float(np.quantile(dd, q)) if len(dd) else None
     nd = ndxp_row(nodes["ndxp_node"], q)
     out_dir = report_dir(env)
     png_w = out_dir / "reactions_widths.png"
@@ -429,9 +508,16 @@ def report(env: Env) -> Path:
             "chart_level_half_width_rth": {k: s["proposed_rth"] for k, s in rows.items()}, "rth_flags": flags,
             "ndxp_node_band": nd["pick"], "ndxp_q_usd": nd["q"], "ndxp_above_20": nd["above"],
             "ndxp_node_band_rth": nd["pick_rth"], "ndxp_q_usd_rth": nd["q_rth"],
-            "counts": {k: {"approaches": v["approaches"], "reacted": v["reacted"]} for k, v in {**rows, **nodes}.items()}}
+            "thin_fallbacks": {k: {x: v for x, v in fb_.items()} for k, fb_ in fallbacks.items()},
+            "reading_d_width": {k: s["width_d"] for k, s in rows.items()},
+            "outside_cap_share": {k: s["outside_cap_share"] for k, s in rows.items()},
+            "above_cap_q": {k: s["q"][f"{q:g}"] for k, s in rows.items()
+                            if s["q"][f"{q:g}"] is not None and s["q"][f"{q:g}"] > float(p["cap"][k])},
+            "counts": {k: {"approaches": v["approaches"], "reacted": v["reacted"], "near_misses": v["near_misses"],
+                           "sweep_breaks": v["sweep_breaks"], "no_return": v["no_return"]}
+                       for k, v in {**rows, **nodes}.items()}}
     atomic_write_json(out_dir / "proposed_widths.json", prop)
-    md = _markdown(rows, nodes, start, p, q, nd, key, days, png_w, png_n, f)
+    md = _markdown(rows, nodes, start, p, q, nd, key, days, png_w, png_n, f, fallbacks)
     path = out_dir / "reactions.md"
     atomic_write_text(path, md)
     env.echo(f"report {path}")
@@ -442,7 +528,8 @@ def _fmt(x, d=2) -> str:
     return "-" if x is None else f"{x:.{d}f}"
 
 
-def _markdown(rows, nodes, start, p, q, nd, key, days, png_w, png_n, f) -> str:
+def _markdown(rows, nodes, start, p, q, nd, key, days, png_w, png_n, f, fallbacks=None) -> str:
+    fallbacks = fallbacks or {}
     qk = f"{q:g}"
     lines = [f"# Step 13a: reaction distances and the chart-level zone widths (months 1-4)", "",
              f"Build `{key}` (features_version {f['features_version']}), {len(days)} sessions of development months "
@@ -452,36 +539,78 @@ def _markdown(rows, nodes, start, p, q, nd, key, days, png_w, png_n, f) -> str:
              f"{p['react_pts']:g}, `react_minutes` {p['react_minutes']:g}, `react_width_q` {q:g}; highs/lows: "
              f"`sweep_max_depth` {p['sweep_max_depth']:g}, `sweep_reclaim_bars` {p['sweep_reclaim_bars']}.", "",
              "## Chart levels (NQ points)", "",
+             "Reading B (owner 2026-11-10, §13 Q-step13a-2): a reaction counts only if price reached the line; its "
+             "distance = how far past the line price went before the 10-pt reversal; near misses (turns before the line) "
+             "are left out of the widths (the touch band, `zone_proximity`, covers them). Return rule (owner 2026-11-10, "
+             f"Q-step13a-2): price past the line must come back to the approach side after its deepest point within "
+             f"`hold_window_min` ({p['hold_window_min']:g} min) of the approach, else it is a break (No return).", "",
              f"Proposed half-width = the {qk} quantile of the reaction distances over all CME hours, clipped to the "
-             f"cap, to the tick; the RTH-only width beside it. Flags: `few` = fewer than {MIN_REACTED} reacted "
-             f"approaches; `RTH` = the RTH-only figure differs from the all-hours one by more than "
-             f"{100 * RTH_DIFF_SHARE:.0f}% (both clipped to the cap) or rounds to a different width: the owner decides "
-             "which to freeze (owner 2026-11-10).", "",
-             f"| Type | Approaches | Reacted | Reacted % | Sweep breaks | At 0 | q0.5 | q{qk} | q0.9 | q{qk} RTH only | "
-             f"q{qk} in EM | Cap | Start | **Proposed** | RTH-only width | Flag |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             f"cap, to the tick; the RTH-only width beside it. Flags: `few` = fewer than {MIN_REACTED} reactions used "
+             f"(fallback below, no width frozen from its own numbers); `RTH` = the RTH-only figure differs from the "
+             f"all-hours one by more than {100 * RTH_DIFF_SHARE:.0f}% (both clipped to the cap) or rounds to a different "
+             "width: the owner decides which to freeze (owner 2026-11-10). Outside the cap = the share of measured "
+             "distances (holds) beyond the cap. Reading D = approaches from `zone_proximity` alone with near misses at 0 "
+             "(information only).", "",
+             f"| Type | Reactions used | Sweep breaks | No return | q0.5 | q{qk} | q0.9 | Outside the cap | q{qk} RTH only | "
+             f"Cap | Start | **Proposed** | RTH-only width | Reading D width | Flag |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for k, s in rows.items():
         flags = (["few"] if s["reacted"] < MIN_REACTED else []) + ([f"RTH: {s['rth_flag']}"] if s["rth_flag"] else [])
-        share = None if s["share"] is None else 100 * s["share"]
-        zero = None if s["zero_share"] is None else 100 * s["zero_share"]
-        lines.append(f"| `{k}` | {s['approaches']:,} | {s['reacted']:,} | {_fmt(share, 0)} | {s['sweep_breaks']:,} | "
-                     f"{_fmt(zero, 0)}% | {_fmt(s['q']['0.5'])} | {_fmt(s['q'][qk])} | {_fmt(s['q']['0.9'])} | "
-                     f"{_fmt(s['q_rth'][qk])} | {_fmt(s['q_em'][qk], 3)} | {p['cap'][k]:g} | {start[k]:g} | "
-                     f"**{_fmt(s['proposed'])}** | {_fmt(s['proposed_rth'])} | {'; '.join(flags)} |")
+        cap_share = None if s["outside_cap_share"] is None else 100 * s["outside_cap_share"]
+        prop = fallbacks[k]["width"] if k in fallbacks else s["proposed"]
+        lines.append(f"| `{k}` | {s['reacted']:,} | {s['sweep_breaks']:,} | {s['no_return']:,} | "
+                     f"{_fmt(s['q']['0.5'])} | {_fmt(s['q'][qk])} | {_fmt(s['q']['0.9'])} | {_fmt(cap_share, 0)}% | "
+                     f"{_fmt(s['q_rth'][qk])} | {p['cap'][k]:g} | {start[k]:g} | **{_fmt(prop)}**"
+                     f"{' (fallback)' if k in fallbacks else ''} | {_fmt(s['proposed_rth'])} | {_fmt(s['width_d'])} | "
+                     f"{'; '.join(flags)} |")
+    capped = [(k, s) for k, s in rows.items() if s["q"][qk] is not None and s["q"][qk] > float(p["cap"][k])]
+    if capped:
+        lines += ["", f"**The cap stays (owner 2026-11-10, §13 Q-step13a-2).** Types whose measured q{qk} is above the "
+                  "cap, and the share of their holds the capped band leaves outside: "
+                  + "; ".join(f"`{k}` q{qk} {s['q'][qk]:.1f} (cap {p['cap'][k]:g}), {100 * s['outside_cap_share']:.0f}% "
+                              "outside" for k, s in capped)
+                  + ". A touch still counts out to the band edge + `zone_proximity` (tuned at step 13c), so a hold "
+                  "beyond the band's edge but inside the touch distance is still an event."]
+    if fallbacks:
+        lines += ["", f"**Thin types (fewer than {MIN_REACTED} reactions over months 1-4): proposed fallback, the owner "
+                  "decides; prior_week's pooled highs/lows fallback approved by the owner 2026-11-10).** From the SPEC: the pooled quantile of the type's F16.4 group (`tune_grids_13.detectors."
+                  "flip_margin.groups`, the types measured the same way; single prints and dark pools left out), clipped "
+                  "to its cap; else its step-6 start value (§5.4b, F15).", ""]
+        for k, fb_ in fallbacks.items():
+            own = rows[k]["proposed"]
+            if fb_["group"]:
+                lines.append(f"- `{k}`: {rows[k]['reacted']} reactions (its own q{qk} → {_fmt(own)}); fallback: the "
+                             f"`{fb_['group']}` group pooled ({', '.join(fb_['members'])}; {fb_['n']:,} reactions) → "
+                             f"**{_fmt(fb_['width'])}**; or its start value {fb_['start']:g}.")
+            else:
+                lines.append(f"- `{k}`: {rows[k]['reacted']} reactions (its own q{qk} → {_fmt(own)}); no group to pool: "
+                             f"its start value **{fb_['start']:g}**.")
+    lines += ["", "**Single prints.** Their edges move: a trade inside the unfilled run fills those bins (F3.5), so "
+              "the near edge moves with price and the level shrinks or ends; price can't be measured past the near edge "
+              "by more than a sliver of a bin before the edge itself moves, so the distance is 0 under every reading. "
+              "The start value (0) stays (owner 2026-11-10, §13 Q-step13a-2).", "",
+              "## Near misses (information only, the `zone_proximity` grid at 13c)", "",
+              f"Reacted before reaching the line (reading B's approaches): how far short of the line the turn came (pts; "
+              f"nodes: NQ / ES pts).", "",
+              f"| Type | Near misses | Median short | q{qk} short |", "|---|---|---|---|"]
+    for k, s in {**rows, **nodes}.items():
+        lines.append(f"| `{k}` | {s['near_misses']:,} | {_fmt(s['short_q']['0.5'])} | {_fmt(s['short_q'][qk])} |")
+    lines += [""]
     lines += ["", f"![widths]({png_w.name})", "", "## Skylit nodes (report only except NDXP)", "",
               "The line = the node's mapped strike (R in force at each trade), the cap = its `node_band` half-width "
               "mapped the same way (NDXP at ±20). QQQ / NDXP on NQ, SPY / SPX on ES (ES points; the NQ-point parameters "
               "× ES ÷ NQ). QQQ / SPY / SPX bands stay fixed (nothing frozen from these rows).", "",
-              f"| Map | Approaches | Reacted | Reacted % | q0.5 pts | q{qk} pts | q0.9 pts | q{qk} underlying $ | "
-              f"q{qk} in EM | Band (underlying) |",
-              "|---|---|---|---|---|---|---|---|---|---|"]
+              f"| Map | Reactions used | No return | q0.5 pts | q{qk} pts | q0.9 pts | q{qk} underlying $ | "
+              f"q{qk} RTH only $ | Reading D q{qk} $ | Band (underlying) | Flag |",
+              "|---|---|---|---|---|---|---|---|---|---|---|"]
     for g, s in nodes.items():
         chain = {"qqq_node": "QQQ", "ndxp_node": "NDXP", "spy_node": "SPY", "spx_node": "SPX"}[g]
         uq = None if s["q_under"] is None else s["q_under"][qk]
-        lines.append(f"| {chain} | {s['approaches']:,} | {s['reacted']:,} | "
-                     f"{_fmt(100 * s['share'] if s['share'] is not None else None, 0)} | {_fmt(s['q']['0.5'])} | "
-                     f"{_fmt(s['q'][qk])} | {_fmt(s['q']['0.9'])} | {_fmt(uq)} | {_fmt(s['q_em'][qk], 3)} | "
-                     f"±{p['node_band'][chain]:g} |")
+        uq_rth = None if s["q_under_rth"] is None else s["q_under_rth"][qk]
+        lines.append(f"| {chain} | {s['reacted']:,} | {s['no_return']:,} | {_fmt(s['q']['0.5'])} | "
+                     f"{_fmt(s['q'][qk])} | {_fmt(s['q']['0.9'])} | {_fmt(uq)} | {_fmt(uq_rth)} | "
+                     f"{_fmt(s.get('q_under_d'))} | ±{p['node_band'][chain]:g} | "
+                     f"{'few' if s['reacted'] < MIN_REACTED else ''} |")
     lines += ["", f"![nodes]({png_n.name})", "",
               "## NDXP band (owner 2026-11-10, §13 Q-step13a)", "",
               f"The smallest of ±{' / '.join(str(c) for c in NDXP_CHOICES)} NDXP $ that covers the q{qk} of the NDXP "

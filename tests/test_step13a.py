@@ -12,9 +12,10 @@ from nqbot.checks import step13a as r
 S = 10**9
 CAP, PROX, REARM, REACT = 12.0, 5.0, 10.0, 10.0
 REACT_NS = 5 * 60 * S
+HOLD_NS = 30 * 60 * S
 
 
-def _run(path, line=100.0, top=None, bot=None, sweep=None, cap=CAP):
+def _run(path, line=100.0, top=None, bot=None, sweep=None, cap=CAP, hold_ns=HOLD_NS):
     """path: [(seconds, price)] -> measure() on a constant line (or run edges top/bot)."""
     ts = np.array([int(t * S) for t, _ in path], np.int64)
     px = np.array([p for _, p in path], float)
@@ -23,7 +24,7 @@ def _run(path, line=100.0, top=None, bot=None, sweep=None, cap=CAP):
     bot_a = np.full(n, line if bot is None else bot)
     sw = None if sweep is None else {"depth": np.full(n, sweep[0]), "bars": sweep[1]}
     return r.measure(ts, px, top_a, bot_a, np.full(n, cap), np.full(n, PROX), np.full(n, REARM), np.full(n, REACT),
-                     REACT_NS, sw)
+                     REACT_NS, sw, hold_ns)
 
 
 def _from_above(t0, pen, react=True):
@@ -122,13 +123,10 @@ def test_rth_flag_over_20_percent_or_another_width():
 
 
 def _table(rows):
-    cols = {"day": pa.string(), "uid": pa.string(), "level_id": pa.string(), "sub_type": pa.string(),
-            "group": pa.string(), "instrument": pa.string(), "side": pa.int8(), "t0": pa.int64(), "rth": pa.bool_(),
-            "reacted": pa.bool_(), "excluded": pa.string(), "dist_pts": pa.float64(), "cap_pts": pa.float64(),
-            "underlying_per_pt": pa.float64(), "em_pts": pa.float64()}
     full = [{"day": "2025-10-07", "uid": "u", "level_id": "u", "sub_type": x["group"], "instrument": "NQ", "side": 1,
-             "t0": 0, "excluded": None, "cap_pts": 12.0, "underlying_per_pt": None, "em_pts": 250.0, **x} for x in rows]
-    return pa.Table.from_pylist(full, schema=pa.schema(list(cols.items())))
+             "t0": 0, "excluded": None, "cap_pts": 12.0, "underlying_per_pt": None, "em_pts": 250.0, "reading": "B",
+             "near_miss": False, "short_pts": None, **x} for x in rows]
+    return pa.Table.from_pylist([{c: x.get(c) for c in r.DAY_COLUMNS.names} for x in full], schema=r.DAY_COLUMNS)
 
 
 def test_chart_row_flags_an_rth_difference():
@@ -150,14 +148,19 @@ def test_ndxp_row_in_ndxp_dollars_rth_beside():
     assert nd["pick"] == 20 and nd["pick_rth"] == 10 and nd["rth_flag"] is not None
 
 
-def test_report_writes_widths_flags_and_charts(tmp_path, monkeypatch):
+def test_report_writes_widths_flags_fallbacks_and_charts(tmp_path, monkeypatch):
     from nqbot.config import load_features
 
     f = load_features()
     rows = []
     for k in f["chart_level_half_width"]:
-        rows += [{"group": k, "reacted": True, "dist_pts": float(d % 6), "rth": True} for d in range(30)]
-    rows += [{"group": "em_level", "reacted": True, "dist_pts": 11.0, "rth": False} for _ in range(30)]
+        n = 30 if k == "lvn" else 120                         # lvn thin: the chart_lines group pooled instead
+        rows += [{"group": k, "reacted": True, "dist_pts": float(d % 6), "rth": True} for d in range(n)]
+    rows += [{"group": "em_level", "reacted": True, "dist_pts": 11.0, "rth": False} for _ in range(120)]
+    rows += [{"group": "poc", "reacted": False, "near_miss": True, "short_pts": 3.0, "rth": True} for _ in range(5)]
+    rows += [{"group": "poc", "reading": "D", "reacted": True, "dist_pts": 8.0, "rth": True} for _ in range(10)]
+    rows += [{"group": "poc", "reading": "D", "reacted": False, "near_miss": True, "short_pts": 2.0, "rth": True}
+             for _ in range(10)]
     for g in ("qqq_node", "ndxp_node", "spy_node", "spx_node"):
         rows += [{"group": g, "reacted": True, "dist_pts": float(d), "rth": True, "underlying_per_pt": 0.5,
                   "instrument": "ES" if g in ("spy_node", "spx_node") else "NQ"} for d in range(25)]
@@ -170,7 +173,45 @@ def test_report_writes_widths_flags_and_charts(tmp_path, monkeypatch):
     md = path.read_text(encoding="utf-8")
     prop = json.loads((tmp_path / "step13" / "proposed_widths.json").read_text(encoding="utf-8"))
     assert (tmp_path / "step13" / "reactions_widths.png").exists() and (tmp_path / "step13" / "reactions_nodes.png").exists()
-    assert prop["chart_level_half_width"]["poc"] == 4.0          # q0.8 of 0..5 repeated = 4.0
+    assert prop["chart_level_half_width"]["poc"] == 4.0          # q0.8 of 0..5 repeated = 4.0 (D rows not counted)
+    assert prop["reading_d_width"]["poc"] == 8.0                 # D: ten 8s and ten near misses at 0 -> q0.8 = 8
+    assert prop["counts"]["poc"]["near_misses"] == 5 and prop["outside_cap_share"]["poc"] == 0.0
     assert "em_level" in prop["rth_flags"] and "poc" not in prop["rth_flags"]
+    assert prop["thin_fallbacks"]["lvn"]["group"] == "chart_lines" and prop["chart_level_half_width"]["lvn"] == 5.0
+    assert "single_print" not in prop["thin_fallbacks"]["lvn"]["members"]
     assert prop["ndxp_node_band"] == 10                          # q0.8 of 0..24 = 19.2 pts x 0.5 = 9.6 NDXP $
-    assert "RTH: " in md and "Q-step13a" in md
+    assert "RTH: " in md and "Q-step13a-2" in md and "Near misses" in md and "(fallback)" in md
+
+
+# --- reading B and the return rule (owner 2026-11-10, SPEC §13 Q-step13a-2) ----------------------------------------
+
+def test_near_miss_is_left_out_with_its_shortfall():
+    # armed at 130, the approach at 115 (within 17), turns at 104 (4 short of the line), up 10
+    res = _run([(0, 130.0), (10, 115.0), (20, 104.0), (30, 114.0), (40, 130.0)])
+    assert len(res) == 1 and not res[0]["reacted"] and res[0]["near_miss"] and res[0]["short"] == 4.0
+    assert res[0]["dist"] is None
+
+
+def test_exact_touch_counts_at_zero():
+    res = _run([(0, 130.0), (10, 115.0), (20, 100.0), (30, 110.0), (40, 130.0)])
+    assert res[0]["reacted"] and not res[0]["near_miss"] and res[0]["dist"] == 0.0
+
+
+def test_overshoot_that_comes_back_counts_its_depth():
+    # 20 past, a 10-pt reversal (still 10 past), back above the line at 300 s
+    res = _run([(0, 130.0), (10, 115.0), (20, 80.0), (30, 90.0), (300, 101.0), (310, 130.0)])
+    assert res[0]["reacted"] and res[0]["dist"] == 20.0 and res[0]["excluded"] is None
+
+
+def test_overshoot_without_a_return_is_a_break():
+    # 20 past, the 10-pt reversal, then stays below the line for the 30-minute label window: no_return
+    res = _run([(0, 130.0), (10, 115.0), (20, 80.0), (30, 90.0), (600, 85.0), (1700, 70.0)])
+    assert not res[0]["reacted"] and res[0]["excluded"] == "no_return"
+    # back above only after the window (approach at 10 s + 1,800 s): still a break
+    late = _run([(0, 130.0), (10, 115.0), (20, 80.0), (30, 90.0), (1811, 101.0)])
+    assert late[0]["excluded"] == "no_return"
+    # an early wiggle back across before the deepest point doesn't count as the return
+    wiggle = _run([(0, 130.0), (10, 115.0), (15, 99.0), (16, 100.5), (20, 80.0), (30, 90.0), (600, 85.0)])
+    assert wiggle[0]["excluded"] == "no_return"
+    # without the return rule (hold_ns None) the same path counts at 20
+    assert _run([(0, 130.0), (10, 115.0), (20, 80.0), (30, 90.0)], hold_ns=None)[0]["dist"] == 20.0
