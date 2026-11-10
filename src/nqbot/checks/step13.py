@@ -583,7 +583,7 @@ def group_membership(before: Path, after: Path, day: date) -> dict[str, Any]:
         gb.setdefault(b_by[k]["touch_group_id"], set()).add(k)
         ga.setdefault(a_by[v]["touch_group_id"], set()).add(k)
     pb, pa = {frozenset(x) for x in gb.values()}, {frozenset(x) for x in ga.values()}
-    diff = sorted((sorted(g) for g in pb ^ pa), key=lambda g: g[0])
+    diff = sorted(sorted(g) for g in pb ^ pa)   # the whole list: two groups can share a first event
     return {"events_before": len(b_rows), "events_after": len(a_rows), "matched": len(m), "groups": len(pb),
             "renumbered": sum(1 for k, v in m.items() if b_by[k]["touch_group_id"] != a_by[v]["touch_group_id"]),
             "differing_groups": len(diff), "examples": diff[:5]}
