@@ -146,6 +146,10 @@ class FakeSF:
     def eod(self):
         return {"day_type": "range"}
 
+    def level_timeline(self):
+        return ([{"uid": "pdh-x", "key": "pdh_pdl", "times": [1, 2], "lo": [99.5, float("nan")], "hi": [100.5, float("nan")],
+                  "spans": [[1, 2]], "freezes": [], "strike": None}], {"schema": 1, "em_nq": 250.0})
+
 
 def test_two_passes_with_a_fake_build(env, monkeypatch):
     days = trading_days(date(2025, 9, 29), date(2025, 10, 10), env.cal)   # two warm-up sessions, then month 1
@@ -177,6 +181,9 @@ def test_two_passes_with_a_fake_build(env, monkeypatch):
         assert not fb.pass2_done(env, doc["key"], d)
         assert fb.build_day_cmd(env, d, 2) == 0
         assert (fb.out_dir(env, doc["key"]) / "touches" / f"{d.isoformat()}.parquet").exists()
+        lv, meta = fb.read_levels(fb.out_dir(env, doc["key"]) / "levels" / f"{d.isoformat()}.parquet")
+        assert lv.num_rows == 1 and meta["em_nq"] == 250.0 and meta["day"] == d.isoformat()
+        assert lv.column("lo").to_pylist()[0][0] == 99.5   # prices stay float64
         assert fb.pass2_done(env, doc["key"], d)
     t = pq.read_table(fb.out_dir(env, doc["key"]) / "touches" / f"{plan_days[0].isoformat()}.parquet")
     assert t.num_rows == 3

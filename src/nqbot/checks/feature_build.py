@@ -368,7 +368,26 @@ def write_day_files(base: Path, sf, day: date, key: str, features: dict) -> tupl
                                       "how": "eod_day_type"}] if eod else [])
     write_rows(base / "outcomes" / f"{iso}.parquet", outcomes,
                {"day": iso, "key": key, "note": "outcomes: never read as features"})
+    write_levels(base / "levels" / f"{iso}.parquet", sf, {"day": iso, "key": key})
     return rows, eod
+
+
+def write_levels(path: Path, sf, meta: dict) -> None:
+    """The session's level timelines (step 13a, Q-dryrun13 (3); `features.level_timeline`): float64 band values (prices,
+    not features), zstd parquet, written atomically."""
+    rows, unit = sf.level_timeline()
+    table = pa.Table.from_pylist(rows) if rows else pa.table({})
+    table = table.replace_schema_metadata({b"nqbot": json.dumps({**meta, **unit}, sort_keys=True, default=str).encode()})
+    buf = io.BytesIO()
+    pq.write_table(table, buf, compression="zstd")
+    atomic_write_bytes(path, buf.getvalue())
+
+
+def read_levels(path: Path) -> tuple[pa.Table, dict]:
+    """A session's level timelines and its metadata (unit values)."""
+    t = pq.read_table(path)
+    meta = json.loads((t.schema.metadata or {}).get(b"nqbot", b"{}"))
+    return t.replace_schema_metadata(None), meta
 
 
 def build_warmup_cmd(env: Env) -> int:
@@ -679,8 +698,15 @@ def build_day_smoke(env: Env, day: date, full_warmup: bool = False) -> Path:
         files_ok = (back["touches"].num_rows == len(rows) and back["daytype"].num_rows == len(dtr)
                     and back["outcomes"].num_rows >= len(sf.events)
                     and back["touches"].num_columns == len({k for r in rows for k in r}))
+        lv_path = tmp / "levels" / f"{day.isoformat()}.parquet"
+        lv, _meta = read_levels(lv_path)
+        lv_keys = lv.column("key").to_pylist() if lv.num_rows else []
+        files_ok = files_ok and lv.num_rows == len(sf.nq_levels) + sum(
+            1 for x in sf.es_levels.values() if x.rtype == "gex_node")
         files_note = (f"{back['touches'].num_rows} touch rows x {back['touches'].num_columns} columns, "
-                      f"{back['daytype'].num_rows} day-type rows, {back['outcomes'].num_rows} outcome rows")
+                      f"{back['daytype'].num_rows} day-type rows, {back['outcomes'].num_rows} outcome rows, "
+                      f"{lv.num_rows} level timelines ({lv_path.stat().st_size / 2**20:.1f} MB; "
+                      + ", ".join(f"{k} {lv_keys.count(k)}" for k in sorted(set(lv_keys))) + ")")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     rss1 = proc.memory_info()

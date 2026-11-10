@@ -659,6 +659,13 @@ class SessionFeatures:
                  "t_pair_end": int(self.pair_end[e.event_id].t_resolved),
                  "pair_end_label": self.pair_end[e.event_id].label} for e in self.events]
 
+    def level_timeline(self) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Every NQ level's and the S&P nodes' band over the session, with the unit values (step 13a,
+        `features.level_timeline`)."""
+        from nqbot.features import level_timeline as lt
+
+        return lt.session_rows(self)
+
     def eod(self) -> dict[str, Any] | None:
         return self.dt.eod()
 
