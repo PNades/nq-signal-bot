@@ -945,12 +945,21 @@ def _add_step13(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--run", required=True)
     s13.add_parser("jump-plot", help="the 2025-11-18 weekly POC jump plot with the fixed legend (Q-step12b (e))")
     s13.add_parser("check-report", help="the report from the chunks done so far")
+    # step 13a (owner 2026-11-09/10, SPEC §13 Q-dryrun13 (3), Q-step13a): the reaction-distance report
+    s13.add_parser("reactions-plan", help="step 13a: record the reaction job's chunks (months 1-4 sessions of the "
+                                          "feature-build plan, then the report; then: nqbot run step13a_reactions)")
+    p = s13.add_parser("reactions-day", help="step 13a: one session's approaches from its level timelines (the job "
+                                             "runs this in its own process)")
+    p.add_argument("date", type=_date)
+    s13.add_parser("reactions-report", help="step 13a: the widths proposal, charts and tables (reactions.md)")
 
 
 def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
     from nqbot import calendar as cal_mod
     from nqbot.checks import session_build as sb
+    from nqbot.checks import feature_build as fb
     from nqbot.checks import step13 as s13
+    from nqbot.checks import step13a as s13a
     from nqbot.checks.step8b import CheckRefused, Env
     from nqbot.config import load_features
     from nqbot.jobs.runner import record_plan
@@ -958,7 +967,14 @@ def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
 
     env = Env(settings=settings, features=load_features(), paths=paths, log=log, cal=cal_mod.load())
     try:
-        if args.check == "check-plan":
+        if args.check == "reactions-plan":
+            done, total = record_plan(paths, s13a.JOB, s13a.chunk_ids(env))
+            print(f"{s13a.JOB}: {done}/{total} chunks done; run: uv run nqbot run {s13a.JOB} --until HH:MM")
+        elif args.check == "reactions-day":
+            s13a.reactions_day(env, args.date)
+        elif args.check == "reactions-report":
+            s13a.report(env)
+        elif args.check == "check-plan":
             if args.redo:
                 gone = s13.redo(paths, [r.strip() for r in args.redo.split(",") if r.strip()])
                 print(f"{s13.JOB}: {len(gone)} chunks marked to build again")
@@ -970,7 +986,7 @@ def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
             s13.jump_plot(env)
         else:
             s13.report(env)
-    except (s13.Refused, sb.Refused, CheckRefused, NotDevelopmentMonth) as e:
+    except (s13.Refused, s13a.Refused, fb.BuildRefused, sb.Refused, CheckRefused, NotDevelopmentMonth) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
     return 0
