@@ -235,6 +235,20 @@ def labels_report(env: Env) -> Path:
              "| style | order type | RR band | set | pairs |", "|---|---|---|---|---:|"]
     for k, v in sorted(bands.items()):
         lines.append("| " + " | ".join(k.split("|")) + f" | {v:,} |")
+    lines += ["", "## The gap rule (owner 2026-11-10, Q-step13b (b) (vii))", "",
+              "A stop or breakeven exit fills at the worse of its price minus `exit_slippage_ticks` and the first trade "
+              "at or beyond it; a flat-by / news exit never better than the first trade at or after its time. Counted "
+              "over every breakeven rule's exits of filled pairs:", ""]
+    gap: dict = {}
+    for _, x in rows:
+        for k, v in (x.get("gap_rule") or {}).items():
+            a = gap.setdefault(k, [0, 0, 0.0])
+            a[0] += v["exits"]
+            a[1] += v["changed"]
+            a[2] += v["mean_extra_ticks"] * v["changed"]
+    lines += _table([(k, f"{a[0]:,}", f"{a[1]:,}", f"{a[1] / a[0]:.2%}" if a[0] else "",
+                      f"{a[2] / a[1]:.2f}" if a[1] else "") for k, a in sorted(gap.items())],
+                    ["exit", "exits", "changed", "share", "mean extra cost (ticks)"])
     tot = sum(x.get("pairs", 0) for _, x in rows)
     lines += ["", f"- Pairs {tot:,}; fills {sum(x.get('fills', 0) for _, x in rows):,}; labeler "
               f"{sum(x.get('label_sec', 0) for _, x in rows) / 3600:.2f} h (+ identity re-run "
@@ -755,7 +769,11 @@ def events_day(env: Env, day: date) -> Path:
              f"the candidate-time fix: {info['zone_diff_trades']:,} trades",
              f"- Pairs {li['pairs']:,}, fills {li['fills']:,}; identity check (Q-flexfarm (1)): "
              f"{li.get('identity_ok')} ({li.get('identity_rows', 0):,} base rows, {li.get('ext_rows', 0):,} extension "
-             "rows)", "", "## Pairs by style, order type and RR band", ""]
+             "rows)",
+             "- Gap rule (Q-step13b (b) (vii)): " + "; ".join(
+                 f"{k} exits {v['exits']:,}, changed {v['changed']:,}, mean extra {v['mean_extra_ticks']:.2f} ticks"
+                 for k, v in (li.get("gap_rule") or {}).items()),
+             "", "## Pairs by style, order type and RR band", ""]
     lines += _table([(*k, f"{v:,}") for k, v in sorted(bands.items())], ["style", "order type", "RR band", "set",
                                                                           "pairs"])
     lines += ["", "## Disk (this session) and extrapolation", ""]

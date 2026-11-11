@@ -96,6 +96,9 @@ def test_costs_follow_section_6_1():
     assert c.size(10.0, "limit") == (14, 2, False)                  # floor(333 / 22.4) = 14 micros -> 2 NQ-equivalent
     assert c.size(400.0, "limit")[2] is True                        # not one micro fits: too wide
     assert c.stop_fill(100.0, 1) == 99.75 and c.stop_fill(100.0, -1) == 100.25
+    # the gap rule: never better than the triggering trade
+    assert c.stop_fill(100.0, 1, 98.0) == 98.0 and c.stop_fill(100.0, 1, 100.0) == 99.75
+    assert c.stop_fill(100.0, -1, 101.5) == 101.5 and c.stop_fill(100.0, -1, 100.0) == 100.25
     assert be_ticks(1.90, 1) == 5                                    # ceil(1.90 / 0.50) + 1
 
 
@@ -186,6 +189,57 @@ def test_stop_first_and_target_needs_one_tick_through():
     assert out["r_none"] == pytest.approx(((94.75 - 102.0) * 2 - 1.90) / P.costs.risk_per_micro(7.0, "limit"))
 
 
+def test_a_gap_through_the_stop_fills_at_the_trade():
+    # long from 102, stop 95: price gaps from 99 to 92.5 (the first trade at or beyond the stop)
+    f, out = label_one([FILL, (at(10, 1), 99.0), (at(10, 2), 92.5), (at(10, 3), 96.0)], dp(), 95.0, 130.0)
+    rpm = P.costs.risk_per_micro(7.0, "limit")
+    assert out["out_none"] == "stop" and out["t_exit_none"] == at(10, 2)
+    assert out["r_none"] == pytest.approx(((92.5 - 102.0) * 2 - 1.90) / rpm)       # not 95 - 1 tick
+    assert out["gap_ticks_none"] == pytest.approx((94.75 - 92.5) / 0.25)
+    # a touch exactly at the stop: the plain rule (stop - exit_slippage_ticks), no gap cost
+    f, out = label_one([FILL, (at(10, 2), 95.0)], dp(), 95.0, 130.0)
+    assert out["r_none"] == pytest.approx(((94.75 - 102.0) * 2 - 1.90) / rpm) and out["gap_ticks_none"] == 0.0
+    # a short whose stop at 110 is gapped to 112
+    d_short = dp(direction=-1, zone_lo=100.0, zone_hi=102.0, near_edge=100.0, price_at_decision=99.5,
+                 swing_high=101.0, z_lo=[80.0], z_hi=[90.0], z_id=["za"], z_kind=["level"], z_lo_src=["chart"],
+                 z_hi_src=["chart"])
+    tape = tape_of([(at(10, 0, 3), 100.25), (at(10, 2), 112.0)])
+    path = PathIndex(tape.price)
+    fs = fl.simulate("limit", d_short, 1.0, tape, path, None, meta(), P)
+    lab = Labeler(tape, path, st.bars(tape, 1), None, meta(), P)
+    o = lab.label(fs, 110.0, 85.0, -1, P.costs.risk_per_micro(10.0, "limit"), None, 1.0)
+    assert o["out_none"] == "stop" and o["gap_ticks_none"] == pytest.approx((112.0 - 110.25) / 0.25)
+
+
+def test_a_breakeven_stop_gapped_through_fills_at_the_trade():
+    # +1R breakeven from 102 / stop 95: the signal at 109.25 (10:01), effective 10:01:01; BE stop 103.25; a gap to 100
+    trades = [FILL, (at(10, 1), 109.25), (at(10, 1, 30), 106.0), (at(10, 2), 100.0)]
+    f, out = label_one(trades, dp(), 95.0, 130.0)
+    assert out["out_r1"] == "be" and out["t_exit_r1"] == at(10, 2)
+    assert out["r_r1"] == pytest.approx(((100.0 - 102.0) * 2 - 1.90) / P.costs.risk_per_micro(7.0, "limit"))
+    assert out["gap_ticks_r1"] == pytest.approx((103.0 - 100.0) / 0.25)
+
+
+def test_a_market_exit_never_fills_better_than_the_first_trade():
+    # the flat-by exit at 15:59:01: the book's bid says 104.75, but the first trade at or after it is 103.0
+    book = TopOfBook.from_arrays([at(15, 58)], [104.75], [105.0], [10], [10])
+    f, out = label_one([FILL, (at(15, 59, 1.5), 103.0), (at(15, 59, 3), 106.0)], dp(), 95.0, 130.0, book=book)
+    assert out["out_none"] == "timeout" and out["gap_ticks_none"] == pytest.approx((104.75 - 103.0) / 0.25)
+    assert out["r_none"] == pytest.approx(((103.0 - 102.0) * 2 - 1.90) / P.costs.risk_per_micro(7.0, "limit"))
+    # the book worse than the trade: the book stands, no gap cost
+    book = TopOfBook.from_arrays([at(15, 58)], [102.5], [102.75], [10], [10])
+    f, out = label_one([FILL, (at(15, 59, 1.5), 103.0)], dp(), 95.0, 130.0, book=book)
+    assert out["gap_ticks_none"] == 0.0
+    assert out["r_none"] == pytest.approx(((102.5 - 102.0) * 2 - 1.90) / P.costs.risk_per_micro(7.0, "limit"))
+
+
+def test_the_labeler_counts_what_the_gap_rule_changes():
+    tape = tape_of([FILL, (at(10, 1), 99.0), (at(10, 2), 92.5)])
+    out = lb.label_session([dp()], tape, None, meta(), P_(order_types={"d": ["limit"], "c": []}))
+    g = out["info"]["gap_rule"]["stop"]
+    assert g["exits"] > 0 and g["changed"] > 0 and g["mean_extra_ticks"] > 0
+
+
 def test_entry_and_stop_on_one_print_is_filled_and_stopped():
     f, out = label_one([(at(10, 0, 3), 94.0)], dp(), 95.0, 130.0)                 # a gap through limit and stop
     assert out["ambiguous_tick"] and out["out_none"] == "stop"
@@ -221,8 +275,12 @@ def test_the_early_close_flat_by_and_entry_end_come_from_the_calendar():
 def test_market_exit_uses_the_book_size_then_the_trades():
     tape = tape_of([(at(10, 0, 1), 99.5), (at(10, 0, 2), 99.25)])
     book = TopOfBook.from_arrays([at(10, 0)], [99.75], [100.0], [2], [2])
-    px, nb = market_exit(tape, book, at(10, 0, 0.5), 1, 4.0)
-    assert not nb and px == pytest.approx((2 * 99.75 + 99.5 + 99.25) / 4)
+    from nqbot.labeler.outcomes import _market_raw
+
+    raw, nb = _market_raw(tape, book, at(10, 0, 0.5), 1, 4.0)          # the book's size, then the trades
+    assert not nb and raw == pytest.approx((2 * 99.75 + 99.5 + 99.25) / 4)
+    px, nb = market_exit(tape, book, at(10, 0, 0.5), 1, 4.0)           # never better than the first trade (99.5)
+    assert not nb and px == 99.5
     px, nb = market_exit(tape, None, at(10, 0, 0.5), 1, 1.0)
     assert nb and px == 99.5
 

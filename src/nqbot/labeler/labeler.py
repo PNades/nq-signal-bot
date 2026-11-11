@@ -45,6 +45,7 @@ def label_session(decisions: list[dict], tape, book, meta: dict, p, path: PathIn
     lab = Labeler(tape, path, bars_1m, book, meta, p)
     pairs, fills, paths = [], [], []
     bands = Counter()
+    gaps: dict = {}          # (exit kind) -> [exits, changed, extra ticks summed], every rule's exits of filled pairs
     for dp in decisions:
         d = int(dp["direction"])
         for ot in p.order_types[dp["style"]]:
@@ -80,13 +81,36 @@ def label_session(decisions: list[dict], tape, book, meta: dict, p, path: PathIn
                     info = lb.pop("_path")
                     row.update(lb)
                     row["fs_zone"] = None if fsz is None else fsz["id"]
+                    if fill.filled:
+                        _count_gaps(gaps, row, p)
                     pairs.append(row)
                     paths.append({"pair_id": pid, "filled": fill.filled,
                                   **lab.path_summary(fill, stop, tg["target"], d, info)})
     info = {"pairs": len(pairs), "fills": len(fills), "label_sec": round(time.monotonic() - t0, 1),
             "rr_bands": {"|".join([s, o, b, "ext" if e else "base"]): n for (s, o, b, e), n in sorted(bands.items())},
-            "be_rules": [be_name(r) for r in p.be_rules]}
+            "be_rules": [be_name(r) for r in p.be_rules],
+            "gap_rule": {k: {"exits": v[0], "changed": v[1], "mean_extra_ticks": (v[2] / v[1]) if v[1] else 0.0}
+                         for k, v in sorted(gaps.items())}}
     return {"pairs": pairs, "fills": fills, "paths": paths, "info": info}
+
+
+GAP_KIND = {"stop": "stop", "be": "stop", "timeout": "market"}
+
+
+def _count_gaps(gaps: dict, row: dict, p) -> None:
+    """The gap rule's effect (owner 2026-11-10, SPEC §13 Q-step13b (b) (vii)): stop and breakeven exits ('stop') and
+    flat-by / news exits ('market') of every breakeven rule, and how many the rule changed with their extra cost."""
+    for rule in p.be_rules:
+        name = be_name(rule)
+        kind = GAP_KIND.get(row.get(f"out_{name}"))
+        if kind is None:
+            continue
+        g = float(row.get(f"gap_ticks_{name}") or 0.0)
+        acc = gaps.setdefault(kind, [0, 0, 0.0])
+        acc[0] += 1
+        if g > 1e-9:
+            acc[1] += 1
+            acc[2] += g
 
 
 def _reached(lab, fill, dp: dict, ref: float, d: int) -> dict[str, list]:
