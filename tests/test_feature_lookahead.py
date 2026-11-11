@@ -33,9 +33,13 @@ from nqbot.features.skylit_session import Context, SkylitSession
 from tests.test_chart_levels import DAY, carry_for, synthetic_tape
 
 # the synthetic day moves less than NQ: a 10-point hold reaction (config 30, its history 30, retests and the pair cut
-# 20) gives held labels, so freshness, day memory and retested extremes have something to count
+# 20) gives held labels, so freshness, day memory and retested extremes have something to count; and the step-6 start
+# half-widths (4, single prints 0) and NDXP band (20) (frozen at 8-12 and 15 since step 13a, owner 2026-11-10), so its
+# levels stay apart, its node touches happen and its POC jumps clear its band (merges, jumps and returns are exercised)
 F = {**load_features(), "hold_reaction_pts": 10.0, "history_hold_pts": 10.0, "retest_hold_pts": 10.0,
-     "pair_end_hold_pts": 10.0}
+     "pair_end_hold_pts": 10.0,
+     "chart_level_half_width": {k: (0.0 if k == "single_print" else 4.0) for k in load_features()["chart_level_half_width"]},
+     "node_band": {**load_features()["node_band"], "NDXP": 20}}
 # the step-13 variants on, and the label distances apart (structure label / history 12, retests / pair cut 10)
 F_VAR = {**F, "node_relevance_top_n": 5, "node_role_at_formation": "strike_side", "hold_reaction_pts": 12.0,
          "history_hold_pts": 12.0}
@@ -322,6 +326,29 @@ def test_no_lookahead_with_the_step13_variants(full_var, t, how):
     want = snapshot(sf, t)
     assert want["events"] and want["rows_t"]
     same(want, snapshot(variant(full_var, t, how, f=F_VAR), t), f"how={how}")
+
+
+# the same synthetic day at the configured (frozen, owner 2026-11-10, SPEC §13 Q-step13a-2) chart half-widths and NDXP
+# band, so the cut / shift check also runs on the real config; only the hold distances keep the synthetic day's values
+# (F); no path-coverage asserts (the day was built around the start widths)
+F_REAL = {**F, "chart_level_half_width": load_features()["chart_level_half_width"],
+          "node_band": load_features()["node_band"]}
+
+
+@pytest.fixture(scope="session")
+def full_real():
+    nq, es, boards, gp = base_data()
+    return nq, es, boards, gp, build(nq, es, boards, gp, f=F_REAL)
+
+
+@pytest.mark.parametrize("t", TIMES[1:3])
+@pytest.mark.parametrize("how", ["cut", NS, 60 * NS, "changed"])
+def test_no_lookahead_at_the_frozen_widths(full_real, t, how):
+    nq, es, boards, gp, sf = full_real
+    assert F_REAL["chart_level_half_width"] != F["chart_level_half_width"] and F_REAL["node_band"] != F["node_band"]
+    want = snapshot(sf, t)
+    assert want["events"] and want["rows_t"]          # something to compare, not a coverage check
+    same(want, snapshot(variant(full_real, t, how, f=F_REAL), t), f"how={how}")
 
 
 def test_the_build_reads_only_configuration_its_key_covers():
