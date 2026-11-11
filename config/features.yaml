@@ -13,11 +13,15 @@ zone_join_buffer: 5             # NQ pts; owner 2026-11-04 (Q-step12a (2)): a jo
 zone_qualify_buffer: 5          # NQ pts; owner 2026-11-04 (Q-step12a (2)): a kept member stays while it qualifies with another kept member within this much more (bands <= this apart, or centres <= confluence_tol + this; F5.3 (b)); never tuned
 rearm_dist: 10                  # NQ pts (also a crossed member's own re-arm for its post-cross retests, Q-step12b (c), (d))
 entry_reprice_tol: 2            # NQ pts
-# Chart-level half-widths per level type (NQ pts; F5.14, F15 rows 3-4, approved 2026-10-05): start values for steps 11-12,
-# replaced at step 13 by the reaction-distance report (frozen on months 1-4), never above the cap.
-chart_level_half_width: {vwap: 4, vwap_band: 4, poc: 4, lvn: 4, on_extreme: 4, pdh_pdl: 4, prior_rth: 4, prior_week: 4, ib: 4, retested_extreme: 4, single_print: 0, em_level: 4, va_edge: 4}
+# Chart-level half-widths per level type (NQ pts; F5.14, F15 rows 3-4): the start values for steps 11-12 (approved 2026-10-05) were 4
+# (single prints 0); frozen_from: months 1-4 (owner 2026-11-10, SPEC §13 Q-step13a-2): the step-13a reaction-distance report (build
+# 58b311aa6985, 84 sessions, reading B + the return rule, q0.8 of all CME hours clipped to the cap, to the tick; <reports_dir>/step13/reactions.md):
+# the six line types at the 12-pt cap (measured q0.8 12.1-15.2), the highs/lows as measured, prior_week = the pooled highs/lows fallback
+# (69 reactions), single_print its start value 0; all-hours widths kept over the RTH-only ones (the four flagged types differ by 1-2 ticks).
+chart_level_half_width: {vwap: 12, vwap_band: 12, poc: 12, lvn: 12, on_extreme: 9, pdh_pdl: 8.5, prior_rth: 8, prior_week: 8.25, ib: 8.25, retested_extreme: 8.25, single_print: 0, em_level: 12, va_edge: 12}   # frozen_from: months 1-4
 chart_level_half_width_cap: {vwap: 12, vwap_band: 12, poc: 12, lvn: 12, on_extreme: 12, pdh_pdl: 12, prior_rth: 12, prior_week: 12, ib: 12, retested_extreme: 12, single_print: 6, em_level: 12, va_edge: 12}
-node_band: {QQQ: 0.5, SPY: 0.5, SPX: 5, NDXP: 20}   # in each underlying's own units; NDXP confirmed at step 13
+node_band: {QQQ: 0.5, SPY: 0.5, SPX: 5, NDXP: 15}   # in each underlying's own units; QQQ/SPY/SPX fixed (owner); NDXP frozen_from: months 1-4
+                                                    # (owner 2026-11-10, SPEC §13 Q-step13a-2: the smallest of ±10/15/20 covering the q0.8 13.14 NDXP $; was 20)
 min_node_pct_of_king: 0.25      # owner
 node_drop_pct: 0.20
 node_relevance_min_sec: 60      # owner 2026-11-04 (Q-step12a (3)): a marginal join (>= min_node_pct_of_king, < node_relevance_fast_pct) and every leave

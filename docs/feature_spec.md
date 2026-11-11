@@ -86,7 +86,7 @@
 - *Params:* `ratio_open_skip_sec` (SPEC).
 - *Test:* an NDXP board with `asOf` 09:30:30 is not applied and the NDXP map stays null; a QQQ board at 09:30:30 is applied.
 
-**F1.4 Node band.** Half-band per map `node_band` {QQQ, SPY, SPX, NDXP} in the underlying's units (owner; NDXP confirmed at step 13). The band of strike k is [k − b, k + b] in underlying units → [(k − b)·R, (k + b)·R] on the futures.
+**F1.4 Node band.** Half-band per map `node_band` {QQQ, SPY, SPX, NDXP} in the underlying's units (owner; NDXP ±15 from the step-13a reaction-distance report, frozen from months 1–4, owner 2026-11-10, SPEC §13 Q-step13a-2; ±20 was the start). The band of strike k is [k − b, k + b] in underlying units → [(k − b)·R, (k + b)·R] on the futures.
 
 **F1.5 Order-price rounding (§5.1).** Order prices only, to 0.25: stops **away** from entry, targets **toward** entry, passive limit entries to the **passive** side (a long limit down, a short limit up). Marketable and stop-limit limits are `max_entry_slip_ticks` beyond their reference (F7). **Test:** a long stop at 30,100.10 → 30,100.00; a long target at 30,150.10 → 30,150.00; a short target at 30,050.10 → 30,050.25.
 
@@ -746,6 +746,7 @@ Computed as of the touch for events and as of `decision_ts` for pairs:
   - **Single prints (owner 2026-11-10):** the half-width stays at its start value (0): their near edge moves as the run gets filled (a trade inside the run fills those bins), so price can't be measured past it and the distance is 0 under every reading.
   - **Thin types:** a type with fewer than 100 reactions over months 1–4 gets no width from its own numbers; `prior_week` (owner 2026-11-10): the pooled highs/lows quantile (`tune_grids_13.detectors.flip_margin.groups.highs_lows`), clipped to its cap.
   - **Half-width:** the `react_width_q` quantile of reaction distances per type, clipped to the cap.
+  - **Frozen from months 1–4 (owner 2026-11-10, SPEC §13 Q-step13a-2):** vwap, vwap_band, poc, lvn, em_level and va_edge 12 (the cap); on_extreme 9, pdh_pdl 8.5, prior_rth 8, ib 8.25, retested_extreme 8.25; prior_week 8.25 (the pooled highs/lows fallback, 69 reactions); single_print 0 (its start value); the all-hours widths. The chart cross rule (F5.2) is unchanged: a hold dipping a full settled 1-minute bar past line ± 12 is labelled broke (an upper bound of 6.6% of line-type holds on months 1–4), a known label limitation (a cross margin is SPEC §13 Q-v2 Idea 5).
 - Excluded: the golden zone, gameplan zones, GEX nodes (they use `node_band`) and dark pools (`dp_band`).
 - *Params:* `chart_level_half_width`, `chart_level_half_width_cap` (per type), `react_pts`, `react_minutes`, `react_width_q`.
 - *Test:* five hand-built approaches with penetrations {0, 1, 2, 3, 10}, where the last one doesn't react → the quantile is taken over {0, 1, 2, 3}. A turn 4 pts before the line → a near miss (left out, shortfall 4); a touch at the line exactly → 0; 20 past, a 10-pt reversal and back across the line within the window → 20; the same without coming back across after the deepest point → a break (no return).
@@ -1287,7 +1288,7 @@ POC ties: (a) the price closest to the profile's midpoint; (b) the price closest
 | 1 | `zone_proximity` | 5 NQ pts | a small buffer (~1/8 of a QQQ node band) so a touch starts just before the band | features | tuned-13 |
 | 2 | `confluence_tol` | 10 NQ pts | merges thin chart levels whose bands don't overlap; = `rearm_dist`, well under `max_zone_width` (60) | features | tuned-13 |
 | 3 | `chart_level_half_width_cap` | 12 NQ pts per line type (VWAP lines and bands, POC, LVN, ON / PDH-PDL / prior RTH / prior week / IB high-low / retested extremes, expected-move lines); single prints 6 | two capped levels merged at `confluence_tol` span 10 + 2 × 12 = 34 pts, well inside `max_zone_width` (60); single-print bands already span the run | features | cap |
-| 4 | `chart_level_half_width` | 4 NQ pts per line type; single prints 0 (SPEC §5.3: start 0, the unfilled run is the band) | a narrow start for steps 11–12 only; the step-13 reaction report replaces it (frozen on months 1–4) | features | frozen at step 13 |
+| 4 | `chart_level_half_width` | 4 NQ pts per line type; single prints 0 (SPEC §5.3: start 0, the unfilled run is the band) | a narrow start for steps 11–12 only; the step-13 reaction report replaces it (frozen on months 1–4; done 2026-11-10: line types 12, highs/lows 8–9, single prints 0, SPEC §13 Q-step13a-2) | features | frozen at step 13 |
 | 5 | `lean_window` | **1 min** (owner 2026-10-05; proposed 5) | owner: "accumulation shifts quickly" | features | owner |
 | 6 | `regime_band` | **1** (% of spot; owner 2026-10-05; proposed 2) | ≈ ±1.2 EM, the nodes near enough to matter today; well inside `skylit_max_strikes` | features | owner |
 | 7 | ~~`roll_window_min`~~ | removed (owner 2026-10-05) | a roll stays active until it is rolled back, no timer (F2.11) | — | — |
@@ -1438,7 +1439,7 @@ POC ties: (a) the price closest to the profile's midpoint; (b) the price closest
 **Retest variants (`tune_grids_13.retest_variants`; built 13-0):** `retest_lookback_sessions` {**10**, 3, 5} (owner 2026-11-05, SPEC §13 Q-density (d); F3.8), trades at zones with a retested-extreme member reported; scored the same way; 10 stays unless another is higher with the interval excluding 0; if both 3 and 5 are, the larger lower bound wins. Searched after `node_role_at_formation`. Cost: 2 full months 1–4 rebuilds.
 - `flip_margin` is per level type (SPEC §11): 14 NQ types (the keys of `flip_margin` in `features.yaml`, mapped from the registry sub-types in F5.14). Three groups instead of 14 types keep the run count down (owner-approved, Q23); a group's winner is written for each of its types. ES-side types take their NQ counterpart's value × ES ÷ NQ (F0.11): SPY/SPX nodes from GEX nodes, SPY dark pools from chart lines, ES ON high/low and PDH/PDL from highs/lows.
 - `max_zone_width` (60) and `rearm_dist` (10) keep their SPEC values (one global value each, F12).
-- The chart-level half-widths and the NDXP band (±10 / 15 / 20) come from the reaction-distance report (F5.14), not from a grid; the owner confirms the NDXP band and `dp_band` there.
+- The chart-level half-widths and the NDXP band (±10 / 15 / 20) come from the reaction-distance report (F5.14), not from a grid; the owner confirms the NDXP band and `dp_band` there (done 2026-11-10, SPEC §13 Q-step13a-2: widths frozen, NDXP ±15; `dp_band` skipped while `dp_in_model` is false).
 
 **Execution parameters (`tune_grids_13`), re-simulated from the stored paths.**
 - The order type and time-to-live are searched per style ((c) and (d), each on its own single-style policy) as a **full joint grid**: they interact (a passive limit needs a longer life than a marketable one), and re-simulations are cheap.

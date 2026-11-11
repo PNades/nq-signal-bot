@@ -61,7 +61,7 @@ def test_engine_gives_ib_its_roles_and_replaces_it_at_1030():
     assert ib[f"ib_low-{DAY}"][0].state.initial_role == ls.FLOOR
     assert ib[f"ib_high-{DAY}-1030"][0].state.initial_role is None        # fresh: the approach rule
     assert cs.level_at(f"ib_high-{DAY}", o + 59 * MIN) is not None and cs.level_at(f"ib_high-{DAY}", o + 60 * MIN) is None
-    assert cs.level_at(f"ib_high-{DAY}-1030", o + 60 * MIN)["band"][0] == approx(20_210.0 - 4)
+    assert cs.level_at(f"ib_high-{DAY}-1030", o + 60 * MIN)["band"][0] == approx(20_210.0 - load_features()["chart_level_half_width"]["ib"])
 
 
 # --- Q-step11b (3): a carried single print keeps its ids --------------------------------------------------------
