@@ -207,6 +207,7 @@ class Touch:
     part: str
     zone_id: int
     touch_group: int        # a deep-zone touch never shares a group with a shallow-zone touch (owner 2026-10-27)
+    t_armed: float | None = None   # when that zone was last armed (step 13b: stop candidate 1's swing, F11.1)
 
 
 class GoldenTouches:
@@ -225,6 +226,8 @@ class GoldenTouches:
     def __init__(self, fib: GoldenFib, zone_proximity: float, rearm_dist: float):
         self.fib, self.prox, self.rearm = fib, zone_proximity, rearm_dist
         self._armed: dict[int, bool] = {}
+        self._armed_at: dict[int, float] = {}
+        self.arms: list[tuple[float, int]] = []   # (t, zone_id) of every arm (step 13b: an audit ends at re-arm, F6.1)
         self._next_group = 0
 
     def depth(self, price: float) -> float:
@@ -246,10 +249,12 @@ class GoldenTouches:
             armed = self._armed.get(zid, False)
             if armed and touch:
                 self._next_group += 1
-                out.append(Touch(t, part, zid, self._next_group))
+                out.append(Touch(t, part, zid, self._next_group, self._armed_at.get(zid)))
                 self._armed[zid] = False
             elif not armed and arm:
                 self._armed[zid] = True
+                self._armed_at[zid] = t
+                self.arms.append((t, zid))
         return out
 
 

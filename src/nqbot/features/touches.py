@@ -79,6 +79,8 @@ class Touch:
     part: str | None = None          # golden_zone_part
     group: int | None = None
     event_id: str = ""
+    t_armed: int | None = None       # the zone's last re-arm before the touch (step 13b, stop candidate 1, F11.1); None
+                                     # for a formation touch of an unarmed zone
 
     @property
     def direction(self) -> int:
@@ -100,6 +102,7 @@ class ZoneTouches:
     disarms: list = field(default_factory=list)     # (zone_id, t, reason) for reports
     own_arms: int = 0                                # zones armed by a member's own re-arm (reports)
     formation_touches: int = 0                       # formation touches recorded (reports)
+    arms: list = field(default_factory=list)         # (zone_id, t) of every arm (step 13b: an audit ends at re-arm, F6.1)
 
     def run(self) -> ZoneTouches:
         for zid in self.book.zone_ids():
@@ -110,6 +113,7 @@ class ZoneTouches:
     def _zone(self, zid: str) -> None:
         tape = self.tape
         armed, side, via = False, 0, None
+        t_arm = None
         for a, z, members in self.book.segments(zid):
             i, j = tape.idx_before(a), tape.idx_before(z)
             if j <= i:
@@ -146,7 +150,7 @@ class ZoneTouches:
                         dn = dn[dn + k >= held[-1]]
                         e = min((x[0] for x in (up, dn) if len(x)), default=None)
                         if fk is not None and (e is None or fk[0] - k <= e):
-                            k = self._formation_touch(zid, fk, i, p, lo, hi, members)
+                            k = self._formation_touch(zid, fk, i, p, lo, hi, members, None)
                             continue
                         if e is None:
                             break
@@ -159,6 +163,8 @@ class ZoneTouches:
                             k += e + 1
                             continue
                         armed, side, via = True, s, None
+                        t_arm = t
+                        self.arms.append((zid, t))
                         if own_up is not None and not ((pk[e] > hk[e] + pr + rd) if s > 0 else (pk[e] < lk[e] - pr - rd)):
                             # armed by a member's own re-arm only: its band governs the touch (Q-step12b (c))
                             via = next(m for m, (u, d, _, _) in sorted(own.items()) if (u if s > 0 else d)[k + e])
@@ -175,7 +181,7 @@ class ZoneTouches:
                     e, what = min(((x[0], w) for x, w in hits if len(x)), default=(None, None))
                     if fk is not None and (e is None or fk[0] - k <= e):
                         armed, via = False, None
-                        k = self._formation_touch(zid, fk, i, p, lo, hi, members)
+                        k = self._formation_touch(zid, fk, i, p, lo, hi, members, t_arm)
                         continue
                     if e is None:
                         break
@@ -183,18 +189,19 @@ class ZoneTouches:
                     t = int(tape.ts[idx])
                     if what == "touch":
                         self.touches.append(Touch(zid, t, idx, float(p[k + e]), side, tuple(members),
-                                                  float(lo[k + e]), float(hi[k + e])))
+                                                  float(lo[k + e]), float(hi[k + e]), t_armed=t_arm))
                     else:
                         self.disarms.append((zid, t, what))
                     armed, via = False, None
                     k += e + 1
 
-    def _formation_touch(self, zid: str, fk: tuple, i: int, p, lo, hi, members) -> int:
-        """Record a formation touch at segment index fk[0] in role fk[1]; returns the next index to look at."""
+    def _formation_touch(self, zid: str, fk: tuple, i: int, p, lo, hi, members, t_arm: int | None) -> int:
+        """Record a formation touch at segment index fk[0] in role fk[1] (`t_arm`: the zone's arm time if it was armed
+        then, else None); returns the next index to look at."""
         k = fk[0]
         side = 1 if fk[1] == FLOOR else -1
         self.touches.append(Touch(zid, int(self.tape.ts[i + k]), i + k, float(p[k]), side, tuple(members),
-                                  float(lo[k]), float(hi[k])))
+                                  float(lo[k]), float(hi[k]), t_armed=t_arm))
         self.formation_touches += 1
         return k + 1
 
@@ -300,8 +307,9 @@ def golden_touches(orr, tape: Tape) -> list[Touch]:
         d = orr.drawing_at(t)
         side = 1 if d.orientation == gz.LONG else -1
         lo, hi = d.band(*orr.fib.fibs(tc.part))
+        t_arm = None if tc.t_armed is None else orr._ns(tc.t_armed)
         out.append(Touch(golden_zone_id(tc.zone_id), int(t), int(idx), float(tape.price[idx]), side,
-                         (), float(lo), float(hi), kind="golden", part=tc.part))
+                         (), float(lo), float(hi), kind="golden", part=tc.part, t_armed=t_arm))
     return out
 
 

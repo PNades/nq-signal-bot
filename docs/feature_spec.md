@@ -793,6 +793,7 @@ Computed at the touch and at `decision_ts`:
 - There is no depth or time limit. The audit dies only when the zone itself is crossed (F5.4).
 - It must complete before re-arm. A re-arm during the trigger bar itself doesn't cancel it: re-arm takes effect only after that bar closes.
 - *Outputs (pair columns, as of `decision_ts`):* `audit_depth` (the deepest point into or past the band, in pts and as a fraction of the width) and `audit_seconds_inside`.
+- **Every completion is a firing (owner 2026-11-10, SPEC §13 Q-step13b (2); built 13b, `events/triggers.py`):** after a completion, a later 1-minute close outside the band on the approach side completes again (firing n = 2, 3, …) if a trade traded inside the band after the previous trigger bar's close, before re-arm and before the event's `t_pair_end`; each is its own decision point. A sweep reclaim (F6.2) is that same completion at a high/low, tagged `trigger_kind` = sweep_reclaim when a sweep-eligible member swept since the touch or the previous completion.
 - *Test:* ceiling [100, 102]. A trade at 101 at 10:00:20; the 10:00 bar closes inside the band at 100.5; the 10:01 bar closes at 99.75 → the audit completes at 10:02:00 with trigger bar 10:01.
 
 ### F6.2 Sweep reclaim (style (c) trigger at highs/lows)
@@ -848,6 +849,8 @@ Each removal takes effect `order_latency_sec` after it occurs; a fill before the
 *Params:* `entry_ttl_sec`, `entry_order_type` per style (*exec*, frozen at step 13 or 19), `max_entry_slip_ticks`, `exit_slippage_ticks`, `order_latency_sec`, `entry_reprice_tol`.
 
 *Test:* one case per order type, including a stop-limit partial fill and a target that is touched but not traded through.
+
+**No `mbp-1` (owner 2026-11-10, SPEC §13 Q-step13b (3)):** a marketable limit is `no_book` (no fill, no label); a stop-limit fills at its triggering trade's price (capped at the limit), `entry_no_book`; a market exit uses the trades only, `exit_no_book`. Built 13b in `labeler/fills.py` and `labeler/outcomes.py` (tests `tests/test_labeler.py`); the as-built readings are in SPEC §13 Q-step13b (b).
 
 ---
 
@@ -1044,8 +1047,8 @@ Candidates within `stop_merge_ticks` of each other are merged. Area events use o
 
 ### F11.2 Target candidates (§6.3)
 - Candidates: every registry zone and confluence zone in the trade direction, each at its **near edge** and at its **centre** (bands as of `decision_ts`); the golden-zone extensions; the gameplan's T1/T2 (a range target is a band: near edge and centre; a target with no price is none, F8).
-- At most `max_target_candidates` of the nearest distinct zones with net RR ≥ `pair_build_min_rr` at default costs are kept, plus the 1:2.5 baseline.
-- **Low-RR extension (owner 2026-11-10, SPEC §13 Q-flexfarm (1); built at step 13b):** on top of that unchanged set, up to 3 of the nearest distinct zones with net RR in [0.25, `pair_build_min_rr`) at default costs; only the Lucid Flex farming challenger's scorer trains on them (the main pair scorer and the 13c tuning policy use RR ≥ 0.8 / ≥ 1:1 only). The builder counts pairs by RR band, and a test shows the ≥ 0.8 pairs and their labels are identical with and without the extension.
+- At most `max_target_candidates` of the nearest distinct zones with net RR ≥ `pair_build_min_rr` at default costs are kept, plus the 1:2.5 baseline. **Counting (owner 2026-11-10, SPEC §13 Q-step13b (4)):** a zone counts if one of its two prices (near edge, centre) has net RR ≥ `pair_build_min_rr`, and only those prices are built, nearest zones first; the golden-zone fib 0 / −0.272 / −0.618 (net RR ≥ `pair_build_min_rr`) and the baseline (`baseline_rr` 2.5 × the stop's distance, any RR) are outside the count; equal prices once; per decision point × order type × stop (`labeler/candidates.py`).
+- **Low-RR extension (owner 2026-11-10, SPEC §13 Q-flexfarm (1); built at step 13b):** on top of that unchanged set, up to `pair_ext_max_zones` (3) of the nearest distinct zones not in it with prices at net RR in [`pair_ext_min_rr` (0.25), `pair_build_min_rr`) at default costs; only the Lucid Flex farming challenger's scorer trains on them (the main pair scorer and the 13c tuning policy use RR ≥ 0.8 / ≥ 1:1 only). The builder counts pairs by RR band, and a test shows the ≥ 0.8 pairs and their labels are identical with and without the extension.
 - Pair features: distance (ATR, EM), target type, confluence at the target, target-node velocity, and obstacles in between (NQ zones plus S&P path nodes, F2.20).
 
 ### F11.3 Breakeven "first structure" (§6.4)
@@ -1155,6 +1158,7 @@ Start values are in F15 (part 2); grids are in F16 (part 3). "SPEC" = the SPEC a
 | `abs_stop_buffer`, `abs_stop_window_sec`, `stop_buffer`, `stop_buffer_floor`, `entry_ttl_sec`, `entry_order_type` | features (frozen) / settings (start) | exec | F7, F11.1 |
 | `stop_merge_ticks`, `min_stop_pts`, `max_stop_pts` | features | SPEC (null, owner) | F11.1 |
 | `swing_lookback_sec`, `max_target_candidates`, `pair_build_min_rr`, `style_tie_ev_r` | settings | SPEC | F11.1–F11.2, F6.4 |
+| `pair_ext_min_rr` (0.25), `pair_ext_max_zones` (3), `baseline_rr` (2.5) | settings | owner 2026-11-10 (Q-flexfarm (1)), §6.3 | F11.2 |
 | `max_entry_slip_ticks`, `exit_slippage_ticks`, `order_latency_sec`, `map_latency_sec` | settings | SPEC / measured | F0.1, F7 |
 | `hold_reaction_pts`, `hold_window_min` | features | label | F11.4 |
 | `trig_fav_ticks`, `trig_adv_ticks`, `trig_window_sec` | features | label | F11.5 |

@@ -234,6 +234,8 @@ class ZoneBook:
     anchors: dict = field(default_factory=dict)        # zone_id -> founding level_ids
     recomputes: int = 0
     candidates: int = 0
+    step_time_candidates: bool | None = None           # None = the module default (STEP_TIME_CANDIDATES); False = the
+                                                       # legacy book, only for the step-13b/13d zone comparison count
     _segs: dict | None = None
 
     def _p(self, t: int) -> tuple[float, float, float, float]:
@@ -333,7 +335,8 @@ class ZoneBook:
                     lo1, hi1 = m.band.at_trades(s0, i1)
                     lo2, hi2 = o.band.at_trades(s0, i1)
                     ts = tape.ts[s0:i1]
-                    steps = o.change_times if (STEP_TIME_CANDIDATES and o.change_times is not None) else None
+                    use_steps = STEP_TIME_CANDIDATES if self.step_time_candidates is None else self.step_time_candidates
+                    steps = o.change_times if (use_steps and o.change_times is not None) else None
                     if steps is not None:
                         steps = np.asarray(steps, dtype=np.int64)
                         steps = steps[(steps > ts[0]) & (steps < z)]

@@ -952,6 +952,25 @@ def _add_step13(sub: argparse._SubParsersAction) -> None:
                                              "runs this in its own process)")
     p.add_argument("date", type=_date)
     s13.add_parser("reactions-report", help="step 13a: the widths proposal, charts and tables (reactions.md)")
+    # step 13b (owner 2026-11-10, SPEC §13 Q-step13b): smoke run, counts, slippage, labeler, budget
+    p = s13.add_parser("events-day", help="step 13b: the engine stage and the labeler on one development session, "
+                                          "twice, with times, pairs, disk and the extrapolation (events_day_<D>.md)")
+    p.add_argument("date", type=_date)
+    s13.add_parser("counts", help="step 13b: style-(c) firings, the flip checkpoint, golden-zone counts and the 13d "
+                                  "build counts from the months 1-4 build (counts.md)")
+    s13.add_parser("slippage-plan", help="step 13b: record the slippage job's chunks (then: nqbot run step13_slippage)")
+    p = s13.add_parser("slippage-day", help="step 13b: one session's stop slippage from mbp-1 (the job runs this)")
+    p.add_argument("date", type=_date)
+    s13.add_parser("slippage-report", help="step 13b: the exit_slippage_ticks proposal and the be_offset_ticks re-check")
+    p = s13.add_parser("labels-plan", help="step 13b: the labeler's plan and key (then: nqbot run step13_labels)")
+    p.add_argument("--firings-ok", action="store_true", help="the owner has read the style-(c) firing examples "
+                                                              "(more than 5 on an event; owner 2026-11-10)")
+    p.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE",
+                   help="a labeler setting for this run (13c: e.g. stop_buffer=8); part of the labels key")
+    p = s13.add_parser("labels-day", help="step 13b: one session's pairs, fills and paths (the job runs this)")
+    p.add_argument("date", type=_date)
+    s13.add_parser("labels-report", help="step 13b: the labels report (identity check, RR bands, time, disk)")
+    s13.add_parser("budget", help="step 13b: the step-13 budget re-estimated from the measured months 1-4 rebuild")
 
 
 def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
@@ -960,6 +979,7 @@ def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
     from nqbot.checks import feature_build as fb
     from nqbot.checks import step13 as s13
     from nqbot.checks import step13a as s13a
+    from nqbot.checks import step13b as s13b
     from nqbot.checks.step8b import CheckRefused, Env
     from nqbot.config import load_features
     from nqbot.jobs.runner import record_plan
@@ -967,7 +987,29 @@ def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
 
     env = Env(settings=settings, features=load_features(), paths=paths, log=log, cal=cal_mod.load())
     try:
-        if args.check == "reactions-plan":
+        if args.check == "events-day":
+            print(s13b.events_day(env, args.date))
+        elif args.check == "counts":
+            print(s13b.counts(env))
+        elif args.check == "slippage-plan":
+            done, total = record_plan(paths, s13b.JOB_SLIP, s13b.slip_chunk_ids(env))
+            print(f"{s13b.JOB_SLIP}: {done}/{total} chunks done; run: uv run nqbot run {s13b.JOB_SLIP} --until HH:MM")
+        elif args.check == "slippage-day":
+            s13b.slippage_day(env, args.date)
+        elif args.check == "slippage-report":
+            print(s13b.slippage_report(env))
+        elif args.check == "labels-plan":
+            plan = s13b.labels_plan(env, args.firings_ok, fb.parse_overrides(args.overrides) if args.overrides else None)
+            done, total = record_plan(paths, s13b.JOB_LABELS, s13b.labels_chunk_ids(env))
+            print(f"{s13b.JOB_LABELS}: labels key {plan['label_key']} on build {plan['build_key']}; {done}/{total} "
+                  f"chunks done; run: uv run nqbot run {s13b.JOB_LABELS} --until HH:MM")
+        elif args.check == "labels-day":
+            s13b.labels_day(env, args.date)
+        elif args.check == "labels-report":
+            print(s13b.labels_report(env))
+        elif args.check == "budget":
+            print(s13b.budget(env))
+        elif args.check == "reactions-plan":
             done, total = record_plan(paths, s13a.JOB, s13a.chunk_ids(env))
             print(f"{s13a.JOB}: {done}/{total} chunks done; run: uv run nqbot run {s13a.JOB} --until HH:MM")
         elif args.check == "reactions-day":
@@ -986,7 +1028,8 @@ def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
             s13.jump_plot(env)
         else:
             s13.report(env)
-    except (s13.Refused, s13a.Refused, fb.BuildRefused, sb.Refused, CheckRefused, NotDevelopmentMonth) as e:
+    except (s13.Refused, s13a.Refused, s13b.Refused, fb.BuildRefused, sb.Refused, CheckRefused,
+            NotDevelopmentMonth) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
     return 0

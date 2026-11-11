@@ -78,6 +78,9 @@ enabled_entry_styles: [c, d]     # (a)/(b) are built at step 19 (order flow); st
 style_tie_ev_r: 0.05
 max_target_candidates: 10
 pair_build_min_rr: 0.8
+pair_ext_min_rr: 0.25            # owner 2026-11-10 (SPEC §13 Q-flexfarm (1)): the low-RR pair extension, net RR in [0.25, 0.8) at default
+pair_ext_max_zones: 3            # costs, up to 3 zones nearest first on top of the unchanged set (only the Lucid Flex farming challenger)
+baseline_rr: 2.5                 # §6.3: the fixed 1:2.5 baseline target (2.5 x each structural stop's distance), the gate-16/20 baseline
 swing_lookback_sec: 300
 lives_dust_usd: 25
 max_loss_run_rate: 0.15          # §6.5b start value of each account's max_loss_run_rate (renamed from max_three_loss_rate,

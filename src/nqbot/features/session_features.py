@@ -187,10 +187,21 @@ class SessionFeatures:
         level_t = zt.touches
         self.touch_stats = {"own_arms": zt.own_arms, "formation_touches": zt.formation_touches}
         cont = {x.uid: x for x in self.containers}
-        gp_t = tch.ZoneTouches(self.nq, FixedBook(self.containers, self.end_ns), cont, prox, rearm).run().touches
+        gp_zt = tch.ZoneTouches(self.nq, FixedBook(self.containers, self.end_ns), cont, prox, rearm).run()
+        gp_t = gp_zt.touches
         for x in gp_t:
             x.kind = "gameplan"
         gold = tch.golden_touches(c.cs_nq.opening, self.nq) if c.cs_nq.opening is not None else []
+        # every zone's arm times (step 13b: a style-(c) audit must complete before its zone re-arms, F6.1)
+        self.arms: dict[str, list] = {}
+        for zid, t in zt.arms + gp_zt.arms:
+            self.arms.setdefault(zid, []).append(int(t))
+        if c.cs_nq.opening is not None:
+            orr = c.cs_nq.opening
+            for t, n in orr.touches_engine.arms:
+                self.arms.setdefault(tch.golden_zone_id(n), []).append(orr._ns(t))
+        for v in self.arms.values():
+            v.sort()
         self.events = tch.assign_groups(level_t + gp_t + gold)
         self.by_id = {e.event_id: e for e in self.events}
         self.groups: dict[int, frozenset] = {}
@@ -217,16 +228,20 @@ class SessionFeatures:
         """The F11.4 label of `e` at every distance the session reads (the cross is the same for all)."""
         f = self.f
         t_end = slab.window_end(e.t, float(f["hold_window_min"]), self.flat_ns, self.end_ns)
+        cross = self.cross(e, t_end)
+        return {d: slab.label(e, self.nq, cross, t_end, d) for d in sorted({float(f[k]) for k in HOLD_KEYS})}
+
+    def cross(self, e: tch.Touch, t_end: int) -> tuple[int, str] | None:
+        """The zone's cross (F5.4, against the event's role) or its end within (touch, t_end]: (time, 'broke' |
+        'ended'), else None. The structure label's rule; step 13b reads it to remove a pending entry (F7)."""
         if e.kind == "level":
             bars_1m = self.c.cs_nq.bars_1m
             frozen = {m: slab.frozen_single_print(self.nq_levels[m], bars_1m, e.role, e.t, t_end)
                       for m in e.members if self.nq_levels[m].kind == ls.SINGLE_PRINT}
-            cross = slab.zone_cross(self.book, self.nq_levels, e.zone_id, e.role, e.t, t_end, frozen)
-        elif e.kind == "gameplan":
-            cross = slab.container_cross(next(x for x in self.containers if x.uid == e.zone_id), e.role, e.t, t_end)
-        else:
-            cross = slab.golden_cross(self.c.cs_nq.opening, int(e.zone_id[1:]), e.t, t_end)
-        return {d: slab.label(e, self.nq, cross, t_end, d) for d in sorted({float(f[k]) for k in HOLD_KEYS})}
+            return slab.zone_cross(self.book, self.nq_levels, e.zone_id, e.role, e.t, t_end, frozen)
+        if e.kind == "gameplan":
+            return slab.container_cross(next(x for x in self.containers if x.uid == e.zone_id), e.role, e.t, t_end)
+        return slab.golden_cross(self.c.cs_nq.opening, int(e.zone_id[1:]), e.t, t_end)
 
     def _level_ids(self, e: tch.Touch) -> tuple:
         if e.kind == "level":

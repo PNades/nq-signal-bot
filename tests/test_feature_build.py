@@ -121,8 +121,22 @@ def test_roll_shifts_retested_extremes():
     assert c.retested[0]["price"] == 20_250.0 and c.retest_candidates[0]["price"] == 19_250.0
 
 
+@pytest.fixture(autouse=True)
+def _no_engine_stage(monkeypatch):
+    """FakeSF has no zones: the step-13b engine stage (events/, decisions/, ...; `tests/test_events_engine.py`) writes
+    a marker file instead, so the pass-2 path is still exercised end to end."""
+    from nqbot.events import build as ev_build
+
+    def stub(base, sf, rows, damage_day, settings, key):
+        (base / "events").mkdir(parents=True, exist_ok=True)
+        (base / "events" / f"{sf.day_iso}.marker").write_text("x")
+        return {"decisions": len(rows)}
+    monkeypatch.setattr(ev_build, "write_session", stub)
+
+
 class FakeSF:
     """Stands in for a built session (the real engine is covered by the lookahead and smoke tests)."""
+    day_iso = "d"
 
     def __init__(self, n):
         from types import SimpleNamespace

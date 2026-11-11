@@ -179,3 +179,14 @@ def test_step13_tuning_settings():
     assert t["provisional_model"]["num_leaves"] in s["lgbm_grid"]["search"]["num_leaves"]
     assert t["provisional_model"]["min_data_in_leaf"] in s["lgbm_grid"]["search"]["min_data_in_leaf"]
     assert t["cv_folds"] == 4 and t["bootstrap_replicates"] == 2000 and t["detector_scoring"] == "combined_cd"
+
+
+def test_step13b_pair_extension_and_baseline_keys():
+    """Owner 2026-11-10 (SPEC §13 Q-flexfarm (1)): the low-RR extension down to net RR 0.25, up to 3 zones, below the
+    unchanged pair_build_min_rr 0.8 set; the fixed 1:2.5 baseline (§6.3). Simulator-side: never in the build key."""
+    from nqbot.checks.feature_build import NON_BUILD_SETTING_KEYS
+
+    s = load_settings()
+    assert (s["pair_ext_min_rr"], s["pair_ext_max_zones"], s["baseline_rr"]) == (0.25, 3, 2.5)
+    assert s["pair_ext_min_rr"] < s["pair_build_min_rr"] == 0.8
+    assert {"pair_ext_min_rr", "pair_ext_max_zones", "baseline_rr"} <= NON_BUILD_SETTING_KEYS

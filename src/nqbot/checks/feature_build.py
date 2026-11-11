@@ -65,7 +65,7 @@ NON_BUILD_SETTING_KEYS = frozenset({
     "default_risk_usd", "max_entry_slip_ticks", "exit_slippage_ticks", "default_commission_per_mini_rt",
     "default_commission_per_micro_rt", "exit_retry_window_sec", "flat_retry_min", "flat_alert_sec",
     "unknown_alert_min", "webhook_timeout_sec", "entry_ttl_sec", "stop_buffer", "stop_buffer_floor", "entry_order_type",
-    "enabled_entry_styles", "style_tie_ev_r", "lives_dust_usd", "max_loss_run_rate", "be_trigger", "be_offset_ticks",
+    "enabled_entry_styles", "style_tie_ev_r", "pair_ext_min_rr", "pair_ext_max_zones", "baseline_rr", "lives_dust_usd", "max_loss_run_rate", "be_trigger", "be_offset_ticks",
     "guard_check_sec", "guard_flat_grace_sec", "max_engine_restarts", "guard_port", "engine_port", "ui_port",
     "sleep_detect_sec", "clock_max_offset_ms", "clock_max_rtt_ms", "clock_check_min", "ntp_server", "feed_stale_sec",
     "feed_lag_max_ms", "feed_recovery_sec", "deadman_url", "power_poll_sec", "battery_warn_step_pct",
@@ -86,8 +86,9 @@ class BuildRefused(Exception):
 
 # --- keys and paths -------------------------------------------------------------------------------------------
 
-CODE_PARTS = ("features", "checks/session_build.py", "checks/feature_build.py", "calendar.py",
+CODE_PARTS = ("features", "events", "checks/session_build.py", "checks/feature_build.py", "calendar.py",
               "clients/databento_store.py", "clients/skylit_store.py", "gameplan/parser.py")
+# events/ = the step-13b engine stage (Q-dryrun13 (7)); the labeler (labeler/) has its own key (SPEC §13 Q-step13b (1))
 
 
 def code_digest() -> str:
@@ -342,7 +343,9 @@ def build_day_cmd(env: Env, day: date, pass_no: int) -> int:
         if built.state_out.digest() != want:
             raise BuildRefused(f"{day}: pass 2's end state differs from pass 1's checkpoint (the build is not "
                                "deterministic, or the data changed between the passes)")
-        rows, eod = write_day_files(out_dir(env, key), sf, day, key, env.features)
+        rows, eod, ev_info = write_day_files(out_dir(env, key), sf, day, key, env.features, settings=env.settings,
+                                             damage_day=damage.get(day), events=True)
+        summary.update(ev_info)
         summary.update(rows=len(rows), tradeable=sum(1 for r in rows if r["tradeable"]),
                        labels={lab: sum(1 for x in sf.labels.values() if x.label == lab)
                                for lab in ("held", "broke", "timeout")},
@@ -355,9 +358,12 @@ def build_day_cmd(env: Env, day: date, pass_no: int) -> int:
     return 0
 
 
-def write_day_files(base: Path, sf, day: date, key: str, features: dict) -> tuple[list[dict], dict | None]:
-    """Pass 2's three files of a session under `base` (touches/, daytype/, outcomes/); returns the touch rows and the
-    EOD day type. The smoke run writes them the same way (to a temporary folder) and reads them back."""
+def write_day_files(base: Path, sf, day: date, key: str, features: dict, *, settings: dict | None = None,
+                    damage_day=None, events: bool = False) -> tuple[list[dict], dict | None, dict]:
+    """Pass 2's files of a session under `base` (touches/, daytype/, outcomes/, levels/ and, with `events`, the
+    step-13b engine stage: events/, decisions/, decision_rows/, level_events/, `events.build`); returns the touch rows,
+    the EOD day type and the engine stage's counts. The smoke run writes them the same way (to a temporary folder) and
+    reads them back; the step-13-0 check harness writes no engine stage."""
     iso = day.isoformat()
     rows = sf.touch_rows()
     write_rows(base / "touches" / f"{iso}.parquet", rows, {"day": iso, "key": key})
@@ -369,7 +375,12 @@ def write_day_files(base: Path, sf, day: date, key: str, features: dict) -> tupl
     write_rows(base / "outcomes" / f"{iso}.parquet", outcomes,
                {"day": iso, "key": key, "note": "outcomes: never read as features"})
     write_levels(base / "levels" / f"{iso}.parquet", sf, {"day": iso, "key": key})
-    return rows, eod
+    info: dict = {}
+    if events:
+        from nqbot.events import build as ev_build
+
+        info = ev_build.write_session(base, sf, rows, damage_day, settings, key)
+    return rows, eod, info
 
 
 def write_levels(path: Path, sf, meta: dict) -> None:
@@ -693,7 +704,8 @@ def build_day_smoke(env: Env, day: date, full_warmup: bool = False) -> Path:
     import shutil
     tmp = env.paths.tmp_dir / f"build_day_smoke_{day.isoformat()}"
     try:
-        write_day_files(tmp, sf, day, "smoke", env.features)
+        write_day_files(tmp, sf, day, "smoke", env.features, settings=env.settings, damage_day=damage.get(day),
+                        events=True)
         back = {part: read_rows([tmp / part / f"{day.isoformat()}.parquet"]) for part in ("touches", "daytype", "outcomes")}
         files_ok = (back["touches"].num_rows == len(rows) and back["daytype"].num_rows == len(dtr)
                     and back["outcomes"].num_rows >= len(sf.events)
