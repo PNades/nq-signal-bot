@@ -73,8 +73,10 @@ def session_rows(sf) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """The session's timeline rows (NQ levels, ES node levels) and its unit values."""
     from nqbot.features.registry import GEX_NODE
 
-    rows = level_rows(list(sf.nq_levels.values()))
-    rows += level_rows(list(sf.es_levels.values()), lambda x: x.rtype == GEX_NODE)
+    # by uid (owner 2026-11-12, SPEC §13 Q-step13b (e)): the registries' order follows carried sets, so it changed
+    # between processes with Python's string hashing; uids are unique per registry
+    rows = level_rows(sorted(sf.nq_levels.values(), key=lambda x: x.uid))
+    rows += level_rows(sorted(sf.es_levels.values(), key=lambda x: x.uid), lambda x: x.rtype == GEX_NODE)
     c = sf.c
     meta = {
         "schema": SCHEMA, "open_ns": int(sf.open_ns), "end_ns": int(sf.end_ns),

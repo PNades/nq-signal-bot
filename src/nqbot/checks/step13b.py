@@ -235,10 +235,12 @@ def labels_report(env: Env) -> Path:
              "| style | order type | RR band | set | pairs |", "|---|---|---|---|---:|"]
     for k, v in sorted(bands.items()):
         lines.append("| " + " | ".join(k.split("|")) + f" | {v:,} |")
-    lines += ["", "## The gap rule (owner 2026-11-10, Q-step13b (b) (vii))", "",
-              "A stop or breakeven exit fills at the worse of its price minus `exit_slippage_ticks` and the first trade "
-              "at or beyond it; a flat-by / news exit never better than the first trade at or after its time. Counted "
-              "over every breakeven rule's exits of filled pairs:", ""]
+    lines += ["", "## The gap rule (owner 2026-11-10/11, Q-step13b (b) (vii), (d))", "",
+              "A stop or breakeven exit fills at the worse of its price minus `exit_slippage_ticks` and the last print "
+              "of the sweep that triggered it (every print at its trigger timestamp); a flat-by / news exit never "
+              "better than the last print of the first sweep at or after its time. Counted over every breakeven rule's "
+              "exits of filled pairs (one pair's exit counted once per rule); the mean extra cost is over the changed "
+              "exits:", ""]
     gap: dict = {}
     for _, x in rows:
         for k, v in (x.get("gap_rule") or {}).items():

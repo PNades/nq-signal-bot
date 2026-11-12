@@ -105,3 +105,141 @@ def test_the_engine_stage_reads_only_configuration_the_build_key_covers(full):  
     finally:
         sf.f = dict(f)
     assert not (s.read & fb.NON_BUILD_SETTING_KEYS) and not (f.read & fb.NON_BUILD_FEATURE_KEYS)
+
+
+# --- the engine speed fix (owner 2026-11-12, SPEC §13 Q-step13b (e)): both changes exact ------------------------------
+
+def _eager_band_track(sf, e, dts, near, centre, tol):
+    """The band track as first built: the whole window's edges at once (the world without the group's retested
+    extreme built whole), then each removal time's first instant."""
+    from nqbot.features.session_tape import NS
+
+    tape = sf.nq
+    end = dts + snap.TRACK_HORIZON_SEC * NS
+    ts = tape.ts[tape.idx_at(dts):tape.idx_at(end)]
+    ot = snap.own_time(sf, e)
+    if ot is not None and len(ts) and int(ts[-1]) >= ot:
+        k = int(np.searchsorted(ts, ot, side="left"))
+        w, we = sf.world(e, ot)
+        a, b = snap._edges_self(sf, e, ts[:k]), snap._edges_self(w, we, ts[k:])
+        lo, hi = np.r_[a[0], b[0]], np.r_[a[1], b[1]]
+    else:
+        lo, hi = snap._edges_self(sf, e, ts)
+    nr = lo if e.direction < 0 else hi
+    ctr = (lo + hi) / 2
+    out = {"t_move_near": None, "t_move_center": None, "t_vanish": None, "t_cross": None}
+    with np.errstate(invalid="ignore"):
+        gone = np.isnan(lo)
+        for name, arr, ref in (("t_move_near", nr, near), ("t_move_center", ctr, centre)):
+            k = np.flatnonzero(gone | (np.abs(arr - ref) > tol + 1e-9))
+            out[name] = int(ts[k[0]]) if len(k) else None
+        k = np.flatnonzero(gone)
+        out["t_vanish"] = int(ts[k[0]]) if len(k) else None
+    x = sf.cross(e, end)
+    if x is not None and x[0] > dts:
+        if x[1] == "broke":
+            out["t_cross"] = int(x[0])
+        elif out["t_vanish"] is None or x[0] < out["t_vanish"]:
+            out["t_vanish"] = int(x[0])
+    return out
+
+
+def _alt_builds(monkeypatch):
+    from nqbot.features import session_features as sfm
+
+    seen = []
+    orig = sfm.SessionFeatures.build
+
+    def build(self):
+        if self.exclude_source is not None:
+            seen.append(self.horizon_ns)
+        return orig(self)
+    monkeypatch.setattr(sfm.SessionFeatures, "build", build)
+    return seen
+
+
+def test_the_engine_speed_fix_changes_no_output(full, monkeypatch):  # noqa: F811
+    """The lazy band track and the horizon-limited worlds give the engine stage's outputs exactly as the eager band
+    track with whole-session worlds (the build before the fix)."""
+    *_, sf = full
+    seen = _alt_builds(monkeypatch)
+    sf._alts.clear()
+    with monkeypatch.context() as m:
+        m.setattr(snap, "band_track", _eager_band_track)
+        m.setattr(snap, "group_horizon", lambda sf_, e_: None)
+        old = eb.session_outputs(sf, sf.touch_rows(), None, S)
+    n_old = len(seen)
+    assert n_old >= 1 and all(h is None for h in seen), "the synthetic day builds a world without a retested extreme"
+    sf._alts.clear()
+    del seen[:]
+    new = eb.session_outputs(sf, sf.touch_rows(), None, S)
+    for k in ("events", "decisions", "decision_rows", "level_events"):
+        same(old[k], new[k], k)
+    assert {k: v for k, v in old["info"].items() if not k.endswith("_sec")} == \
+        {k: v for k, v in new["info"].items() if not k.endswith("_sec")}
+    assert len(seen) <= n_old and all(h is not None for h in seen)
+
+
+def test_a_horizon_world_answers_as_the_whole_one_up_to_its_horizon(full):  # noqa: F811
+    from nqbot.features.session_features import SessionFeatures
+
+    *_, sf = full
+    groups = {}
+    for r in sf.retested_today:
+        if r.source in sf.by_id:
+            e = sf.by_id[r.source]
+            groups.setdefault(sf.group_of(e), e)
+    assert groups
+    for grp, e in sorted(groups.items(), key=lambda x: sorted(x[0])):
+        h = snap.group_horizon(sf, e)
+        whole = SessionFeatures(sf.c, exclude_source=grp).build()
+        part = SessionFeatures(sf.c, exclude_source=grp, horizon_ns=h).build()
+        assert part.horizon_ns == h and part.end_ns < whole.end_ns
+        ot = snap.own_time(sf, e)
+        ts = sf.nq.ts[sf.nq.idx_before(ot):sf.nq.idx_at(h)]
+        ts = sorted(set(ts[::max(1, len(ts) // 150)].tolist()) | {int(ts[-1])}) if len(ts) else []
+        for x in sorted(grp):
+            if x not in whole.by_id:
+                continue
+            ew, ep = whole.by_id[x], part.by_id[x]
+            same([whole.zone_edges(ew, t) for t in ts], [part.zone_edges(ep, t) for t in ts], f"edges {x}")
+            same([sorted(m.uid for m in whole.members_at(ew, t)) for t in ts],
+                 [sorted(m.uid for m in part.members_at(ep, t)) for t in ts], f"members {x}")
+            same([whole.row(ew, t) for t in ts[::10]], [part.row(ep, t) for t in ts[::10]], f"rows {x}")
+        same([whole.book.zones_at(t) for t in ts], [part.book.zones_at(t) for t in ts], "zone book")
+        same([[(z, whole.nq_levels[m].band.at(t)) for z, mem in sorted(whole.book.zones_at(t).items()) for m in mem]
+              for t in ts],
+             [[(z, part.nq_levels[m].band.at(t)) for z, mem in sorted(part.book.zones_at(t).items()) for m in mem]
+              for t in ts], "zone bands")
+
+
+def test_a_cached_horizon_world_is_never_read_past_its_horizon(full, monkeypatch):  # noqa: F811
+    *_, sf = full
+    r = next(r for r in sf.retested_today if r.source in sf.by_id)
+    e = sf.by_id[r.source]
+    seen = _alt_builds(monkeypatch)
+    sf._alts.clear()
+    ot = snap.own_time(sf, e)
+    w1, _ = sf.world(e, ot, need=ot, horizon=ot + 10**9)
+    assert w1.horizon_ns == ot + 10**9 and seen == [ot + 10**9]
+    assert sf.world(e, ot + 10**9)[0] is w1                   # within its horizon: reused
+    w2, _ = sf.world(e, ot + 2 * 10**9)                        # past it, no horizon asked: the whole session again
+    assert w2 is not w1 and w2.horizon_ns is None and seen == [ot + 10**9, None]
+    sf._alts.clear()
+
+
+def test_level_files_come_in_a_fixed_order(full, staged):  # noqa: F811
+    """Owner 2026-11-12 (Q-step13b (e)): level_events/ and levels/ rows by level uid (the registries' own order came
+    from carried sets, so it changed between processes with the string hash seed)."""
+    from nqbot.features import level_timeline as lt
+
+    *_, sf = full
+    uids = [r["uid"] for r in staged["level_events"]]
+    assert uids and uids == sorted(uids)
+    for lv in list(sf.nq_levels.values()) + list(sf.containers):
+        mine = [(r["t"], r["name"]) for r in staged["level_events"] if r["uid"] == lv.uid]
+        assert mine == [(int(t), n) for t, n in lv.state.events]
+    rows, _ = lt.session_rows(sf)
+    nq = [r["uid"] for r in rows if r["instrument"] == "NQ"]
+    es = [r["uid"] for r in rows if r["instrument"] != "NQ"]
+    assert nq == sorted(nq) and es == sorted(es) and len(nq) == len(sf.nq_levels)

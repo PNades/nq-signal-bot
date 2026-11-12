@@ -109,7 +109,8 @@ def session_outputs(sf, rows: list[dict], damage_day, settings: dict) -> dict[st
         row["n_firings_c"] = nc
         events.append(row)
     levels = []
-    for lv in list(sf.nq_levels.values()) + list(sf.containers):
+    # levels by uid, each level's own transitions in its order (owner 2026-11-12, Q-step13b (e): a fixed order)
+    for lv in sorted(list(sf.nq_levels.values()) + list(sf.containers), key=lambda x: x.uid):
         g = group_of_level(lv) or (GAMEPLAN if lv.key == "gameplan" else None)
         for t, name in lv.state.events:
             levels.append({"uid": lv.uid, "level_id": lv.level_id, "sub_type": lv.sub_type, "key": lv.key,

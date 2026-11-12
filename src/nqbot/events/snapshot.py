@@ -32,17 +32,30 @@ def own_time(sf, e) -> int | None:
     return min((r.created_ns for r in sf.retested_today if r.source in grp), default=None)
 
 
+def group_horizon(sf, e) -> int:
+    """The latest instant the engine stage reads `e`'s world at (owner 2026-11-12, SPEC §13 Q-step13b (e)): every
+    decision point of the touch group is before its event's `t_pair_end` (Q-step11h (1)), the style-(c) scans stop
+    there, and the band track reads `TRACK_HORIZON_SEC` past a decision point."""
+    return max(int(sf.pair_end[x].t_resolved) for x in sf.group_of(e)) + TRACK_HORIZON_SEC * NS
+
+
 def edges_many(sf, e, ts) -> tuple[np.ndarray, np.ndarray]:
     """The event zone's (lo, hi) at each sorted instant (NaN where it has no edges), the values `zone_edges` gives."""
     ts = np.asarray(ts, dtype=np.int64)
     ot = own_time(sf, e)
     if ot is not None and len(ts) and int(ts[-1]) >= ot:
         k = int(np.searchsorted(ts, ot, side="left"))
-        w, we = sf.world(e, ot)
         a = _edges_self(sf, e, ts[:k])
-        b = _edges_self(w, we, ts[k:])
+        b = _edges_after(sf, e, ot, ts[k:])
         return np.r_[a[0], b[0]], np.r_[a[1], b[1]]
     return _edges_self(sf, e, ts)
+
+
+def _edges_after(sf, e, ot: int, ts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Edges at instants at or after the touch group's own retested extreme (`ot`): from the world without it, built
+    only as far as the engine stage reads it (`group_horizon`)."""
+    w, we = sf.world(e, ot, need=int(ts[-1]), horizon=group_horizon(sf, e))
+    return _edges_self(w, we, ts)
 
 
 def _edges_self(sf, e, ts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -102,7 +115,7 @@ def _members_edges(levels: list, t: int) -> tuple[float, float, str, str] | None
 
 
 def entry_zone(sf, e, t: int) -> dict[str, Any] | None:
-    w, we = sf.world(e, t)
+    w, we = sf.world(e, t, horizon=group_horizon(sf, e))
     if we.kind == "level":
         got = _members_edges(w.members_at(we, t), t)
         if got is None:
@@ -120,7 +133,7 @@ def zone_list(sf, e, t: int) -> list[dict[str, Any]]:
     """Every other active NQ zone at t (level zones of the book, gameplan containers, the golden zones of the drawing in
     force): {id, kind, lo, hi, lo_src, hi_src}, sorted by lo. Targets (F11.2), stop candidate 3 (F11.1), the first
     structure (F11.3) and the structures reached (§6.5) are all chosen from it."""
-    w, we = sf.world(e, t)
+    w, we = sf.world(e, t, horizon=group_horizon(sf, e))
     out = []
     own = w.book.follow(we.zone_id, t) if we.kind == "level" else None
     for zid, mem in w.book.zones_at(t).items():
@@ -184,17 +197,30 @@ def band_track(sf, e, dts: int, near: float, centre: float, tol: float) -> dict[
     end = dts + TRACK_HORIZON_SEC * NS
     i, j = tape.idx_at(dts), tape.idx_at(end)
     ts = tape.ts[i:j]
-    lo, hi = edges_many(sf, e, ts)
-    nr = lo if e.direction < 0 else hi
-    ctr = (lo + hi) / 2
     out: dict[str, int | None] = {"t_move_near": None, "t_move_center": None, "t_vanish": None, "t_cross": None}
-    with np.errstate(invalid="ignore"):
-        gone = np.isnan(lo)
-        for name, arr, ref in (("t_move_near", nr, near), ("t_move_center", ctr, centre)):
-            k = np.flatnonzero(gone | (np.abs(arr - ref) > tol + 1e-9))
-            out[name] = int(ts[k[0]]) if len(k) else None
-        k = np.flatnonzero(gone)
-        out["t_vanish"] = int(ts[k[0]]) if len(k) else None
+    names = ("t_move_near", "t_move_center", "t_vanish")
+
+    def first_times(ts_part, lo, hi) -> None:
+        """Fill each removal time still missing with its first instant in this part (parts come in time order)."""
+        nr = lo if e.direction < 0 else hi
+        ctr = (lo + hi) / 2
+        with np.errstate(invalid="ignore"):
+            gone = np.isnan(lo)
+            conds = {"t_move_near": gone | (np.abs(nr - near) > tol + 1e-9),
+                     "t_move_center": gone | (np.abs(ctr - centre) > tol + 1e-9), "t_vanish": gone}
+        for name in names:
+            if out[name] is None:
+                k = np.flatnonzero(conds[name])
+                out[name] = int(ts_part[k[0]]) if len(k) else None
+
+    # owner 2026-11-12 (Q-step13b (e)): the part of the window before the touch group's own retested extreme comes
+    # from this session; the world without it is built only if a removal time is still missing after that part (each
+    # time is a first instant, so the later part can't change one already found)
+    ot = own_time(sf, e)
+    k0 = len(ts) if ot is None else int(np.searchsorted(ts, ot, side="left"))
+    first_times(ts[:k0], *_edges_self(sf, e, ts[:k0]))
+    if k0 < len(ts) and any(out[n] is None for n in names):
+        first_times(ts[k0:], *_edges_after(sf, e, ot, ts[k0:]))
     x = sf.cross(e, end)
     if x is not None and x[0] > dts:
         if x[1] == "broke":

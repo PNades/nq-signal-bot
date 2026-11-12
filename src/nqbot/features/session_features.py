@@ -57,6 +57,7 @@ NQ_SUBTYPES = tuple(sorted(SUBTYPE_KEY)) + ("qqq_node", "ndxp_node")
 RTYPES = ("gex_node", "vwap", "volume_profile", "session_hl", "opening_range", "expected_move")
 MAX_RETEST_PASSES = 64   # a guard: one pass per distinct retest creation time in the session, plus one
 MAX_ALT_BUILDS = 2       # sessions built without one touch group's own retested extremes kept at once (§11 Low memory)
+ALT_MARGIN_NS = 5 * 60 * 10**9   # a horizon-limited such build runs 5 min (one 5-minute flip bar, F2.6b) past its horizon
 NODE_TYPES = ("king", "gatekeeper", "significant", "normal")
 # the F11.4 distances (owner 2026-11-06, SPEC §13 Q-density (c)): structure label, history features, F3.8, pair cut
 HOLD_KEYS = ("hold_reaction_pts", "history_hold_pts", "retest_hold_pts", "pair_end_hold_pts")
@@ -109,19 +110,32 @@ class FixedBook:
 
 
 class SessionFeatures:
-    def __init__(self, ctx: SessionContext, exclude_source: str | frozenset | None = None):
+    horizon_ns: int | None = None   # the whole session (a horizon-limited world sets it, `__init__`)
+
+    def __init__(self, ctx: SessionContext, exclude_source: str | frozenset | None = None,
+                 horizon_ns: int | None = None):
         """`exclude_source`: build the session as if the held labels of those events (one event id, or a touch group's
         event ids) had made no retested extreme: the world a touch group's rows are read from after such a level
-        appears (Q-step11g (2); the whole touch group is the event's own, owner 2026-11-01, SPEC §13 Q-step11h (2))."""
+        appears (Q-step11g (2); the whole touch group is the event's own, owner 2026-11-01, SPEC §13 Q-step11h (2)).
+        `horizon_ns` (such a world only; owner 2026-11-12, SPEC §13 Q-step13b (e)): build it only to `horizon_ns` +
+        `ALT_MARGIN_NS`; the build is causal (every quantity at t from data and levels at or before t, the global
+        no-lookahead tests), so everything it answers at or before `horizon_ns` equals the whole-session build's;
+        `world` never reads it later than that."""
         self.c = ctx
         self.exclude_source = (None if exclude_source is None else frozenset([exclude_source])
                                if isinstance(exclude_source, str) else frozenset(exclude_source))
+        if horizon_ns is not None and self.exclude_source is None:
+            raise ValueError("a horizon is only for a session built without a touch group's retested extremes")
         self._alts: dict[str, SessionFeatures] = {}
         self._mine_uids: set[str] = set()
         self.f, self.day = ctx.features, ctx.day
         cs = ctx.cs_nq
         self.nq, self.es = cs.tape, ctx.cs_es.tape
         self.end_ns = cs.end_ns
+        self.horizon_ns: int | None = None    # None: the whole session; else the latest time this build answers for
+        if horizon_ns is not None and int(horizon_ns) + ALT_MARGIN_NS < cs.end_ns:
+            self.horizon_ns = int(horizon_ns)
+            self.end_ns = int(horizon_ns) + ALT_MARGIN_NS
         self.open_ns = rth_open_ns(self.day)
         self.flat_ns = int(cf.flat_by(self.day, ctx.cal, ctx.settings).timestamp()) * 10**9
         self.entry_end_ns = int(cf.entry_end(self.day, ctx.cal, ctx.settings).timestamp()) * 10**9
@@ -263,6 +277,8 @@ class SessionFeatures:
                                         int(f["retest_lookback_sessions"]))
         if self.exclude_source is not None:
             found = [r for r in found if r.source not in self.exclude_source]
+        if self.horizon_ns is not None:   # one made later can't change anything this build answers (causal)
+            found = [r for r in found if r.created_ns <= self.horizon_ns]
         out = []
         for r in sorted((r for r in found if r.level_id not in in_force), key=lambda r: (r.created_ns, r.level_id)):
             # one level per price (owner 2026-11-01, Q-step11g (1)): none within the tolerance of a high/low level
@@ -291,19 +307,28 @@ class SessionFeatures:
         return self.retest_source.get(x.level_id) in self.group_of(e)
 
     # --- queries -------------------------------------------------------------------------------------------------
-    def world(self, e: tch.Touch, t: int) -> tuple[SessionFeatures, tch.Touch]:
+    def world(self, e: tch.Touch, t: int, need: int | None = None,
+              horizon: int | None = None) -> tuple[SessionFeatures, tch.Touch]:
         """The session `e`'s rows at t are read from: this one, or, once the held label of `e` or of a touch-group mate
         has made a retested extreme by t, the session as it would be without those levels (they can merge zones and
         change later labels; owner 2026-11-01, SPEC §13 Q-step11g (2), Q-step11h (2)). The feature build's rows are at
         the touch, always before it; step 13 reads its `decision_ts` rows, zone edges and members through here too
-        (and builds no pair at or after the event's own `t_pair_end`, Q-step11h (1))."""
+        (and builds no pair at or after the event's own `t_pair_end`, Q-step11h (1)).
+        `need`: the latest time the caller reads from the returned world (default t); `horizon` (>= need): how far a
+        new such build may stop (owner 2026-11-12, Q-step13b (e): step 13's engine stage passes the touch group's
+        latest `t_pair_end` + the band track's span); a cached build is reused only if it reaches `need`, else the
+        session is built again (to `horizon`, or whole without one)."""
         grp = self.group_of(e)
         own_t = min((r.created_ns for r in self.retested_today if r.source in grp), default=None)
         if own_t is None or t < own_t:
             return self, e
+        need = int(t if need is None else max(int(need), int(t)))
         alt = self._alts.pop(grp, None)
+        if alt is not None and alt.horizon_ns is not None and need > alt.horizon_ns:
+            alt = None
         if alt is None:
-            alt = SessionFeatures(self.c, exclude_source=grp).build()
+            h = int(horizon) if horizon is not None and int(horizon) >= need else None
+            alt = SessionFeatures(self.c, exclude_source=grp, horizon_ns=h).build()
         self._alts[grp] = alt                      # most recently used last
         while len(self._alts) > MAX_ALT_BUILDS:
             self._alts.pop(next(iter(self._alts)))

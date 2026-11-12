@@ -66,9 +66,10 @@ def test_touch_group_mates_retested_extreme_is_the_events_own(monkeypatch):
     built = []
 
     class Fake:
-        def __init__(self, ctx, exclude_source=None):
+        def __init__(self, ctx, exclude_source=None, horizon_ns=None):
             built.append(exclude_source)
             self.by_id = {"a": "a-in-alt"}
+            self.horizon_ns = horizon_ns
 
         def build(self):
             return self
