@@ -20,8 +20,9 @@ entry_reprice_tol: 2            # NQ pts
 # (69 reactions), single_print its start value 0; all-hours widths kept over the RTH-only ones (the four flagged types differ by 1-2 ticks).
 chart_level_half_width: {vwap: 12, vwap_band: 12, poc: 12, lvn: 12, on_extreme: 9, pdh_pdl: 8.5, prior_rth: 8, prior_week: 8.25, ib: 8.25, retested_extreme: 8.25, single_print: 0, em_level: 12, va_edge: 12}   # frozen_from: months 1-4
 chart_level_half_width_cap: {vwap: 12, vwap_band: 12, poc: 12, lvn: 12, on_extreme: 12, pdh_pdl: 12, prior_rth: 12, prior_week: 12, ib: 12, retested_extreme: 12, single_print: 6, em_level: 12, va_edge: 12}
-node_band: {QQQ: 0.5, SPY: 0.5, SPX: 5, NDXP: 15}   # in each underlying's own units; QQQ/SPY/SPX fixed (owner); NDXP frozen_from: months 1-4
-                                                    # (owner 2026-11-10, SPEC §13 Q-step13a-2: the smallest of ±10/15/20 covering the q0.8 13.14 NDXP $; was 20)
+node_band: {QQQ: 0.375, SPY: 0.5, SPX: 5, NDXP: 15}   # in each underlying's own units; SPY/SPX fixed (owner); NDXP and QQQ frozen_from: months 1-4
+                                                    # (SPEC §13 Q-step13a-2: the smallest of ±10/15/20 NQ pts covering the reaction q0.8; NDXP owner 2026-11-10,
+                                                    # q0.8 13.14 NDXP $, was 20; QQQ owner 2026-11-12 (7), 392 reactions, q0.8 $0.36, was 0.5)
 min_node_pct_of_king: 0.25      # owner
 node_drop_pct: 0.20
 node_relevance_min_sec: 60      # owner 2026-11-04 (Q-step12a (3)): a marginal join (>= min_node_pct_of_king, < node_relevance_fast_pct) and every leave

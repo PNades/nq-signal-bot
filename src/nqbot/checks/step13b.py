@@ -30,6 +30,7 @@ import pyarrow.parquet as pq
 
 from nqbot import months as months_mod
 from nqbot.checks import feature_build as fb
+from nqbot.checks import feature_build_job as fbj
 from nqbot.checks import session_build as sb
 from nqbot.checks.step8b import Env
 from nqbot.events.common import GROUPS, GAMEPLAN, group_of_subtype, read_meta, write_table
@@ -717,7 +718,7 @@ def pass2_wall(env: Env, doc: dict, days: list[date]) -> float:
     `total_sec`)."""
     tot = 0.0
     built = set(days)
-    for c in fb.chunk_ids(doc):
+    for c in fbj.chunk_ids(doc):
         if not c.startswith("p2"):
             continue
         a, b = (date.fromisoformat(x) for x in c.split(":")[1].split("~"))
@@ -738,7 +739,7 @@ def budget(env: Env) -> Path:
     st = load_state(state_path(env.paths, fb.JOB))
     done = st.get("done") or {}
     recorded = Counter()
-    for c in fb.chunk_ids(doc):
+    for c in fbj.chunk_ids(doc):
         x = done.get(c)
         if x:
             recorded[c.split(":")[0]] += float(x.get("sec") or 0)

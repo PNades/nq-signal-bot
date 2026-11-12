@@ -921,7 +921,7 @@ def _add_features(sub: argparse._SubParsersAction) -> None:
     p = fe.add_parser("plan", help="write the feature-build plan for these ledger months (then: nqbot run "
                                    "feature_build --until 07:30)")
     p.add_argument("--months", required=True, help="ledger months, e.g. 1-12 or 1-4")
-    p.add_argument("--batch", type=int, default=None, help="pass-2 sessions per chunk (default: all cores but 2)")
+    p.add_argument("--batch", type=int, default=None, help="pass-2 sessions at once, the pool size (default: all cores but 2)")
     p.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE",
                    help="a run-time override of a features.yaml value for this build only (step-13 tuning on ledger "
                         "months 1-4 only; stored in the plan and in its key; a.b=v sets one entry of a mapping)")

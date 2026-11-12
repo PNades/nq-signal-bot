@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Callable
 
 from nqbot.backup import SkylitBackupJob
-from nqbot.checks.feature_build import FeatureBuildJob
+from nqbot.checks.feature_build_job import FeatureBuildJob
 from nqbot.checks.step8b_disloc import DislocationsJob
 from nqbot.checks.step13 import CheckJob as Step13CheckJob
 from nqbot.checks.step13a import ReactionsJob

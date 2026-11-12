@@ -14,7 +14,8 @@ from tests.test_map_state import DAY, NS, T0, mk
 
 # these hand-built boards test F2.4's hysteresis and the rules built on it; the step-13 relevance debounce
 # (node_relevance_min_sec, Q-step12a (3)) has its own tests (tests/test_relevance_debounce.py)
-F = {**load_features(), "node_relevance_min_sec": 0}
+# the hand-built examples use the step-6 QQQ band 0.5 (frozen at 0.375 since owner 2026-11-12, Q-step13a-2 (7))
+F = {**load_features(), "node_relevance_min_sec": 0, "node_band": {**load_features()["node_band"], "QQQ": 0.5}}
 
 
 def tape_of(trades):

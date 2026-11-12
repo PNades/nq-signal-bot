@@ -34,12 +34,13 @@ from tests.test_chart_levels import DAY, carry_for, synthetic_tape
 
 # the synthetic day moves less than NQ: a 10-point hold reaction (config 30, its history 30, retests and the pair cut
 # 20) gives held labels, so freshness, day memory and retested extremes have something to count; and the step-6 start
-# half-widths (4, single prints 0) and NDXP band (20) (frozen at 8-12 and 15 since step 13a, owner 2026-11-10), so its
+# half-widths (4, single prints 0) and node bands (NDXP 20, QQQ 0.5) (frozen at 8-12, 15 and 0.375 since step 13a, owner
+# 2026-11-10 / 11-12), so its
 # levels stay apart, its node touches happen and its POC jumps clear its band (merges, jumps and returns are exercised)
 F = {**load_features(), "hold_reaction_pts": 10.0, "history_hold_pts": 10.0, "retest_hold_pts": 10.0,
      "pair_end_hold_pts": 10.0,
      "chart_level_half_width": {k: (0.0 if k == "single_print" else 4.0) for k in load_features()["chart_level_half_width"]},
-     "node_band": {**load_features()["node_band"], "NDXP": 20}}
+     "node_band": {**load_features()["node_band"], "NDXP": 20, "QQQ": 0.5}}
 # the step-13 variants on, and the label distances apart (structure label / history 12, retests / pair cut 10)
 F_VAR = {**F, "node_relevance_top_n": 5, "node_role_at_formation": "strike_side", "hold_reaction_pts": 12.0,
          "history_hold_pts": 12.0}

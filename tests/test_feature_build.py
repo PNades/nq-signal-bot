@@ -14,6 +14,7 @@ import pytest
 
 from nqbot import calendar as cal_mod
 from nqbot.checks import feature_build as fb
+from nqbot.checks import feature_build_job as fbj
 from nqbot.checks import session_build as sb
 from nqbot.checks.step8b import Env
 from nqbot.config import load_features
@@ -57,13 +58,13 @@ def test_plan_chunks_and_key(env):
     doc = fb.make_plan(env, [1, 2], batch=4)
     want = [d.isoformat() for d in days if date(2025, 10, 1) <= d <= date(2025, 11, 30)]
     assert doc["sessions"] == want
-    ids = fb.chunk_ids(doc)
+    ids = fbj.chunk_ids(doc)
     p1 = [c for c in ids if c.startswith("p1:")]
     p2 = [c for c in ids if c.startswith("p2:")]
-    assert len(p1) == len(want) and len(p2) == -(-len(want) // 4)
+    assert len(p1) == len(want) and len(p2) == 1          # pass 2: one chunk, a rolling pool (owner 2026-11-12)
     assert ids == [f"p0:warmup:{doc['key']}:{want[0]}"] + p1 + p2
     assert all(c.endswith(f":{doc['key']}:{want[0]}") for c in ids)
-    assert p2[0].split(":")[1] == f"{want[0]}~{want[3]}" and p2[-1].split(":")[1].endswith(want[-1])
+    assert p2[0].split(":")[1] == f"{want[0]}~{want[-1]}"
     assert fb.load_plan(env)["key"] == doc["key"]
     # any configuration change renames every chunk: the plan refuses until re-planned
     env.features = {**env.features, "zone_proximity": env.features["zone_proximity"] + 1}
@@ -82,7 +83,7 @@ def test_report_lists_development_dates_only(env):
                                                                    "labels": {"held": 6, "broke": 3, "timeout": 1},
                                                                    "day_type": "range", "build_sec": 1, "total_sec": 2,
                                                                    "skylit": "ok"}})
-    text = fb.write_report(env, doc).read_text(encoding="utf-8")
+    text = fbj.write_report(env, doc).read_text(encoding="utf-8")
     for d in days:
         if d.month == 3:
             assert d.isoformat() in text
@@ -295,10 +296,13 @@ class _Proc:
             rc, msg = 3, str(e)
         else:
             msg = "ok"
-        log.write_text(f"{msg}\n{fb.PEAK_TAG} 1.25\n", encoding="utf-8")
+        log.write_text(f"{msg}\n{fbj.PEAK_TAG} 1.25\n", encoding="utf-8")
         self.returncode = rc
 
     def wait(self):
+        return self.returncode
+
+    def poll(self):
         return self.returncode
 
 
@@ -327,8 +331,8 @@ def test_job_runs_every_chunk_resumes_and_stops_on_failures(env, monkeypatch):
     monkeypatch.setattr(sb, "load_damage", lambda env_: {})
     monkeypatch.setattr(step8b_disloc, "free_mb", lambda: 64 * 1024)
     fail = set()
-    monkeypatch.setattr(fb, "_child", lambda argv, log: _Proc(env, argv, log, fail))
-    job, ctx = fb.FeatureBuildJob(), _job_ctx(env)
+    monkeypatch.setattr(fbj, "_child", lambda argv, log: _Proc(env, argv, log, fail))
+    job, ctx = fbj.FeatureBuildJob(), SimpleNamespace(**vars(_job_ctx(env)), sleep=lambda s: None)
     ids = job.chunks(ctx)
     assert ids[0].startswith("p0:")
     # a failing pass-2 session stops the chunk with status "failures" and names the session
@@ -375,12 +379,12 @@ def test_outcome_times_survive_the_file_exactly(tmp_path):
 def test_replan_never_inherits_another_chain(env, monkeypatch):
     days = trading_days(date(2025, 9, 29), date(2026, 1, 9), env.cal)
     write_backfill_plan(env, days)
-    later = fb.chunk_ids(fb.make_plan(env, [2, 3], batch=4))
-    full = fb.chunk_ids(fb.make_plan(env, [1, 2, 3], batch=4))
+    later = fbj.chunk_ids(fb.make_plan(env, [2, 3], batch=4))
+    full = fbj.chunk_ids(fb.make_plan(env, [1, 2, 3], batch=4))
     # the same session in a chain with another first session is another chunk (the runner skips finished ids)
     assert not set(later) & set(full)
-    short = fb.chunk_ids(fb.make_plan(env, [1], batch=4))
-    longer = fb.chunk_ids(fb.make_plan(env, [1, 2], batch=4))
+    short = fbj.chunk_ids(fb.make_plan(env, [1], batch=4))
+    longer = fbj.chunk_ids(fb.make_plan(env, [1, 2], batch=4))
     # month 1's last batch holds fewer days than the same batch in the longer plan: a different chunk
     assert short[-1] not in longer and set(short[:-1]) <= set(longer)
 
@@ -478,3 +482,142 @@ def test_write_rows_keeps_list_columns(tmp_path):
     t = fb.read_rows([p])
     assert t.column("founding_level_ids").to_pylist() == [["l1", "l2"], []]
     assert t.column("touch_idx").type == pa.int64()
+
+
+# --- the rolling pass-2 pool, scheduling outside the build key (owner 2026-11-12, SPEC §13 Q-step13b (f)) ---------
+
+class _SlowProc(_Proc):
+    """A child that is still running for `polls` looks, then builds its session (in this process) and ends."""
+
+    def __init__(self, env, argv, log, polls, seen, fail_on=()):
+        self._args, self._polls, self._seen, self._fail = (env, argv, log), polls, seen, fail_on
+        self.returncode = None
+        seen["running"].add(argv[2])
+        seen["started"].append(argv[2])
+        seen["max"] = max(seen["max"], len(seen["running"]))
+
+    def poll(self):
+        if self.returncode is None:
+            self._polls -= 1
+            if self._polls <= 0:
+                _Proc.__init__(self, *self._args, self._fail)
+                self._seen["running"].discard(self._args[1][2])
+                self._seen["ended"].append(self._args[1][2])
+        return self.returncode
+
+
+def _pool_setup(env, monkeypatch, batch=3):
+    from nqbot.checks import step8b_disloc
+
+    days = trading_days(date(2025, 9, 29), date(2025, 10, 10), env.cal)
+    write_backfill_plan(env, days)
+    import nqbot.config as cfg
+    monkeypatch.setattr(cfg, "load_features", lambda: env.features)
+    doc = fb.make_plan(env, [1], batch=batch)
+    plan_days = [date.fromisoformat(x) for x in doc["sessions"]]
+    monkeypatch.setattr(sb, "build_day", lambda env_, day, state, pl, planned, damage: sb.Built(
+        FakeSF(2), sb.DayState(day.isoformat(), {"n": 1}, {}, {}), {"skylit": "ok"}))
+    monkeypatch.setattr(sb, "warmup_state", lambda *a, **k: sb.DayState("2025-09-30", {}, {}, {}))
+    monkeypatch.setattr(sb, "load_damage", lambda env_: {})
+    monkeypatch.setattr(step8b_disloc, "free_mb", lambda: 64 * 1024)
+    monkeypatch.setattr(fbj, "_grown_gb", lambda p: 0.0)
+    job = fbj.FeatureBuildJob()
+    ctx = SimpleNamespace(**vars(_job_ctx(env, workers=8)), sleep=lambda s: None)
+    monkeypatch.setattr(fbj, "_child", lambda argv, log: _Proc(env, argv, log))
+    ids = job.chunks(ctx)
+    for c in ids[:-1]:
+        job.run_chunk(c, ctx)
+    # pass-1 build times (the pool starts the longest first)
+    secs = {d: float(10 * (k % 4) + k) for k, d in enumerate(plan_days)}
+    for d, s in secs.items():
+        p = fb.summary_file(env, doc["key"], d)
+        x = json.loads(p.read_text(encoding="utf-8"))
+        x["pass1"]["build_sec"] = s
+        atomic_write_json(p, x)
+    return doc, plan_days, job, ctx, ids, secs
+
+
+def test_pass2_is_one_chunk_run_as_a_rolling_pool_longest_first(env, monkeypatch):
+    doc, plan_days, job, ctx, ids, secs = _pool_setup(env, monkeypatch, batch=3)
+    p2 = [c for c in ids if c.startswith("p2:")]
+    assert p2 == [f"p2:{plan_days[0]}~{plan_days[-1]}:{doc['key']}:{plan_days[0]}"]
+    seen = {"running": set(), "started": [], "ended": [], "max": 0}
+    polls = {d.isoformat(): (12 if k == 0 else 2) for k, d in enumerate(sorted(plan_days, key=lambda d: -secs[d]))}
+    monkeypatch.setattr(fbj, "_child", lambda argv, log: _SlowProc(env, argv, log, polls[argv[2]], seen))
+    job.run_chunk(p2[0], ctx)
+    assert seen["started"] == [d.isoformat() for d in sorted(plan_days, key=lambda d: (-secs[d], d))]
+    assert seen["max"] == 3                                   # never more than the plan's batch at once
+    longest = seen["started"][0]
+    # rolling: while the longest session runs, the others start as slots free up (fixed batches would wait for it)
+    assert seen["ended"].index(longest) == len(plan_days) - 1 and len(plan_days) > 3
+    assert all(fb.pass2_done(env, doc["key"], d, plan_days) for d in plan_days)
+    assert job.run_chunk(p2[0], ctx) is None                  # done: nothing runs again
+
+
+def test_pass2_pool_stops_starting_on_a_failure_or_a_stop_and_resumes(env, monkeypatch):
+    from nqbot.jobs.runner import StopChunk
+
+    doc, plan_days, job, ctx, ids, secs = _pool_setup(env, monkeypatch, batch=2)
+    p2 = ids[-1]
+    order = [d.isoformat() for d in sorted(plan_days, key=lambda d: (-secs[d], d))]
+    seen = {"running": set(), "started": [], "ended": [], "max": 0}
+    bad = {date.fromisoformat(order[1])}
+    polls = {order[0]: 6, order[1]: 1}
+    monkeypatch.setattr(fbj, "_child", lambda argv, log: _SlowProc(env, argv, log, polls.get(argv[2], 1), seen, bad))
+    with pytest.raises(StopChunk) as ex:
+        job.run_chunk(p2, ctx)
+    assert ex.value.status == "failures" and order[1] in str(ex.value)
+    assert seen["started"] == order[:2]                       # nothing new after the failure ...
+    assert fb.pass2_done(env, doc["key"], date.fromisoformat(order[0]), plan_days)   # ... the running one finished
+    # a stop (e.g. --until) after the next start: the running session finishes, the rest wait for the next run
+    seen.update(running=set(), started=[], ended=[], max=0)
+    bad.clear()
+    calls = {"n": 0}
+
+    def stop():
+        calls["n"] += 1
+        return "reached 07:30" if calls["n"] > 1 else None
+    ctx2 = SimpleNamespace(**{**vars(ctx), "should_stop": stop})
+    with pytest.raises(StopChunk, match="07:30"):
+        job.run_chunk(p2, ctx2)
+    assert seen["started"] == order[1:3] and set(seen["ended"]) == set(order[1:3])
+    left = [d for d in plan_days if not fb.pass2_done(env, doc["key"], d, plan_days)]
+    assert len(left) == len(plan_days) - 3
+    seen.update(running=set(), started=[], ended=[], max=0)
+    job.run_chunk(p2, ctx)                                    # resume: only the sessions not done
+    assert sorted(seen["started"]) == sorted(d.isoformat() for d in left)
+    assert all(fb.pass2_done(env, doc["key"], d, plan_days) for d in plan_days)
+
+
+def test_pass2_pool_counts_what_running_sessions_will_still_grow_by(monkeypatch):
+    grown = {1: 1.0, 2: 4.5, 3: 6.0}
+    monkeypatch.setattr(fbj, "_grown_gb", lambda p: grown[p])
+    # 20 GB free, 4 GB reserve, sessions of 4.5 GB: one at 1 GB may still grow by 3.5, the others are at their peak
+    assert fbj.headroom_gb(20 * 1024, [1, 2, 3], 4.5) == pytest.approx(20 - 4 - 3.5)
+    assert fbj.headroom_gb(None, [1], 4.5) is None
+
+
+def test_pass2_pool_waits_for_memory_and_refuses_when_not_even_one_fits(env, monkeypatch):
+    from nqbot.checks import step8b_disloc
+    from nqbot.jobs.runner import StopChunk
+
+    doc, plan_days, job, ctx, ids, secs = _pool_setup(env, monkeypatch, batch=4)
+    seen = {"running": set(), "started": [], "ended": [], "max": 0}
+    # room for two sessions (free memory is read before each start; a new session has not grown yet)
+    monkeypatch.setattr(step8b_disloc, "free_mb", lambda: (4.0 + 2 * 4.5 + 0.5) * 1024)
+    monkeypatch.setattr(fbj, "_child", lambda argv, log: _SlowProc(env, argv, log, 3, seen))
+    job.run_chunk(ids[-1], ctx)
+    assert seen["max"] == 2 and all(fb.pass2_done(env, doc["key"], d, plan_days) for d in plan_days)
+    fb.summary_file(env, doc["key"], plan_days[0]).unlink()
+    monkeypatch.setattr(step8b_disloc, "free_mb", lambda: 6 * 1024)
+    with pytest.raises(StopChunk, match="not enough for one"):
+        job.run_chunk(ids[-1], ctx)
+
+
+def test_scheduling_is_outside_the_build_key():
+    from pathlib import Path
+
+    files = {Path(f).resolve() for f in fb.code_files()}
+    assert Path(fbj.__file__).resolve() not in files          # the pool, chunks, children, report
+    assert Path(fb.__file__).resolve() in files                # what a session builds and writes
+    assert Path(sb.__file__).resolve() in files

@@ -9,7 +9,8 @@ passes as in §11:
   saves the state after it (`state/state_<date>.json`: both carries with part 3's touch history, retested extremes,
   retest candidates, yesterday's day type, and the NQ RTH minute volumes). The first session starts from a carry-only
   replay of the `warmup_sessions` sessions before it.
-- **pass 2** (`p2:<batch>:<key>`): each chunk runs up to `batch` sessions at once, each in its own process starting
+- **pass 2** (one chunk, `p2:<first>~<last>:<key>`): up to `batch` sessions at once as a rolling pool (owner
+  2026-11-12; the scheduling is `checks/feature_build_job.py`, outside the build key), each in its own process starting
   from its checkpoint; each writes `touches/<date>.parquet` (one row per event at its touch: the structure-model
   inputs), `daytype/<date>.parquet` (one row per day-type snapshot) and `outcomes/<date>.parquet` (structure labels
   and the EOD day type: outcomes, never read as features), and asserts its end state equals the next checkpoint.
@@ -27,8 +28,6 @@ import hashlib
 import io
 import json
 import os
-import subprocess
-import sys
 import time as _time
 from datetime import date
 from pathlib import Path
@@ -45,10 +44,6 @@ from nqbot.storage import atomic_write_bytes, atomic_write_json, atomic_write_te
 
 JOB = "feature_build"
 BUILD_VERSION = 1        # bump when the build's code changes its outputs without a config change
-PEAK_TAG = "CHILD_PEAK_GB"
-EST_PEAK_GB = 4.5        # assumed per-session peak before one is measured (4.29 GB, `step11 build-day 2026-03-20`)
-MIN_FREE_GB_EXTRA = 4.0  # headroom kept free besides the children (as runner.RAM_RESERVE_GB)
-DEV_MONTHS = months_mod.DEVELOPMENT
 LOCAL_SETTING_KEYS = {"paths", "max_workers", "max_fold_mem_gb", "low_memory", "rclone_path", "test_parallel"}
 ID_COLS = {"ts", "t"}
 NS_FLOAT_OK: frozenset = frozenset()   # float columns that must stay float64 (none: every time column is an integer)
@@ -89,6 +84,18 @@ class BuildRefused(Exception):
 CODE_PARTS = ("features", "events", "checks/session_build.py", "checks/feature_build.py", "calendar.py",
               "clients/databento_store.py", "clients/skylit_store.py", "gameplan/parser.py")
 # events/ = the step-13b engine stage (Q-dryrun13 (7)); the labeler (labeler/) has its own key (SPEC §13 Q-step13b (1))
+# the job's scheduling (chunks, the pass-2 pool, child processes, the report) is `checks/feature_build_job.py`, outside
+# the key: it decides only when a session runs, never what it writes (owner 2026-11-12, SPEC §13 Q-step13b (f))
+
+
+def code_files() -> list[Path]:
+    """The source files the build key covers (`CODE_PARTS`), in digest order."""
+    root = Path(__file__).resolve().parent.parent
+    out: list[Path] = []
+    for part in CODE_PARTS:
+        p = root / part
+        out += sorted(p.rglob("*.py")) if p.is_dir() else [p]
+    return out
 
 
 def code_digest() -> str:
@@ -96,12 +103,9 @@ def code_digest() -> str:
     change renames the build like a config change, so a resume never mixes outputs of two versions."""
     root = Path(__file__).resolve().parent.parent
     h = hashlib.sha256()
-    for part in CODE_PARTS:
-        p = root / part
-        files = sorted(p.rglob("*.py")) if p.is_dir() else [p]
-        for f in files:
-            h.update(f.relative_to(root).as_posix().encode())
-            h.update(f.read_bytes().replace(b"\r\n", b"\n"))
+    for f in code_files():
+        h.update(f.relative_to(root).as_posix().encode())
+        h.update(f.read_bytes().replace(b"\r\n", b"\n"))
     return h.hexdigest()
 
 
@@ -219,6 +223,7 @@ def make_plan(env: Env, months: list[int], batch: int | None = None,
     """`overrides` (Q-dryrun13 (2)): run-time changes of features.yaml values for this build only, stored in the plan,
     covered by its key and applied by every session; the committed config is untouched. Only for builds of the step-13
     tuning months 1-4 (the full-window build refuses any)."""
+    from nqbot.checks import feature_build_job as fbj   # the scheduling (outside the build key)
     from nqbot.jobs.runner import record_plan
 
     overrides = dict(overrides or {})
@@ -250,13 +255,14 @@ def make_plan(env: Env, months: list[int], batch: int | None = None,
            "not_planned": len(gaps), "overrides": overrides}
     atomic_write_json(plan_path(env), doc)
     atomic_write_json(build_plan_copy(env, key), doc)
-    record_plan(env.paths, JOB, chunk_ids(doc))
+    record_plan(env.paths, JOB, fbj.chunk_ids(doc))
     by_month: dict[int, int] = {}
     for d in sessions:
         k = months_mod.month_index(d, env.settings)
         by_month[k] = by_month.get(k, 0) + 1
     env.echo(f"feature build plan: {len(sessions)} sessions in ledger months {months} "
-             f"({', '.join(f'{k}: {n}' for k, n in sorted(by_month.items()))}); key {key}, pass-2 batches of {batch}")
+             f"({', '.join(f'{k}: {n}' for k, n in sorted(by_month.items()))}); key {key}, pass 2 up to {batch} "
+             "sessions at once")
     if gaps:
         env.echo(f"  {len(gaps)} trading days of those months have no planned Databento session (not built)")
     if overrides:
@@ -264,19 +270,6 @@ def make_plan(env: Env, months: list[int], batch: int | None = None,
     env.echo(f"  outputs: {out_dir(env, key)}")
     env.echo(f"  run: uv run nqbot run {JOB} --until 07:30")
     return doc
-
-
-def chunk_ids(doc: dict[str, Any]) -> list[str]:
-    """`<pass>:<what>:<key>:<first session>`: the build key and the chain's first session (its warm-up root) name
-    every chunk, and a pass-2 chunk names its first and last session, so a re-plan (other months, another batch size)
-    never inherits a chunk finished for another chain or another set of days."""
-    key, n = doc["key"], int(doc["batch"])
-    days = doc["sessions"]
-    root = days[0]
-    p0 = [f"p0:warmup:{key}:{root}"]
-    p1 = [f"p1:{d}:{key}:{root}" for d in days]
-    p2 = [f"p2:{days[k]}~{days[min(k + n, len(days)) - 1]}:{key}:{root}" for k in range(0, len(days), n)]
-    return p0 + p1 + p2
 
 
 def load_plan(env: Env) -> dict[str, Any]:
@@ -447,135 +440,6 @@ def read_rows(paths: list[Path]) -> pa.Table:
     return pa.concat_tables([t.replace_schema_metadata(None) for t in tables], promote_options="permissive")
 
 
-# --- the job --------------------------------------------------------------------------------------------------
-
-def _child(argv: list[str], log: Path) -> subprocess.Popen:
-    """One session in its own process; its whole output goes to `log` (a file, not a pipe: several children run at
-    once and a full pipe buffer would stall one until it is read)."""
-    code = ("import sys, psutil; from nqbot.cli import main; rc = main(sys.argv[1:]); i = psutil.Process().memory_info(); "
-            f"print('{PEAK_TAG}', getattr(i, 'peak_wset', 0) / 2**30 or i.rss / 2**30, flush=True); sys.exit(rc)")
-    log.parent.mkdir(parents=True, exist_ok=True)
-    with open(log, "w", encoding="utf-8") as fh:   # the child keeps its own handle; ours closes at once
-        return subprocess.Popen([sys.executable, "-c", code, *argv], stdout=fh, stderr=subprocess.STDOUT,
-                                env={**os.environ, "PYTHONUTF8": "1"})
-
-
-def _wait(p: subprocess.Popen, log: Path) -> str:
-    p.wait()
-    return log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
-
-
-def _peak(stdout: str) -> float | None:
-    for line in reversed((stdout or "").splitlines()):
-        if line.startswith(PEAK_TAG):
-            return round(float(line.split()[1]), 3)
-    return None
-
-
-class FeatureBuildJob:
-    """`nqbot run feature_build --until HH:MM`: the two passes, one session per process (low memory)."""
-
-    name = JOB
-
-    def __init__(self):
-        from nqbot.jobs.lock import DATABENTO, SKYLIT
-
-        self.locks = (SKYLIT, DATABENTO)   # nothing may write the stored trades or boards it reads
-
-    def _env(self, ctx) -> Env:
-        from nqbot.config import load_features
-
-        return Env(settings=ctx.settings, features=load_features(), paths=ctx.paths, log=ctx.log, echo=ctx.log.info,
-                   cal=cal_mod.load())
-
-    def chunks(self, ctx) -> list[str]:
-        return chunk_ids(load_plan(self._env(ctx)))
-
-    def run_chunk(self, chunk_id: str, ctx) -> dict | None:
-        from nqbot.checks.step8b_disloc import free_mb
-        from nqbot.jobs.runner import StopChunk
-
-        env = self._env(ctx)
-        doc = load_plan(env)
-        kind, which, key, _root = chunk_id.split(":")
-        days = [date.fromisoformat(x) for x in doc["sessions"]]
-        if kind == "p0":
-            if warmup_file(env, key, days[0]).exists():
-                return None
-            mb = free_mb()
-            if mb is not None and mb < (EST_PEAK_GB + MIN_FREE_GB_EXTRA) * 1024:
-                raise StopChunk(f"{mb} MB free before the warm-up")
-            log = log_file(env, key, "warmup")
-            proc = _child(["features", "build-warmup"], log)
-            out = _wait(proc, log)
-            if proc.returncode != 0:
-                ctx.log.error("%s: warm-up failed (exit %s), log %s: %s", JOB, proc.returncode, log, out[-600:])
-                raise StopChunk(f"the warm-up failed (exit {proc.returncode}; log {log})", status="failures")
-            ctx.log.info("%s: warm-up done, process peak %s GB", JOB, _peak(out))
-            return {"peak_gb": _peak(out)}
-        if kind == "p1":
-            d = date.fromisoformat(which)
-            if pass1_done(env, key, days, d):
-                return None
-            mb = free_mb()
-            if mb is not None and mb < (EST_PEAK_GB + MIN_FREE_GB_EXTRA) * 1024:
-                raise StopChunk(f"{mb} MB free before {d} (pass 1)")
-            peak = self._run([d], 1, ctx)
-            return {"peak_gb": peak}
-        n = int(doc["batch"])
-        d0, d1 = (date.fromisoformat(x) for x in which.split("~"))
-        done = lambda d: pass2_done(env, key, d, days)
-        peak = None
-        while True:
-            todo = [d for d in days if d0 <= d <= d1 and not done(d)]
-            if not todo:
-                return {"peak_gb": peak}
-            why = ctx.should_stop()
-            if why:
-                raise StopChunk(why)
-            mb = free_mb()
-            per = max(EST_PEAK_GB, _measured_peak(env, key) or 0.0)
-            take = min(len(todo), ctx.max_workers or n, n)
-            if mb is not None:
-                fit = int((mb / 1024 - MIN_FREE_GB_EXTRA) // per)
-                if fit < 1:
-                    raise StopChunk(f"{mb} MB free: not enough for one pass-2 session ({per:.1f} GB)")
-                take = min(take, fit)
-            pk = self._run(todo[:take], 2, ctx)   # the rest of the batch runs next, as memory allows
-            peak = pk if peak is None else max(peak, pk or 0.0)
-
-    def _run(self, days: list[date], pass_no: int, ctx) -> float | None:
-        from nqbot.jobs.runner import StopChunk
-
-        env = self._env(ctx)
-        key = load_plan(env)["key"]
-        procs = []
-        for d in days:
-            log = log_file(env, key, f"{d.isoformat()}_p{pass_no}")
-            procs.append((d, log, _child(["features", "build-day", d.isoformat(), "--pass", str(pass_no)], log)))
-        peaks, failed = [], []
-        for d, log, p in procs:
-            out = _wait(p, log)
-            pk = _peak(out)
-            if pk is not None:
-                peaks.append(pk)
-            if p.returncode != 0:
-                failed.append((d, p.returncode, log, out[-600:]))
-            else:
-                ctx.log.info("%s: %s pass %d done, process peak %s GB", JOB, d, pass_no, pk)
-        if failed:
-            for d, rc, log, msg in failed:
-                ctx.log.error("%s: %s pass %d failed (exit %s), log %s: %s", JOB, d, pass_no, rc, log, msg)
-            raise StopChunk(f"{len(failed)} session(s) failed in pass {pass_no}: "
-                            f"{', '.join(str(d) for d, *_ in failed)} (see the log)", status="failures")
-        return max(peaks) if peaks else None
-
-    def at_end(self, ctx) -> None:
-        env = self._env(ctx)
-        path = write_report(env, load_plan(env))
-        ctx.log.info("%s: report %s", JOB, path)
-
-
 def start_file(env: Env, key: str, days: list[date], day: date) -> Path:
     """The state `day` starts from: the warm-up before the plan's first session, else the previous session's."""
     k = days.index(day)
@@ -622,59 +486,6 @@ def pass2_done(env: Env, key: str, day: date, days: list[date] | None = None) ->
     if days is None:
         return True
     return p2.get("source") is not None and p2.get("source") == _digest_of(start_file(env, key, days, day))
-
-
-def _measured_peak(env: Env, key: str) -> float | None:
-    from nqbot.jobs.runner import load_state, state_path
-
-    st = load_state(state_path(env.paths, JOB))
-    vals = [v.get("child_peak_gb") or v.get("peak_gb") for c, v in (st.get("done") or {}).items()
-            if f":{key}:" in c and c.startswith("p2")]
-    vals = [v for v in vals if v]
-    return max(vals) if vals else None
-
-
-# --- the report (§7 rule 2b: months 7-12 as counts only) --------------------------------------------------------
-
-def write_report(env: Env, doc: dict[str, Any]) -> Path:
-    key = doc["key"]
-    days = [date.fromisoformat(x) for x in doc["sessions"]]
-    per_month: dict[int, dict] = {}
-    dev_rows = []
-    for d in days:
-        k = months_mod.month_index(d, env.settings)
-        m = per_month.setdefault(k, {"sessions": 0, "p1": 0, "p2": 0, "events": 0, "rows": 0})
-        m["sessions"] += 1
-        s = summary_file(env, key, d)
-        x = json.loads(s.read_text(encoding="utf-8")) if s.exists() else {}
-        if state_file(env, key, d).exists():
-            m["p1"] += 1
-        p2 = x.get("pass2")
-        if p2:
-            m["p2"] += 1
-            m["events"] += p2.get("events", 0)
-            m["rows"] += p2.get("rows", 0)
-            if k in DEV_MONTHS:
-                dev_rows.append((d, p2))
-    lines = [f"# Feature build (step 11 part 3), key {key}", "",
-             f"features_version {doc['features_version']}, build version {doc['build_version']}; outputs under "
-             f"`{out_dir(env, key)}`. Months 7-12 are counts only (§7 rule 2b: walk-forward and sealed months appear "
-             "in no report until they are scored).", "",
-             "| ledger month | sessions | pass 1 done | pass 2 done | events | rows |", "|---|---|---|---|---|---|"]
-    for k in sorted(per_month):
-        m = per_month[k]
-        lines.append(f"| {k} | {m['sessions']} | {m['p1']} | {m['p2']} | {m['events']} | {m['rows']} |")
-    lines += ["", "## Development months (1-6), by session", "",
-              "| session | events | tradeable | held | broke | timeout | day type | build s | total s | Skylit |",
-              "|---|---|---|---|---|---|---|---|---|---|"]
-    for d, p in dev_rows:
-        lab = p.get("labels") or {}
-        lines.append(f"| {d} | {p.get('events')} | {p.get('tradeable')} | {lab.get('held')} | {lab.get('broke')} | "
-                     f"{lab.get('timeout')} | {p.get('day_type')} | {p.get('build_sec')} | {p.get('total_sec')} | "
-                     f"{p.get('skylit')} |")
-    path = env.paths.reports_dir / "step11" / "feature_build.md"
-    atomic_write_text(path, "\n".join(lines) + "\n")
-    return path
 
 
 # --- the one-day smoke run (development days only) ----------------------------------------------------------------
