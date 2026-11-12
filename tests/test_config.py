@@ -151,6 +151,7 @@ def test_step8b_mapping_values():
     assert (m["ndxp_r_method"], m["ndxp_k_sessions"]) == ("qqq_k", 20)  # owner 2026-10-19 (ndxp-select)
     assert s["stop_buffer_floor"] == {"QQQ": 4.25, "NDXP": 6.50, "chart": 0}  # frozen, owner 2026-10-19/23 (Q8b-frozen)
     assert load_features()["mapping"]["atlas_match_tol"] == {"NQ": 4.05, "ES": 0.80}  # frozen, owner 2026-10-19
+    assert (s["exit_slippage_ticks"], s["be_offset_ticks"]) == (4, 4)  # frozen, owner 2026-11-11 (Q-step13b (d))
 
 
 def test_step7_measured_values_and_tempest_pre_open():

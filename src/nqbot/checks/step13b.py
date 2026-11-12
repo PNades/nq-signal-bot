@@ -347,6 +347,7 @@ def slippage_day(env: Env, day: date) -> Path:
     from nqbot.labeler import params as lp
     from nqbot.labeler.costs import Costs
     from nqbot.labeler.firsthit import PathIndex
+    from nqbot.labeler.outcomes import sweep_end
 
     months_mod.require_development(day, env.settings)
     doc = build_doc(env)
@@ -378,7 +379,8 @@ def slippage_day(env: Env, day: date) -> Path:
                 continue
             stop_pts = abs(ref - stop)
             r = {"decision_id": dp["decision_id"], "style": dp["style"], "order_type": ot, "tradeable": dp["tradeable"],
-                 "stop_types": types, "stop": stop, "stop_pts": stop_pts, "direction": d, "t_touch": int(tape.ts[k])}
+                 "stop_types": types, "stop": stop, "stop_pts": stop_pts, "direction": d, "t_touch": int(tape.ts[k]),
+                 "first_px": float(tape.price[k]), "sweep_px": float(tape.price[sweep_end(tape, k)])}
             for es in SLIP_SIZING_TICKS:
                 c = Costs(p.costs.commission_micro, float(es), p.costs.max_entry_slip_ticks, p.costs.risk_usd)
                 _m, size, _w = c.size(stop_pts, ot)
@@ -400,6 +402,44 @@ def _quantile(xs, q):
     return float(np.quantile(xs, q)) if xs else None
 
 
+def fill_touch_prices(env: Env, day: date, rows: list[dict]) -> None:
+    """Rows written before `first_px` / `sweep_px` were stored: the first print at or through the stop at `t_touch`
+    and the last print under that timestamp, from the stored trades (the same prices `slippage_day` now records)."""
+    from nqbot.features import session_tape as st
+    from nqbot.labeler.outcomes import sweep_end
+
+    todo = [r for r in rows if r.get("sweep_px") is None]
+    if not todo:
+        return
+    tape = st.load_tape(env.db, sb.plan(env), "NQ", day)
+    for r in todo:
+        k0 = int(np.searchsorted(tape.ts, r["t_touch"], side="left"))
+        k1 = int(np.searchsorted(tape.ts, r["t_touch"], side="right"))
+        seg = tape.price[k0:k1]
+        s = float(r["stop"])
+        hit = np.flatnonzero(seg <= s + 1e-9) if int(r["direction"]) > 0 else np.flatnonzero(seg >= s - 1e-9)
+        if len(hit):
+            k = k0 + int(hit[0])
+            r["first_px"], r["sweep_px"] = float(tape.price[k]), float(tape.price[sweep_end(tape, k)])
+
+
+def sweep_rule_proposal(rows: list[dict], es: int) -> tuple[int | None, dict[int, tuple[float, float, float]]]:
+    """The gap rule (owner 2026-11-11, Q-step13b (d)) charges a stop max(`exit_slippage_ticks`, the gap from the stop
+    to the triggering sweep's last print): the proposal is the smallest whole tick at which that charge covers the
+    measured fill on >= 95% of the stops (`SLIP_Q`). Also {S: (share covered, mean charge, the same share under the
+    first-print rule)} for S = 1..10."""
+    xs = [(r[f"slip_es{es}"], int(r["direction"]) * (float(r["stop"]) - r["sweep_px"]) / TICK,
+           int(r["direction"]) * (float(r["stop"]) - r["first_px"]) / TICK)
+          for r in rows if r.get(f"slip_es{es}") is not None and r.get("sweep_px") is not None]
+    if not xs:
+        return None, {}
+    a = np.array(xs)
+    cover = lambda s, g: float(np.mean(np.maximum(s, a[:, g]) >= a[:, 0] - 1e-9))
+    table = {s: (cover(s, 1), float(np.maximum(s, a[:, 1]).mean()), cover(s, 2)) for s in range(1, 11)}
+    prop = next((s for s in range(0, 101) if cover(s, 1) >= SLIP_Q - 1e-12), None)
+    return prop, table
+
+
 def slippage_report(env: Env) -> Path:
     from nqbot.labeler.costs import MNQ_USD_TICK
 
@@ -412,25 +452,54 @@ def slippage_report(env: Env) -> Path:
         m = read_meta(f)
         if m.get("skipped"):
             skipped.append(d.isoformat())
-        rows += _read(f)
+        day_rows = _read(f)
+        fill_touch_prices(env, d, [r for r in day_rows if r["tradeable"]])
+        rows += day_rows
     cur = float(env.settings["exit_slippage_ticks"])
     trad = [r for r in rows if r["tradeable"]]
     es = int(cur) if cur in SLIP_SIZING_TICKS else SLIP_SIZING_TICKS[0]
     p95 = _quantile([r[f"slip_es{es}"] for r in trad], SLIP_Q)
-    proposal = None if p95 is None else max(0, math.ceil(p95 - 1e-9))
+    plain = None if p95 is None else max(0, math.ceil(p95 - 1e-9))
+    proposal, cov = sweep_rule_proposal(trad, es)
     comm = float(env.settings["default_commission_per_micro_rt"])
+    split = [(r[f"slip_es{es}"], int(r["direction"]) * (float(r["stop"]) - r["first_px"]) / TICK,
+              int(r["direction"]) * (float(r["stop"]) - r["sweep_px"]) / TICK)
+             for r in trad if r.get(f"slip_es{es}") is not None and r.get("sweep_px") is not None]
     lines = [f"# Step 13b: stop slippage on months 1-4 (build {doc['key']})", "",
              "For every stop candidate (F11.1, at the start `stop_buffer`) of every decision point that price traded "
              "through after `decision_ts` + `order_latency_sec` before the RTH close: a stop order of the default size "
              "(NQ-equivalent contracts at `default_risk_usd`, from the start order type's reference price) filled "
-             "against the best bid / ask size at the first touch, the rest at the following trades in sequence; "
-             "slippage = (stop - fill) against the trade, ticks (SPEC §12 step 13).", "",
+             "against the best bid / ask size at the first touch (the book after that trade's timestamp), the rest at "
+             "the following trades in sequence; slippage = (stop - fill) against the trade, ticks (SPEC §12 step 13).",
+             "",
              f"- Sessions without `mbp-1` (skipped, Q-dryrun13 (14b)): {', '.join(skipped) or 'none'}",
              f"- Stops measured: {len(rows):,} ({len(trad):,} at tradeable decision points, used for the proposal)",
-             f"- **p95 at tradeable decision points, sized with the current `exit_slippage_ticks` {cur:g}: "
-             f"{p95 if p95 is None else round(p95, 2)} ticks; proposed `exit_slippage_ticks` = {proposal}** "
-             "(the p95 rounded up to a whole tick; the owner decides)", "",
-             "## Sensitivity to the value used for sizing (sizes grow as the value falls)", "",
+             f"- Plain p95 at tradeable decision points, sized with `exit_slippage_ticks` {cur:g}: "
+             f"{p95 if p95 is None else round(p95, 2)} ticks (rounded up: {plain})",
+             f"- **Proposal under the gap rule: `exit_slippage_ticks` = {proposal}**: the smallest whole tick at which "
+             "the labeler's charge, max(`exit_slippage_ticks`, the gap from the stop to the triggering sweep's last "
+             f"print), covers the measured fill on at least {SLIP_Q:.0%} of the tradeable stops",
+             f"- Settings now: `exit_slippage_ticks` {cur:g}, `be_offset_ticks` {env.settings['be_offset_ticks']:g}. "
+             "Owner 2026-11-11 (SPEC §13 Q-step13b (d), option B): the gap rule compares against the triggering "
+             "sweep's last print (every print at the stop's trigger timestamp), not the first trade; both values "
+             "frozen at 4 from months 1-4", "",
+             "## Where the slippage comes from (tradeable stops)", "",
+             "A stop is hit by one aggressor's sweep: its first print is at the stop, its later prints (same "
+             "`ts_event`) go through, and the stop fills against the book the sweep left.", "",
+             "| part | mean | median | p90 | p95 | p99 |", "|---|---:|---:|---:|---:|---:|"]
+    if split:
+        a = np.array(split)
+        for name, v in (("measured slippage", a[:, 0]), ("stop to the first print at or through it", a[:, 1]),
+                        ("stop to the sweep's last print", a[:, 2]), ("measured beyond the sweep's last print",
+                                                                     a[:, 0] - a[:, 2])):
+            lines.append(f"| {name} | {v.mean():.2f} | {np.quantile(v, .5):.2f} | {np.quantile(v, .9):.2f} | "
+                         f"{np.quantile(v, .95):.2f} | {np.quantile(v, .99):.2f} |")
+    lines += ["", "Share of stops whose measured fill the labeler's charge covers, by `exit_slippage_ticks`:", "",
+              "| exit_slippage_ticks | sweep's last print (the rule) | mean charge (ticks) | first print (as first "
+              "built) |", "|---:|---:|---:|---:|"]
+    for s, (c_sw, m_sw, c_fi) in cov.items():
+        lines.append(f"| {s} | {c_sw:.1%} | {m_sw:.2f} | {c_fi:.1%} |")
+    lines += ["", "## Sensitivity to the value used for sizing (sizes grow as the value falls)", "",
              "| sizing value | p95 (ticks) | p99 | mean | share > 1 tick |", "|---:|---:|---:|---:|---:|"]
     for e in SLIP_SIZING_TICKS:
         xs = [r[f"slip_es{e}"] for r in trad if r[f"slip_es{e}"] is not None]
@@ -454,19 +523,23 @@ def slippage_report(env: Env) -> Path:
     # be_offset_ticks re-check (§6.6, §3.5 test 2): a breakeven exit nets (ceil(c / $0.50) + offset - s) ticks x $0.50 - c
     lines += ["", "## `be_offset_ticks` re-check (Q-dryrun13 (14b))", ""]
     base_ticks = math.ceil(comm / MNQ_USD_TICK - 1e-9)
-    for s in sorted({cur, proposal if proposal is not None else cur}):
-        for off in (0, 1, 2, 3):
-            net = (base_ticks + off - s) * MNQ_USD_TICK - comm
-            lines.append(f"- slippage {s:g}, offset {off}: a breakeven exit nets ${net:+.2f} per micro")
+    be_now = float(env.settings["be_offset_ticks"])
+    need_of = lambda s: next(off for off in range(0, 101) if (base_ticks + off - s) * MNQ_USD_TICK - comm >= -1e-9)
+    for s in sorted({x for x in (cur, proposal, plain) if x is not None}):
+        need = need_of(s)
+        lines.append(f"- slippage {s:g}: a breakeven exit nets ${(base_ticks + be_now - s) * MNQ_USD_TICK - comm:+.2f} "
+                     f"per micro at the offset now ({be_now:g}); the smallest offset at or above $0 is {need} "
+                     f"(${(base_ticks + need - s) * MNQ_USD_TICK - comm:+.2f})")
     if proposal is not None:
-        need = next(off for off in range(0, 20) if (base_ticks + off - proposal) * MNQ_USD_TICK - comm >= -1e-9)
         lines.append(f"- **Smallest offset that keeps a breakeven exit at or above $0 after costs at slippage "
-                     f"{proposal}: {need}** (now {env.settings['be_offset_ticks']}; the owner decides)")
+                     f"{proposal}: {need_of(proposal)}** (now {be_now:g})")
     path = report_dir(env) / "slippage.md"
     atomic_write_text(path, "\n".join(lines) + "\n")
-    atomic_write_json(report_dir(env) / "slippage.json", {"build_key": doc["key"], "p95": p95, "proposal": proposal,
-                                                          "rows": len(rows), "tradeable_rows": len(trad),
-                                                          "skipped": skipped})
+    atomic_write_json(report_dir(env) / "slippage.json",
+                      {"build_key": doc["key"], "p95": p95, "plain_proposal": plain, "proposal": proposal,
+                       "be_offset_proposal": None if proposal is None else need_of(proposal),
+                       "coverage": {str(s): v[0] for s, v in cov.items()}, "rows": len(rows),
+                       "tradeable_rows": len(trad), "skipped": skipped})
     return path
 
 
@@ -623,6 +696,38 @@ def counts(env: Env) -> Path:
 
 # --- budget ---------------------------------------------------------------------------------------------------------
 
+def union_seconds(intervals: list[tuple[float, float]]) -> float:
+    """Total length of the union of [start, end] intervals."""
+    tot, cur = 0.0, None
+    for a, b in sorted(intervals):
+        if cur is None or a > cur[1]:
+            if cur is not None:
+                tot += cur[1] - cur[0]
+            cur = [a, b]
+        else:
+            cur[1] = max(cur[1], b)
+    return tot + (cur[1] - cur[0] if cur is not None else 0.0)
+
+
+def pass2_wall(env: Env, doc: dict, days: list[date]) -> float:
+    """Pass 2's wall seconds from the sessions' own times: per chunk, the union of its sessions' intervals (the pass-2
+    summary entry is written last, so the summary file's write time is the session's end; its start = end -
+    `total_sec`)."""
+    tot = 0.0
+    built = set(days)
+    for c in fb.chunk_ids(doc):
+        if not c.startswith("p2"):
+            continue
+        a, b = (date.fromisoformat(x) for x in c.split(":")[1].split("~"))
+        iv = []
+        for d in built:
+            if a <= d <= b:
+                end = fb.summary_file(env, doc["key"], d).stat().st_mtime
+                iv.append((end - float(day_summary(env, doc, d)["pass2"].get("total_sec", 0)), end))
+        tot += union_seconds(iv)
+    return tot
+
+
 def budget(env: Env) -> Path:
     """The step-13 budget from the measured months 1-4 rebuild (Q-step12, Q-step13plan (7))."""
     from nqbot.jobs.runner import load_state, state_path
@@ -630,15 +735,20 @@ def budget(env: Env) -> Path:
     doc = build_doc(env)
     st = load_state(state_path(env.paths, fb.JOB))
     done = st.get("done") or {}
-    sec = Counter()
+    recorded = Counter()
     for c in fb.chunk_ids(doc):
         x = done.get(c)
         if x:
-            sec[c.split(":")[0]] += float(x.get("sec") or 0)
-    wall = sum(sec.values())
+            recorded[c.split(":")[0]] += float(x.get("sec") or 0)
     days = built_days(env, doc)
     p1 = [day_summary(env, doc, d).get("pass1", {}).get("build_sec", 0) for d in days]
     p2 = [day_summary(env, doc, d).get("pass2", {}) for d in days]
+    # wall time from the sessions' own times (owner 2026-11-11): pass 1 runs one session at a time; pass 2 = the union
+    # of each chunk's session intervals, so a machine asleep between sessions (2026-11-11: about 13.7 h inside one
+    # chunk) is not counted
+    sec = Counter({"p0": recorded["p0"], "p1": float(sum(p1)), "p2": pass2_wall(env, doc, days)})
+    wall = sum(sec.values())
+    left_out = sum(recorded.values()) - wall
     ev_s = [x.get("events_stage_sec", 0) for x in p2]
     zc_s = [x.get("zone_compare_sec", 0) for x in p2]
     lab_s, slip_s = [], 0.0
@@ -657,8 +767,14 @@ def budget(env: Env) -> Path:
     label_h = sum(lab_s) / 3600 if lab_s else None
     per_session = wall / n
     lines = [f"# Step 13 budget re-estimate from the months 1-4 rebuild (build {doc['key']}, {len(days)} sessions)", "",
-             "Measured on the build PC, around the clock (Q-step13plan (7)). Wall time = the feature-build job's chunk "
-             "times (pass 1 one session at a time, pass 2 in parallel).", "",
+             "Measured on the build PC, around the clock (Q-step13plan (7)). Wall time from the sessions' own times "
+             "(owner 2026-11-11): pass 1 = the sum of the sessions' build times (one at a time); pass 2 = the union of "
+             "each chunk's session intervals (each session's summary write time minus its `total_sec`; pass 2 runs "
+             "sessions in parallel); the warm-up = its chunk time. The job's recorded chunk times add "
+             f"{left_out / 3600:.1f} h more (time the PC slept or the parent waited between sessions), left out.", "",
+             f"- Pass 2 process time: {sum(x.get('total_sec', 0) for x in p2) / 3600:.2f} h over {len(p2)} sessions "
+             f"(median {np.median([x.get('total_sec', 0) for x in p2]) if p2 else 0:.0f} s, max "
+             f"{max((x.get('total_sec', 0) for x in p2), default=0):.0f} s)",
              f"- Months 1-4 rebuild: **{rebuild_h:.1f} h** wall (warm-up {sec['p0'] / 3600:.2f} h, pass 1 "
              f"{sec['p1'] / 3600:.2f} h, pass 2 {sec['p2'] / 3600:.2f} h); {per_session / 60:.1f} min a session; "
              f"pass 1 = {sec['p1'] / max(wall, 1):.0%} of it (the share a pass-1 checkpoint reuse could save on variants "

@@ -53,7 +53,10 @@ retrain_every_months: 1
 order_latency_sec: 1.0       # placeholder until step 21 measures the 95th percentile
 default_risk_usd: 333
 max_entry_slip_ticks: 4
-exit_slippage_ticks: 1       # set at step 13 (95th percentile stop slippage, months 1-4)
+exit_slippage_ticks: 4       # FROZEN (owner 2026-11-11, §13 Q-step13b (d); frozen_from months 1-4, step 13b):
+                             # the smallest whole tick at which max(this, the triggering sweep's gap) covers the
+                             # measured stop fill on >= 95% of tradeable stops (95.4%; plain p95 10, of which the
+                             # sweep is the gap rule's part), <reports_dir>/step13/slippage.md
 default_commission_per_mini_rt: 4.68    # labeling default (owner's MFFU rate, all fees)
 default_commission_per_micro_rt: 1.90   # labeling default (owner's MFFU rate, all fees)
 exit_retry_window_sec: 120
@@ -90,7 +93,9 @@ be_trigger:                  # the breakeven rules chosen per fold (<= 4, §6.4;
   - first_structure            # owner's rule (F11.3)
   - {r_multiple: 1.0}          # first trade >= 1.0 x the stop distance in favour
   - {r_multiple: 0.5}
-be_offset_ticks: 1                # fixed; re-checked once step 13 measures exit_slippage_ticks; approved 2026-10-05 (feature_spec F15)
+be_offset_ticks: 4                # FROZEN (owner 2026-11-11, §13 Q-step13b (d); frozen_from months 1-4): the smallest
+                                  # offset keeping a breakeven exit >= $0 after costs at exit_slippage_ticks 4 (+$0.10
+                                  # per micro); was 1 (approved 2026-10-05, feature_spec F15)
 
 # --- Supervision and live engine (§9) ----------------------------------------------------------
 guard_check_sec: 10

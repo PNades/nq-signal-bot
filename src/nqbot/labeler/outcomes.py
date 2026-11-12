@@ -3,18 +3,18 @@
 From the fill, on the session's NQ trades in exchange sequence:
 - the bracket rests at the broker from the fill: the **stop** fills on the first trade at or through it (the fill trade
   itself included: entry and stop on one print = filled and stopped, `ambiguous_tick`), at the worse of the stop ∓
-  `exit_slippage_ticks` and that trade's price (a gap never fills better than the actual trade; owner 2026-11-10, SPEC
-  §13 Q-step13b (b) (vii)); the **target** needs a trade 1 tick through it, after the fill trade (entry and target on one
-  print = target not yet reached);
+  `exit_slippage_ticks` and the last print of that trade's sweep (every print at its `ts_event`, `sweep_end`): a gap
+  never fills better than the actual trades (owner 2026-11-10/11, SPEC §13 Q-step13b (b) (vii), (d)); the **target**
+  needs a trade 1 tick through it, after the fill trade (entry and target on one print = target not yet reached);
 - **timeout**: the session flat-by, or the start of the next news blackout if earlier (the news flatten, SPEC §9), each
   taking effect `order_latency_sec` later, closed at market: the best bid (ask) at that time up to its size, the rest
-  over the following trades in sequence (no book: the trades only, flagged `exit_no_book`), never better than the first
-  trade at or after that time (the same gap rule);
+  over the following trades in sequence (no book: the trades only, flagged `exit_no_book`), never better than the last
+  print of the first sweep at or after that time (the same gap rule);
 - **breakeven** rules (`be_trigger`, §6.4): `none`; `r<k>` = the first trade k x the stop distance in favour; `fs` =
   the close of the first 1-minute bar settled past the first structure (F11.3, its band frozen at `decision_ts`; none
   when the target is the first structure); the signal takes effect `order_latency_sec` later, then the stop moves to
   the fill + the MNQ breakeven offset (ceil(commission ÷ $0.50) + `be_offset_ticks` ticks) and a trade at or through it
-  exits (`be`), at that price ∓ `exit_slippage_ticks` or the triggering trade if worse (the gap rule).
+  exits (`be`), at that price ∓ `exit_slippage_ticks` or the triggering sweep's last print if worse (the gap rule).
 The gap rule's effect is recorded per exit (`gap_ticks_<rule>`, ticks of extra cost against the trade, 0 when it
 changes nothing) and counted by the labeler.
 R per outcome (per micro at default costs, `costs.Costs.realized_r`). Path summaries (§6.5, the `none` rule's trade):
@@ -45,9 +45,16 @@ def timeout_at(fill_t: int, meta: dict, latency_ns: int) -> tuple[int, str]:
     return occ + latency_ns, why
 
 
+def sweep_end(tape, k: int) -> int:
+    """The last print of trade k's sweep: every print at trade k's `ts_event` (one aggressor's prints share it; the
+    tape is in exchange sequence within a timestamp). The gap rule compares against its price (owner 2026-11-11, SPEC
+    §13 Q-step13b (d): a stop is hit by the sweep's first print at the stop, and fills against what the sweep left)."""
+    return int(np.searchsorted(tape.ts, tape.ts[k], side="right")) - 1
+
+
 def market_exit(tape, book, t: int, d: int, size: float) -> tuple[float, bool]:
-    """Closing a position of direction d at market at t: (average price, no_book), never better than the first trade at
-    or after t (the gap rule, owner 2026-11-10, SPEC §13 Q-step13b (b) (vii))."""
+    """Closing a position of direction d at market at t: (average price, no_book), never better than the last print of
+    the first sweep at or after t (the gap rule, owner 2026-11-10/11, SPEC §13 Q-step13b (b) (vii), (d))."""
     px, nb, _ = market_exit_gap(tape, book, t, d, size)
     return px, nb
 
@@ -58,8 +65,8 @@ def market_exit_gap(tape, book, t: int, d: int, size: float) -> tuple[float, boo
     k = tape.idx_before(t)
     if k >= len(tape):
         return raw, nb, 0.0
-    first = float(tape.price[k])
-    px = min(raw, first) if d > 0 else max(raw, first)
+    last = float(tape.price[sweep_end(tape, k)])
+    px = min(raw, last) if d > 0 else max(raw, last)
     return px, nb, (raw - px) * d / TICK
 
 
@@ -138,7 +145,7 @@ class Labeler:
 
         def stop_exit(o: str, k: int, price: float) -> tuple[str, int, float, float]:
             plain = c.stop_fill(price, d)
-            px = c.stop_fill(price, d, float(tape.price[k]))
+            px = c.stop_fill(price, d, float(tape.price[sweep_end(tape, k)]))
             return o, int(tape.ts[k]), px, (plain - px) * d / TICK
 
         def base() -> tuple[str, int, float, float, int | None]:

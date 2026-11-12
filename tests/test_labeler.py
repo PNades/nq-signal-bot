@@ -59,7 +59,10 @@ def dp(**kw):
     return base
 
 
+# the hand-built examples below are written at 1 tick of exit slippage and a 1-tick breakeven offset, whatever the
+# frozen config values are (owner 2026-11-11 froze both at 4; `test_the_frozen_slippage_values_flow_into_the_costs`)
 P = lp.params(S, F)
+P = replace(P, costs=replace(P.costs, exit_slip_ticks=1.0), be_offset_ticks=1.0)
 
 
 def P_(**kw):
@@ -231,6 +234,65 @@ def test_a_market_exit_never_fills_better_than_the_first_trade():
     f, out = label_one([FILL, (at(15, 59, 1.5), 103.0)], dp(), 95.0, 130.0, book=book)
     assert out["gap_ticks_none"] == 0.0
     assert out["r_none"] == pytest.approx(((102.5 - 102.0) * 2 - 1.90) / P.costs.risk_per_micro(7.0, "limit"))
+
+
+def test_a_sweep_through_the_stop_fills_at_the_sweeps_last_print():
+    # owner 2026-11-11 (Q-step13b (d)): long from 102, stop 95; one aggressor at 10:02 prints 95.0, 94.5, 93.75, 93.0
+    # under one timestamp: the first print is at the stop, the sweep leaves 93.0
+    t = at(10, 2)
+    trades = [FILL, (at(10, 1), 99.0), (t, 95.0), (t, 94.5), (t, 93.75), (t, 93.0), (at(10, 2, 1), 96.0)]
+    p4 = replace(P, costs=replace(P.costs, exit_slip_ticks=4.0))
+    f, out = label_one(trades, dp(), 95.0, 130.0, p=p4)
+    rpm = p4.costs.risk_per_micro(7.0, "limit")
+    assert out["out_none"] == "stop" and out["t_exit_none"] == t
+    assert out["r_none"] == pytest.approx(((93.0 - 102.0) * 2 - 1.90) / rpm)         # not 95 - 4 ticks = 94.0
+    assert out["gap_ticks_none"] == pytest.approx((94.0 - 93.0) / 0.25)
+    # a sweep that ends within the slippage allowance changes nothing: 95.0, 94.5 -> 95 - 4 ticks = 94.0 stands
+    f, out = label_one([FILL, (t, 95.0), (t, 94.5), (at(10, 3), 93.0)], dp(), 95.0, 130.0, p=p4)
+    assert out["r_none"] == pytest.approx(((94.0 - 102.0) * 2 - 1.90) / rpm) and out["gap_ticks_none"] == 0.0
+    # a short: one aggressor buys 110.0 -> 111.5 through the stop at 110
+    d_short = dp(direction=-1, zone_lo=100.0, zone_hi=102.0, near_edge=100.0, price_at_decision=99.5,
+                 swing_high=101.0, z_lo=[80.0], z_hi=[90.0], z_id=["za"], z_kind=["level"], z_lo_src=["chart"],
+                 z_hi_src=["chart"])
+    tape = tape_of([(at(10, 0, 3), 100.25), (t, 110.0), (t, 110.75), (t, 111.5)])
+    path = PathIndex(tape.price)
+    fs = fl.simulate("limit", d_short, 1.0, tape, path, None, meta(), p4)
+    o = Labeler(tape, path, st.bars(tape, 1), None, meta(), p4).label(
+        fs, 110.0, 85.0, -1, p4.costs.risk_per_micro(10.0, "limit"), None, 1.0)
+    assert o["out_none"] == "stop" and o["gap_ticks_none"] == pytest.approx((111.5 - 111.0) / 0.25)
+
+
+def test_a_calm_stop_fills_at_the_stop_less_the_slippage():
+    # one print at the stop and nothing else under its timestamp: stop - exit_slippage_ticks, no gap cost; a later
+    # print (another timestamp) further away is not part of the sweep
+    p4 = replace(P, costs=replace(P.costs, exit_slip_ticks=4.0))
+    f, out = label_one([FILL, (at(10, 2), 95.0), (at(10, 2, 0.001), 90.0)], dp(), 95.0, 130.0, p=p4)
+    assert out["out_none"] == "stop"
+    assert out["r_none"] == pytest.approx(((94.0 - 102.0) * 2 - 1.90) / p4.costs.risk_per_micro(7.0, "limit"))
+    assert out["gap_ticks_none"] == 0.0
+
+
+def test_a_market_exit_never_fills_better_than_the_sweeps_last_print():
+    # the flat-by exit at 15:59:01: the bid says 104.75 (size 10); the first prints at or after it are one sweep at
+    # 15:59:01.5, 104.5 -> 103.25: the exit fills at 103.25
+    book = TopOfBook.from_arrays([at(15, 58)], [104.75], [105.0], [10], [10])
+    t = at(15, 59, 1.5)
+    f, out = label_one([FILL, (t, 104.5), (t, 103.75), (t, 103.25), (at(15, 59, 3), 106.0)], dp(), 95.0, 130.0,
+                       book=book)
+    assert out["out_none"] == "timeout" and out["gap_ticks_none"] == pytest.approx((104.75 - 103.25) / 0.25)
+    assert out["r_none"] == pytest.approx(((103.25 - 102.0) * 2 - 1.90) / P.costs.risk_per_micro(7.0, "limit"))
+    assert market_exit(tape_of([FILL, (t, 104.5), (t, 103.25)]), book, at(15, 59) + LAT, 1, 1.0) == (103.25, False)
+    # a short covered at market: the sweep goes up, the worse price is the higher one
+    assert market_exit(tape_of([FILL, (t, 105.25), (t, 106.0)]), book, at(15, 59) + LAT, -1, 1.0) == (106.0, False)
+
+
+def test_the_frozen_slippage_values_flow_into_the_costs():
+    p = lp.params(S, F)
+    assert p.costs.exit_slip_ticks == S["exit_slippage_ticks"] and p.be_offset_ticks == S["be_offset_ticks"]
+    # §6.6: a breakeven exit at the frozen values nets at or above $0 per micro after costs
+    net = (be_ticks(p.costs.commission_micro, p.be_offset_ticks) - p.costs.exit_slip_ticks) * 0.5 \
+        - p.costs.commission_micro
+    assert net >= 0
 
 
 def test_the_labeler_counts_what_the_gap_rule_changes():
@@ -458,3 +520,26 @@ def test_slippage_market_fill_takes_the_book_then_the_trades():
     px = s13b.market_fill(tape, book, 0, -1, 5.0)                    # a long's stop sells 5
     assert px == pytest.approx((2 * 99.75 + 2 * 99.5 + 1 * 99.25) / 5)
     assert math.isfinite(px) and (100.0 - px) / 0.25 > 0       # a stop at 100: slippage against the trade
+
+
+def test_the_slippage_proposal_follows_the_sweep_gap_rule():
+    # owner 2026-11-11 (Q-step13b (d)): the labeler charges max(S, the gap to the sweep's last print); the proposal is
+    # the smallest S covering the measured fill on >= 95% of the stops. 100 long stops at 100: 90 calm (1 tick, sweep at
+    # the stop), 10 swept 8 ticks (measured 8, sweep's last print 98.0): S = 1 covers them all under the sweep rule,
+    # while the first-print rule needs S = 8
+    rows = [{"slip_es1": 1.0, "direction": 1, "stop": 100.0, "first_px": 100.0, "sweep_px": 100.0}] * 90 + \
+           [{"slip_es1": 8.0, "direction": 1, "stop": 100.0, "first_px": 100.0, "sweep_px": 98.0}] * 10
+    prop, cov = s13b.sweep_rule_proposal(rows, 1)
+    assert prop == 1 and cov[1][0] == pytest.approx(1.0) and cov[1][2] == pytest.approx(0.9)
+    # the sweep ends short of the fill (book thinner than the prints): measured 8, sweep's last print 2 ticks through
+    rows2 = rows[:90] + [{**rows[-1], "sweep_px": 99.5}] * 10
+    prop2, cov2 = s13b.sweep_rule_proposal(rows2, 1)
+    assert prop2 == 8 and cov2[2][0] == pytest.approx(0.9)
+
+
+def test_the_budget_wall_leaves_out_time_between_sessions():
+    # one pass-2 chunk: four sessions in parallel 0-100 s, two more 100-160 s, then the PC asleep 13 h before the chunk
+    # was recorded: the wall is 160 s, not the recorded chunk time
+    iv = [(0, 100), (5, 60), (2, 90), (1, 99), (100, 160), (101, 130)]
+    assert s13b.union_seconds(iv) == 160
+    assert s13b.union_seconds([(0, 10), (50, 70)]) == 30 and s13b.union_seconds([]) == 0

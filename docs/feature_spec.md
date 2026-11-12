@@ -832,7 +832,7 @@ These values are measured after the touch: `swept`, `sweep_depth`, `sweep_second
 - *Stop-limit:* working from arrival. It triggers on the first trade at or through `stopPrice` (or at arrival if price is already through), then fills like a marketable limit at that trade's time, never worse than `limitPrice`. Any unfilled rest becomes a resting limit at `limitPrice`.
 - *Marketable limit:* fills at the `mbp-1` best ask (bid) at arrival up to the displayed size, the remainder at the cap; anything beyond the cap is unfilled. The size is the §6.1 default-risk mix in NQ-equivalent contracts, rounded up.
 
-**Exits:** a target counts only when price trades ≥ 1 tick through it. A stop fills on touch, at the stop ± `exit_slippage_ticks`; the breakeven stop is treated the same way.
+**Exits:** a target counts only when price trades ≥ 1 tick through it. A stop fills on touch, at the stop ± `exit_slippage_ticks`, or at the last print of the triggering sweep (every print at its `ts_event`) if that is worse; the breakeven stop is treated the same way, and a market exit never fills better than the last print of the first sweep at or after its time (owner 2026-11-10/11, SPEC §13 Q-step13b (d)).
 
 **Time-to-live and removal.** These are the only removal reasons:
 - `entry_ttl_sec` expiry;
@@ -1327,7 +1327,7 @@ POC ties: (a) the price closest to the profile's midpoint; (b) the price closest
 | 36 | `trig_adv_ticks` | 12 ticks (3 pts) | inside the owner's ~5-pt absorption stop, so a "bad" trigger is one that goes against at once | features | label |
 | 37 | `entry_ttl_sec` | {a: 5, b: 5, c: 60, d: 60} | marketable limits fill at once (only a remainder waits); stop-limit and passive limit get one 1-minute bar | settings (start; frozen copy in features) | exec |
 | 38 | `stop_buffer` | 5 NQ pts | no owner value ("let the backtest decide"); borrows his ~5-pt absorption buffer as a neutral start; a stop beyond a QQQ or NDXP level uses at least `stop_buffer_floor` (QQQ 4.0 NQ, NDXP pending; owner 2026-10-08) | settings (start; frozen copy in features) | exec |
-| 39 | `be_offset_ticks` | 1 tick | covers the 1-tick stop slippage, so a breakeven exit nets ≈ 0 after costs; re-checked once step 13 measures `exit_slippage_ticks` (it should be ≥ that) | settings | fixed |
+| 39 | `be_offset_ticks` | 4 ticks (was 1) | covers `exit_slippage_ticks` 4, so a breakeven exit nets +$0.10 per micro after costs; re-checked at step 13 (owner 2026-11-11, SPEC §13 Q-step13b (d); `exit_slippage_ticks` 4, both frozen_from months 1–4) | settings | frozen |
 | 40 | `guard_port` | 8731 | an unprivileged localhost port, away from common defaults (5000, 8000, 8080, 8501) | settings | fixed |
 | 41 | `engine_port` | 8732 | as above | settings | fixed |
 | 42 | `ui_port` | 8733 | as above | settings | fixed |

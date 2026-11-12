@@ -9,8 +9,9 @@ Every label is costed per micro at the default micro commission (the costliest m
 - the fill simulation's size (§5.5b): micros = floor(`default_risk_usd` ÷ risk_per_micro), in NQ-equivalent contracts
   minis + micros ÷ `MICRO_MINI_RATIO`, rounded up (at least 1; a stop too wide for one micro is flagged `too_wide`);
 - realized R = (exit − fill) × direction × $2 − commission, ÷ risk_per_micro (per-trade R for the scorer, §6.1); a stop
-  or breakeven exit fills at the worse of its price ∓ `exit_slippage_ticks` (§5.5b) and the first trade at or beyond it
-  (owner 2026-11-10, SPEC §13 Q-step13b (b) (vii): a gap through the stop never fills better than the actual trade).
+  or breakeven exit fills at the worse of its price ∓ `exit_slippage_ticks` (§5.5b) and the last print of the sweep
+  that triggered it (owner 2026-11-10/11, SPEC §13 Q-step13b (b) (vii), (d): a gap through the stop never fills better
+  than the actual trades).
 """
 
 from __future__ import annotations
@@ -56,9 +57,9 @@ class Costs:
         return ((exit_px - fill) * direction * MNQ_USD_PT - self.commission_micro) / rpm
 
     def stop_fill(self, stop: float, direction: int, trade_px: float | None = None) -> float:
-        """A stop (long: a sell) fills at the stop ∓ `exit_slippage_ticks` against the trade, or at the triggering trade
-        (the first at or beyond the stop) if that is worse: a gap never fills better than the actual trade (owner
-        2026-11-10, SPEC §13 Q-step13b (b) (vii))."""
+        """A stop (long: a sell) fills at the stop ∓ `exit_slippage_ticks` against the trade, or at `trade_px` if that
+        is worse; the labeler passes the triggering sweep's last print (`outcomes.sweep_end`): a gap never fills better
+        than the actual trades (owner 2026-11-10/11, SPEC §13 Q-step13b (b) (vii), (d))."""
         px = stop - direction * self.exit_slip_ticks * TICK
         if trade_px is None:
             return px
