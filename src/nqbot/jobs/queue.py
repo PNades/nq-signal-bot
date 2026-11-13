@@ -28,6 +28,7 @@ attempt and end are recorded as for a single job; the queue goes on past the gro
 from __future__ import annotations
 
 import os
+import socket
 import traceback
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -37,7 +38,8 @@ from zoneinfo import ZoneInfo
 
 import psutil
 
-from nqbot.jobs.runner import load_state, plan_progress, state_path
+from nqbot.jobs.lock import ALL_LOCKS, holder_alive, holders, read_lock
+from nqbot.jobs.runner import load_state, plan_progress, run_lock_path, state_path
 from nqbot.storage import Paths, atomic_write_json, atomic_write_text
 
 QUEUE_FILE = "queue.txt"
@@ -357,6 +359,31 @@ def queue_lines(paths: Paths, settings: dict[str, Any]) -> list[str]:
     max_crashes = int((settings.get("ops") or {})["resume_max_crashes"])
     lines = ["queue (nqbot resume):"] + holds
     for job in queue:
-        d = decide(job, load_state(state_path(paths, job)), rs, max_crashes)
+        state = load_state(state_path(paths, job))
+        h = display_holder(paths, job) if last_end(state) == DIED else None
+        if h is not None:   # owner 2026-11-13: a run still going read as "last run ended 'died'"
+            where = ("" if h.get("host") == socket.gethostname() else
+                     ": judged by its lock only (another machine's process is never checked from here)")
+            lines.append(f"  {job}: running now (pid {h.get('pid')} on {h.get('host')}, since "
+                         f"{h.get('started_utc')}){where}")
+            continue
+        d = decide(job, state, rs, max_crashes)
         lines.append(f"  {job}: {d.action} ({d.reason})")
     return lines
+
+
+def display_holder(paths: Paths, job: str) -> dict[str, Any] | None:
+    """The holder of a lock taken under `job`'s name by a run that is still going (for the display only; `decide` is
+    unchanged): its run lock (the two-builds jobs) or a data lock, exclusive or shared. On this machine the holder's
+    process must be alive; another machine's holder is taken at its word. None: no run of `job` is going, so a run
+    with no recorded end died (its process is gone)."""
+    found = []
+    rl = run_lock_path(paths, job)
+    if rl.exists():
+        found.append(read_lock(rl))
+    for kind in ALL_LOCKS:
+        found += [h for _, h, _ in holders(paths.root, kind)]
+    for h in found:
+        if h and h.get("job") == job and (h.get("host") != socket.gethostname() or holder_alive(h)):
+            return h
+    return None

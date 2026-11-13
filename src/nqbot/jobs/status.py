@@ -8,7 +8,7 @@ import statistics
 import shutil
 from datetime import datetime
 
-from nqbot.jobs.lock import ALL_LOCKS, holder_dead_here, holders, lock_path, read_lock
+from nqbot.jobs.lock import ALL_LOCKS, holder_dead_here, holders
 from nqbot.jobs.runner import p90, plan_progress
 from nqbot.storage import GB, Paths
 
@@ -40,32 +40,39 @@ def job_lines(paths: Paths) -> list[str]:
 
 
 def lock_lines(paths: Paths) -> list[str]:
+    """One line per holder of each job lock, exclusive ("held by") or shared ("shared by", two builds at once, owner
+    2026-11-12); "free" only when the lock has no holder of either kind (owner 2026-11-13: a shared lock read "free"
+    above its "shared by" lines)."""
     lines = []
     for kind in ALL_LOCKS:
-        path = lock_path(paths.root, kind)
-        if not path.exists():
+        found = holders(paths.root, kind)
+        if not found:
             lines.append(f"{kind} job lock: free")
             continue
-        h = read_lock(path)
-        if not h:
-            lines.append(f"{kind} job lock: unreadable lock file {path}")
-            continue
-        line = (f"{kind} job lock: held by job {h.get('job')!r} (pid {h.get('pid')} on {h.get('host')}, since "
-                f"{h.get('started_utc')})")
-        if holder_dead_here(h):  # owner 2026-10-31: after a restart the dead run's lock read as still held
-            line += ": that process is no longer running (stale; the next job run takes it over)"
-        lines.append(line)
-    for kind in ALL_LOCKS:   # owner 2026-11-12: builds holding the data locks shared (two builds at once)
-        for path, h, mode in holders(paths.root, kind):
-            if mode != "shared":
+        for path, h, mode in found:
+            shared = mode == "shared"
+            if not h:
+                lines.append(f"{kind} job lock: unreadable {'shared ' if shared else ''}lock file {path}")
                 continue
-            line = (f"{kind} job lock: shared by job {(h or {}).get('job')!r} (pid {(h or {}).get('pid')} on "
-                    f"{(h or {}).get('host')}, since {(h or {}).get('started_utc')})" if h else
-                    f"{kind} job lock: unreadable shared lock file {path}")
-            if holder_dead_here(h):
-                line += ": that process is no longer running (stale; the next job run removes it)"
+            line = (f"{kind} job lock: {'shared' if shared else 'held'} by job {h.get('job')!r} (pid {h.get('pid')} "
+                    f"on {h.get('host')}, since {h.get('started_utc')})")
+            if holder_dead_here(h):  # owner 2026-10-31: after a restart the dead run's lock read as still held
+                line += (": that process is no longer running (stale; the next job run "
+                         f"{'removes it' if shared else 'takes it over'})")
             lines.append(line)
     return lines
+
+
+def switch_lines() -> list[str]:
+    """Whether two feature builds may run at once on this machine (`parallel_builds` in config/local.yaml, owner
+    2026-11-13: status shows it)."""
+    from nqbot import config   # read through the module, so the test fixture's stand-in applies
+
+    try:
+        on = config.parallel_builds()
+    except config.ConfigError as e:
+        return [f"two builds at once (parallel_builds in config/local.yaml): unreadable ({e})"]
+    return [f"two builds at once (parallel_builds in config/local.yaml): {'on' if on else 'off'}"]
 
 
 def _last_window_hours(state: dict) -> float | None:
@@ -85,4 +92,4 @@ def status_lines(paths: Paths) -> list[str]:
         f"SSD {paths.drive} (root {paths.root}): {usage.used / GB:.0f} GB used, "
         f"{usage.free / GB:.0f} GB free of {usage.total / GB:.0f} GB"
     ]
-    return lines + lock_lines(paths) + job_lines(paths)
+    return lines + lock_lines(paths) + switch_lines() + job_lines(paths)
