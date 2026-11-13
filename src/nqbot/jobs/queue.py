@@ -39,7 +39,7 @@ from zoneinfo import ZoneInfo
 import psutil
 
 from nqbot.jobs.lock import ALL_LOCKS, holder_alive, holders, read_lock
-from nqbot.jobs.runner import load_state, plan_progress, run_lock_path, state_path
+from nqbot.jobs.runner import load_state, plan_progress, read_pool_progress, run_lock_path, state_path
 from nqbot.storage import Paths, atomic_write_json, atomic_write_text
 
 QUEUE_FILE = "queue.txt"
@@ -91,6 +91,19 @@ def save_resume_state(paths: Paths, rs: dict[str, Any]) -> None:
     atomic_write_json(resume_state_path(paths), rs)
 
 
+def job_state(paths: Paths, job: str) -> dict[str, Any]:
+    """The job's state.json, with `pool_finished`: the sessions its pools ever finished inside a chunk (a feature
+    build's pass 2 is one chunk of many sessions; owner 2026-11-13 review)."""
+    state = load_state(state_path(paths, job))
+    state["pool_finished"] = int(read_pool_progress(paths, job).get("finished_total") or 0)
+    return state
+
+
+def progress(state: dict[str, Any]) -> int:
+    """Chunks done plus sessions finished inside chunks: what a resume attempt has to move to count as progress."""
+    return len(state.get("done") or {}) + int(state.get("pool_finished") or 0)
+
+
 def last_end(state: dict[str, Any]) -> str | None:
     """How the job's last run ended: its status, DIED if it never recorded one, None if it never ran."""
     runs = state.get("runs") or []
@@ -121,7 +134,7 @@ def decide(job: str, state: dict[str, Any], rs: dict[str, Any], max_crashes: int
         return Decision(job, "wait", f"its last run ended '{end}': waiting for the owner (resume it with "
                                      f"uv run nqbot run {job})")
     a = (rs.get("attempts") or {}).get(job) or {}
-    if a.get("outcome") == "refused" and a.get("done_before") == len(state.get("done") or {}):
+    if a.get("outcome") == "refused" and a.get("done_before") == progress(state):
         return Decision(job, "wait", f"refused on its last start ({a.get('message', '')}): waiting for the owner "
                                      f"(fix it, then uv run nqbot run {job} or uv run nqbot queue release {job})")
     crashes = crash_count(job, state, rs)
@@ -133,11 +146,12 @@ def decide(job: str, state: dict[str, Any], rs: dict[str, Any], max_crashes: int
 
 
 def crash_count(job: str, state: dict[str, Any], rs: dict[str, Any]) -> int:
-    """Consecutive resume attempts of `job` that died (no outcome recorded) or raised, with no chunk finished since."""
+    """Consecutive resume attempts of `job` that died (no outcome recorded) or raised, with no chunk (or pool
+    session) finished since."""
     a = (rs.get("attempts") or {}).get(job)
     if not a:
         return 0
-    done_now = len(state.get("done") or {})
+    done_now = progress(state)
     if done_now != a.get("done_before"):
         return 0  # progress since that attempt started
     if a.get("outcome") in (None, DIED):
@@ -197,7 +211,7 @@ def resume(paths: Paths, settings: dict[str, Any], *, run: Callable[[str], Any],
     while i < len(queue):
         job = queue[i]
         i += 1
-        state = load_state(state_path(paths, job))
+        state = job_state(paths, job)
         d = decide(job, state, rs, max_crashes)
         if d.action == "skip":
             echo(f"resume: {job}: complete")
@@ -217,7 +231,7 @@ def resume(paths: Paths, settings: dict[str, Any], *, run: Callable[[str], Any],
             return 2
         before = rs["attempts"].get(job)
         rs["attempts"][job] = {"started": now().isoformat(), "pid": os.getpid(),
-                               "done_before": len(state.get("done") or {}),
+                               "done_before": progress(state),
                                "crashes": crash_count(job, state, rs), "outcome": None}
         save_resume_state(paths, rs)
         echo(f"resume: {job}: running ({d.reason})")
@@ -268,7 +282,7 @@ def _run_group(paths: Paths, rs: dict[str, Any], queue: list[str], start: int, m
             echo(f"resume: {job}: already running")
             i += 1
             continue
-        state = load_state(state_path(paths, job))
+        state = job_state(paths, job)
         d = decide(job, state, rs, max_crashes)
         if d.action == "skip":
             echo(f"resume: {job}: complete")
@@ -283,7 +297,7 @@ def _run_group(paths: Paths, rs: dict[str, Any], queue: list[str], start: int, m
     before = {job: rs["attempts"].get(job) for job, _, _ in group}
     for job, state, d in group:
         rs["attempts"][job] = {"started": now().isoformat(), "pid": os.getpid(),
-                               "done_before": len(state.get("done") or {}),
+                               "done_before": progress(state),
                                "crashes": crash_count(job, state, rs), "outcome": None}
         echo(f"resume: {job}: running ({d.reason})" + (" together with " + ", ".join(
             j for j in [g for g, _, _ in group] + busy if j != job) if len(group) + len(busy) > 1 else ""))
@@ -359,9 +373,11 @@ def queue_lines(paths: Paths, settings: dict[str, Any]) -> list[str]:
     max_crashes = int((settings.get("ops") or {})["resume_max_crashes"])
     lines = ["queue (nqbot resume):"] + holds
     for job in queue:
-        state = load_state(state_path(paths, job))
-        h = display_holder(paths, job) if last_end(state) == DIED else None
-        if h is not None:   # owner 2026-11-13: a run still going read as "last run ended 'died'"
+        state = job_state(paths, job)
+        # owner 2026-11-13: a run still going read as "last run ended 'died'"; and (review) a run that hasn't
+        # finished a chunk yet still showed its previous run's end, so every queued job is checked
+        h = display_holder(paths, job)
+        if h is not None:
             where = ("" if h.get("host") == socket.gethostname() else
                      ": judged by its lock only (another machine's process is never checked from here)")
             lines.append(f"  {job}: running now (pid {h.get('pid')} on {h.get('host')}, since "

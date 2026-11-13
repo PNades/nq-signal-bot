@@ -200,11 +200,19 @@ def labels_day(env: Env, day: date) -> dict[str, Any]:
         write_table(lp_[k], out[k], meta)
     info = {**out["info"], "total_sec": round(_time.monotonic() - t0, 1),
             "bytes": {k: lp_[k].stat().st_size for k in ("pairs", "fills", "paths")}}
-    atomic_write_json(lp_["summary"], info)
     if not info.get("identity_ok", True):
+        # owner 2026-11-13 review: the summary marks a session done, so a failed check is written beside it instead
+        # (the session is labelled again, and refused again, on every run until the cause is fixed)
+        atomic_write_json(identity_failed_file(lp_["summary"]), info)
         raise Refused(f"{day}: the low-RR extension changed the >= 0.8 pairs or their labels (Q-flexfarm (1))")
+    identity_failed_file(lp_["summary"]).unlink(missing_ok=True)
+    atomic_write_json(lp_["summary"], info)
     env.echo(f"{day}: {info['pairs']} pairs, {info['label_sec']} s, identity {info.get('identity_ok')}")
     return info
+
+
+def identity_failed_file(summary: Path) -> Path:
+    return summary.with_name(summary.stem + ".identity_failed.json")
 
 
 def labels_chunk_ids(env: Env) -> list[str]:
@@ -217,9 +225,12 @@ def labels_chunk_ids(env: Env) -> list[str]:
 def labels_report(env: Env) -> Path:
     plan, doc, _p = load_labels_plan(env)
     rows = []
+    failed = []
     bands: Counter = Counter()
     for d in plan["sessions"]:
         s = label_paths(env, doc, plan["label_key"], date.fromisoformat(d))["summary"]
+        if identity_failed_file(s).exists():
+            failed.append(d)
         if s.exists():
             x = json.loads(s.read_text(encoding="utf-8"))
             rows.append((d, x))
@@ -229,8 +240,9 @@ def labels_report(env: Env) -> Path:
              f"Sessions labelled {len(rows)} of {len(plan['sessions'])}; settings and overrides in "
              f"`label_plan.json` ({plan['overrides'] or 'no overrides'}).", "",
              "## Identity check of the low-RR extension (Q-flexfarm (1))", "",
-             f"- Sessions checked: {sum(1 for _, x in rows if 'identity_ok' in x)}; all identical: "
-             f"{all(x.get('identity_ok') for _, x in rows)}; base rows compared "
+             f"- Sessions checked: {sum(1 for _, x in rows if 'identity_ok' in x) + len(failed)}; all identical: "
+             f"{all(x.get('identity_ok') for _, x in rows) and not failed}"
+             + (f" (FAILED: {', '.join(failed)})" if failed else "") + "; base rows compared "
              f"{sum(x.get('identity_rows', 0) for _, x in rows):,}; extension rows {sum(x.get('ext_rows', 0) for _, x in rows):,}",
              "", "## Pairs by style, order type and RR band (every pair row; net RR at default costs)", "",
              "| style | order type | RR band | set | pairs |", "|---|---|---|---|---:|"]
@@ -316,6 +328,25 @@ def slip_dir(env: Env, doc: dict) -> Path:
     return report_dir(env) / "slippage" / doc["key"] / "days"
 
 
+def slip_digest(env: Env) -> str:
+    """The settings a slippage day reads besides the build (owner 2026-11-13 review: the day files were keyed by the
+    build key only, so a re-run after a settings change kept stale days): the labeler's parameters, the start order
+    types and the sizing values."""
+    import hashlib
+
+    from nqbot.labeler import params as lp
+
+    blob = json.dumps({"labeler": lp.params(env.settings, env.features).raw,
+                       "entry_order_type": env.settings["entry_order_type"], "sizing": list(SLIP_SIZING_TICKS)},
+                      sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode()).hexdigest()[:12]
+
+
+def slip_day_current(env: Env, path: Path) -> bool:
+    """A stored slippage day made with the current settings."""
+    return path.exists() and read_meta(path).get("slip_digest") == slip_digest(env)
+
+
 def market_fill(tape, book, k: int, d_exit: int, size: float) -> float | None:
     """A stop that touched at trade k, sold (d_exit -1) or bought (+1) at market: the best bid / ask size at the touch,
     the rest at the following trades' prices in sequence (§12 step 13; no depth data)."""
@@ -363,7 +394,8 @@ def slippage_day(env: Env, day: date) -> Path:
     book = mbp1.load(env.db.raw_path("mbp-1", tape.symbol, day)) if tape is not None else None
     rows: list[dict] = []
     if book is None:
-        write_table(out_path, [], {"day": iso, "key": doc["key"], "skipped": "no mbp-1 (stored from 2025-10-07)"})
+        write_table(out_path, [], {"day": iso, "key": doc["key"], "slip_digest": slip_digest(env),
+                                   "skipped": "no mbp-1 (stored from 2025-10-07)"})
         return out_path
     p = lp.params(env.settings, env.features)
     path = PathIndex(tape.price)
@@ -391,7 +423,7 @@ def slippage_day(env: Env, day: date) -> Path:
                 r[f"size_es{es}"] = size
                 r[f"slip_es{es}"] = None if px is None else d * (stop - px) / TICK
             rows.append(r)
-    write_table(out_path, rows, {"day": iso, "key": doc["key"]})
+    write_table(out_path, rows, {"day": iso, "key": doc["key"], "slip_digest": slip_digest(env)})
     return out_path
 
 
@@ -450,7 +482,7 @@ def slippage_report(env: Env) -> Path:
     rows, skipped = [], []
     for d in sessions_14(env, doc):
         f = slip_dir(env, doc) / f"{d.isoformat()}.parquet"
-        if not f.exists():
+        if not slip_day_current(env, f):
             continue
         m = read_meta(f)
         if m.get("skipped"):
@@ -564,7 +596,7 @@ class SlippageJob:
             return None
         _, d, _k = chunk_id.split(":")
         doc = build_doc(env)
-        if (slip_dir(env, doc) / f"{d}.parquet").exists():
+        if slip_day_current(env, slip_dir(env, doc) / f"{d}.parquet"):
             return None
         if not (out_dir(env, doc) / "decisions" / f"{d}.parquet").exists():
             from nqbot.jobs.runner import StopChunk

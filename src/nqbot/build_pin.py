@@ -23,6 +23,7 @@ from nqbot import testpass
 from nqbot.storage import Paths, atomic_write_json
 
 PIN_FILE = "build_pin.json"
+MOVE_FILE = "build_pin_move.json"   # owner 2026-11-13 review: a pin move in progress (scripts/build_worktree.ps1)
 
 
 class PinRefused(Exception):
@@ -40,6 +41,46 @@ def read_pin(paths: Paths) -> dict | None:
     return json.loads(p.read_text(encoding="utf-8-sig"))
 
 
+def move_path(paths: Paths) -> Path:
+    return paths.data_dir / "jobs" / MOVE_FILE
+
+
+def moving(paths: Paths) -> dict | None:
+    """The live pin move on this machine (its script's process), else None (a dead script's file is ignored)."""
+    from nqbot.jobs import lock
+
+    h = lock.read_lock(move_path(paths)) if move_path(paths).exists() else None
+    return h if h is not None and lock.holder_alive(h) else None
+
+
+def begin_move(paths: Paths, pid: int, echo: Callable[[str], None] = print) -> None:
+    """`build-pin move-begin --pid N` (scripts/build_worktree.ps1, N = its own process): record the move first, then
+    check no job runs (owner 2026-11-13 review: a job starting between the old one-off check and the checkout ran
+    while the worktree changed). A job that starts after this refuses (`check`), and `nqbot resume` checks before each
+    of its jobs, so nothing starts until `move-end`."""
+    from datetime import datetime, timezone
+
+    from nqbot.jobs import lock
+
+    other = moving(paths)
+    if other is not None and other.get("pid") != pid:
+        raise PinRefused(f"another pin move is running (pid {other.get('pid')}, since {other.get('started_utc')})")
+    atomic_write_json(move_path(paths), {"host": socket.gethostname(), "pid": pid, "pid_created": lock._create_time(pid),
+                                         "job": "build pin move",
+                                         "started_utc": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+    held = _live_locks(paths)
+    if held:
+        end_move(paths)
+        raise PinRefused(f"a job is running ({', '.join(held)}): the pin moves only between jobs")
+    echo("no job running: the build worktree may move (jobs refuse until build-pin move-end)")
+
+
+def end_move(paths: Paths, echo: Callable[[str], None] | None = None) -> None:
+    move_path(paths).unlink(missing_ok=True)
+    if echo is not None:
+        echo("pin move finished: jobs may start")
+
+
 def _same_path(a: Path | str, b: Path | str) -> bool:
     return str(Path(a).resolve()).lower() == str(Path(b).resolve()).lower()
 
@@ -53,8 +94,12 @@ class PinVerdict:
 def check(paths: Paths, repo: Path | None = None, git: testpass.Git = testpass._git,
           host: str | None = None) -> PinVerdict:
     """Is this process running from the pinned worktree at the pinned commit? (no pin for this host: yes)"""
-    pin = read_pin(paths)
     host = host or socket.gethostname()
+    mv = moving(paths)
+    if mv is not None and mv.get("host") == host:
+        return PinVerdict(False, f"the build worktree is being moved (scripts/build_worktree.ps1, pid {mv.get('pid')}, "
+                                 f"since {mv.get('started_utc')}): start the job when it has finished")
+    pin = read_pin(paths)
     if pin is None or pin.get("host") != host:
         return PinVerdict(True, "no build pin on this machine")
     repo = repo or testpass.REPO

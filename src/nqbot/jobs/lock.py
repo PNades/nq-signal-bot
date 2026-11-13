@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import time
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -103,6 +104,25 @@ def force_unlock(path: Path) -> dict | None:
     return holder
 
 
+def take_stale(path: Path, holder: dict | None) -> None:
+    """Remove a dead holder's lock file so that only one process does it (owner 2026-11-13 review: two starters that
+    both read the same dead holder could each remove it, the second removing the first's new lock, and both would
+    hold it): the file is renamed away (one rename wins), and if what was moved is not that dead holder (someone took
+    the lock over meanwhile) it is put back."""
+    moved = path.with_name(f"{path.name}.stale-{socket.gethostname()}-{os.getpid()}-{time.time_ns()}")
+    try:
+        os.rename(path, moved)
+    except OSError:   # gone already (another process took it over first) or in use: the create decides
+        return
+    if read_lock(moved) == holder:
+        moved.unlink(missing_ok=True)
+        return
+    try:
+        os.rename(moved, path)   # a live holder's lock: give it back
+    except OSError:
+        moved.unlink(missing_ok=True)
+
+
 class JobLock:
     def __init__(self, path: Path, job: str, unlock_cmd: str = "uv run nqbot unlock",
                  shared_of: tuple[Path, str] | None = None):
@@ -121,7 +141,7 @@ class JobLock:
             except FileExistsError:
                 holder = read_lock(self.path)
                 if attempt == 0 and self._stale(holder):
-                    self.path.unlink(missing_ok=True)
+                    take_stale(self.path, holder)
                     continue
                 raise LockHeld(self.path, holder, self.unlock_cmd) from None
             info = {
@@ -217,7 +237,7 @@ class SharedLock(JobLock):
                 return
             holder = read_lock(self.exclusive)
             if attempt == 0 and self._stale(holder):
-                self.exclusive.unlink(missing_ok=True)
+                take_stale(self.exclusive, holder)
                 continue
             self.release()
             raise LockHeld(self.exclusive, holder, self.unlock_cmd)

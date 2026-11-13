@@ -9,7 +9,7 @@ import shutil
 from datetime import datetime
 
 from nqbot.jobs.lock import ALL_LOCKS, holder_dead_here, holders
-from nqbot.jobs.runner import p90, plan_progress
+from nqbot.jobs.runner import p90, plan_progress, read_pool_progress
 from nqbot.storage import GB, Paths
 
 
@@ -32,6 +32,10 @@ def job_lines(paths: Paths) -> list[str]:
                 line += f", ~{math.ceil(hours_left / window_h)} night(s) left"
         elif not left:
             line += " (complete)"
+        pool = read_pool_progress(paths, spath.parent.name) if left else {}
+        if pool.get("pass_total") and int(pool.get("pass_done") or 0) < int(pool["pass_total"]):
+            # owner 2026-11-13 review: pass 2 is one chunk of many sessions, so "0/1 chunks" hid its progress
+            line += f"; pass {pool.get('pass')}: {pool['pass_done']}/{pool['pass_total']} sessions done"
         peaks = [d["peak_gb"] for d in done.values() if d.get("peak_gb")]
         if peaks:  # two backfills may run side by side on the 16 GB laptop (§11 Low memory)
             line += f", peak {max(peaks):.1f} GB RAM"
@@ -63,16 +67,38 @@ def lock_lines(paths: Paths) -> list[str]:
     return lines
 
 
-def switch_lines() -> list[str]:
+def switch_lines(paths: Paths | None = None) -> list[str]:
     """Whether two feature builds may run at once on this machine (`parallel_builds` in config/local.yaml, owner
-    2026-11-13: status shows it)."""
-    from nqbot import config   # read through the module, so the test fixture's stand-in applies
+    2026-11-13: status shows it, with the file read; owner 2026-11-13 review: builds read the pinned worktree's copy,
+    so a different value there is shown as a warning)."""
+    from pathlib import Path
+
+    from nqbot import build_pin, config   # through the module, so the test fixture's stand-in applies
+
+    def word(v: bool) -> str:
+        return "on" if v else "off"
 
     try:
         on = config.parallel_builds()
     except config.ConfigError as e:
         return [f"two builds at once (parallel_builds in config/local.yaml): unreadable ({e})"]
-    return [f"two builds at once (parallel_builds in config/local.yaml): {'on' if on else 'off'}"]
+    lines = [f"two builds at once (parallel_builds in {config.CONFIG_DIR / 'local.yaml'}): {word(on)}"]
+    try:
+        pin = build_pin.read_pin(paths) if paths is not None else None
+    except (OSError, ValueError):
+        pin = None
+    if pin and pin.get("host") == build_pin.socket.gethostname():
+        wt = Path(pin["path"]) / "config"
+        if not build_pin._same_path(wt, config.CONFIG_DIR):
+            try:
+                theirs = config.parallel_builds(wt)
+            except config.ConfigError as e:
+                lines.append(f"  WARNING: the build worktree's copy ({wt / 'local.yaml'}) is unreadable: {e}")
+            else:
+                if theirs != on:
+                    lines.append(f"  WARNING: builds read the build worktree's copy, {wt / 'local.yaml'}: "
+                                 f"{word(theirs)} (moving the pin copies this folder's over it)")
+    return lines
 
 
 def _last_window_hours(state: dict) -> float | None:
@@ -92,4 +118,4 @@ def status_lines(paths: Paths) -> list[str]:
         f"SSD {paths.drive} (root {paths.root}): {usage.used / GB:.0f} GB used, "
         f"{usage.free / GB:.0f} GB free of {usage.total / GB:.0f} GB"
     ]
-    return lines + lock_lines(paths) + switch_lines() + job_lines(paths)
+    return lines + lock_lines(paths) + switch_lines(paths) + job_lines(paths)

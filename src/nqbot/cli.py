@@ -140,7 +140,8 @@ def _main(argv: list[str] | None = None) -> int:
     _add_step13(sub)
     bp = sub.add_parser("build-pin", help="the build worktree pin (Q-dryrun13 (1)): set (run inside the worktree, by "
                                           "scripts/build_worktree.ps1), show, clear")
-    bp.add_argument("action", choices=("set", "show", "clear", "can-move"))
+    bp.add_argument("action", choices=("set", "show", "clear", "can-move", "move-begin", "move-end"))
+    bp.add_argument("--pid", type=int, help="move-begin: the moving script's own process id")
     _add_skylit(sub)
     _add_databento(sub)
     _add_gameplan(sub)
@@ -249,6 +250,7 @@ def _main(argv: list[str] | None = None) -> int:
         until = parse_until(args.until, datetime.now(ET))
         if not _passed_full_suite(paths, log, "nqbot resume"):
             return EXIT_REFUSED  # = resume's "waiting for the owner"
+        head0 = _head_or_none()
         _print_power_warnings()
 
         def verify(since: datetime) -> list[str]:
@@ -260,9 +262,10 @@ def _main(argv: list[str] | None = None) -> int:
         many = {}
         if fbj.parallel_on():   # owner 2026-11-12: two builds at once (SPEC §13 Q-step13b (f) (2))
             many = dict(together=lambda job: fbj.slot_of(job) is not None,
-                        run_many=lambda names: _run_many_for_resume(names, args.until, log),
+                        run_many=lambda names: (_resume_may_start(paths, head0),
+                                                _run_many_for_resume(names, args.until, log, out_dir=paths.log_dir))[1],
                         running_now=lambda job: fbj.running_holder(paths, job) is not None)
-        return resume(paths, settings, run=lambda name: _run_for_resume(name, settings, paths, until, log),
+        return resume(paths, settings, run=lambda name: _run_for_resume(name, settings, paths, until, log, head0),
                       verify=verify, **many)
     if args.command == "step7":
         return _run_step7(args, settings, paths, log)
@@ -289,6 +292,12 @@ def _main(argv: list[str] | None = None) -> int:
                 if held:
                     raise build_pin.PinRefused(f"a job is running ({', '.join(held)}): the pin moves only between jobs")
                 print("no job running: the build worktree may move")
+            elif args.action == "move-begin":   # owner 2026-11-13 review: jobs refuse from here to move-end
+                if not args.pid:
+                    raise build_pin.PinRefused("move-begin needs --pid (the script's own process id)")
+                build_pin.begin_move(paths, args.pid)
+            elif args.action == "move-end":
+                build_pin.end_move(paths, print)
             else:
                 pin = build_pin.read_pin(paths)
                 print("no build pin" if pin is None else f"build pin: {pin['path']} at {pin['commit'][:7]} on "
@@ -346,9 +355,34 @@ def _main(argv: list[str] | None = None) -> int:
     return 0 if result.status in ("complete", "until", "stopped") else EXIT_REFUSED
 
 
-def _run_for_resume(name: str, settings: dict, paths, until: datetime, log):
+def _head_or_none() -> str | None:
+    from nqbot import testpass
+
+    try:
+        return testpass.head()
+    except Exception:   # git unreadable: the full-suite check has already warned
+        return None
+
+
+def _resume_may_start(paths, head0: str | None) -> None:
+    """Before each job of one `nqbot resume` (owner 2026-11-13 review): no pin move in progress, and the worktree still
+    at the commit this resume started on (its code is loaded); else LockHeld, so resume ends with "a job lock is held"
+    and the next resume, on the new code, runs the job."""
+    from nqbot import build_pin
+
+    mv = build_pin.moving(paths)
+    if mv is not None:
+        raise LockHeld(build_pin.move_path(paths), mv)
+    head = _head_or_none()
+    if head0 is not None and head is not None and head != head0:
+        raise LockHeld(build_pin.pin_path(paths), {"job": f"the pin moved ({head0[:7]} -> {head[:7]}) since this resume "
+                                                          "started; the next resume runs it"})
+
+
+def _run_for_resume(name: str, settings: dict, paths, until: datetime, log, head0: str | None = None):
     """`nqbot run <name>` for nqbot resume: the RunResult; a refusal before the job started becomes status `refused`
-    (resume then waits for the owner); LockHeld goes up (the job is already running)."""
+    (resume then waits for the owner); LockHeld goes up (the job is already running, or the pin is moving)."""
+    _resume_may_start(paths, head0)
     from nqbot.backup import BackupRefused
     from nqbot.clients.skylit import OutOfCredits, SkylitError
     from nqbot.clients.skylit_backfill import BackfillRefused
@@ -366,7 +400,8 @@ def _run_for_resume(name: str, settings: dict, paths, until: datetime, log):
 RUN_SUMMARY = re.compile(r"^(?P<job>\S+): (?P<status>[a-z_]+) \((?P<done>\d+)/(?P<total>\d+) chunks done\)(?: - (?P<msg>.*))?$")
 
 
-def _run_many_for_resume(names: list[str], until_text: str, log, popen=None, poll_sec: float = 5.0) -> dict:
+def _run_many_for_resume(names: list[str], until_text: str, log, popen=None, poll_sec: float = 5.0,
+                         out_dir=None) -> dict:
     """`nqbot run <name> --until` for each name at once, each in its own process (owner 2026-11-12: two builds at
     once), waiting for all. Each result: the RunResult from the child's summary line (`<job>: <status> (d/t chunks
     done)`); `LockHeld` if it exited 3 (already running); else status `refused` (exit 2) or `died` (anything else)."""
@@ -376,13 +411,17 @@ def _run_many_for_resume(names: list[str], until_text: str, log, popen=None, pol
     import time as _t
     from pathlib import Path
 
+    # each child's output under <root>/logs (rule 13: nothing on the internal drive; owner 2026-11-13 review)
+    base = Path(out_dir) if out_dir is not None else Path(tempfile.gettempdir())
+    base.mkdir(parents=True, exist_ok=True)
+
     from nqbot.jobs.lock import LockHeld
     from nqbot.jobs.runner import RunResult
 
     popen = popen or subprocess.Popen
     procs = {}
     for name in names:
-        out = Path(tempfile.gettempdir()) / f"nqbot_resume_{name}_{os.getpid()}.txt"
+        out = base / f"resume_{name}_{datetime.now(ET):%Y%m%d-%H%M%S}_{os.getpid()}.txt"
         fh = open(out, "w", encoding="utf-8")
         argv = [sys.executable, "-c", "import sys; from nqbot.cli import main; sys.exit(main(sys.argv[1:]))",
                 "run", name, "--until", until_text]
@@ -451,8 +490,10 @@ def _stop(args: argparse.Namespace, paths) -> int:
     from nqbot.jobs.runner import stop_request_path
     from nqbot.storage import atomic_write_json
 
-    holders = [read_lock(lock_path(paths.root, k)) for k in ALL_LOCKS if lock_path(paths.root, k).exists()]
-    if not any(h and h.get("job") == args.job for h in holders):
+    from nqbot.jobs.queue import display_holder
+
+    # owner 2026-11-13 review: a build with parallel_builds holds only shared data locks and its run lock
+    if display_holder(paths, args.job) is None:
         print(f"refused: {args.job} isn't running (no job lock names it; see uv run nqbot status)", file=sys.stderr)
         return EXIT_REFUSED
     atomic_write_json(stop_request_path(paths, args.job), {"requested": datetime.now(ET).isoformat()})

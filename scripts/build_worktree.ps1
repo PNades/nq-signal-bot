@@ -50,8 +50,11 @@ if ($DryRun) {
     exit 0
 }
 
+# owner 2026-11-13 review: the move is recorded before the no-job check and held to the end, so no job starts while the
+# worktree changes (nqbot run / resume refuse while this script's process lives; a dead script's record is ignored)
 Push-Location $Repo
-try { Invoke-Native "nqbot build-pin can-move" { & $Uv run nqbot build-pin can-move } } finally { Pop-Location }
+try { Invoke-Native "nqbot build-pin move-begin" { & $Uv run nqbot build-pin move-begin --pid $PID } } finally { Pop-Location }
+try {
 
 if (Test-Path $Path) {
     $dirty = git -C $Path status --porcelain --untracked-files=no
@@ -73,4 +76,9 @@ try {
     Invoke-Native "uv sync" { & $Uv sync --frozen }
     Invoke-Native "nqbot build-pin set" { & $Uv run nqbot build-pin set }
 } finally { Pop-Location }
+
+} finally {
+    Push-Location $Repo
+    try { & $Uv run nqbot build-pin move-end } finally { Pop-Location }
+}
 "done: long jobs now run from $Path (cd $Path; uv run nqbot run <job> --until HH:MM)"

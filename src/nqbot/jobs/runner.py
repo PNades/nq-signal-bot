@@ -39,6 +39,7 @@ RAM_RESERVE_GB = 4  # §11 Low memory: workers capped at floor((free RAM - 4 GB)
 WINDOW_SEARCH_DAYS = 14  # how far ahead to look for the next trading-day job-lock window
 STOP_REQUEST = "stop.request"
 RUN_LOCK = "run.lock"
+POOL_PROGRESS = "pool_progress.json"   # sessions a chunk's pool finished (owner 2026-11-13 review; feature builds)
 STOP_REASON = "stop requested (nqbot stop)"
 
 
@@ -147,6 +148,19 @@ def run_lock_path(paths: Paths, job_name: str) -> Path:
 
 def state_path(paths: Paths, job_name: str) -> Path:
     return paths.data_dir / "jobs" / job_name / "state.json"
+
+
+def pool_progress_path(paths: Paths, job_name: str) -> Path:
+    return paths.data_dir / "jobs" / job_name / POOL_PROGRESS
+
+
+def read_pool_progress(paths: Paths, job_name: str) -> dict[str, Any]:
+    """What a job's pool recorded inside its current chunk (empty if nothing): `finished_total` (sessions ever
+    finished, never reset), `pass`, `pass_done`, `pass_total`, `session_sec`."""
+    try:
+        return json.loads(pool_progress_path(paths, job_name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
 
 
 def load_state(path: Path) -> dict[str, Any]:

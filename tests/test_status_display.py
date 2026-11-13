@@ -116,7 +116,7 @@ def test_an_ended_run_keeps_the_decision_line(paths, settings):
 
 def test_status_shows_the_parallel_builds_switch(paths, monkeypatch):
     paths.root.mkdir(parents=True, exist_ok=True)
-    line = "two builds at once (parallel_builds in config/local.yaml): "
+    line = f"two builds at once (parallel_builds in {config.CONFIG_DIR / 'local.yaml'}): "
     assert switch_lines() == [line + "off"]   # the test fixture reads this machine's switch as off
     assert line + "off" in status_lines(paths)
     monkeypatch.setattr(config, "parallel_builds", lambda config_dir=None: True)
@@ -125,7 +125,7 @@ def test_status_shows_the_parallel_builds_switch(paths, monkeypatch):
     def bad(config_dir=None):
         raise config.ConfigError("parallel_builds must be true or false, found 'yes'")
     monkeypatch.setattr(config, "parallel_builds", bad)
-    assert switch_lines()[0].startswith(line + "unreadable (")
+    assert switch_lines()[0].startswith("two builds at once (parallel_builds in config/local.yaml): unreadable (")
 
 
 def test_reads_the_real_switch_from_a_config_folder(tmp_path):
