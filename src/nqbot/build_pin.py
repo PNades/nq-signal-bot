@@ -77,10 +77,11 @@ def _live_locks(paths: Paths) -> list[str]:
     from nqbot.jobs import lock
 
     held = []
-    for kind in lock.ALL_LOCKS:
-        h = lock.read_lock(lock.lock_path(paths.root, kind))
-        if h is not None and lock.holder_alive(h):
-            held.append(f"{kind} ({h.get('job', '?')}, pid {h.get('pid', '?')})")
+    for kind in lock.ALL_LOCKS:   # the exclusive holder and every shared one (builds at once, owner 2026-11-12)
+        for _, h, mode in lock.holders(paths.root, kind):
+            if h is not None and lock.holder_alive(h):
+                held.append(f"{kind}{' shared' if mode == 'shared' else ''} ({h.get('job', '?')}, pid "
+                            f"{h.get('pid', '?')})")
     return held
 
 

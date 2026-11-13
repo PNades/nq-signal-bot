@@ -5,3 +5,4 @@ max_fold_mem_gb: 10    # a fold whose estimated peak memory is above this is re-
 low_memory: true       # 16 GB laptop mode; the home PC may set false
 rclone_path: null     # full path to rclone.exe; null = rclone on PATH, else winget's Links or Packages folder
 test_parallel: true   # nqbot test default: true = pytest-xdist, all cores but 2 (the build PC); leave it out on the laptop (live machine from step 21) = serial; --parallel / --serial override
+parallel_builds: false # owner 2026-11-12: true = two feature builds (feature_build, feature_build_2) may run at once on this machine (shared data locks, one core and memory budget, nqbot resume runs both); only with the owner's OK; never in a build key

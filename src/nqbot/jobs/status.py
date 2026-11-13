@@ -8,7 +8,7 @@ import statistics
 import shutil
 from datetime import datetime
 
-from nqbot.jobs.lock import ALL_LOCKS, holder_dead_here, lock_path, read_lock
+from nqbot.jobs.lock import ALL_LOCKS, holder_dead_here, holders, lock_path, read_lock
 from nqbot.jobs.runner import p90, plan_progress
 from nqbot.storage import GB, Paths
 
@@ -55,6 +55,16 @@ def lock_lines(paths: Paths) -> list[str]:
         if holder_dead_here(h):  # owner 2026-10-31: after a restart the dead run's lock read as still held
             line += ": that process is no longer running (stale; the next job run takes it over)"
         lines.append(line)
+    for kind in ALL_LOCKS:   # owner 2026-11-12: builds holding the data locks shared (two builds at once)
+        for path, h, mode in holders(paths.root, kind):
+            if mode != "shared":
+                continue
+            line = (f"{kind} job lock: shared by job {(h or {}).get('job')!r} (pid {(h or {}).get('pid')} on "
+                    f"{(h or {}).get('host')}, since {(h or {}).get('started_utc')})" if h else
+                    f"{kind} job lock: unreadable shared lock file {path}")
+            if holder_dead_here(h):
+                line += ": that process is no longer running (stale; the next job run removes it)"
+            lines.append(line)
     return lines
 
 

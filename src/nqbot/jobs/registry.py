@@ -32,6 +32,9 @@ JOBS: dict[str, Callable[[], Job]] = {
     "skylit_multiexp": MultiExpJob,  # owner 2026-10-23: multi-expiration snapshots, raw only (plan: skylit multiexp-plan)
     "step8b_gate": GateJob,  # step 8b: bias, estimator, alignment on the 22 development days, a day per chunk
     "feature_build": FeatureBuildJob,  # step 11 part 3: the two-pass feature build (plan: nqbot features plan)
+    # owner 2026-11-12: build slot 2, its own plan (nqbot features plan ... --slot 2); at once with slot 1 only with
+    # parallel_builds in config/local.yaml (SPEC §13 Q-step13b (f) (2))
+    "feature_build_2": lambda: FeatureBuildJob(slot=2),
     "step13_check": Step13CheckJob,  # step 13-0: the corrections check on the development days (owner 2026-11-09)
     "step13a_reactions": ReactionsJob,  # step 13a: reaction distances on months 1-4 (plan: nqbot step13 reactions-plan)
     "step13_slippage": SlippageJob,  # step 13b: exit_slippage_ticks from mbp-1 on months 1-4 (plan: step13 slippage-plan)

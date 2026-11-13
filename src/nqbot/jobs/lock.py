@@ -7,6 +7,10 @@ process on this machine is stale and reclaimed (the start time guards against Wi
 A lock held by another machine is never broken automatically: if the SSD was unplugged mid-job (the
 lock can't be removed then), `nqbot unlock` shows the holder and removes it once the owner confirms
 that job is no longer running, so the job can resume on this machine.
+
+Shared holds (owner 2026-11-12, SPEC §13 Q-step13b (f) (2), two feature builds at once with `parallel_builds`): a job
+that only reads the stored data may hold a lock shared (`SharedLock`): several shared holders at once, never together
+with the exclusive holder. Each shared holder has its own file beside the lock (`<lock file>.shared-<host>-<pid>-<job>`).
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ import psutil
 SKYLIT, DATABENTO = "skylit", "databento"
 ALL_LOCKS = (SKYLIT, DATABENTO)  # also the acquisition order
 LOCK_FILES = {SKYLIT: ".nqbot_skylit.lock", DATABENTO: ".nqbot_databento.lock"}
+SHARED_TAG = ".shared-"
 
 
 def lock_path(root: Path, kind: str) -> Path:
@@ -80,13 +85,14 @@ def holder_dead_here(holder: dict | None) -> bool:
 
 
 @contextmanager
-def job_locks(root: Path, kinds: Iterable[str], job: str) -> Iterator[None]:
-    """Hold the given job locks (in ALL_LOCKS order) for `job`; if one is taken, none is kept."""
+def job_locks(root: Path, kinds: Iterable[str], job: str, shared: bool = False) -> Iterator[None]:
+    """Hold the given job locks (in ALL_LOCKS order) for `job`, alone or `shared`; if one is taken, none is kept."""
     wanted = set(kinds)
     with ExitStack() as stack:
         for kind in ALL_LOCKS:
             if kind in wanted:
-                stack.enter_context(JobLock(lock_path(root, kind), job, unlock_cmd(kind)))
+                stack.enter_context(SharedLock(root, kind, job, unlock_cmd(kind)) if shared else
+                                    JobLock(lock_path(root, kind), job, unlock_cmd(kind), shared_of=(root, kind)))
         yield
 
 
@@ -98,8 +104,10 @@ def force_unlock(path: Path) -> dict | None:
 
 
 class JobLock:
-    def __init__(self, path: Path, job: str, unlock_cmd: str = "uv run nqbot unlock"):
+    def __init__(self, path: Path, job: str, unlock_cmd: str = "uv run nqbot unlock",
+                 shared_of: tuple[Path, str] | None = None):
         self.path = path
+        self.shared_of = shared_of   # (root, kind) of an exclusive data lock: it also waits for no shared holder
         self.job = job
         self.unlock_cmd = unlock_cmd
         self.host = socket.gethostname()
@@ -128,7 +136,20 @@ class JobLock:
                 f.flush()
                 os.fsync(f.fileno())
             self._held = True
+            if self.shared_of is not None:
+                self._refuse_if_shared(*self.shared_of)
             return
+
+    def _refuse_if_shared(self, root: Path, kind: str) -> None:
+        """After creating the lock file: a live shared holder (a build reading the data) refuses us; a dead one's file
+        on this machine is removed (`SharedLock` mirrors this, so the two never hold at once)."""
+        for path in sorted(root.glob(shared_glob(kind))):
+            holder = read_lock(path)
+            if self._stale(holder):
+                path.unlink(missing_ok=True)
+                continue
+            self.release()
+            raise LockHeld(path, holder, self.unlock_cmd)
 
     def release(self) -> None:
         """Remove our lock. If the SSD is gone this can't be done: the lock stays (see `nqbot unlock`)."""
@@ -156,3 +177,49 @@ class JobLock:
 
     def __exit__(self, *exc) -> None:
         self.release()
+
+
+# --- shared holds (two feature builds at once) ---------------------------------------------------------------------
+
+def shared_glob(kind: str) -> str:
+    return LOCK_FILES[kind] + SHARED_TAG + "*"
+
+
+def shared_path(root: Path, kind: str, job: str) -> Path:
+    return root / f"{LOCK_FILES[kind]}{SHARED_TAG}{socket.gethostname()}-{os.getpid()}-{job}"
+
+
+def holders(root: Path, kind: str) -> list[tuple[Path, dict | None, str]]:
+    """Every holder of the `kind` lock: (its file, the holder, "exclusive" | "shared")."""
+    out = []
+    p = lock_path(root, kind)
+    if p.exists():
+        out.append((p, read_lock(p), "exclusive"))
+    for s in sorted(root.glob(shared_glob(kind))) if root.exists() else []:
+        out.append((s, read_lock(s), "shared"))
+    return out
+
+
+class SharedLock(JobLock):
+    """A shared hold on a data lock. The holder creates its own file, then looks for the exclusive lock file; an
+    exclusive holder creates the lock file, then looks for shared files (`JobLock._refuse_if_shared`). Whoever looks
+    second sees the other and backs off, so the two never hold at once (in a near tie both may back off: a refusal,
+    never an overlap). A dead process's lock on this machine is reclaimed; another machine's never automatically."""
+
+    def __init__(self, root: Path, kind: str, job: str, unlock_cmd: str = "uv run nqbot unlock"):
+        super().__init__(shared_path(root, kind, job), job, unlock_cmd)
+        self.exclusive = lock_path(root, kind)
+
+    def acquire(self) -> None:
+        super().acquire()
+        for attempt in range(2):
+            if not self.exclusive.exists():
+                return
+            holder = read_lock(self.exclusive)
+            if attempt == 0 and self._stale(holder):
+                self.exclusive.unlink(missing_ok=True)
+                continue
+            self.release()
+            raise LockHeld(self.exclusive, holder, self.unlock_cmd)
+        self.release()
+        raise LockHeld(self.exclusive, read_lock(self.exclusive), self.unlock_cmd)

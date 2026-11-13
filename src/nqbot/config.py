@@ -13,7 +13,11 @@ from ruamel.yaml import YAML
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
 # rclone_path, test_parallel: owner 2026-10-30
-LOCAL_KEYS = frozenset({"max_workers", "max_fold_mem_gb", "low_memory", "rclone_path", "test_parallel"})
+LOCAL_KEYS = frozenset({"max_workers", "max_fold_mem_gb", "low_memory", "rclone_path", "test_parallel",
+                        "parallel_builds"})
+# owner 2026-11-12 (SPEC §13 Q-step13b (f) (2)): two feature builds at once; kept out of the settings (and so out of
+# every build key): read with parallel_builds()
+NOT_IN_SETTINGS = frozenset({"parallel_builds"})
 
 
 class ConfigError(Exception):
@@ -23,6 +27,18 @@ class ConfigError(Exception):
 def load_yaml(path: Path) -> Any:
     with open(path, encoding="utf-8") as f:
         return YAML(typ="safe").load(f)
+
+
+def parallel_builds(config_dir: Path | None = None) -> bool:
+    """`parallel_builds: true` in config/local.yaml: two feature builds may run at once on this machine (owner
+    2026-11-12; switched on only with the owner's OK). Default false."""
+    local_path = (config_dir or CONFIG_DIR) / "local.yaml"
+    if not local_path.exists():
+        return False
+    v = (load_yaml(local_path) or {}).get("parallel_builds", False)
+    if not isinstance(v, bool):
+        raise ConfigError(f"{local_path}: parallel_builds must be true or false, found {v!r}")
+    return v
 
 
 def load_settings(config_dir: Path | None = None) -> dict[str, Any]:
@@ -37,9 +53,10 @@ def load_settings(config_dir: Path | None = None) -> dict[str, Any]:
             raise ConfigError(
                 f"{local_path}: only {sorted(LOCAL_KEYS)} may be overridden locally, found {unknown}"
             )
-        if "test_parallel" in local and not isinstance(local["test_parallel"], bool):
-            raise ConfigError(f"{local_path}: test_parallel must be true or false, found {local['test_parallel']!r}")
-        settings.update(local)
+        for k in ("test_parallel", "parallel_builds"):
+            if k in local and not isinstance(local[k], bool):
+                raise ConfigError(f"{local_path}: {k} must be true or false, found {local[k]!r}")
+        settings.update({k: v for k, v in local.items() if k not in NOT_IN_SETTINGS})
     if settings.get("months"):  # the ledger written at step 4b: all 12 months, strictly formatted (§7 rule 2b)
         from nqbot.months import LedgerInvalid, validate
 

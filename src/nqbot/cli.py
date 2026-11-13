@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from contextlib import ExitStack
 from datetime import date, datetime, time
@@ -254,8 +255,15 @@ def _main(argv: list[str] | None = None) -> int:
             res, _ = run_verify(paths, since)
             return [r["path"] for r in res.damaged + res.size_mismatch + res.unreadable]
 
+        from nqbot.checks import feature_build_job as fbj
+
+        many = {}
+        if fbj.parallel_on():   # owner 2026-11-12: two builds at once (SPEC §13 Q-step13b (f) (2))
+            many = dict(together=lambda job: fbj.slot_of(job) is not None,
+                        run_many=lambda names: _run_many_for_resume(names, args.until, log),
+                        running_now=lambda job: fbj.running_holder(paths, job) is not None)
         return resume(paths, settings, run=lambda name: _run_for_resume(name, settings, paths, until, log),
-                      verify=verify)
+                      verify=verify, **many)
     if args.command == "step7":
         return _run_step7(args, settings, paths, log)
     if args.command == "step8b":
@@ -355,6 +363,53 @@ def _run_for_resume(name: str, settings: dict, paths, until: datetime, log):
         return RunResult("refused", 0, 0, message=f"{type(e).__name__}: {e}")
 
 
+RUN_SUMMARY = re.compile(r"^(?P<job>\S+): (?P<status>[a-z_]+) \((?P<done>\d+)/(?P<total>\d+) chunks done\)(?: - (?P<msg>.*))?$")
+
+
+def _run_many_for_resume(names: list[str], until_text: str, log, popen=None, poll_sec: float = 5.0) -> dict:
+    """`nqbot run <name> --until` for each name at once, each in its own process (owner 2026-11-12: two builds at
+    once), waiting for all. Each result: the RunResult from the child's summary line (`<job>: <status> (d/t chunks
+    done)`); `LockHeld` if it exited 3 (already running); else status `refused` (exit 2) or `died` (anything else)."""
+    import os
+    import subprocess
+    import tempfile
+    import time as _t
+    from pathlib import Path
+
+    from nqbot.jobs.lock import LockHeld
+    from nqbot.jobs.runner import RunResult
+
+    popen = popen or subprocess.Popen
+    procs = {}
+    for name in names:
+        out = Path(tempfile.gettempdir()) / f"nqbot_resume_{name}_{os.getpid()}.txt"
+        fh = open(out, "w", encoding="utf-8")
+        argv = [sys.executable, "-c", "import sys; from nqbot.cli import main; sys.exit(main(sys.argv[1:]))",
+                "run", name, "--until", until_text]
+        procs[name] = (popen(argv, stdout=fh,
+                             stderr=subprocess.STDOUT, env={**os.environ, "PYTHONUTF8": "1"}), fh, out)
+        log.info("resume: started %s (pid %s), output %s", name, getattr(procs[name][0], "pid", "?"), out)
+    while any(p.poll() is None for p, _, _ in procs.values()):
+        _t.sleep(poll_sec)
+    results = {}
+    for name, (p, fh, out) in procs.items():
+        fh.close()
+        text = out.read_text(encoding="utf-8", errors="replace") if out.exists() else ""
+        for line in text.splitlines():
+            log.info("[%s] %s", name, line)
+        m = next((m for m in (RUN_SUMMARY.match(x.strip()) for x in reversed(text.splitlines())) if m
+                  and m["job"] == name), None)
+        if m:
+            results[name] = RunResult(m["status"], int(m["done"]), int(m["total"]), message=m["msg"] or "")
+        elif p.returncode == EXIT_LOCKED:
+            results[name] = LockHeld(Path(name), None)
+        else:
+            tail = " | ".join(text.strip().splitlines()[-3:])
+            results[name] = RunResult("refused" if p.returncode == EXIT_REFUSED else "died", 0, 0,
+                                      message=f"exit {p.returncode}: {tail}")
+    return results
+
+
 def _passed_full_suite(paths, log, what: str) -> bool:
     """Owner 2026-10-29 (CLAUDE.md rule 14 (f)): a long job runs only a commit that passed the full suite."""
     from nqbot import testpass
@@ -413,8 +468,15 @@ def _unlock(args: argparse.Namespace, paths) -> int:
 
         locks, flag = [("gameplan lock", GameplanStore.from_paths(paths).lock_path)], " --gameplan"
     else:
+        from nqbot.jobs.lock import holders
+
         kinds = [SKYLIT] if args.skylit else [DATABENTO] if args.databento else list(ALL_LOCKS)
-        locks = [(f"{k} job lock", lock_path(paths.root, k)) for k in kinds]
+        # the exclusive lock and any shared holds (two builds at once, owner 2026-11-12)
+        locks = [(f"{k} job lock" + (" (shared)" if mode == "shared" else ""), path)
+                 for k in kinds for path, _, mode in holders(paths.root, k)]
+        locks = locks or [(f"{k} job lock", lock_path(paths.root, k)) for k in kinds]
+        if not (args.skylit or args.databento):   # the builds' own run locks
+            locks += [(f"{p.parent.name} run lock", p) for p in sorted((paths.data_dir / "jobs").glob("*/run.lock"))]
         flag = " --skylit" if args.skylit else " --databento" if args.databento else ""
     held = [(what, lock, read_lock(lock)) for what, lock in locks if lock.exists()]
     if not held:
@@ -925,10 +987,15 @@ def _add_features(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE",
                    help="a run-time override of a features.yaml value for this build only (step-13 tuning on ledger "
                         "months 1-4 only; stored in the plan and in its key; a.b=v sets one entry of a mapping)")
-    fe.add_parser("build-warmup", help="the full warm-up before the plan's first session (the job's chunk p0)")
+    slot_help = ("build slot: 1 = job feature_build (default), 2 = job feature_build_2 with its own plan (owner "
+                 "2026-11-12; both at once only with parallel_builds in config/local.yaml)")
+    p.add_argument("--slot", type=int, default=1, choices=(1, 2), help=slot_help)
+    p = fe.add_parser("build-warmup", help="the full warm-up before the plan's first session (the job's chunk p0)")
+    p.add_argument("--slot", type=int, default=1, choices=(1, 2), help=slot_help)
     p = fe.add_parser("build-day", help="one session of the plan (the job runs this in its own process)")
     p.add_argument("date", type=_date)
     p.add_argument("--pass", dest="pass_no", type=int, choices=(1, 2), required=True)
+    p.add_argument("--slot", type=int, default=1, choices=(1, 2), help=slot_help)
 
 
 def _add_step13(sub: argparse._SubParsersAction) -> None:
@@ -1047,12 +1114,16 @@ def _run_features(args: argparse.Namespace, settings, paths, log) -> int:
 
     env = Env(settings=settings, features=load_features(), paths=paths, log=log, cal=cal_mod.load())
     try:
+        from nqbot.checks import feature_build_job as fbj
+
         if args.action == "plan":
-            fb.make_plan(env, fb.parse_months(args.months), args.batch, fb.parse_overrides(args.overrides))
+            fbj.plan_slot(env, fb.parse_months(args.months), args.batch, fb.parse_overrides(args.overrides),
+                          slot=args.slot)
             return 0
-        if args.action == "build-warmup":
-            return fb.build_warmup_cmd(env)
-        return fb.build_day_cmd(env, args.date, args.pass_no)
+        with fbj.using_slot(args.slot):   # this process serves that slot only
+            if args.action == "build-warmup":
+                return fb.build_warmup_cmd(env)
+            return fb.build_day_cmd(env, args.date, args.pass_no)
     except (fb.BuildRefused, sb.Refused, NotWired, LedgerMissing, RollSpreadMissing, CheckRefused) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED

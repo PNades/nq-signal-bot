@@ -16,6 +16,13 @@ attempts each died or raised without finishing a chunk is held until `nqbot queu
 first resume reads back every file written in the last `ops.resume_verify_days` days (`nqbot verify`) and holds
 everything if any is damaged. A paid job is never started by resume unless its own plan already holds the owner's
 approval (CLAUDE.md rule 2): resume only calls `nqbot run`, which refuses otherwise.
+
+Two builds at once (owner 2026-11-12, SPEC §13 Q-step13b (f) (2); only with `parallel_builds` in config/local.yaml):
+jobs that may run together (`together`: the feature-build slots) are run as a group: the first queued one to run and
+the next queued ones that may run with it, up to `MAX_TOGETHER` (a complete one is passed over, anything else ends the
+group), each in its own `nqbot run` process (`run_many`), and resume waits for all of them. A group member already
+running (`running_now`: by hand, or an earlier resume) is left alone and counts toward the group. Each member's
+attempt and end are recorded as for a single job; the queue goes on past the group only when all are complete.
 """
 
 from __future__ import annotations
@@ -38,6 +45,7 @@ RESUME_STATE = "resume_state.json"
 RESUMABLE = ("until", "ssd_missing", "lock_window")  # last-run ends resume picks up again by itself
 DIED = "died"  # a run whose end was never recorded (reboot, power loss, killed) or that raised
 BOOT_TOL_SEC = 5  # psutil.boot_time() can move by a second or two between reads
+MAX_TOGETHER = 2  # owner 2026-11-12: at most two builds at once
 HOLD_SHOW_FILES = 5  # files named in the after-restart hold message (the rest counted; all in verify.md)
 ET = ZoneInfo("America/New_York")
 
@@ -142,7 +150,10 @@ def boot_time() -> float:
 def resume(paths: Paths, settings: dict[str, Any], *, run: Callable[[str], Any],
            verify: Callable[[datetime], list[str]],
            echo: Callable[[str], None] = print, now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-           booted: Callable[[], float] = boot_time) -> int:
+           booted: Callable[[], float] = boot_time,
+           together: Callable[[str], bool] | None = None,
+           run_many: Callable[[list[str]], dict[str, Any]] | None = None,
+           running_now: Callable[[str], bool] = lambda job: False) -> int:
     """Run the queue (see the module docstring). `run(job)` is `nqbot run <job> --until ...` and returns its
     RunResult (it raises LockHeld if the job is already running); `verify(since)` returns the files it flagged
     (empty = nothing damaged).
@@ -180,11 +191,19 @@ def resume(paths: Paths, settings: dict[str, Any], *, run: Callable[[str], Any],
     if not queue:
         echo("resume: the queue is empty (uv run nqbot queue add <job>)")
         return 0
-    for job in queue:
+    i = 0
+    while i < len(queue):
+        job = queue[i]
+        i += 1
         state = load_state(state_path(paths, job))
         d = decide(job, state, rs, max_crashes)
         if d.action == "skip":
             echo(f"resume: {job}: complete")
+            continue
+        if together is not None and run_many is not None and together(job) and (d.action == "run" or running_now(job)):
+            code, i = _run_group(paths, rs, queue, i - 1, max_crashes, echo, now, together, run_many, running_now)
+            if code is not None:
+                return code
             continue
         if d.action == "held":
             rs["held"][job] = d.reason
@@ -225,6 +244,82 @@ def resume(paths: Paths, settings: dict[str, Any], *, run: Callable[[str], Any],
             return 0 if result.status in RESUMABLE or result.status == "stopped" else 2
     echo("resume: every queued job is complete")
     return 0
+
+
+def _run_group(paths: Paths, rs: dict[str, Any], queue: list[str], start: int, max_crashes: int,
+               echo: Callable[[str], None], now: Callable[[], datetime], together: Callable[[str], bool],
+               run_many: Callable[[list[str]], dict[str, Any]],
+               running_now: Callable[[str], bool]) -> tuple[int | None, int]:
+    """Jobs that may run together from queue[start] on (see the module docstring). Returns (exit code or None to go
+    on with the queue, the index after the group)."""
+    from nqbot.jobs.lock import LockHeld
+
+    group: list[tuple[str, dict, Decision]] = []
+    busy: list[str] = []
+    i = start
+    while i < len(queue) and len(group) + len(busy) < MAX_TOGETHER:
+        job = queue[i]
+        if not together(job):
+            break
+        if running_now(job):
+            busy.append(job)
+            echo(f"resume: {job}: already running")
+            i += 1
+            continue
+        state = load_state(state_path(paths, job))
+        d = decide(job, state, rs, max_crashes)
+        if d.action == "skip":
+            echo(f"resume: {job}: complete")
+            i += 1
+            continue
+        if d.action != "run":
+            break   # held or waiting: it is reported when the queue reaches it
+        group.append((job, state, d))
+        i += 1
+    if not group:
+        return 3, i   # every build that may run now is already running: like a held job lock
+    before = {job: rs["attempts"].get(job) for job, _, _ in group}
+    for job, state, d in group:
+        rs["attempts"][job] = {"started": now().isoformat(), "pid": os.getpid(),
+                               "done_before": len(state.get("done") or {}),
+                               "crashes": crash_count(job, state, rs), "outcome": None}
+        echo(f"resume: {job}: running ({d.reason})" + (" together with " + ", ".join(
+            j for j in [g for g, _, _ in group] + busy if j != job) if len(group) + len(busy) > 1 else ""))
+    save_resume_state(paths, rs)
+    try:
+        results = run_many([job for job, _, _ in group])
+    except Exception:
+        for job, _, _ in group:
+            rs["attempts"][job]["outcome"] = DIED
+        save_resume_state(paths, rs)
+        echo(f"resume: {', '.join(j for j, _, _ in group)}: raised:\n{traceback.format_exc()}")
+        return 2, i
+    code: int | None = None if not busy else 0
+    for job, _, _ in group:
+        result = results.get(job)
+        if isinstance(result, LockHeld) or result is None:
+            if before[job] is None:
+                rs["attempts"].pop(job, None)
+            else:
+                rs["attempts"][job] = before[job]
+            echo(f"resume: {job}: not started: {result or 'no result'}")
+            code = 3 if code is None else code
+            continue
+        if isinstance(result, BaseException):
+            rs["attempts"][job]["outcome"] = DIED
+            echo(f"resume: {job}: raised: {result!r}")
+            code = 2
+            continue
+        rs["attempts"][job]["outcome"] = result.status
+        if result.status == "refused":
+            rs["attempts"][job]["message"] = result.message
+        echo(f"resume: {job}: {result.status} ({result.done}/{result.total} chunks done)"
+             + (f" - {result.message}" if result.message else ""))
+        if result.status != "complete":
+            c = 0 if result.status in RESUMABLE or result.status == "stopped" else 2
+            code = c if code is None else max(code, c)
+    save_resume_state(paths, rs)
+    return code, i
 
 
 def release(paths: Paths, job: str | None = None) -> list[str]:

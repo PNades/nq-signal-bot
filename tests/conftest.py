@@ -191,3 +191,14 @@ def no_power_calls(monkeypatch):
                         "Current DC Power Setting Index: 0x00000000\n")
     monkeypatch.setattr(power, "has_battery", lambda: True)  # the laptop's case on every machine (the PC has none)
     return calls
+
+
+@pytest.fixture(autouse=True)
+def no_local_parallel_builds(monkeypatch):
+    """This machine's config/local.yaml `parallel_builds` never changes a test (owner 2026-11-12): it reads as off;
+    an explicit config folder (tests/test_parallel_builds.py) is still read."""
+    from nqbot import config
+
+    real = config.parallel_builds
+    monkeypatch.setattr(config, "parallel_builds", lambda config_dir=None: False if config_dir is None else real(config_dir))
+    return real

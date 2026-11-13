@@ -13,6 +13,7 @@ stop, so the job ends after the call it is in (its answer saved) with status `st
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import math
@@ -26,7 +27,7 @@ from zoneinfo import ZoneInfo
 
 import psutil
 
-from nqbot.jobs.lock import ALL_LOCKS, job_locks
+from nqbot.jobs.lock import ALL_LOCKS, JobLock, job_locks
 from nqbot.power import keep_awake
 from nqbot.storage import GB, Paths, atomic_write_json, free_gb
 
@@ -37,6 +38,7 @@ SPARE_CORES = 2  # §11: max_workers default = all cores but 2
 RAM_RESERVE_GB = 4  # §11 Low memory: workers capped at floor((free RAM - 4 GB) / peak per session)
 WINDOW_SEARCH_DAYS = 14  # how far ahead to look for the next trading-day job-lock window
 STOP_REQUEST = "stop.request"
+RUN_LOCK = "run.lock"
 STOP_REASON = "stop requested (nqbot stop)"
 
 
@@ -53,6 +55,8 @@ class StopChunk(Exception):
 
 class Job(Protocol):
     """A job may also set `locks` (a tuple of nqbot.jobs.lock kinds); without it the job holds every job lock.
+    `shared_locks = True` (owner 2026-11-12: the feature builds with `parallel_builds`) holds them shared, so other
+    such jobs may run at once, and adds the job's own run lock (`<data_dir>/jobs/<job>/run.lock`): one run per job.
     Optional `at_start(ctx)` runs before the first chunk of every run and `at_end(ctx)` when a run ends normally
     (complete, or --until reached); either may raise StopChunk like a chunk."""
 
@@ -135,6 +139,10 @@ def next_window_start(now: datetime, window: str, is_trading_day: Callable[[date
 
 def stop_request_path(paths: Paths, job_name: str) -> Path:
     return paths.data_dir / "jobs" / job_name / STOP_REQUEST
+
+
+def run_lock_path(paths: Paths, job_name: str) -> Path:
+    return paths.data_dir / "jobs" / job_name / RUN_LOCK
 
 
 def state_path(paths: Paths, job_name: str) -> Path:
@@ -226,8 +234,13 @@ def run_job(
     out_dir = paths.data_dir / "jobs" / job.name
     spath = state_path(paths, job.name)
     paths.root.mkdir(parents=True, exist_ok=True)
+    shared = bool(getattr(job, "shared_locks", False))
+    if shared:
+        run_lock_path(paths, job.name).parent.mkdir(parents=True, exist_ok=True)
     # Keep Windows awake while the job runs (owner 2026-10-05, §11 Overnight jobs; lid-close sleep still applies).
-    with keep_awake(display=True), job_locks(paths.root, getattr(job, "locks", None) or ALL_LOCKS, job.name):
+    run_lock = JobLock(run_lock_path(paths, job.name), job.name) if shared else contextlib.nullcontext()
+    data_locks = job_locks(paths.root, getattr(job, "locks", None) or ALL_LOCKS, job.name, shared=shared)
+    with keep_awake(display=True), run_lock, data_locks:
         if stop_file.exists():  # left by a run that ended before it saw it: this run was asked for after it
             log.info("%s: removing an old stop request (%s)", job.name, stop_file)
             stop_file.unlink(missing_ok=True)
