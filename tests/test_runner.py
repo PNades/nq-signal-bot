@@ -154,13 +154,13 @@ def test_next_window_start_skips_non_trading_days():
 
 def test_effective_max_workers(monkeypatch):
     class Mem:
-        available = 12 * GB
+        available = 22 * GB
 
     monkeypatch.setattr(runner_mod.psutil, "virtual_memory", lambda: Mem)
     monkeypatch.setattr(runner_mod.os, "cpu_count", lambda: 12)
     assert effective_max_workers(None, None) == 10  # all cores but 2
     assert effective_max_workers(6, None) == 6
-    assert effective_max_workers(None, 3.0) == 2  # floor((12 - 4) / 3)
+    assert effective_max_workers(None, 3.0) == 4  # floor((22 - 10) / 3): 10 GB kept free (owner 2026-11-14)
     assert effective_max_workers(None, 20.0) == 1  # never below one
 
 

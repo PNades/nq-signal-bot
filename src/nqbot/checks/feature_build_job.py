@@ -53,7 +53,8 @@ JOB = fb.JOB
 SLOTS = (1, 2)           # owner 2026-11-12: at most two builds at once
 PEAK_TAG = "CHILD_PEAK_GB"
 EST_PEAK_GB = 4.5        # assumed per-session peak before one is measured (4.29 GB, `step11 build-day 2026-03-20`)
-MIN_FREE_GB_EXTRA = 4.0  # headroom kept free besides the children (as runner.RAM_RESERVE_GB)
+MIN_FREE_GB_EXTRA = 10.0  # headroom kept free besides the children, every build together (= runner.RAM_RESERVE_GB,
+# tested; owner 2026-11-14: was 4, room for other programs while a build runs)
 POLL_SEC = 2.0           # how often the pass-2 pool looks at its sessions
 BUDGET_DIR = "build_budget"
 BUDGET_MUTEX = ".mutex"
@@ -297,6 +298,14 @@ def headroom_gb(free_mb: float | None, running: list, per: float, others: list |
     return free_mb / 1024 - MIN_FREE_GB_EXTRA - grow
 
 
+def mem_note(mb: float | None, room: float | None, per: float) -> str:
+    """The memory figures of one start decision, for the log (owner 2026-11-14: last night's stop left none)."""
+    if mb is None or room is None:
+        return f"free memory unknown, {per:.1f} GB a session"
+    return (f"{mb / 1024:.1f} GB free, {MIN_FREE_GB_EXTRA:.1f} GB kept free, room {room:.1f} GB for a {per:.1f} GB "
+            f"session")
+
+
 def machine_cap(settings: dict[str, Any]) -> int:
     """Sessions at once on this machine, every build together: `max_workers` (config/local.yaml), else all cores but
     2 (SPEC §11; memory is checked at every start)."""
@@ -469,7 +478,7 @@ class FeatureBuildJob:
             if mb is None or mb >= (EST_PEAK_GB + MIN_FREE_GB_EXTRA) * 1024:
                 return
             if not (self.parallel and any(o.get("children") for o in others(ctx.paths, self.name))):
-                raise StopChunk(f"{mb} MB free before {what}")
+                raise StopChunk(f"{mb} MB free before {what} ({MIN_FREE_GB_EXTRA:.1f} GB kept free)")
             stop = ctx.should_stop()
             if stop is not None:
                 raise StopChunk(stop)
@@ -519,6 +528,7 @@ class FeatureBuildJob:
         started: dict = {}
         n_done = of[0]
         deadline = getattr(ctx, "deadline", None)
+        held = False   # a held-back start is logged once until the next start
 
         def per_gb() -> float:
             return max(EST_PEAK_GB, _measured_peak(env, key, self.name) or 0.0, max(peaks, default=0.0))
@@ -565,13 +575,22 @@ class FeatureBuildJob:
                         per = per_gb()
                         theirs = [(SimpleNamespace(pid=c), float(o.get("per") or EST_PEAK_GB))
                                   for o in rest for c in (o.get("children") or [])]
-                        room = headroom_gb(free_mb(), [p for _, p in running.values()], per, theirs)
+                        mb = free_mb()
+                        room = headroom_gb(mb, [p for _, p in running.values()], per, theirs)
                         if room is not None and room < per:
                             if not running and not theirs:
                                 raise StopChunk(f"{room + MIN_FREE_GB_EXTRA:.1f} GB free: not enough for {what} "
-                                                f"({per:.1f} GB)")
+                                                f"({per:.1f} GB; {MIN_FREE_GB_EXTRA:.1f} GB kept free)")
+                            if not held:   # owner 2026-11-14: the figures go in the log, once per held stretch
+                                ctx.log.info("%s: next session held: %s; %d running here, %d in other builds",
+                                             self.name, mem_note(mb, room, per), len(running), len(theirs))
+                                held = True
                             break   # the next starts when a session finishes (this build's or another's)
                         d = queue.pop(0)
+                        ctx.log.info("%s: starting %s: %s; %d running here, %d in other builds", self.name,
+                                     "the warm-up" if pass_no == 0 else f"{d} pass {pass_no}",
+                                     mem_note(mb, room, per), len(running), len(theirs))
+                        held = False
                         running[d] = self._start(env, key, d, pass_no)
                         started[d] = _time.monotonic()
                         tell()

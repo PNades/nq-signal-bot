@@ -35,7 +35,9 @@ ET = ZoneInfo("America/New_York")
 DEFAULT_UNTIL = "07:30"  # §11: default --until 07:30
 P90 = 0.90  # §11: a chunk starts only if its measured 90th-percentile duration fits
 SPARE_CORES = 2  # §11: max_workers default = all cores but 2
-RAM_RESERVE_GB = 4  # §11 Low memory: workers capped at floor((free RAM - 4 GB) / peak per session)
+RAM_RESERVE_GB = 10  # §11 Low memory: workers capped at floor((free RAM - 10 GB) / peak per session); the same
+# reserve keeps the feature-build pool's room (feature_build_job), one for the whole machine (owner 2026-11-14: was 4;
+# room for other programs while a job runs; moves to config/local.yaml with the next build-key change, SPEC §13)
 WINDOW_SEARCH_DAYS = 14  # how far ahead to look for the next trading-day job-lock window
 STOP_REQUEST = "stop.request"
 RUN_LOCK = "run.lock"

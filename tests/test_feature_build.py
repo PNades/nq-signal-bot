@@ -595,8 +595,8 @@ def test_pass2_pool_stops_starting_on_a_failure_or_a_stop_and_resumes(env, monke
 def test_pass2_pool_counts_what_running_sessions_will_still_grow_by(monkeypatch):
     grown = {1: 1.0, 2: 4.5, 3: 6.0}
     monkeypatch.setattr(fbj, "_grown_gb", lambda p: grown[p])
-    # 20 GB free, 4 GB reserve, sessions of 4.5 GB: one at 1 GB may still grow by 3.5, the others are at their peak
-    assert fbj.headroom_gb(20 * 1024, [1, 2, 3], 4.5) == pytest.approx(20 - 4 - 3.5)
+    # 20 GB free, the reserve, sessions of 4.5 GB: one at 1 GB may still grow by 3.5, the others are at their peak
+    assert fbj.headroom_gb(20 * 1024, [1, 2, 3], 4.5) == pytest.approx(20 - fbj.MIN_FREE_GB_EXTRA - 3.5)
     assert fbj.headroom_gb(None, [1], 4.5) is None
 
 
@@ -607,7 +607,7 @@ def test_pass2_pool_waits_for_memory_and_refuses_when_not_even_one_fits(env, mon
     doc, plan_days, job, ctx, ids, secs = _pool_setup(env, monkeypatch, batch=4)
     seen = {"running": set(), "started": [], "ended": [], "max": 0}
     # room for two sessions (free memory is read before each start; a new session has not grown yet)
-    monkeypatch.setattr(step8b_disloc, "free_mb", lambda: (4.0 + 2 * 4.5 + 0.5) * 1024)
+    monkeypatch.setattr(step8b_disloc, "free_mb", lambda: (fbj.MIN_FREE_GB_EXTRA + 2 * 4.5 + 0.5) * 1024)
     monkeypatch.setattr(fbj, "_child", lambda argv, log: _SlowProc(env, argv, log, 3, seen))
     job.run_chunk(ids[-1], ctx)
     assert seen["max"] == 2 and all(fb.pass2_done(env, doc["key"], d, plan_days) for d in plan_days)
@@ -615,6 +615,37 @@ def test_pass2_pool_waits_for_memory_and_refuses_when_not_even_one_fits(env, mon
     monkeypatch.setattr(step8b_disloc, "free_mb", lambda: 6 * 1024)
     with pytest.raises(StopChunk, match="not enough for one"):
         job.run_chunk(ids[-1], ctx)
+
+
+def test_the_memory_reserve_is_10_gb_for_the_runner_and_the_build_pool():
+    # owner 2026-11-14: one reserve for the whole machine (was 4), room for other programs while a job runs
+    from nqbot.jobs import runner
+
+    assert fbj.MIN_FREE_GB_EXTRA == runner.RAM_RESERVE_GB == 10
+
+
+def test_the_pool_logs_its_memory_figures_at_each_start_and_once_per_held_stretch(env, monkeypatch):
+    from nqbot.checks import step8b_disloc
+
+    doc, plan_days, job, ctx, ids, secs = _pool_setup(env, monkeypatch, batch=4)
+    seen = {"running": set(), "started": [], "ended": [], "max": 0}
+    lines: list[str] = []
+    log = SimpleNamespace(info=lambda msg, *a: lines.append(msg % a), warning=lambda *a: None,
+                          error=lambda *a: None)
+    ctx = SimpleNamespace(**{**vars(ctx), "log": log})
+    free = (fbj.MIN_FREE_GB_EXTRA + 2 * 4.5 + 0.5) * 1024      # room for two at once
+    monkeypatch.setattr(step8b_disloc, "free_mb", lambda: free)
+    monkeypatch.setattr(fbj, "_child", lambda argv, log_: _SlowProc(env, argv, log_, 3, seen))
+    job.run_chunk(ids[-1], ctx)
+    starts = [x for x in lines if ": starting " in x]
+    held = [x for x in lines if "next session held" in x]
+    assert len(starts) == len(plan_days)
+    assert all(f"{free / 1024:.1f} GB free, 10.0 GB kept free, room " in x for x in starts + held)
+    assert "0 running here" in starts[0] and "1 running here" in starts[1]
+    # held while two run, logged once per stretch (each stretch ends with a start), never more than one per start
+    assert 1 <= len(held) <= len(starts) - 1
+    marks = ["h" if "next session held" in x else "s" for x in lines if "next session held" in x or ": starting " in x]
+    assert "hh" not in "".join(marks)
 
 
 def test_scheduling_is_outside_the_build_key():

@@ -122,7 +122,7 @@ def test_may_start_keeps_every_build_within_the_cores_and_its_fair_share():
 def test_headroom_counts_what_the_other_builds_sessions_will_still_grow_by(monkeypatch):
     grown = {1: 1.0, 2: 4.5, 7: 2.0}
     monkeypatch.setattr(fbj, "_grown_gb", lambda p: grown[getattr(p, "pid", p)])
-    assert fbj.headroom_gb(30 * 1024, [1, 2], 4.5, [(SimpleNamespace(pid=7), 5.0)]) == pytest.approx(30 - 4 - 3.5 - 3.0)
+    assert fbj.headroom_gb(30 * 1024, [1, 2], 4.5, [(SimpleNamespace(pid=7), 5.0)]) == pytest.approx(30 - fbj.MIN_FREE_GB_EXTRA - 3.5 - 3.0)
 
 
 # --- slots ---------------------------------------------------------------------------------------------------------
