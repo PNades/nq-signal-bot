@@ -19,6 +19,7 @@ PRICE_SCALE = 1e9
 UNDEF_PRICE = np.iinfo(np.int64).max
 NO_BOOK_ACTION = b"N"
 CHUNK = 1_000_000
+BOOK_END_TOL_NS = 1_000_000_000   # a record's book holds at most this long past the file's last record (Q-step13-review L2)
 
 
 @dataclass
@@ -33,9 +34,12 @@ class TopOfBook:
         return int(np.searchsorted(self.ts, t, side="right")) - 1
 
     def at(self, t: int) -> tuple[float, float, float, float] | None:
-        """(bid, ask, bid size, ask size) in force at t, or None before the first record."""
+        """(bid, ask, bid size, ask size) in force at t, or None outside the file's cover: before its first record, or
+        more than `BOOK_END_TOL_NS` after its last (the file ends at 16:05 / the early close + 5 min; owner 2026-11-13,
+        SPEC §13 Q-step13-review L2: the 16:04:59 book was read until 17:00, so outside the window a marketable limit
+        is `no_book`, a stop-limit fills at its trade and a market exit reads the trades, Q-step13b (a) (3))."""
         k = self.index_at(t)
-        if k < 0:
+        if k < 0 or t > int(self.ts[-1]) + BOOK_END_TOL_NS:
             return None
         return float(self.bid[k]), float(self.ask[k]), float(self.bid_sz[k]), float(self.ask_sz[k])
 

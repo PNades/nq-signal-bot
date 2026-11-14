@@ -18,6 +18,7 @@ import numpy as np
 
 from nqbot.events.common import CHART_SOURCE, source_of
 from nqbot.features import golden_zone as gz
+from nqbot.features import structure_label as slab
 from nqbot.features.bands import values_at
 from nqbot.features.session_tape import NS
 
@@ -27,16 +28,21 @@ FIB_STOP = 1.0                        # F10: level 1.0 is stop candidate 6
 
 
 def own_time(sf, e) -> int | None:
-    """When the event's touch group first made a retested extreme (`world` switches there), else None."""
+    """When the event's touch group first made a retested extreme (`world` switches there), else None
+    (`SessionFeatures.own_time`, the same rule)."""
     grp = sf.group_of(e)
     return min((r.created_ns for r in sf.retested_today if r.source in grp), default=None)
 
 
 def group_horizon(sf, e) -> int:
-    """The latest instant the engine stage reads `e`'s world at (owner 2026-11-12, SPEC §13 Q-step13b (e)): every
-    decision point of the touch group is before its event's `t_pair_end` (Q-step11h (1)), the style-(c) scans stop
-    there, and the band track reads `TRACK_HORIZON_SEC` past a decision point."""
-    return max(int(sf.pair_end[x].t_resolved) for x in sf.group_of(e)) + TRACK_HORIZON_SEC * NS
+    """The latest instant the engine stage reads `e`'s world at (owner 2026-11-12, SPEC §13 Q-step13b (e); 2026-11-13,
+    Q-step13-review B2): each event's own structure label reads it to its window end, every decision point of the
+    touch group is before its event's `t_pair_end` (Q-step11h (1)), which is at or before that window end, the
+    style-(c) scans stop there, and the band track reads `TRACK_HORIZON_SEC` past a decision point. It doesn't depend
+    on any label, so one build serves the edges, the band track and the labels."""
+    hw = float(sf.f["hold_window_min"])
+    return max(slab.window_end(int(sf.by_id[x].t), hw, sf.flat_ns, sf.end_ns) for x in sf.group_of(e)) + \
+        TRACK_HORIZON_SEC * NS
 
 
 def edges_many(sf, e, ts) -> tuple[np.ndarray, np.ndarray]:
@@ -192,7 +198,8 @@ def fib_prices(sf, e, t: int) -> dict[str, float | None]:
 def band_track(sf, e, dts: int, near: float, centre: float, tol: float) -> dict[str, int | None]:
     """The entry zone's removal times in (dts, dts + TRACK_HORIZON_SEC] (F7): its near edge or its centre more than
     `tol` from its value at dts (`t_move_near`, `t_move_center`), its edges gone (`t_vanish`: no members, a golden
-    zone redrawn), and its cross (`t_cross`, the structure label's rule; 'ended' counts as vanished)."""
+    zone redrawn), and its cross (`t_cross`, the structure label's rule; 'ended' counts as vanished) read like the
+    edges (`SessionFeatures.own_cross`, owner 2026-11-13, SPEC §13 Q-step13-review B2)."""
     tape = sf.nq
     end = dts + TRACK_HORIZON_SEC * NS
     i, j = tape.idx_at(dts), tape.idx_at(end)
@@ -221,7 +228,7 @@ def band_track(sf, e, dts: int, near: float, centre: float, tol: float) -> dict[
     first_times(ts[:k0], *_edges_self(sf, e, ts[:k0]))
     if k0 < len(ts) and any(out[n] is None for n in names):
         first_times(ts[k0:], *_edges_after(sf, e, ot, ts[k0:]))
-    x = sf.cross(e, end)
+    x = sf.own_cross(e, end)
     if x is not None and x[0] > dts:
         if x[1] == "broke":
             out["t_cross"] = int(x[0])

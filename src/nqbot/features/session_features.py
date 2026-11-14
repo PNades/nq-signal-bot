@@ -127,6 +127,7 @@ class SessionFeatures:
         if horizon_ns is not None and self.exclude_source is None:
             raise ValueError("a horizon is only for a session built without a touch group's retested extremes")
         self._alts: dict[str, SessionFeatures] = {}
+        self._own_out: dict[str, tuple] = {}   # event id -> its own (structure label, pair cut), `own_outcome`
         self._mine_uids: set[str] = set()
         self.f, self.day = ctx.features, ctx.day
         cs = ctx.cs_nq
@@ -333,6 +334,46 @@ class SessionFeatures:
         while len(self._alts) > MAX_ALT_BUILDS:
             self._alts.pop(next(iter(self._alts)))
         return alt, alt.by_id[e.event_id]
+
+    def own_time(self, e: tch.Touch) -> int | None:
+        """When `e`'s touch group first made a retested extreme (`world` switches there), else None."""
+        grp = self.group_of(e)
+        return min((r.created_ns for r in self.retested_today if r.source in grp), default=None)
+
+    def own_cross(self, e: tch.Touch, t_end: int) -> tuple[int, str] | None:
+        """The zone's cross within (touch, t_end] as `e`'s own trade sees it (owner 2026-11-13, SPEC §13
+        Q-step13-review B2): read on the world its zone edges come from (Q-step11h (2)): this session's before the touch
+        group's own retested extreme, the session without it from then (the two agree before it, so a cross found
+        earlier stands). Golden and gameplan zones never contain a retested extreme: their cross is this session's."""
+        x = self.cross(e, t_end)
+        ot = self.own_time(e) if e.kind == "level" and self.exclude_source is None else None
+        if ot is None or t_end < ot or (x is not None and x[0] < ot):
+            return x
+        from nqbot.events.snapshot import group_horizon
+
+        w, we = self.world(e, ot, need=t_end, horizon=group_horizon(self, e))
+        return w.cross(we, t_end)
+
+    def own_outcome(self, e: tch.Touch) -> tuple[slab.Label, slab.Label]:
+        """`e`'s structure label (`hold_reaction_pts`) and pair cut (`pair_end_hold_pts`, Q-step11h (1)) on the cross
+        `own_cross` reads (owner 2026-11-13, Q-step13-review B2); what outcomes/, events/ and the decision points use.
+        `labels` / `pair_end` stay as built: the session's own machinery (retested extremes at `retest_hold_pts`, the
+        outcome history at `history_hold_pts` that later events and the next session read) is the one world live has."""
+        got = self._own_out.get(e.event_id)
+        if got is None:
+            lab, pend = self.labels[e.event_id], self.pair_end[e.event_id]
+            ot = self.own_time(e) if e.kind == "level" and self.exclude_source is None else None
+            t_end = slab.window_end(e.t, float(self.f["hold_window_min"]), self.flat_ns, self.end_ns)
+            if ot is not None and ot <= t_end:
+                x = self.own_cross(e, t_end)
+                lab = slab.label(e, self.nq, x, t_end, float(self.f["hold_reaction_pts"]))
+                pend = slab.label(e, self.nq, x, t_end, float(self.f["pair_end_hold_pts"]))
+            got = self._own_out[e.event_id] = (lab, pend)
+        return got
+
+    def structure_labels(self) -> dict[str, slab.Label]:
+        """Every event's own structure label (`own_outcome`)."""
+        return {e.event_id: self.own_outcome(e)[0] for e in self.events}
 
     def zone_edges(self, e: tch.Touch, t: int) -> tuple[float, float] | None:
         w, we = self.world(e, t)
@@ -693,11 +734,15 @@ class SessionFeatures:
 
     def outcome_rows(self) -> list[dict[str, Any]]:
         """The structure label (F11.4 at `hold_reaction_pts`) and the pair cut: `t_pair_end` / `pair_end_label` = the
-        same rule at `pair_end_hold_pts` (Q-step11h (1): no pair at or after `t_pair_end`, `slab.pair_allowed`)."""
-        return [{"event_id": e.event_id, "day": self.day.isoformat(),
-                 **{k: v for k, v in asdict(self.labels[e.event_id]).items() if k != "event_id"},
-                 "t_pair_end": int(self.pair_end[e.event_id].t_resolved),
-                 "pair_end_label": self.pair_end[e.event_id].label} for e in self.events]
+        same rule at `pair_end_hold_pts` (Q-step11h (1): no pair at or after `t_pair_end`, `slab.pair_allowed`); both as
+        the event's own trade sees them (`own_outcome`, owner 2026-11-13, Q-step13-review B2)."""
+        out = []
+        for e in self.events:
+            lab, pend = self.own_outcome(e)
+            out.append({"event_id": e.event_id, "day": self.day.isoformat(),
+                        **{k: v for k, v in asdict(lab).items() if k != "event_id"},
+                        "t_pair_end": int(pend.t_resolved), "pair_end_label": pend.label})
+        return out
 
     def level_timeline(self) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Every NQ level's and the S&P nodes' band over the session, with the unit values (step 13a,

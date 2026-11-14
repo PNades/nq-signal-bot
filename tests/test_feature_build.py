@@ -148,6 +148,9 @@ class FakeSF:
         self.es_book = SimpleNamespace(created={})
         self.labels = {}
 
+    def structure_labels(self):   # SessionFeatures.structure_labels: the events' own labels
+        return dict(self.labels)
+
     def touch_rows(self):
         return [{"event_id": f"e{k}", "ts": k, "tradeable": k % 2 == 0, "x": float(k)} for k in self.events]
 

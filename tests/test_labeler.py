@@ -225,12 +225,12 @@ def test_a_breakeven_stop_gapped_through_fills_at_the_trade():
 
 def test_a_market_exit_never_fills_better_than_the_first_trade():
     # the flat-by exit at 15:59:01: the book's bid says 104.75, but the first trade at or after it is 103.0
-    book = TopOfBook.from_arrays([at(15, 58)], [104.75], [105.0], [10], [10])
+    book = TopOfBook.from_arrays([at(15, 58), at(16, 4, 59)], [104.75, 104.75], [105.0, 105.0], [10, 10], [10, 10])
     f, out = label_one([FILL, (at(15, 59, 1.5), 103.0), (at(15, 59, 3), 106.0)], dp(), 95.0, 130.0, book=book)
     assert out["out_none"] == "timeout" and out["gap_ticks_none"] == pytest.approx((104.75 - 103.0) / 0.25)
     assert out["r_none"] == pytest.approx(((103.0 - 102.0) * 2 - 1.90) / P.costs.risk_per_micro(7.0, "limit"))
     # the book worse than the trade: the book stands, no gap cost
-    book = TopOfBook.from_arrays([at(15, 58)], [102.5], [102.75], [10], [10])
+    book = TopOfBook.from_arrays([at(15, 58), at(16, 4, 59)], [102.5, 102.5], [102.75, 102.75], [10, 10], [10, 10])
     f, out = label_one([FILL, (at(15, 59, 1.5), 103.0)], dp(), 95.0, 130.0, book=book)
     assert out["gap_ticks_none"] == 0.0
     assert out["r_none"] == pytest.approx(((102.5 - 102.0) * 2 - 1.90) / P.costs.risk_per_micro(7.0, "limit"))
@@ -275,7 +275,7 @@ def test_a_calm_stop_fills_at_the_stop_less_the_slippage():
 def test_a_market_exit_never_fills_better_than_the_sweeps_last_print():
     # the flat-by exit at 15:59:01: the bid says 104.75 (size 10); the first prints at or after it are one sweep at
     # 15:59:01.5, 104.5 -> 103.25: the exit fills at 103.25
-    book = TopOfBook.from_arrays([at(15, 58)], [104.75], [105.0], [10], [10])
+    book = TopOfBook.from_arrays([at(15, 58), at(16, 4, 59)], [104.75, 104.75], [105.0, 105.0], [10, 10], [10, 10])
     t = at(15, 59, 1.5)
     f, out = label_one([FILL, (t, 104.5), (t, 103.75), (t, 103.25), (at(15, 59, 3), 106.0)], dp(), 95.0, 130.0,
                        book=book)
@@ -402,7 +402,7 @@ def test_target_counting_baseline_and_the_low_rr_extension():
     g = cand.targets(dp(event_type="golden", **{"fib_0": 125.0, "fib_-0.272": 140.0, "fib_-0.618": 103.0}),
                      102.0, 95.0, 1, "limit", P_(max_targets=0))
     assert [x["target_kind"] for x in g if not x["rr_ext"]] == ["fib_0", "fib_-0.272", "baseline"]
-    assert lb.rr_band(0.3) == "<0.5" and lb.rr_band(0.6) == "0.5-0.8" and lb.rr_band(0.8) == ">=0.8"
+    assert cand.rr_band(0.3, 0.8) == "<0.5" and cand.rr_band(0.6, 0.8) == "0.5-0.8" and cand.rr_band(0.8, 0.8) == ">=0.8"
 
 
 def test_the_extension_leaves_the_base_pairs_and_labels_identical():
@@ -499,8 +499,9 @@ def test_the_labeler_reads_only_its_keyed_settings():
     s, f = Rec(S), Rec(F)
     lp.params(s, f)
     assert s.read <= set(lp.SETTING_KEYS) and f.read <= set(lp.FEATURE_KEYS)
-    assert set(lp.SETTING_KEYS) <= set(fb.NON_BUILD_SETTING_KEYS) | {"order_latency_sec", "max_target_candidates",
-                                                                     "pair_build_min_rr"}
+    # owner 2026-11-13 (Q-step13-review B4): every setting the labeler reads is outside the build key
+    assert set(lp.SETTING_KEYS) <= set(fb.NON_BUILD_SETTING_KEYS)
+    assert set(lp.FEATURE_KEYS) - {"tune_grids_13"} <= set(fb.NON_BUILD_FEATURE_KEYS)
 
 
 def test_the_label_key_changes_with_each_covered_setting():

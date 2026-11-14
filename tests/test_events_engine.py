@@ -136,6 +136,9 @@ def _eager_band_track(sf, e, dts, near, centre, tol):
         k = np.flatnonzero(gone)
         out["t_vanish"] = int(ts[k[0]]) if len(k) else None
     x = sf.cross(e, end)
+    if e.kind == "level" and ot is not None and end >= ot and (x is None or x[0] >= ot):
+        w, we = sf.world(e, ot)                   # owner 2026-11-13, Q-step13-review B2: the cross like the edges
+        x = w.cross(we, end)
     if x is not None and x[0] > dts:
         if x[1] == "broke":
             out["t_cross"] = int(x[0])
@@ -164,6 +167,7 @@ def test_the_engine_speed_fix_changes_no_output(full, monkeypatch):  # noqa: F81
     *_, sf = full
     seen = _alt_builds(monkeypatch)
     sf._alts.clear()
+    sf._own_out.clear()
     with monkeypatch.context() as m:
         m.setattr(snap, "band_track", _eager_band_track)
         m.setattr(snap, "group_horizon", lambda sf_, e_: None)
@@ -171,6 +175,7 @@ def test_the_engine_speed_fix_changes_no_output(full, monkeypatch):  # noqa: F81
     n_old = len(seen)
     assert n_old >= 1 and all(h is None for h in seen), "the synthetic day builds a world without a retested extreme"
     sf._alts.clear()
+    sf._own_out.clear()
     del seen[:]
     new = eb.session_outputs(sf, sf.touch_rows(), None, S)
     for k in ("events", "decisions", "decision_rows", "level_events"):
@@ -243,3 +248,36 @@ def test_level_files_come_in_a_fixed_order(full, staged):  # noqa: F811
     nq = [r["uid"] for r in rows if r["instrument"] == "NQ"]
     es = [r["uid"] for r in rows if r["instrument"] != "NQ"]
     assert nq == sorted(nq) and es == sorted(es) and len(nq) == len(sf.nq_levels)
+
+
+# --- B2 (owner 2026-11-13, SPEC §13 Q-step13-review): the own outcome readings on the synthetic day --------------------
+
+def test_own_labels_and_crosses_equal_the_whole_world_without_the_groups_extreme(full):  # noqa: F811
+    from nqbot.features.session_features import SessionFeatures
+
+    *_, sf = full
+    own = [e for e in sf.events if e.kind == "level" and sf.own_time(e) is not None]
+    assert own, "the synthetic day has an event whose touch group made a retested extreme"
+    for e in sf.events:
+        lab, pend = sf.own_outcome(e)
+        if e not in own:
+            assert lab is sf.labels[e.event_id] and pend is sf.pair_end[e.event_id]
+    for e in own:
+        grp, ot = sf.group_of(e), sf.own_time(e)
+        whole = SessionFeatures(sf.c, exclude_source=grp).build()
+        t_end = slab.window_end(e.t, float(sf.f["hold_window_min"]), sf.flat_ns, sf.end_ns)
+        x = sf.cross(e, t_end)
+        want = x if (x is not None and x[0] < ot) or t_end < ot else whole.cross(whole.by_id[e.event_id], t_end)
+        assert sf.own_cross(e, t_end) == want
+        lab, pend = sf.own_outcome(e)
+        assert lab == slab.label(e, sf.nq, want, t_end, float(sf.f["hold_reaction_pts"]))
+        assert pend == slab.label(e, sf.nq, want, t_end, float(sf.f["pair_end_hold_pts"]))
+        for t in (ot, (ot + t_end) // 2, t_end):                    # the band track's cross at any window end
+            xt = sf.cross(e, t)
+            assert sf.own_cross(e, t) == (xt if xt is not None and xt[0] < ot else
+                                          whole.cross(whole.by_id[e.event_id], t))
+    rows = {r["event_id"]: r for r in sf.outcome_rows()}
+    for e in sf.events:
+        lab, pend = sf.own_outcome(e)
+        assert (rows[e.event_id]["label"], rows[e.event_id]["t_resolved"]) == (lab.label, lab.t_resolved)
+        assert (rows[e.event_id]["pair_end_label"], rows[e.event_id]["t_pair_end"]) == (pend.label, pend.t_resolved)

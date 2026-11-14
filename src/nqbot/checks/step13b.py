@@ -96,32 +96,14 @@ def _fmt(ns: int | None) -> str:
 # --- the labeler stage on one session -------------------------------------------------------------------------------
 
 def label_one(env: Env, base: Path, day: date, p, identity: bool = True) -> dict[str, Any]:
-    """Label one built session from `base` (decisions/ + its metadata); returns the outputs and their counts."""
-    from nqbot.clients import mbp1
-    from nqbot.features import session_tape as st
-    from nqbot.labeler import labeler as lb
+    """Label one built session from `base`: `labeler.session.label_built` (its input selection is in the labels key,
+    owner 2026-11-13, SPEC §13 Q-step13-review); a session whose stored inputs aren't the build's is refused."""
+    from nqbot.labeler import session as lsess
 
-    iso = day.isoformat()
-    dpath = base / "decisions" / f"{iso}.parquet"
-    meta = read_meta(dpath)
-    decisions = _read(dpath)
-    t0 = _time.monotonic()
-    tape = st.load_tape(env.db, sb.plan(env), "NQ", day)
-    if tape is None or tape.symbol != meta.get("nq_symbol"):
-        raise Refused(f"{day}: the stored NQ trades ({None if tape is None else tape.symbol}) are not the build's "
-                      f"({meta.get('nq_symbol')})")
-    book = mbp1.load(env.db.raw_path("mbp-1", tape.symbol, day))
-    t_load = _time.monotonic() - t0
-    out = lb.label_session(decisions, tape, book, meta, p)
-    if identity:
-        from dataclasses import replace
-
-        t1 = _time.monotonic()
-        off = lb.label_session(decisions, tape, book, meta, replace(p, extension=False))
-        out["info"].update(lb.identity_check(out["pairs"], off["pairs"]),
-                           identity_sec=round(_time.monotonic() - t1, 1))
-    out["info"].update(load_sec=round(t_load, 1), book=book is not None, decisions=len(decisions))
-    return out
+    try:
+        return lsess.label_built(env.db, sb.plan(env), base, day, p, identity)
+    except lsess.WrongInputs as e:
+        raise Refused(str(e)) from None
 
 
 # --- labels: the job -------------------------------------------------------------------------------------------------

@@ -33,6 +33,9 @@ class DayDamage:
     rth_minutes: int = 0
     eth_minutes: int = 0
     rth_gap_minutes: list = field(default_factory=list)   # (start ET datetime, end) of RTH gaps, for step 13's padding
+    # (start, end) of each damaged RTH part with excess empty minutes: they carry no minute identity, so the whole part
+    # counts as damaged for step 13's event drop (owner 2026-11-13, SPEC §13 Q-step13-review B3)
+    rth_unlocated: list = field(default_factory=list)
     rth_dropped: bool = False
     eth_empty: bool = False
 
@@ -41,6 +44,14 @@ def _span_start(row: dict[str, Any]) -> datetime:
     """The part's start (ET) from its 'MM-DD HH:MM–MM-DD HH:MM ET' span; the year from the CME day."""
     d = date.fromisoformat(row["cme_day"])
     mo, dd, hh, mi = (int(x) for x in _SPAN.search(row["span"]).groups())
+    year = d.year - 1 if (mo, d.month) == (12, 1) else d.year
+    return datetime(year, mo, dd, hh, mi, tzinfo=ET)
+
+
+def _span_end(row: dict[str, Any]) -> datetime:
+    """The part's end (ET), the second date-time of its span."""
+    d = date.fromisoformat(row["cme_day"])
+    mo, dd, hh, mi = (int(x) for x in _SPAN.findall(row["span"])[1])
     year = d.year - 1 if (mo, d.month) == (12, 1) else d.year
     return datetime(year, mo, dd, hh, mi, tzinfo=ET)
 
@@ -60,13 +71,14 @@ def classify(rows: Iterable[dict[str, Any]], settings: dict[str, Any]) -> dict[d
         if r.get("part") is None or "empty_minutes" not in r or r.get("baseline_empty_max") is None:
             continue
         key = (date.fromisoformat(r["cme_day"]), r["part"], r["span"])
-        acc = parts.setdefault(key, {"gap": set(), "excess": 0, "intervals": []})
+        acc = parts.setdefault(key, {"gap": set(), "excess": 0, "intervals": [], "span": None})
         excess = r["empty_minutes"] - r["baseline_empty_max"]
         normal_gap = r.get("baseline_gap_max_sec") or 0.0
         start = _span_start(r)
         long_gaps = [g for g in r.get("gaps", []) if g["sec"] > max(normal_gap, gap_min_sec)]
         if excess > excess_max or long_gaps:
             acc["excess"] = max(acc["excess"], max(excess, 0))
+            acc["span"] = (start, _span_end(r))
             for g in long_gaps:
                 g0 = _gap_start(start, g["from"])
                 g1 = g0 + timedelta(seconds=g["sec"])
@@ -81,6 +93,8 @@ def classify(rows: Iterable[dict[str, Any]], settings: dict[str, Any]) -> dict[d
         if part == "RTH":
             dd.rth_minutes += n
             dd.rth_gap_minutes += acc["intervals"]
+            if acc["excess"] > 0 and acc["span"] is not None:
+                dd.rth_unlocated.append(acc["span"])
         else:
             dd.eth_minutes += n
     for dd in out.values():

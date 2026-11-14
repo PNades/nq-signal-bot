@@ -44,7 +44,9 @@ def damage_drop(sf, e, damage_day, pad_min: float) -> bool:
         return True
     t_end = slab.window_end(e.t, float(sf.f["hold_window_min"]), sf.flat_ns, sf.end_ns)
     pad = int(pad_min * MIN_NS)
-    for g0, g1 in damage_day.rth_gap_minutes:
+    # the gaps, and any RTH part whose damage includes excess empty minutes (no minute identity: the whole part;
+    # owner 2026-11-13, SPEC §13 Q-step13-review B3)
+    for g0, g1 in list(damage_day.rth_gap_minutes) + list(getattr(damage_day, "rth_unlocated", ())):
         if _ns(g0) - pad <= t_end and _ns(g1) + pad >= e.t:
             return True
     return False
@@ -72,7 +74,7 @@ def session_outputs(sf, rows: list[dict], damage_day, settings: dict) -> dict[st
     firings = Counter()
     t_c = 0.0
     for e in sf.events:
-        lab, pend = sf.labels[e.event_id], sf.pair_end[e.event_id]
+        lab, pend = sf.own_outcome(e)    # as the event's own trade sees them (Q-step13-review B2)
         r = by_row[e.event_id]
         drop = damage_drop(sf, e, damage_day, pad)
         row = {"event_id": e.event_id, "zone_id": e.zone_id, "touch_group_id": r["touch_group_id"], "day": r["day"],

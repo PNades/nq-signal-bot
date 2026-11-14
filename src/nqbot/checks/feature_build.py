@@ -53,14 +53,16 @@ NS_FLOAT_OK: frozenset = frozenset()   # float columns that must stay float64 (n
 # by the simulators, the models, the gates or live trading (execution costs and parameters are applied in the simulator,
 # never stored in the build), so changing them never renames a build; `tests/test_feature_build.py` fails if the build
 # reads one of them.
-NON_BUILD_FEATURE_KEYS = frozenset({"tune_grids_13", "tune_grids_19"})
+# owner 2026-11-13 (SPEC §13 Q-step13-review B4): keys only the labeler reads (its own key covers them) stay out
+NON_BUILD_FEATURE_KEYS = frozenset({"tune_grids_13", "tune_grids_19", "stop_merge_ticks"})
 NON_BUILD_SETTING_KEYS = frozenset({
     "min_free_gb", "min_free_gb_live", "backup", "min_month1_sessions", "min_new_sealed_months", "grid_sample_frac",
     "ops", "archive_time", "heartbeat_min", "inactivity_alert_days", "retrain_every_months",
     "default_risk_usd", "max_entry_slip_ticks", "exit_slippage_ticks", "default_commission_per_mini_rt",
     "default_commission_per_micro_rt", "exit_retry_window_sec", "flat_retry_min", "flat_alert_sec",
     "unknown_alert_min", "webhook_timeout_sec", "entry_ttl_sec", "stop_buffer", "stop_buffer_floor", "entry_order_type",
-    "enabled_entry_styles", "style_tie_ev_r", "pair_ext_min_rr", "pair_ext_max_zones", "baseline_rr", "lives_dust_usd", "max_loss_run_rate", "be_trigger", "be_offset_ticks",
+    "enabled_entry_styles", "style_tie_ev_r", "pair_ext_min_rr", "pair_ext_max_zones", "baseline_rr",
+    "order_latency_sec", "max_target_candidates", "pair_build_min_rr", "lives_dust_usd", "max_loss_run_rate", "be_trigger", "be_offset_ticks",
     "guard_check_sec", "guard_flat_grace_sec", "max_engine_restarts", "guard_port", "engine_port", "ui_port",
     "sleep_detect_sec", "clock_max_offset_ms", "clock_max_rtt_ms", "clock_check_min", "ntp_server", "feed_stale_sec",
     "feed_lag_max_ms", "feed_recovery_sec", "deadman_url", "power_poll_sec", "battery_warn_step_pct",
@@ -82,7 +84,44 @@ class BuildRefused(Exception):
 # --- keys and paths -------------------------------------------------------------------------------------------
 
 CODE_PARTS = ("features", "events", "checks/session_build.py", "checks/feature_build.py", "calendar.py",
-              "clients/databento_store.py", "clients/skylit_store.py", "gameplan/parser.py")
+              "clients/databento_store.py", "clients/skylit_store.py", "gameplan/parser.py",
+              # owner 2026-11-13 (SPEC §13 Q-step13-review B5): they choose or parse what the build reads
+              "checks/step8b.py", "clients/skylit_multiexp.py", "clients/ndx_sources.py",
+              "clients/databento_contracts.py", "warmup.py", "gameplan/overrides.py", "gameplan/schema.py",
+              "gameplan/validate.py", "gameplan/convert.py", "config.py")
+# Direct imports of the covered code that stay out of the key, each for a reason (tests/test_review_keys.py checks
+# every direct import is covered or listed here)
+KEY_EXEMPT = {
+    "checks/__init__.py": "package marker",
+    "clients/__init__.py": "package marker",
+    "gameplan/__init__.py": "package marker",
+    "jobs/__init__.py": "package marker",
+    "checks/feature_build_job.py": "scheduling only: when a session runs, never what it writes (Q-step13b (f))",
+    "checks/step8b_disloc.py": "free-memory reading for the scheduler",
+    "checks/step7.py": "step-7 API checks; imported by step8b for its reports",
+    "checks/step7_analysis.py": "step-7 / 8b report statistics",
+    "jobs/runner.py": "the job runner (chunks, clock, locks)",
+    "jobs/lock.py": "job locks",
+    "jobs/queue.py": "the resume queue",
+    "clients/databento_pull.py": "the step-8 pull; the build reads its stored plan file, not its code",
+    "clients/databento_client.py": "the Databento API client (pulls only)",
+    "clients/databento_condition.py": "dataset condition pulls; the damage rule is features/damage.py",
+    "clients/databento_cost.py": "pull pricing",
+    "clients/databento_volume.py": "pulls the volume bars the front rule reads (the rule is databento_contracts)",
+    "clients/skylit.py": "the Skylit API client (pulls only)",
+    "clients/skylit_backfill.py": "the step-10 pull",
+    "clients/skylit_credits.py": "credit accounting",
+    "clients/skylit_pull.py": "step-7 pulls",
+    "clients/skylit_stream.py": "the live stream",
+    "live/map_freshness.py": "live-only freshness counts in the step-7 reports",
+    "clock.py": "the clock check",
+    "months.py": "the month ledger: its sessions are in the plan, so in the key",
+    "power.py": "keep-awake",
+    "risk.py": "account risk fractions (steps 14/15/22)",
+    "secrets.py": ".env reading",
+    "setup_ssd.py": "SSD set-up",
+    "storage.py": "paths and atomic writes",
+}
 # events/ = the step-13b engine stage (Q-dryrun13 (7)); the labeler (labeler/) has its own key (SPEC §13 Q-step13b (1))
 # the job's scheduling (chunks, the pass-2 pool, child processes, the report) is `checks/feature_build_job.py`, outside
 # the key: it decides only when a session runs, never what it writes (owner 2026-11-12, SPEC §13 Q-step13b (f))
@@ -340,7 +379,7 @@ def build_day_cmd(env: Env, day: date, pass_no: int) -> int:
                                              damage_day=damage.get(day), events=True)
         summary.update(ev_info)
         summary.update(rows=len(rows), tradeable=sum(1 for r in rows if r["tradeable"]),
-                       labels={lab: sum(1 for x in sf.labels.values() if x.label == lab)
+                       labels={lab: sum(1 for x in sf.structure_labels().values() if x.label == lab)
                                for lab in ("held", "broke", "timeout")},
                        day_type=None if eod is None else eod["day_type"],
                        total_sec=round(_time.monotonic() - t0, 1))
@@ -363,16 +402,16 @@ def write_day_files(base: Path, sf, day: date, key: str, features: dict, *, sett
     write_rows(base / "daytype" / f"{iso}.parquet", sf.daytype_rows(),
                {"day": iso, "key": key, "daytype_inputs": features["daytype_inputs"]})
     eod = sf.eod()
+    info: dict = {}
+    if events:   # first: its worlds without a group's retested extremes also serve the outcomes' own labels (B2)
+        from nqbot.events import build as ev_build
+
+        info = ev_build.write_session(base, sf, rows, damage_day, settings, key)
     outcomes = sf.outcome_rows() + ([{"event_id": f"eod-{iso}", "day": iso, "label": eod["day_type"],
                                       "how": "eod_day_type"}] if eod else [])
     write_rows(base / "outcomes" / f"{iso}.parquet", outcomes,
                {"day": iso, "key": key, "note": "outcomes: never read as features"})
     write_levels(base / "levels" / f"{iso}.parquet", sf, {"day": iso, "key": key})
-    info: dict = {}
-    if events:
-        from nqbot.events import build as ev_build
-
-        info = ev_build.write_session(base, sf, rows, damage_day, settings, key)
     return rows, eod, info
 
 
@@ -544,7 +583,8 @@ def build_day_smoke(env: Env, day: date, full_warmup: bool = False) -> Path:
     for e in sf.events:
         h = fmt(e.t)[:2]
         by_hour[h] = by_hour.get(h, 0) + 1
-    lab = {x: sum(1 for v in sf.labels.values() if v.label == x) for x in ("held", "broke", "timeout")}
+    own = sf.structure_labels()
+    lab = {x: sum(1 for v in own.values() if v.label == x) for x in ("held", "broke", "timeout")}
     eod = sf.eod()
     lines = [f"# Step 11 build-day smoke run: {day}", "",
              "Stored data only (\\$0, no lock). The part-3 session engine (`features/session_features.py`) on the part-1 "
@@ -577,7 +617,7 @@ def build_day_smoke(env: Env, day: date, full_warmup: bool = False) -> Path:
               "|---|---|---|---|---|---|---|---|---|"]
     rth = [(e, r) for e, r in zip(sf.events, rows) if e.t >= sf.open_ns][:40]
     for e, r in rth:
-        lb = sf.labels[e.event_id]
+        lb = own[e.event_id]
         mem = ", ".join(sorted({sf.nq_levels[m].sub_type for m in e.members})) if e.kind == "level" else e.kind
         lines.append(f"| {fmt(e.t)} | {e.zone_id} | {e.kind}{'/' + e.part if e.part else ''} | {e.direction:+d} | "
                      f"{e.price:g} | {mem} | {lb.label} | {fmt(lb.t_resolved)} | {r['tradeable']} |")

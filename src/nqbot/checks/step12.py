@@ -1317,7 +1317,7 @@ def day_cmd(env: Env, day: date) -> dict[str, Any]:
     sf = built.sf
     cs = sf.c.cs_nq
     stored = stored_events(base, day)
-    check_events_match([e.event_id for e in sf.events], stored, {k: v.label for k, v in sf.labels.items()})
+    check_events_match([e.event_id for e in sf.events], stored, {k: v.label for k, v in sf.structure_labels().items()})
     orr = cs.opening
     plan = reading_plan(bool(orr.redrawn_1030) if orr else False, list(orr.flips_at) if orr else [], why)
     rows = [r for rd in plan for r in level_rows(cs, day, rd.at, rd.scope)]

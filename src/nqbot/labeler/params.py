@@ -63,6 +63,13 @@ def params(settings: dict, features: dict, overrides: dict | None = None, extens
             raw[top] = {**raw[top], sub: v}
         else:
             raw[top] = v
+    from nqbot.events.snapshot import TRACK_HORIZON_SEC
+
+    long_ttl = {k: v for k, v in dict(raw["entry_ttl_sec"]).items() if float(v) > TRACK_HORIZON_SEC}
+    if long_ttl:   # owner 2026-11-13, SPEC §13 Q-step13-review L5: removals after the band track would be missed
+        raise ValueError(f"entry_ttl_sec {long_ttl} is longer than the decision snapshot's band track "
+                         f"({TRACK_HORIZON_SEC} s, events/snapshot.TRACK_HORIZON_SEC): a zone move, cross or vanish "
+                         "after it would go unseen; raise the track (a build-key change) first")
     costs = Costs(float(raw["default_commission_per_micro_rt"]), float(raw["exit_slippage_ticks"]),
                   float(raw["max_entry_slip_ticks"]), float(raw["default_risk_usd"]))
     return LabelParams(int(round(float(raw["order_latency_sec"]) * 1e9)), costs, dict(raw["entry_ttl_sec"]),

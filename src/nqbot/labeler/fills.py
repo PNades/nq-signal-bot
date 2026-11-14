@@ -108,7 +108,12 @@ def _book_fill(book, t: int, d: int, size: float, limit: float, trade_px: float 
     if (limit - best) * d < -EPS:
         return None, False
     q1 = min(size, max(sz, 0.0))
-    return (q1 * best + (size - q1) * limit) / size, False
+    px = (q1 * best + (size - q1) * limit) / size
+    if trade_px is not None:
+        # never better than the trade that triggered it (owner 2026-11-13, SPEC §13 Q-step13-review L3: the book read
+        # at that timestamp is after the whole sweep), nor worse than the limit
+        px = min(max(px, trade_px), limit) if d > 0 else max(min(px, trade_px), limit)
+    return px, False
 
 
 def simulate(order_type: str, dp: dict, size: float, tape, path, book, meta: dict, p) -> Fill:

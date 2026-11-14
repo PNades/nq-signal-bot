@@ -57,17 +57,19 @@ class Firing:
 
 
 def rearm_time(sf, e) -> int | None:
-    """The zone's first arm after the touch (its own id, or the zone that absorbed it once merged)."""
-    ids = {e.zone_id}
+    """The zone's first arm after the touch: its own id's, or, once merged, the absorbing zone's from the merge on
+    (owner 2026-11-13, SPEC §13 Q-step13-review B1: an absorbing zone's arm before the merge is another zone's, and
+    counting it cut the audit at a merge that came later: lookahead)."""
+    spans = [(e.zone_id, int(e.t))]          # (zone id, the time from which its arms are this event's zone's)
     if e.kind == "level":
-        z = e.zone_id
+        z, since = e.zone_id, int(e.t)
         for _ in range(64):
             m = sf.book.merged_into.get(z)
             if m is None:
                 break
-            z = m[1]
-            ids.add(z)
-    times = [t for zid in ids for t in sf.arms.get(zid, ()) if t > e.t]
+            since, z = max(since, int(m[0])), m[1]
+            spans.append((z, since))
+    times = [t for zid, since in spans for t in sf.arms.get(zid, ()) if t > e.t and t >= since]
     return min(times) if times else None
 
 

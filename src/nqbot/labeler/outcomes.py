@@ -37,7 +37,12 @@ EPS = 1e-9
 
 
 def timeout_at(fill_t: int, meta: dict, latency_ns: int) -> tuple[int, str]:
-    occ, why = int(meta["flat_ns"]), "flat_by"
+    """When a pair still open is closed at market: flat-by, or a news flatten before it, each + latency. A fill at or
+    after flat-by (an out-of-window decision point, never tradeable) times out at the session end or the next news
+    flatten before it (owner 2026-11-13, SPEC §13 Q-step13-review L1: it exited before its fill), for the §1.2
+    out-of-window report."""
+    flat = int(meta["flat_ns"])
+    occ, why = (flat, "flat_by") if fill_t < flat else (int(meta["end_ns"]), "session_end")
     for a, _b in meta["blackouts"]:
         if fill_t < a < occ:
             occ, why = int(a), "news_flatten"

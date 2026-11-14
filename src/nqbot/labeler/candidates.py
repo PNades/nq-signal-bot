@@ -163,9 +163,14 @@ def targets(dp: dict, ref: float, stop: float, d: int, order_type: str, p) -> li
     return base + ext
 
 
-def rr_band(rr: float, ext_min: float, min_rr: float) -> str:
-    if rr < 0.5 - EPS:
-        return "<0.5"
+RR_BAND_LOW = 0.5   # SPEC §13 Q-flexfarm (1): pairs counted by RR band < 0.5, 0.5 to `pair_build_min_rr`, >= it
+
+
+def rr_band(rr: float, min_rr: float) -> str:
+    """The RR band of a pair's net RR (owner 2026-11-13, SPEC §13 Q-step13-review L4: the bands follow
+    `pair_build_min_rr`, which a labels plan may override)."""
+    if rr < RR_BAND_LOW - EPS:
+        return f"<{RR_BAND_LOW:g}"
     if rr < min_rr - EPS:
-        return "0.5-0.8"
-    return ">=0.8"
+        return f"{RR_BAND_LOW:g}-{min_rr:g}"
+    return f">={min_rr:g}"

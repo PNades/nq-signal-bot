@@ -29,14 +29,6 @@ from nqbot.labeler.params import be_name
 PAIR_LABEL_COLS = ("ambiguous_tick", "exit_no_book", "timeout_reason")
 
 
-def rr_band(rr: float) -> str:
-    if rr < 0.5 - 1e-9:
-        return "<0.5"
-    if rr < 0.8 - 1e-9:
-        return "0.5-0.8"
-    return ">=0.8"
-
-
 def label_session(decisions: list[dict], tape, book, meta: dict, p, path: PathIndex | None = None,
                   bars_1m=None) -> dict[str, Any]:
     t0 = time.monotonic()
@@ -65,7 +57,7 @@ def label_session(decisions: list[dict], tape, book, meta: dict, p, path: PathIn
                               "too_wide": too_wide, **_reached(lab, fill, dp, ref, d)})
                 for ti, tg in enumerate(cand.targets(dp, ref, stop, d, ot, p)):
                     pid = f"{fid}-t{ti}"
-                    band = rr_band(tg["net_rr"])
+                    band = cand.rr_band(tg["net_rr"], p.min_rr)
                     bands[(dp["style"], ot, band, tg["rr_ext"])] += 1
                     row = {"pair_id": pid, "fill_id": fid, "decision_id": dp["decision_id"], "event_id": dp["event_id"],
                            "touch_group_id": dp["touch_group_id"], "style": dp["style"], "firing_n": dp["firing_n"],
