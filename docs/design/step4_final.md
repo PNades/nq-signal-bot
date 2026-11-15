@@ -140,3 +140,34 @@ built-in TypeScript support for the checks.
   the screenshots above are current. I can re-record them in the wrap-up.
 - **The two inline-style CSP notes** (Waterline is no longer used; the border beam still injects one) move into the
   bundled CSS at the build.
+
+## Round 4 (2026-11-15, after the wrap-up commit 34d0f79)
+
+Your two follow-ups. Screenshots and measurements are in [`step4/round4/`](step4/round4/) (`checks.json`), from
+`docs/design/mock/shot-round4.mjs`. No blocked requests, no console errors or warnings, all checks passed.
+
+1. **Home messages.**
+   - **Where:** every toast and the key hint now sit in one row in the bottom-right corner, 14 px from the bottom edge
+     ([home_toast_1440x900](step4/round4/home_toast_1440x900.png)). Before, they sat bottom-centre behind Settings.
+   - **No overlap:** checked against every node at 1920 × 1080, 1440 × 900, 1280 × 800, 1024 × 768, 960 × 1000 and
+     1440 × 760, with the Performance node's card hovered first.
+   - **Why one row:** at 1440 × 900 the Performance node and its open card reach x 1293 and y 871. That leaves no
+     room for a stacked toast beside it, so the toast and hint share one row along the bottom edge.
+   - **Keys close cards:** a key that opens a page also closes any open hover card, so a message never appears under
+     one.
+   - **Performance opens:** in the mock, clicking Performance or pressing 6 opens the Performance page (checked:
+     the title becomes "CreamFlow · Performance"). The other nodes keep "Opening <page>…".
+2. **Toasts never under the dock**, whichever variant.
+   - **How:** the shell sets one CSS variable, `--toast-bottom`, to the dock's footprint plus 16 px: 96 px open,
+     76 px minimized. Toasts sit bottom-right at that height.
+   - **Measured** with the Export CSV toast: dock open, gap 14 px above the dock; minimized to the corner, 16 px above
+     the circle ([toast_corner_960](step4/round4/toast_corner_960.png)); minimized at the centre, 16 px. Checked at
+     1440 and 960 px.
+3. **Footer:** a third of the letter height is now hidden by the bottom edge, at every width (was a quarter).
+   - **Measured share hidden:** 1920 0.342, 1440 0.346, 1280 0.320, 1024 0.312, 960 0.329 (the dot grid rounds by a
+     few pixels).
+   - **The page still ends inside the letters:** 0 px below the footer
+     ([footer_1440](step4/round4/footer_1440.png)).
+
+**Docs:** `MASTER.md` (toasts), `pages/home.md`, `pages/shell.md`, `pages/performance.md`, `picks.md`, SPEC §13
+Q-step14a (13).

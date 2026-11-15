@@ -36,6 +36,7 @@
 | Node hover cards | 6 px from label to value, 7 px from value to sub-line |
 | Opening sequence (restored 2026-11-15) | the wordmark forms alone, then the nodes arrive one after another, clockwise from Live, each line drawing out to the word (about 1.7 s); later visits in the session show the formed scene with a 200-ms fade; a click or key skips it; Calm shows it formed |
 | Home approved | 2026-11-15; layout details in `pages/home.md` only |
+| Messages in the bottom-right corner | Home's toasts and key hint sit in one row in the bottom-right corner, below the nodes (2026-11-15); the mock's Performance node and key 6 open the Performance page |
 
 ## Navigation (2026-11-15)
 
@@ -45,6 +46,7 @@
 | Not on Home | Home's six nodes, keys 1–6 and `Ctrl K` cover navigation there |
 | Minimize circle: **corner** | a circle at the end of the dock collapses it into one circle in the bottom-right corner, and back, with a short animation; remembered for the session |
 | Bottom padding | every page reserves the dock's footprint, so nothing stays behind it when scrolled to the bottom |
+| Toasts never under the dock | bottom-right, above the dock's footprint whichever variant (2026-11-15) |
 | The dock may float over the footer letters | its glass stays dark enough (90% `#111111` with blur) that its icons stay clearly readable over the cream dots |
 
 ## Showpieces: all kept (2026-11-15)
@@ -57,7 +59,7 @@
 | Flip-disk next window | Flip-Disk Matrix 24220 | the next setup window | never used for risk numbers |
 | Burst | Burst 33152 | evaluation passed, payout requested | a static badge in Calm |
 | Dot Matrix Text | Dot Text 25484 | empty states, splash | **stops redrawing once settled**; wakes only for a text change or a resize |
-| Dot-matrix footer | Halftone Wordmark Footer 37628 | the end of a page | the word "cream" in Geist 900 at full screen down to 600 at 960 px, sized from its own box, the page ending inside the letters (lower quarter cut off) |
+| Dot-matrix footer | Halftone Wordmark Footer 37628 | the end of a page | the word "cream" in Geist 900 at full screen down to 600 at 960 px, sized from its own box, the page ending inside the letters (a third of their height hidden by the bottom edge, owner 2026-11-15) |
 
 Also in use: KPI Tile 40086, Animated Tabs 24930.
 

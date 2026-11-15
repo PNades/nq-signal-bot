@@ -1,0 +1,195 @@
+{
+  "checks": {
+    "home_1920x1080": {
+      "messages": {
+        "x": 1529,
+        "y": 1028,
+        "w": 367,
+        "h": 38
+      },
+      "overlaps": [],
+      "performanceCardClosed": true
+    },
+    "home_1440x900": {
+      "messages": {
+        "x": 1049,
+        "y": 848,
+        "w": 367,
+        "h": 38
+      },
+      "overlaps": [],
+      "performanceCardClosed": true
+    },
+    "home_1280x800": {
+      "messages": {
+        "x": 889,
+        "y": 748,
+        "w": 367,
+        "h": 38
+      },
+      "overlaps": [],
+      "performanceCardClosed": true
+    },
+    "home_1024x768": {
+      "messages": {
+        "x": 633,
+        "y": 716,
+        "w": 367,
+        "h": 38
+      },
+      "overlaps": [],
+      "performanceCardClosed": true
+    },
+    "home_960x1000": {
+      "messages": {
+        "x": 569,
+        "y": 948,
+        "w": 367,
+        "h": 38
+      },
+      "overlaps": [],
+      "performanceCardClosed": true
+    },
+    "home_1440x760": {
+      "messages": {
+        "x": 1049,
+        "y": 708,
+        "w": 367,
+        "h": 38
+      },
+      "overlaps": [],
+      "performanceCardClosed": true
+    },
+    "homeOpen": {
+      "gameplanMessage": "Opening Gameplan…",
+      "clickPerformance": "CreamFlow · Performance",
+      "key6": "CreamFlow · Performance"
+    },
+    "toast_open_1440": {
+      "toast": [
+        1217,
+        762,
+        199,
+        42
+      ],
+      "dock": [
+        499,
+        818,
+        443,
+        66
+      ],
+      "gap": 14
+    },
+    "toast_corner_1440": {
+      "toast": [
+        1217,
+        782,
+        199,
+        42
+      ],
+      "dock": [
+        1380,
+        840,
+        44,
+        44
+      ],
+      "gap": 16
+    },
+    "toast_centre_1440": {
+      "toast": [
+        1217,
+        782,
+        199,
+        42
+      ],
+      "dock": [
+        698,
+        840,
+        44,
+        44
+      ],
+      "gap": 16
+    },
+    "toast_open_960": {
+      "toast": [
+        737,
+        862,
+        199,
+        42
+      ],
+      "dock": [
+        259,
+        918,
+        443,
+        66
+      ],
+      "gap": 14
+    },
+    "toast_corner_960": {
+      "toast": [
+        737,
+        882,
+        199,
+        42
+      ],
+      "dock": [
+        900,
+        940,
+        44,
+        44
+      ],
+      "gap": 16
+    },
+    "toast_centre_960": {
+      "toast": [
+        737,
+        882,
+        199,
+        42
+      ],
+      "dock": [
+        458,
+        940,
+        44,
+        44
+      ],
+      "gap": 16
+    },
+    "footer_1920": {
+      "cap": 328,
+      "visible": 216,
+      "hiddenShare": 0.342,
+      "crop": 0.3333333333333333,
+      "belowFooter": 0
+    },
+    "footer_1440": {
+      "cap": 252,
+      "visible": 165,
+      "hiddenShare": 0.346,
+      "crop": 0.3333333333333333,
+      "belowFooter": 0
+    },
+    "footer_1280": {
+      "cap": 219,
+      "visible": 149,
+      "hiddenShare": 0.32,
+      "crop": 0.3333333333333333,
+      "belowFooter": 0
+    },
+    "footer_1024": {
+      "cap": 179,
+      "visible": 123,
+      "hiddenShare": 0.312,
+      "crop": 0.3333333333333333,
+      "belowFooter": 0
+    },
+    "footer_960": {
+      "cap": 168,
+      "visible": 113,
+      "hiddenShare": 0.329,
+      "crop": 0.3333333333333333,
+      "belowFooter": 0
+    }
+  },
+  "problems": []
+}

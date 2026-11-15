@@ -286,7 +286,9 @@ icons `aria-hidden`; icon-only buttons have an `aria-label` and a tooltip. No em
   sortable headers with `ArrowUpDown`, filter chips that wrap.
 - **Dialogs:** Radix Dialog, focus trapped, Esc closes (except while a risky action is in flight), primary action on
   the right.
-- **Toasts:** non-critical only, 4 s, bottom right; **critical alerts** are banners under the top bar in crit with
+- **Toasts:** non-critical only, 4 s, bottom right; on a page with the dock they sit above the dock's footprint
+  (open or minimized, either variant), never under it (owner 2026-11-15); on Home in the bottom-right corner below its
+  nodes (`pages/home.md`); **critical alerts** are banners under the top bar in crit with
   icon and words, they stay until acknowledged and are never toasts.
 - **Tooltips:** `bg-3`, 12 px, 220 ms in / 80 ms out, never the only place information lives.
 - **Focus:** 2-px cream ring with 2-px offset on every focusable element.

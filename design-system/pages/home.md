@@ -43,6 +43,12 @@
 - Full intro on the **first open of a session** only (a session flag in `sessionStorage`, so a reload in the same tab
   counts too; if storage is blocked, the page load still remembers); later visits show the formed scene with a
   200-ms fade.
+- **Messages (owner 2026-11-15):** every toast and the key hint ("click or press any key to skip", then "1–6 open a
+  page · Ctrl K search") sit in one row in the bottom-right corner, 14 px from the bottom edge, below the bottom-right
+  node at every size checked (960 × 1000 to 1920 × 1080, 1024 × 768, 1440 × 760); never bottom-centre behind
+  Settings. A key that opens a page closes any open hover card, so a message never appears under one.
+- In the design mock, the Performance node (click or key `6`) opens the Performance mock page; the other nodes show
+  "Opening <page>…" until their pages are built.
 - Any click or key press during the intro (title or nodes) skips to the formed state at once. Sidebar, top bar and
   keys work from frame one. A node that hasn't arrived yet can't be clicked or tabbed to.
 - Design preview only: `&intro=1` replays the full intro on every open of Home.

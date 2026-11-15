@@ -64,7 +64,9 @@ function App() {
   useEffect(() => { first.current = false; }, []);
   document.title = `CreamFlow · ${pageName}`;
   const body =
-    view === "home" ? <HomeScene key={`home-${effects}`} concept="flow" calm={!animated} forceIntro={q.get("intro") === "1"} />
+    view === "home" ? <HomeScene key={`home-${effects}`} concept="flow" calm={!animated} forceIntro={q.get("intro") === "1"}
+      // the mock opens the pages it has (Performance); the others show "Opening …" until they are built
+      onOpenPage={(id) => (id === "performance" ? (setView("performance"), true) : false)} />
       : view === "performance" ? <PerformancePage initialTab={q.get("tab") ?? "equity"} initialAccount={q.get("account") ?? "all"} />
         : view === "tile" ? <StyleTile />
           : <Placeholder name={pageName} />;

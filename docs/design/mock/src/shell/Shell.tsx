@@ -202,6 +202,7 @@ export type DockMin = "corner" | "centre";
 // padding, so nothing stays behind the dock when scrolled to the bottom (owner 2026-11-15)
 const DOCK_BOTTOM = 16, DOCK_H = 64, DOCK_MIN_D = 44, DOCK_AIR = 16;
 export const DOCK_PAD = { open: DOCK_BOTTOM + DOCK_H + DOCK_AIR, min: DOCK_BOTTOM + DOCK_MIN_D + DOCK_AIR } as const;
+const TOAST_EDGE = 14; // no dock: toasts 14 px from the bottom edge (Home: below its bottom-right node)
 
 // minimized or not is remembered for the session (sessionStorage; a reload in the same tab keeps it)
 const DOCK_MIN_KEY = "creamflow.dockMinimized";
@@ -271,8 +272,11 @@ export function AppFrame({ page, active, effects, onEffects, nav = "sidebar", on
   const onMinimized = (v: boolean) => { writeDockMin(v); setMinimized(v); };
   const showDock = nav === "dock" && !hideDock;
   const dockPad = showDock ? (minimized ? DOCK_PAD.min : DOCK_PAD.open) : 0;
+  // toasts sit in the bottom-right corner, always above the dock's footprint (open or minimized, either variant;
+  // owner 2026-11-15); with no dock (Home) TOAST_EDGE from the edge
+  const toastBottom = showDock ? dockPad : TOAST_EDGE;
   return (
-    <div className="flex h-full">
+    <div className="flex h-full" style={{ ["--toast-bottom" as string]: `${toastBottom}px` }}>
       {nav === "sidebar" && <Sidebar active={active} collapsed={vw < 1100} onNavigate={onNavigate} />}
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar page={page} effects={effects} onEffects={onEffects} showBrand={nav !== "sidebar"} />

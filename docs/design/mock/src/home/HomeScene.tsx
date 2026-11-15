@@ -41,7 +41,11 @@ function markIntroSeen() {
 const ARRIVAL_ORDER = ["live", "review", "performance", "settings", "accounts", "gameplan"];
 const NODE_STAGGER_S = 0.2, NODE_IN_S = 0.35, LINE_DELAY_S = 0.08, LINE_DRAW_S = 0.6;
 
-export function HomeScene({ concept, calm, forceIntro }: { concept: Concept; calm: boolean; forceIntro: boolean }) {
+export function HomeScene({ concept, calm, forceIntro, onOpenPage }: {
+  concept: Concept; calm: boolean; forceIntro: boolean;
+  /** opens a page that exists; returns false when it doesn't yet (the node then shows "Opening …") */
+  onOpenPage?: (id: string) => boolean;
+}) {
   const [play] = useState(() => forceIntro || !introSeen());
   useEffect(() => { markIntroSeen(); }, []);
   const [phase, setPhase] = useState<"title" | "nodes" | "idle">(play ? "title" : "idle");
@@ -89,15 +93,17 @@ export function HomeScene({ concept, calm, forceIntro }: { concept: Concept; cal
   ], [win.value, win.note]);
 
   const open = useCallback((n: NodeDef) => {
+    if (!n.disabled && onOpenPage?.(n.id)) return;
     setToast(n.disabled ? n.note : `Opening ${n.name}…`);
     setTimeout(() => setToast(null), 1600);
-  }, []);
+  }, [onOpenPage]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (phase !== "idle") setSkip(true);
       const n = nodes.find((d) => d.key === e.key);
-      if (n) open(n);
+      // a key opens a page: any open hover card closes, so a message never appears under one
+      if (n) { setHover(null); open(n); }
     };
     const onClick = () => { if (phase !== "idle") setSkip(true); };
     window.addEventListener("keydown", onKey);
@@ -205,17 +211,22 @@ export function HomeScene({ concept, calm, forceIntro }: { concept: Concept; cal
         );
       })}
 
-      <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 font-mono text-[11px] text-text-3">
-        {phase !== "idle" ? "click or press any key to skip" : "1–6 open a page · Ctrl K search"}
+      {/* messages live in the bottom-right corner, where no node sits (owner 2026-11-15): the toast above the key hint */}
+      {/* one row along the bottom edge (toast, then the key hint), below the bottom-right node at every size measured
+          (960 × 1000 to 1920 × 1080, and 1024 × 768 / 1440 × 760) */}
+      <div className="pointer-events-none absolute right-6 z-20 flex flex-row items-center gap-3" style={{ bottom: "var(--toast-bottom, 14px)" }} data-home-messages>
+        <AnimatePresence>
+          {toast && (
+            <motion.div role="status" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: calm ? 0 : 0.2 }}
+              className="rounded-md border border-line-strong bg-bg-3 px-4 py-2 text-[13px] text-text-1 shadow-[0_12px_32px_rgba(0,0,0,.55)]">
+              {toast}
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <div className="font-mono text-[11px] text-text-3">
+          {phase !== "idle" ? "click or press any key to skip" : "1–6 open a page · Ctrl K search"}
+        </div>
       </div>
-      <AnimatePresence>
-        {toast && (
-          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
-            className="absolute bottom-12 left-1/2 -translate-x-1/2 rounded-md border border-line-strong bg-bg-3 px-4 py-2 text-[13px] text-text-1 shadow-[0_12px_32px_rgba(0,0,0,.55)]">
-            {toast}
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

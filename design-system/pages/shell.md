@@ -18,6 +18,9 @@
   - **Bottom space:** every page gets bottom padding equal to the dock's footprint plus 16 px of air (96 px open, 76 px
     minimized), so no content stays behind the dock when scrolled to the bottom. A page that ends in the dot-matrix
     footer cancels it: that page ends inside the letters, which the dock may float over.
+  - **Toasts never under the dock** (owner 2026-11-15): they sit in the bottom-right corner, their bottom edge at the
+    dock's footprint plus 16 px (96 px open, 76 px minimized), whichever variant; one CSS variable (`--toast-bottom`)
+    set by the shell; 14 px from the edge on Home (no dock).
   - The top bar shows the logo mark + CreamFlow wordmark at its left (there is no sidebar).
 - The sidebar (248 px, collapsible) and the Waterline bar stay in the design workspace only for comparison
   (`&nav=sidebar`, `&nav=waterline`).

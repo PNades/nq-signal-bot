@@ -38,8 +38,8 @@
     side padding on each side, so they never run off;
   - the details ("CREAMFLOW · NQ / LOCAL CONTROL PANEL · 127.0.0.1"), a hairline, a clear gap of
     max(32 px, 18% of the letter height), then the letters; the footer's height follows from that;
-  - scrolled all the way down, the page ends inside the letters: their lower quarter is cut off by the bottom
-    edge, with nothing below (the page cancels the dock's bottom padding);
+  - scrolled all the way down, the page ends inside the letters: a third of their height is hidden by the bottom
+    edge (owner 2026-11-15; was a quarter), with nothing below (the page cancels the dock's bottom padding);
   - dots part around the pointer and warm to ember; a still dot render in Calm.
 
 ## Performance budget
