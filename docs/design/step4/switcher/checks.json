@@ -1,0 +1,47 @@
+{
+  "checks": {
+    "all_start": {
+      "checked": "mffur1Rapid EOD · eval",
+      "panels": 1,
+      "shown": "mffur1",
+      "filter": "All accounts"
+    },
+    "all_next": {
+      "checked": "mffub1Builder · funded",
+      "panels": 1,
+      "shown": "mffub1",
+      "filter": "All accounts"
+    },
+    "all_prev_wraps": {
+      "checked": "lucid1Lucid Flex · funded",
+      "panels": 1,
+      "shown": "lucid1",
+      "filter": "All accounts"
+    },
+    "all_keyboard_right": {
+      "checked": "lucid1Lucid Flex · funded",
+      "panels": 1,
+      "shown": "lucid1",
+      "filter": "All accounts"
+    },
+    "one_start": {
+      "checked": "lucid1Lucid Flex · funded",
+      "panels": 1,
+      "shown": "lucid1",
+      "filter": "lucid1"
+    },
+    "one_next_moves_filter": {
+      "checked": "mffur1Rapid EOD · eval",
+      "panels": 1,
+      "shown": "mffur1",
+      "filter": "mffur1"
+    },
+    "w960": {
+      "checked": "mffub1Builder · funded",
+      "panels": 1,
+      "shown": "mffub1",
+      "filter": "mffub1"
+    }
+  },
+  "problems": []
+}

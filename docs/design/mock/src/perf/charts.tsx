@@ -111,7 +111,7 @@ const fmtDate = (d: string) => new Date(d + "T12:00:00Z").toLocaleDateString("en
 export function AccountRuleHeader({ id, extra }: { id: string; extra?: ReactNode }) {
   const run = accountRun(id), a = run.account;
   return (
-    <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+    <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1" data-account-header={a.id}>
       <span className="font-mono text-[13px] text-text-1">{a.id}</span>
       <span className="text-[12px] text-text-2">{a.preset} · {a.phase}</span>
       <span className="font-mono text-[11px] text-text-3">{ruleText(a.rule)}</span>

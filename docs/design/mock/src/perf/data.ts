@@ -17,13 +17,18 @@ export interface DrawdownRule {
   lockUsd: number | null; lockTrigger: LockTrigger;
 }
 export interface Account {
-  id: string; preset: string; phase: "evaluation" | "funded"; riskUsd: number;
+  /** `short`: the type in a few words, for the per-account switcher */
+  id: string; preset: string; short: string; phase: "evaluation" | "funded"; riskUsd: number;
   commissionMiniRt: number; commissionMicroRt: number; rule: DrawdownRule;
 }
 export const ACCOUNTS: Account[] = [
-  { id: "mffur1", preset: "MFFU Rapid EOD 25k", phase: "evaluation", riskUsd: 333, commissionMiniRt: 4.68, commissionMicroRt: 1.9,
+  { id: "mffur1", preset: "MFFU Rapid EOD 25k", short: "Rapid EOD · eval", phase: "evaluation", riskUsd: 333, commissionMiniRt: 4.68, commissionMicroRt: 1.9,
     rule: { startUsd: 25000, drawdownUsd: 1000, type: "eod_trailing", lockUsd: null, lockTrigger: "floor" } },
-  { id: "lucid1", preset: "Lucid Flex 25k", phase: "funded", riskUsd: 333, commissionMiniRt: 3.5, commissionMicroRt: 1.0,
+  // MFFU Builder 25k funded (SPEC §6.7 preset table): $1,000 EOD-trailing until the floor reaches start + $100 = $25,100
+  // (the $1,100 buffer), then static; its $600 soft DLL and payouts are not modelled in the mock
+  { id: "mffub1", preset: "MFFU Builder 25k", short: "Builder · funded", phase: "funded", riskUsd: 333, commissionMiniRt: 4.68, commissionMicroRt: 1.9,
+    rule: { startUsd: 25000, drawdownUsd: 1000, type: "eod_trailing", lockUsd: 25100, lockTrigger: "floor" } },
+  { id: "lucid1", preset: "Lucid Flex 25k", short: "Lucid Flex · funded", phase: "funded", riskUsd: 333, commissionMiniRt: 3.5, commissionMicroRt: 1.0,
     rule: { startUsd: 25000, drawdownUsd: 1000, type: "eod_trailing", lockUsd: 25100, lockTrigger: "floor_or_first_payout" } },
 ];
 export type AccountSel = "all" | string;
@@ -93,7 +98,7 @@ function tradingDays(): string[] {
 }
 
 export const DATES = tradingDays();
-const SEED = 267; // picked so neither account breaches in the backtest order and the Lucid floor locks (its Monte Carlo still shows the risk)
+const SEED = 267; // picked so no account breaches in the backtest order and both funded floors lock (the Monte Carlo still shows the risk)
 
 function build() {
   const r = rng(SEED);
@@ -113,7 +118,8 @@ function build() {
       const entry = Math.round(px * 4) / 4;
       const exit = Math.round((entry + (dir === "Long" ? 1 : -1) * rr * stopPts) * 4) / 4;
       const minutes = 9 * 60 + 45 + Math.floor(r() * 300);
-      const acc = ACCOUNTS[r() < 0.55 ? 0 : 1];
+      const u = r();
+      const acc = ACCOUNTS[u < 0.4 ? 0 : u < 0.7 ? 1 : 2];
       const mixed = r() >= 0.7;
       const commission = mixed ? acc.commissionMiniRt + 3 * acc.commissionMicroRt : 2 * acc.commissionMiniRt;
       trades.push({

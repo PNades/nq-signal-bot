@@ -93,8 +93,9 @@
 - performance | number tickers | **picked: 44850 delta-number-ticker**; others 21513 number-ticker-02 (NumberFlow), 20071 animate-digits
 - performance | equity chart tooltip/legend/card | candidates: 35057 line-chart, 43131 metric-switcher-trend-chart, 30538 balance-chart
 - performance | drawdown chart | candidates: 39725 bjork-drawdown-chart, 29532 portfolio-chart (both draw a fixed dashed limit only)
-- performance | drawdown per account under its own rule: the floor as a stepped dashed line, a "floor locked" badge, one panel per account with All accounts (2026-11-15) | Lightweight Charts (MASTER §11): an area series plus a stepped line series; the badge from the status badges row (25395); built in the mock
-- performance | Monte Carlo per account: bands, median, backtest-order path, the account's floor, P(reaching the floor) (2026-11-15) | the custom SVG of the fan row below, one panel per account with All accounts; built in the mock
+- performance | drawdown per account under its own rule: the floor as a stepped dashed line, a "floor locked" badge, one account at a time (2026-11-15) | Lightweight Charts (MASTER §11): an area series plus a stepped line series; the badge from the status badges row (25395); built in the mock
+- performance | Monte Carlo per account: bands, median, backtest-order path, the account's floor, P(reaching the floor) (2026-11-15) | the custom SVG of the fan row below, one account at a time; built in the mock
+- performance | per-account switcher on Drawdown and Monte Carlo: ← → arrows plus a segmented control with name and type (2026-11-15) | the settings segmented-control candidates (ddoemonn segmented-control, halaska-studio segmented-control) with Motion's layoutId pill; built in the mock as our own radio group
 - performance | account filter and phase selector (2026-11-15) | see "shared | select with sub-labels"
 - performance | "backtest" label on data (2026-11-15) | the status badges row (25395)
 - performance | Monte Carlo fan | candidate frame 35059 brush-chart; fan itself: searched (confidence band, monte carlo fan, percentile band), nothing fit (only a hard-coded price-target fan) → custom canvas

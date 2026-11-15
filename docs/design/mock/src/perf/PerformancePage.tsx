@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, type Variants } from "framer-motion";
 import { AnimatePresence } from "framer-motion";
-import { CalendarRange, Check, ChevronDown, Download, Wallet } from "lucide-react";
+import { CalendarRange, Check, ChevronDown, ChevronLeft, ChevronRight, Download, Wallet } from "lucide-react";
 import KpiTile from "@/components/ui/kpi-tile";
 import AnimatedTabs from "@/components/ui/animated-tabs";
 import { Spotlight } from "@/components/ui/spotlight";
@@ -87,6 +87,35 @@ function AccountSelect({ value, onChange, animated }: { value: AccountSel; onCha
   );
 }
 
+/** Drawdown and Monte Carlo show one account at a time (owner 2026-11-15): ← → step through the accounts (wrapping),
+ *  the segmented control lists every account by name and type. */
+function AccountSwitcher({ value, onChange, animated }: { value: string; onChange: (id: string) => void; animated: boolean }) {
+  const i = ACCOUNTS.findIndex((a) => a.id === value);
+  const step = (d: number) => onChange(ACCOUNTS[(i + d + ACCOUNTS.length) % ACCOUNTS.length].id);
+  const arrow = "grid size-9 shrink-0 place-items-center rounded-sm border border-line-strong bg-bg-2 text-text-2 hover:text-text-1 focus-visible:outline-2 focus-visible:outline-cream";
+  return (
+    <div className="mb-3 flex items-center gap-2" data-account-switcher>
+      <button aria-label="Previous account" className={arrow} onClick={() => step(-1)}><ChevronLeft className="size-4" /></button>
+      <div role="radiogroup" aria-label="Account" className="flex min-w-0 flex-1 gap-1 rounded-md border border-line-strong bg-bg-1 p-1"
+        onKeyDown={(e) => { if (e.key === "ArrowRight") { e.preventDefault(); step(1); } if (e.key === "ArrowLeft") { e.preventDefault(); step(-1); } }}>
+        {ACCOUNTS.map((a) => {
+          const on = a.id === value;
+          return (
+            <button key={a.id} role="radio" aria-checked={on} tabIndex={on ? 0 : -1} onClick={() => onChange(a.id)}
+              className="relative min-w-0 flex-1 rounded-sm px-3 py-1.5 text-left focus-visible:outline-2 focus-visible:outline-cream">
+              {on && <motion.span layoutId="dd-account-pill" transition={animated ? { type: "spring", stiffness: 420, damping: 36 } : { duration: 0 }}
+                className="absolute inset-0 rounded-sm border border-gold/40 bg-gold/10" />}
+              <span className={`relative block truncate font-mono text-[12.5px] ${on ? "text-text-1" : "text-text-2"}`}>{a.id}</span>
+              <span className="relative block truncate text-[11.5px] text-text-3">{a.short}</span>
+            </button>
+          );
+        })}
+      </div>
+      <button aria-label="Next account" className={arrow} onClick={() => step(1)}><ChevronRight className="size-4" /></button>
+    </div>
+  );
+}
+
 export function PerformancePage({ initialTab = "equity", initialAccount = "all" }: { initialTab?: string; initialAccount?: AccountSel }) {
   const animated = useAnimated();
   const [tab, setTab] = useState(initialTab);
@@ -94,7 +123,11 @@ export function PerformancePage({ initialTab = "equity", initialAccount = "all" 
   const [toast, setToast] = useState<string | null>(null);
   const [account, setAccount] = useState<AccountSel>(initialAccount);
   const view = viewOf(account), STATS = view.stats, monthly = view.monthly;
-  const accountIds = account === "all" ? ACCOUNTS.map((a) => a.id) : [account];
+  // the account the Drawdown and Monte Carlo tabs show: follows the page filter when it is one account, and moving it
+  // then moves the filter too (KPIs and chart always agree); with All accounts it moves on its own
+  const [riskAccount, setRiskAccount] = useState(account === "all" ? ACCOUNTS[0].id : account);
+  useEffect(() => { if (account !== "all") setRiskAccount(account); }, [account]);
+  const pickRiskAccount = (id: string) => { setRiskAccount(id); if (account !== "all") setAccount(id); };
   const net = monthly((ds) => ds.reduce((a, d) => a + d.usd, 0));
   const tr = monthly((ds) => ds.reduce((a, d) => a + d.trades.length, 0));
   // average net R per trade, per month (owner 2026-11-15: replaces net R)
@@ -152,14 +185,13 @@ export function PerformancePage({ initialTab = "equity", initialAccount = "all" 
             </div>
           </div>
           <BorderBeamPanel reducedMotion={!animated} glow={false} className="mt-4 p-4" radius={8}>
-            {/* drawdown and Monte Carlo are per account (each under its own rule): one panel per account with All */}
+            {/* drawdown and Monte Carlo are per account (each under its own rule): one account at a time */}
             {(tab === "drawdown" || tab === "montecarlo") ? (
-              <div className={accountIds.length > 1 ? "grid gap-6 min-[1280px]:grid-cols-2" : ""}>
-                {accountIds.map((id) => (
-                  <div key={id} className={accountIds.length > 1 ? "h-[400px]" : "h-[420px]"}>
-                    {tab === "drawdown" ? <DrawdownChart id={id} /> : <MonteCarloFan id={id} />}
-                  </div>
-                ))}
+              <div>
+                <AccountSwitcher value={riskAccount} onChange={pickRiskAccount} animated={animated} />
+                <div className="h-[420px]">
+                  {tab === "drawdown" ? <DrawdownChart key={riskAccount} id={riskAccount} /> : <MonteCarloFan key={riskAccount} id={riskAccount} />}
+                </div>
               </div>
             ) : (
               <div className={tab === "calendar" || tab === "trades" ? "" : "h-[380px]"}>

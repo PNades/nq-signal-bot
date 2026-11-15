@@ -175,3 +175,21 @@ Q-step14a (13).
 **Footer follow-up (owner 2026-11-15):** the bottom edge now hides 2/7 (≈ 29%) of the letter height, hidden to visible
 2:5 (it was a third). Measured hidden share: 1920 0.294, 1440 0.298, 1280 0.270, 1024 0.267, 960 0.281. Still 0 px
 below the footer. Screenshots: `step4/round4/footer_<width>.png` (re-shot). Nothing else changed.
+
+**One account at a time, and an MFFU Builder account (owner 2026-11-15):**
+- **Switcher:** the Drawdown and Monte Carlo tabs show one account at a time. ← → arrows step through the accounts
+  (wrapping), and a segmented control lists every account by name and type (the keyboard ← → move it too).
+- **Following the filter:** when the page's account filter is one account, the switcher follows it; moving the
+  switcher then moves the filter, so the KPIs and the chart always show the same account.
+- **Builder rules:** the repo already had them in SPEC §6.7's preset table (`config/accounts.yaml` holds no accounts
+  yet and points there). The mock's mffub1 is a Builder 25k funded account: $1,000 EOD-trailing until the floor
+  reaches $25,100 (start + $100, with the $1,100 buffer), then static; commissions $4.68 / $1.90; its $600 soft DLL
+  and payouts are not modelled in the mock.
+- **Seed:** 267 still works with three accounts. No account breaches in the backtest order, and mffub1's floor locks
+  on Oct 2, lucid1's on Nov 17.
+- **Monte Carlo chance of reaching the floor:** mffur1 54.5%, mffub1 25.2%, lucid1 59.4%.
+- **Checks** (`docs/design/mock/shot-switcher.mjs`, [`step4/switcher/checks.json`](step4/switcher/checks.json)):
+  one panel at a time, the arrows wrap, the segmented control and keyboard pick, the filter follows. No console errors.
+- **Screenshots:** [drawdown_mffub1_1440](step4/switcher/drawdown_mffub1_1440.png),
+  [drawdown_mffub1_960](step4/switcher/drawdown_mffub1_960.png),
+  [montecarlo_mffub1_1440](step4/switcher/montecarlo_mffub1_1440.png).

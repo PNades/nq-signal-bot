@@ -18,12 +18,12 @@
     `floor_or_first_payout` (Lucid Flex funded: locked at $25,100 when the floor gets there or at the first payout,
     whichever comes first). Once a floor locks or is static, the line falls away as the high rises (the room grows);
     a "floor locked <date> at <value>" badge says so. The header names the account, preset, phase and the rule in
-    words; the tooltip shows drawdown, balance, floor and the room to it; the deepest point is marked. With All
-    accounts, one panel per account (two columns from 1280 px).
+    words; the tooltip shows drawdown, balance, floor and the room to it; the deepest point is marked.
   - Monte Carlo (owner 2026-11-15): per account, 1,000 reshuffles of its whole days, **each path run through the
     account's own rule** (its floor moves with that path's high and lock); the chance of reaching the floor and the
     median trading day it happens, in text; bands 5–95% and 25–75%, median, the smallest and largest drawdown paths,
-    the backtest order and its floor. With All accounts, one panel per account.
+    the backtest order and its floor.
+  - Drawdown and Monte Carlo: **One account at a time** (owner 2026-11-15), on both tabs: ← → arrows step through the accounts (wrapping) and a segmented control lists every account by name and type (e.g. `mffub1` / Builder · funded; the keyboard ← → move it too). When the page's account filter is one account, the switcher follows it, and moving the switcher moves the filter too, so the KPIs and the chart always show the same account; with All accounts it moves on its own.
   - Calendar: the P&L calendar (layout of `docs/design/pnl_calendar_reference.png`): month header stats, Mon–Fri +
     Week, day cells with hover cards, a month-change transition (slide 12 px + fade, instant in Calm), click to expand
     the day's trades in a side panel.
