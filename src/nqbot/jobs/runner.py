@@ -61,7 +61,10 @@ class Job(Protocol):
     `shared_locks = True` (owner 2026-11-12: the feature builds with `parallel_builds`) holds them shared, so other
     such jobs may run at once, and adds the job's own run lock (`<data_dir>/jobs/<job>/run.lock`): one run per job.
     Optional `at_start(ctx)` runs before the first chunk of every run and `at_end(ctx)` when a run ends normally
-    (complete, or --until reached); either may raise StopChunk like a chunk."""
+    (complete, or --until reached); either may raise StopChunk like a chunk.
+    `p90_fit = False` (owner 2026-11-14, the step-13c driver): skip the rule that a chunk starts only if its measured
+    90th-percentile time fits before --until. For a job whose chunks run child jobs that stop themselves at the same
+    --until (a chunk that stops early is not done and re-runs); its chunks still start only before the deadline."""
 
     name: str
 
@@ -310,7 +313,8 @@ def run_job(
         for chunk in pending if started else []:
             stop = refusal() or (("stopped", STOP_REASON) if stop_file.exists() else None)
             # instants, not wall clock (owner 2026-11-02): ET datetimes add and compare by wall time across a switch
-            if stop is None and now().timestamp() + p90([d["sec"] for d in done.values()]) > deadline.timestamp():
+            fit = p90([d["sec"] for d in done.values()]) if getattr(job, "p90_fit", True) else 0.0
+            if stop is None and now().timestamp() + fit > deadline.timestamp():
                 stop = ("until", f"next chunk would not finish before {deadline:%H:%M}")
             if stop is not None:
                 result.status, result.message = stop

@@ -28,24 +28,57 @@ from nqbot.features.session_tape import TICK
 EPS = 1e-9
 
 
-def _floor(p, src: str) -> float:
-    return max(p.stop_buffer, float(p.stop_floor.get(src, 0.0)))
+VOL_KEY = "_vol_range"   # the decision point's trailing 1-minute range (set by label_session when Q13-vol is on)
+
+
+def source_floor(p, src: str, vol: float | None = None) -> float:
+    """The stop floor of a level source: the fixed `stop_buffer_floor`, or, with `stop_floor_vol` set for this source
+    (Q13-vol), max(min, k x the trailing range), min alone when the range is unknown."""
+    v = (p.stop_floor_vol or {}).get(src)
+    if v is None:
+        return float(p.stop_floor.get(src, 0.0))
+    if vol is None or vol != vol:   # None or NaN
+        return v["min"]
+    return max(v["min"], v["k"] * float(vol))
+
+
+def _floor(p, src: str, vol: float | None = None) -> float:
+    return max(p.stop_buffer, source_floor(p, src, vol))
+
+
+def trailing_range(bars_1m, t_ns: int, window_min: int) -> float | None:
+    """Mean high-low of the 1-minute bars completed by `t_ns` that start in the last `window_min` clock minutes ending
+    at or before t (the step-8b volatility study's `vol15`, §13 Q13-vol; a minute without trades has no bar and is
+    skipped); None if there is no such bar."""
+    import numpy as np
+
+    j = bars_1m.known_at(int(t_ns))
+    if j == 0:
+        return None
+    length = bars_1m.length_ns
+    end = int(t_ns) - length
+    last_slot = end - end % length          # the start of the latest slot ending at or before t
+    i = int(np.searchsorted(bars_1m.start, last_slot - (window_min - 1) * length, side="left"))
+    if i >= j:
+        return None
+    return float(np.mean(bars_1m.high[i:j] - bars_1m.low[i:j]))
 
 
 def stops(dp: dict, ref: float, direction: int, p) -> list[tuple[float, str]]:
     d = direction
+    vol = dp.get(VOL_KEY)
     raw: list[tuple[str, float]] = []
     if d > 0:
         if dp.get("swing_low") is not None:
             raw.append(("1", dp["swing_low"] - p.stop_buffer))
-        raw.append(("2", dp["zone_lo"] - _floor(p, dp["zone_lo_src"])))
+        raw.append(("2", dp["zone_lo"] - _floor(p, dp["zone_lo_src"], vol)))
     else:
         if dp.get("swing_high") is not None:
             raw.append(("1", dp["swing_high"] + p.stop_buffer))
-        raw.append(("2", dp["zone_hi"] + _floor(p, dp["zone_hi_src"])))
+        raw.append(("2", dp["zone_hi"] + _floor(p, dp["zone_hi_src"], vol)))
     nz = next_zone(dp, d)
     if nz is not None:
-        raw.append(("3", nz["lo"] - _floor(p, nz["lo_src"]) if d > 0 else nz["hi"] + _floor(p, nz["hi_src"])))
+        raw.append(("3", nz["lo"] - _floor(p, nz["lo_src"], vol) if d > 0 else nz["hi"] + _floor(p, nz["hi_src"], vol)))
     if dp.get("event_type") == "golden" and dp.get("fib_1") is not None:
         raw.append(("6", dp["fib_1"] - p.stop_buffer if d > 0 else dp["fib_1"] + p.stop_buffer))
     kept: list[list] = []

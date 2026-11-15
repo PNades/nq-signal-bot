@@ -4,6 +4,12 @@
 (the feature-build key + these values + the labeler's code) covers everything it uses (`tests/test_labeler.py` records
 the reads). Run-time overrides (13c: e.g. one `stop_buffer` or `entry_ttl_sec` value of a grid) are applied on top and
 are part of the key.
+
+`stop_floor_vol` (owner 2026-11-08, SPEC §13 Q13-vol, Q-step13c): the volatility-scaled stop floor that row 13 of the
+step-13 tuning compares with the fixed `stop_buffer_floor`. It is not a setting: None (off) unless a labels plan sets
+it (`--set stop_floor_vol=...`): {"window_min": 15, "<source>": {"min": m, "k": k}, ...}. A stop beyond a level of
+that source then uses max(m, k x the mean high-low range of the 1-minute NQ bars completed in the last `window_min`
+clock minutes before `decision_ts`) in place of the source's fixed floor (m alone when no bar completed in the window).
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ SETTING_KEYS = ("order_latency_sec", "default_risk_usd", "max_entry_slip_ticks",
                 "max_target_candidates", "pair_build_min_rr", "pair_ext_min_rr", "pair_ext_max_zones", "baseline_rr",
                 "be_trigger", "be_offset_ticks")
 FEATURE_KEYS = ("stop_merge_ticks", "tune_grids_13")   # tune_grids_13: only execution.entry_order_type
+STOP_FLOOR_VOL_OFF = None   # Q13-vol: off unless a labels plan's override sets it (never read from the settings)
 BE_NAMES = {"none": "none", "first_structure": "fs"}
 
 
@@ -48,13 +55,15 @@ class LabelParams:
     stop_merge_ticks: float
     order_types: dict
     extension: bool = True
+    stop_floor_vol: dict | None = None
     raw: dict = field(default_factory=dict, compare=False)
 
 
 def params(settings: dict, features: dict, overrides: dict | None = None, extension: bool = True) -> LabelParams:
     s = {k: copy.deepcopy(settings[k]) for k in SETTING_KEYS}
     ot = copy.deepcopy(features["tune_grids_13"]["execution"]["entry_order_type"])
-    raw = {**s, "stop_merge_ticks": features["stop_merge_ticks"], "entry_order_types": ot}
+    raw = {**s, "stop_merge_ticks": features["stop_merge_ticks"], "entry_order_types": ot,
+           "stop_floor_vol": STOP_FLOOR_VOL_OFF}
     for k, v in (overrides or {}).items():
         top, _, sub = k.partition(".")     # `a.b=v` sets one entry of a mapping (e.g. entry_ttl_sec.c=30)
         if top not in raw or (sub and not (isinstance(raw[top], dict) and sub in raw[top])):
@@ -63,6 +72,7 @@ def params(settings: dict, features: dict, overrides: dict | None = None, extens
             raw[top] = {**raw[top], sub: v}
         else:
             raw[top] = v
+    vol = _check_vol_floor(raw["stop_floor_vol"])
     from nqbot.events.snapshot import TRACK_HORIZON_SEC
 
     long_ttl = {k: v for k, v in dict(raw["entry_ttl_sec"]).items() if float(v) > TRACK_HORIZON_SEC}
@@ -77,7 +87,25 @@ def params(settings: dict, features: dict, overrides: dict | None = None, extens
                        float(raw["pair_build_min_rr"]), float(raw["pair_ext_min_rr"]), int(raw["pair_ext_max_zones"]),
                        float(raw["baseline_rr"]), tuple(raw["be_trigger"]), float(raw["be_offset_ticks"]),
                        float(raw["stop_merge_ticks"]), {k: list(v) for k, v in raw["entry_order_types"].items()},
-                       extension, raw)
+                       extension, vol, raw)
+
+
+def _check_vol_floor(v) -> dict | None:
+    """The `stop_floor_vol` override, checked (Q13-vol): None (off), or a window and one {min, k} per level source."""
+    if v is None:
+        return None
+    if not isinstance(v, dict) or int(v.get("window_min") or 0) < 1:
+        raise ValueError(f"stop_floor_vol {v!r}: needs window_min >= 1 and one {{min, k}} per level source")
+    out: dict = {"window_min": int(v["window_min"])}
+    for src, x in v.items():
+        if src == "window_min":
+            continue
+        if not isinstance(x, dict) or set(x) != {"min", "k"} or float(x["min"]) < 0 or float(x["k"]) < 0:
+            raise ValueError(f"stop_floor_vol[{src!r}] {x!r}: needs min >= 0 and k >= 0")
+        out[src] = {"min": float(x["min"]), "k": float(x["k"])}
+    if len(out) == 1:
+        raise ValueError("stop_floor_vol names no level source")
+    return out
 
 
 def code_digest() -> str:

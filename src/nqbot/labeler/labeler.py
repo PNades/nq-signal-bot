@@ -40,6 +40,9 @@ def label_session(decisions: list[dict], tape, book, meta: dict, p, path: PathIn
     gaps: dict = {}          # (exit kind) -> [exits, changed, extra ticks summed], every rule's exits of filled pairs
     for dp in decisions:
         d = int(dp["direction"])
+        if p.stop_floor_vol is not None:   # Q13-vol: the trailing range at decision_ts (only bars closed by then)
+            dp = {**dp, cand.VOL_KEY: cand.trailing_range(bars_1m, int(dp["decision_ts"]),
+                                                          p.stop_floor_vol["window_min"])}
         for ot in p.order_types[dp["style"]]:
             ref0, _ = fl.reference(ot, dp, book, p)
             ref = ref0 if ref0 is not None else float(dp["price_at_decision"])

@@ -171,6 +171,85 @@ def label_paths(env: Env, doc: dict, lkey: str, day: date) -> dict[str, Path]:
 
 def labels_day(env: Env, day: date) -> dict[str, Any]:
     plan, doc, p = load_labels_plan(env)
+    return _label_day(env, plan, doc, p, day)
+
+
+# --- labels by build key (owner 2026-11-14, SPEC §13 Q-step13c: the 13c driver labels builds of either slot, and
+# several at once; the job's one plan above stays as it was for slot 1) -----------------------------------------------
+
+def build_doc_for(env: Env, key: str) -> dict[str, Any]:
+    """The plan of build `key` from its own folder (`build_plan.json`), checked like `feature_build.load_plan`: the
+    current code and configuration with the plan's run-time overrides must give the same key (else the build's
+    outputs are not this code's). `env` is not changed."""
+    p = fb.build_plan_copy(env, key)
+    if not p.exists():
+        raise Refused(f"no build {key}: {p} is missing")
+    doc = json.loads(p.read_text(encoding="utf-8"))
+    probe = Env(settings=env.settings, features=fb.apply_overrides(env.features, doc.get("overrides") or {}),
+                paths=env.paths, log=env.log, echo=env.echo, cal=env.cal)
+    now = fb.build_key(probe)
+    if doc.get("key") != key or now != key:
+        raise Refused(f"build {key}: the current code and configuration with its overrides give key {now}: its outputs "
+                      "are not this code's (re-plan and rebuild it)")
+    if not set(MONTHS_14) <= set(doc["months"]):
+        raise Refused(f"build {key} covers ledger months {doc['months']}, not 1-4")
+    return doc
+
+
+def label_plan_path(env: Env, key: str, lkey: str) -> Path:
+    return fb.out_dir(env, key) / "labels" / lkey / "label_plan.json"
+
+
+def labels_plan_for(env: Env, key: str, overrides: dict | None = None, firings_ok: bool = True) -> dict[str, Any]:
+    """The labels plan of build `key` (refused unless the build is complete), written only in the build's own folder
+    (`labels/<label key>/label_plan.json`): several labels plans coexist, one per build and labeler setting.
+    `firings_ok` defaults to true: the owner decided no cap on style-(c) firings (2026-11-11, Q-step13b (d))."""
+    from nqbot.labeler import params as lp
+
+    doc = build_doc_for(env, key)
+    days = sessions_14(env, doc)
+    missing = [d for d in days if d not in set(built_days(env, doc))]
+    if missing:
+        raise Refused(f"the months 1-4 build {key} is not complete ({len(missing)} sessions without pass 2, first "
+                      f"{missing[0]})")
+    worst = max((day_summary(env, doc, d)["pass2"].get("firings_c_max", 0) for d in days), default=0)
+    if worst > FIRINGS_ALERT and not firings_ok:
+        raise Refused(f"build {key}: an event has {worst} style-(c) firings (> {FIRINGS_ALERT})")
+    p = _label_params(env, overrides)
+    lkey = lp.label_key(key, p)
+    plan = {"build_key": key, "label_key": lkey, "overrides": overrides or {}, "sessions": [d.isoformat() for d in days],
+            "firings_ok": firings_ok, "params": lp.describe(p), "written": datetime.now(ET).isoformat()}
+    path = label_plan_path(env, key, lkey)
+    if not path.exists():
+        atomic_write_json(path, plan)
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_labels_plan_for(env: Env, key: str, lkey: str) -> tuple[dict, dict, Any]:
+    from nqbot.labeler import params as lp
+
+    path = label_plan_path(env, key, lkey)
+    if not path.exists():
+        raise Refused(f"no labels plan {lkey} for build {key} ({path})")
+    plan = json.loads(path.read_text(encoding="utf-8"))
+    doc = build_doc_for(env, key)
+    p = _label_params(env, plan["overrides"])
+    if lp.label_key(key, p) != lkey:
+        raise Refused(f"labels {lkey}: the labeler's settings or code changed since its plan")
+    return plan, doc, p
+
+
+def labels_day_for(env: Env, key: str, lkey: str, day: date) -> dict[str, Any]:
+    """`nqbot step13 labels-day D --build-key K --label-key L` (the 13c driver runs this in its own process)."""
+    plan, doc, p = load_labels_plan_for(env, key, lkey)
+    return _label_day(env, plan, doc, p, day)
+
+
+def labelled(env: Env, key: str, lkey: str, day: date) -> bool:
+    return label_paths(env, {"key": key}, lkey, day)["summary"].exists()
+
+
+def _label_day(env: Env, plan: dict, doc: dict, p, day: date) -> dict[str, Any]:
     months_mod.require_development(day, env.settings)
     if day.isoformat() not in plan["sessions"]:
         raise Refused(f"{day} is not a session of the labels plan")

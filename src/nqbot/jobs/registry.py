@@ -10,6 +10,7 @@ from nqbot.checks.step8b_disloc import DislocationsJob
 from nqbot.checks.step13 import CheckJob as Step13CheckJob
 from nqbot.checks.step13a import ReactionsJob
 from nqbot.checks.step13b import LabelsJob, SlippageJob
+from nqbot.checks.step13c import TuneJob
 from nqbot.checks.step8b_gate import GateJob
 from nqbot.clients.databento_pull import DatabentoPullJob
 from nqbot.clients.skylit_backfill import SkylitBackfillJob
@@ -39,6 +40,8 @@ JOBS: dict[str, Callable[[], Job]] = {
     "step13a_reactions": ReactionsJob,  # step 13a: reaction distances on months 1-4 (plan: nqbot step13 reactions-plan)
     "step13_slippage": SlippageJob,  # step 13b: exit_slippage_ticks from mbp-1 on months 1-4 (plan: step13 slippage-plan)
     "step13_labels": LabelsJob,  # step 13b: pairs, fills and paths on months 1-4 (plan: nqbot step13 labels-plan)
+    # step 13c (owner 2026-11-14, SPEC §13 Q-step13c): the tuning rows 1-14, builds two at a time, labels, scores
+    "step13_tune": TuneJob,  # plan: nqbot step13 tune-plan
 }
 
 

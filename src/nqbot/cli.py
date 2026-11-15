@@ -1077,6 +1077,20 @@ def _add_step13(sub: argparse._SubParsersAction) -> None:
                    help="a labeler setting for this run (13c: e.g. stop_buffer=8); part of the labels key")
     p = s13.add_parser("labels-day", help="step 13b: one session's pairs, fills and paths (the job runs this)")
     p.add_argument("date", type=_date)
+    p.add_argument("--build-key", default=None, help="step 13c: label this build (its own labels plan) instead of the "
+                                                     "slot-1 plan's")
+    p.add_argument("--label-key", default=None, help="step 13c: the labels key of that build's plan")
+    # step 13c (owner 2026-11-14, SPEC §13 Q-step13c): the tuning driver, rows 1-14
+    p = s13.add_parser("tune-plan", help="step 13c: record the tuning program and its chunks (then: nqbot run "
+                                         "step13_tune --until HH:MM, or nqbot queue add step13_tune)")
+    p.add_argument("--reference-labels", default="8e9cdad94970",
+                   help="the baseline's labels the relabel must equal (r00:check; empty: no check)")
+    p = s13.add_parser("tune-row", help="step 13c: score one row again from its builds and labels (report + winner)")
+    p.add_argument("row", help="row id, e.g. r01, r05b, r12, r14a")
+    s13.add_parser("tune-report", help="step 13c: the summary of every winner so far (tune_summary.md)")
+    p = s13.add_parser("vol-floor-day", help="step 13c: one session's QQQ crossings and trailing volatility for the "
+                                             "Q13-vol re-fit (the driver runs this)")
+    p.add_argument("date", type=_date)
     s13.add_parser("labels-report", help="step 13b: the labels report (identity check, RR bands, time, disk)")
     s13.add_parser("budget", help="step 13b: the step-13 budget re-estimated from the measured months 1-4 rebuild")
 
@@ -1088,6 +1102,7 @@ def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
     from nqbot.checks import step13 as s13
     from nqbot.checks import step13a as s13a
     from nqbot.checks import step13b as s13b
+    from nqbot.checks import step13c as s13c
     from nqbot.checks.step8b import CheckRefused, Env
     from nqbot.config import load_features
     from nqbot.jobs.runner import record_plan
@@ -1112,7 +1127,23 @@ def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
             print(f"{s13b.JOB_LABELS}: labels key {plan['label_key']} on build {plan['build_key']}; {done}/{total} "
                   f"chunks done; run: uv run nqbot run {s13b.JOB_LABELS} --until HH:MM")
         elif args.check == "labels-day":
-            s13b.labels_day(env, args.date)
+            if args.build_key or args.label_key:   # the step-13c driver (owner 2026-11-14): labels by build key
+                if not (args.build_key and args.label_key):
+                    raise s13b.Refused("--build-key and --label-key go together")
+                s13b.labels_day_for(env, args.build_key, args.label_key, args.date)
+            else:
+                s13b.labels_day(env, args.date)
+        elif args.check == "tune-plan":
+            s13c.tune_plan(env, args.reference_labels or None)
+        elif args.check == "tune-row":
+            plan = s13c.load_plan(env)
+            row = s13c.prog.row_of(s13c.program(env), args.row)
+            s13c.score_row(env, plan, row)
+            print(f"{args.row}: winner {s13c.winners(env)[args.row]['value']!r} (report in {s13c.rep_dir(env)})")
+        elif args.check == "tune-report":
+            print(s13c.summary(env, s13c.load_plan(env)))
+        elif args.check == "vol-floor-day":
+            print(s13c.volfloor_day(env, args.date))
         elif args.check == "labels-report":
             print(s13b.labels_report(env))
         elif args.check == "budget":
@@ -1136,7 +1167,7 @@ def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
             s13.jump_plot(env)
         else:
             s13.report(env)
-    except (s13.Refused, s13a.Refused, s13b.Refused, fb.BuildRefused, sb.Refused, CheckRefused,
+    except (s13.Refused, s13a.Refused, s13b.Refused, s13c.TuneRefused, fb.BuildRefused, sb.Refused, CheckRefused,
             NotDevelopmentMonth) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
