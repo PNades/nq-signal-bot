@@ -17,18 +17,18 @@ export interface DrawdownRule {
   lockUsd: number | null; lockTrigger: LockTrigger;
 }
 export interface Account {
-  /** `short`: the type in a few words, for the per-account switcher */
-  id: string; preset: string; short: string; phase: "evaluation" | "funded"; riskUsd: number;
+  /** `short`: the type in a few words; `badge`: the type in one word (the Waterline switcher's segment badge) */
+  id: string; preset: string; short: string; badge: string; phase: "evaluation" | "funded"; riskUsd: number;
   commissionMiniRt: number; commissionMicroRt: number; rule: DrawdownRule;
 }
 export const ACCOUNTS: Account[] = [
-  { id: "mffur1", preset: "MFFU Rapid EOD 25k", short: "Rapid EOD · eval", phase: "evaluation", riskUsd: 333, commissionMiniRt: 4.68, commissionMicroRt: 1.9,
+  { id: "mffur1", preset: "MFFU Rapid EOD 25k", short: "Rapid EOD · eval", badge: "Rapid", phase: "evaluation", riskUsd: 333, commissionMiniRt: 4.68, commissionMicroRt: 1.9,
     rule: { startUsd: 25000, drawdownUsd: 1000, type: "eod_trailing", lockUsd: null, lockTrigger: "floor" } },
   // MFFU Builder 25k funded (SPEC §6.7 preset table): $1,000 EOD-trailing until the floor reaches start + $100 = $25,100
   // (the $1,100 buffer), then static; its $600 soft DLL and payouts are not modelled in the mock
-  { id: "mffub1", preset: "MFFU Builder 25k", short: "Builder · funded", phase: "funded", riskUsd: 333, commissionMiniRt: 4.68, commissionMicroRt: 1.9,
+  { id: "mffub1", preset: "MFFU Builder 25k", short: "Builder · funded", badge: "Builder", phase: "funded", riskUsd: 333, commissionMiniRt: 4.68, commissionMicroRt: 1.9,
     rule: { startUsd: 25000, drawdownUsd: 1000, type: "eod_trailing", lockUsd: 25100, lockTrigger: "floor" } },
-  { id: "lucid1", preset: "Lucid Flex 25k", short: "Lucid Flex · funded", phase: "funded", riskUsd: 333, commissionMiniRt: 3.5, commissionMicroRt: 1.0,
+  { id: "lucid1", preset: "Lucid Flex 25k", short: "Lucid Flex · funded", badge: "Lucid Flex", phase: "funded", riskUsd: 333, commissionMiniRt: 3.5, commissionMicroRt: 1.0,
     rule: { startUsd: 25000, drawdownUsd: 1000, type: "eod_trailing", lockUsd: 25100, lockTrigger: "floor_or_first_payout" } },
 ];
 export type AccountSel = "all" | string;

@@ -1,10 +1,10 @@
 // Performance mock (design-system/pages/performance.md) with MOCK DATA. Picks used: KPI Tile (40086), Animated Tabs
 // (24930), Spotlight (35180), Border Beam Panel (23408), Halftone Wordmark Footer (37628, the owner's Halden footer),
 // the P&L calendar after the reference layout, Lightweight Charts for equity/drawdown.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion, type Variants } from "framer-motion";
 import { AnimatePresence } from "framer-motion";
-import { CalendarRange, Check, ChevronDown, ChevronLeft, ChevronRight, Download, Wallet } from "lucide-react";
+import { CalendarRange, Check, ChevronDown, Download, Wallet } from "lucide-react";
 import KpiTile from "@/components/ui/kpi-tile";
 import AnimatedTabs from "@/components/ui/animated-tabs";
 import { Spotlight } from "@/components/ui/spotlight";
@@ -48,7 +48,15 @@ function Scramble({ text, animated }: { text: string; animated: boolean }) {
 
 /** The account filter (every view follows it). Drawdown and Monte Carlo are per account by nature: with All accounts
  *  they show one panel per account, each under its own rule. */
-function AccountSelect({ value, onChange, animated }: { value: AccountSel; onChange: (v: AccountSel) => void; animated: boolean }) {
+function AccountSelect({ value, onChange, animated, includeAll = true, label = "Account", onStep, align = "right" }: {
+  value: AccountSel; onChange: (v: AccountSel) => void; animated: boolean;
+  /** false: accounts only (the Drawdown / Monte Carlo fallback) */
+  includeAll?: boolean; label?: string;
+  /** where the menu opens: under the trigger's right edge (the page filter) or centred under it (the switcher) */
+  align?: "right" | "center";
+  /** ← → on the closed trigger step through the accounts */
+  onStep?: (d: number) => void;
+}) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -59,19 +67,20 @@ function AccountSelect({ value, onChange, animated }: { value: AccountSel; onCha
     return () => { window.removeEventListener("pointerdown", off); window.removeEventListener("keydown", esc); };
   }, [open]);
   const opts: { id: AccountSel; name: string; sub: string }[] = [
-    { id: "all", name: "All accounts", sub: `${ACCOUNTS.length} accounts` },
+    ...(includeAll ? [{ id: "all", name: "All accounts", sub: `${ACCOUNTS.length} accounts` }] : []),
     ...ACCOUNTS.map((a) => ({ id: a.id, name: a.id, sub: `${a.preset} · ${a.phase}` })),
   ];
   const cur = opts.find((o) => o.id === value)!;
   return (
     <div ref={box} className="relative">
-      <button aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((o) => !o)}
+      <button aria-haspopup="listbox" aria-expanded={open} aria-label={includeAll ? undefined : `${label}: ${cur.name}`} onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => { if (!open && onStep && (e.key === "ArrowRight" || e.key === "ArrowLeft")) { e.preventDefault(); onStep(e.key === "ArrowRight" ? 1 : -1); } }}
         className="flex h-8 items-center gap-2 rounded-sm border border-line-strong bg-bg-2 px-2.5 text-[13px] text-text-1"><Wallet className="size-3.5 text-text-3" />{cur.name}<ChevronDown className="size-3.5 text-text-3" /></button>
       <AnimatePresence>
         {open && (
-          <motion.ul role="listbox" aria-label="Account" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+          <motion.ul role="listbox" aria-label={label} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
             transition={{ duration: animated ? 0.14 : 0 }}
-            className="absolute right-0 z-40 mt-1 w-[260px] overflow-hidden rounded-md border border-line-strong bg-bg-3 py-1 shadow-[0_12px_32px_rgba(0,0,0,.55)]">
+            className={`absolute z-40 mt-1 w-[min(260px,calc(100vw-32px))] overflow-hidden ${align === "center" ? "left-1/2 -translate-x-1/2" : "right-0"} rounded-md border border-line-strong bg-bg-3 py-1 shadow-[0_12px_32px_rgba(0,0,0,.55)]`}>
             {opts.map((o) => (
               <li key={o.id} role="option" aria-selected={o.id === value}>
                 <button onClick={() => { onChange(o.id); setOpen(false); }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-white/[.04]">
@@ -83,35 +92,6 @@ function AccountSelect({ value, onChange, animated }: { value: AccountSel; onCha
           </motion.ul>
         )}
       </AnimatePresence>
-    </div>
-  );
-}
-
-/** Drawdown and Monte Carlo show one account at a time (owner 2026-11-15): ← → step through the accounts (wrapping),
- *  the segmented control lists every account by name and type. */
-function AccountSwitcher({ value, onChange, animated }: { value: string; onChange: (id: string) => void; animated: boolean }) {
-  const i = ACCOUNTS.findIndex((a) => a.id === value);
-  const step = (d: number) => onChange(ACCOUNTS[(i + d + ACCOUNTS.length) % ACCOUNTS.length].id);
-  const arrow = "grid size-9 shrink-0 place-items-center rounded-sm border border-line-strong bg-bg-2 text-text-2 hover:text-text-1 focus-visible:outline-2 focus-visible:outline-cream";
-  return (
-    <div className="mb-3 flex items-center gap-2" data-account-switcher>
-      <button aria-label="Previous account" className={arrow} onClick={() => step(-1)}><ChevronLeft className="size-4" /></button>
-      <div role="radiogroup" aria-label="Account" className="flex min-w-0 flex-1 gap-1 rounded-md border border-line-strong bg-bg-1 p-1"
-        onKeyDown={(e) => { if (e.key === "ArrowRight") { e.preventDefault(); step(1); } if (e.key === "ArrowLeft") { e.preventDefault(); step(-1); } }}>
-        {ACCOUNTS.map((a) => {
-          const on = a.id === value;
-          return (
-            <button key={a.id} role="radio" aria-checked={on} tabIndex={on ? 0 : -1} onClick={() => onChange(a.id)}
-              className="relative min-w-0 flex-1 rounded-sm px-3 py-1.5 text-left focus-visible:outline-2 focus-visible:outline-cream">
-              {on && <motion.span layoutId="dd-account-pill" transition={animated ? { type: "spring", stiffness: 420, damping: 36 } : { duration: 0 }}
-                className="absolute inset-0 rounded-sm border border-gold/40 bg-gold/10" />}
-              <span className={`relative block truncate font-mono text-[12.5px] ${on ? "text-text-1" : "text-text-2"}`}>{a.id}</span>
-              <span className="relative block truncate text-[11.5px] text-text-3">{a.short}</span>
-            </button>
-          );
-        })}
-      </div>
-      <button aria-label="Next account" className={arrow} onClick={() => step(1)}><ChevronRight className="size-4" /></button>
     </div>
   );
 }
@@ -128,6 +108,37 @@ export function PerformancePage({ initialTab = "equity", initialAccount = "all" 
   const [riskAccount, setRiskAccount] = useState(account === "all" ? ACCOUNTS[0].id : account);
   useEffect(() => { if (account !== "all") setRiskAccount(account); }, [account]);
   const pickRiskAccount = (id: string) => { setRiskAccount(id); if (account !== "all") setAccount(id); };
+  const stepRiskAccount = (d: number) => {
+    const i = ACCOUNTS.findIndex((a) => a.id === riskAccount);
+    pickRiskAccount(ACCOUNTS[(i + d + ACCOUNTS.length) % ACCOUNTS.length].id);
+  };
+  // the account switcher sits in the tab row on Drawdown and Monte Carlo; when the row can't hold the page tabs, the
+  // account tabs (centred) and the chips, it becomes a compact dropdown in the same spot. Its natural width is measured
+  // while it shows as tabs; the check runs on every resize of the row and once the fonts have loaded.
+  const showAcct = tab === "drawdown" || tab === "montecarlo";
+  const rowRef = useRef<HTMLDivElement>(null), tabsRef = useRef<HTMLDivElement>(null), chipsRef = useRef<HTMLDivElement>(null);
+  const acctNeed = useRef<number | null>(null);
+  const [acctFit, setAcctFit] = useState<"tabs" | "menu">("tabs");
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    if (!row || !showAcct) return;
+    const GAP = 16; // gap-x-4
+    const check = () => {
+      const sw = row.querySelector("[data-account-switcher]") as HTMLElement | null;
+      if (sw && sw.dataset.fit === "tabs") acctNeed.current = sw.scrollWidth;
+      const side = Math.max(tabsRef.current?.offsetWidth ?? 0, chipsRef.current?.offsetWidth ?? 0);
+      const avail = row.clientWidth - 2 * side - 2 * GAP;
+      const next = acctNeed.current === null || acctNeed.current <= avail ? "tabs" : "menu";
+      row.dataset.need = JSON.stringify({ need: acctNeed.current, avail }); // for the mock's checks
+      setAcctFit((f) => (f === next ? f : next));
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(row);
+    let alive = true;
+    document.fonts?.ready.then(() => { if (alive) check(); });
+    return () => { alive = false; ro.disconnect(); };
+  }, [showAcct, acctFit]);
   const net = monthly((ds) => ds.reduce((a, d) => a + d.usd, 0));
   const tr = monthly((ds) => ds.reduce((a, d) => a + d.trades.length, 0));
   // average net R per trade, per month (owner 2026-11-15: replaces net R)
@@ -176,9 +187,36 @@ export function PerformancePage({ initialTab = "equity", initialAccount = "all" 
         </motion.div>
 
         <motion.div variants={item} className="mt-7">
-          <div className="flex flex-wrap items-center gap-3">
-            <AnimatedTabs variant="underline" layoutId="perf-tabs" animated={animated} activeTab={tab} onChange={setTab} tabs={TABS} />
-            <div className="ml-auto flex items-center gap-2 font-mono text-[11px] text-text-3">
+          {/* one row (owner 2026-11-15): the page tabs, the account switcher centred in the row (Drawdown and Monte Carlo
+              only), the filter chips on the right; a grid with equal side columns keeps the middle truly centred */}
+          {/* as tabs it is centred in the row (equal side columns); as the compact dropdown (the tabs don't fit) it is
+              centred in the free space between the page tabs and the chips, so it never overlaps them */}
+          <div ref={rowRef} className={`grid items-center gap-x-4 gap-y-2 ${showAcct && acctFit === "menu" ? "grid-cols-[auto_minmax(0,1fr)_auto]" : "grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"}`}>
+            <div ref={tabsRef} className="justify-self-start">
+              <AnimatedTabs variant="underline" layoutId="perf-tabs" animated={animated} activeTab={tab} onChange={setTab} tabs={TABS} ariaLabel="Performance views" />
+            </div>
+            <div className="flex justify-center">
+              <AnimatePresence initial={false}>
+                {showAcct && (
+                  <motion.div key="account-switcher" data-account-switcher data-fit={acctFit}
+                    initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, transition: { duration: animated ? 0.15 : 0 } }}
+                    transition={{ duration: animated ? 0.22 : 0, ease: [0.2, 0, 0, 1] }}
+                    className="flex items-center gap-3">
+                    {/* a faint divider, so the account tabs don't read as more page tabs */}
+                    <span aria-hidden="true" className="h-5 w-px bg-line-strong/60" />
+                    {acctFit === "tabs" ? (
+                      <AnimatedTabs variant="underline" layoutId="perf-account-tabs" animated={animated} activeTab={riskAccount} onChange={pickRiskAccount}
+                        ariaLabel="Account shown" className="whitespace-nowrap"
+                        tabs={ACCOUNTS.map((a) => ({ id: a.id, label: a.id, badge: a.badge, title: `${a.id}, ${a.preset} ${a.phase}` }))} />
+                    ) : (
+                      <AccountSelect value={riskAccount} onChange={(v) => pickRiskAccount(v)} animated={animated} includeAll={false}
+                        label="Account shown" onStep={stepRiskAccount} align="center" />
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+            <div ref={chipsRef} className="flex items-center justify-self-end gap-2 font-mono text-[11px] text-text-3">
               <span className="rounded-xs border border-line-strong px-1.5 py-0.5">NQ · all accounts</span>
               <span className="rounded-xs border border-line-strong px-1.5 py-0.5">Eastern time</span>
               <span className="rounded-xs border border-line-strong px-1.5 py-0.5">read only</span>
@@ -188,7 +226,6 @@ export function PerformancePage({ initialTab = "equity", initialAccount = "all" 
             {/* drawdown and Monte Carlo are per account (each under its own rule): one account at a time */}
             {(tab === "drawdown" || tab === "montecarlo") ? (
               <div>
-                <AccountSwitcher value={riskAccount} onChange={pickRiskAccount} animated={animated} />
                 <div className="h-[420px]">
                   {tab === "drawdown" ? <DrawdownChart key={riskAccount} id={riskAccount} /> : <MonteCarloFan key={riskAccount} id={riskAccount} />}
                 </div>

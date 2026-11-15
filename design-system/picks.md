@@ -69,6 +69,6 @@ Also in use: KPI Tile 40086, Animated Tabs 24930.
 |---|---|
 | KPI tiles, in this order | Net P&L, Trades, **Net R per trade** (average net R per trade; replaces Net R), Win rate, Profit factor, Max drawdown |
 | The account's real drawdown rule | the drawdown chart's floor line and the Monte Carlo's chance follow the selected account's own rule (static or EOD-trailing, with its lock: Lucid's floor lock at $25,100 once the floor gets there or at the first payout, Pro's lock at the first payout), never a fixed amount |
-| One account at a time on Drawdown and Monte Carlo | ← → arrows plus a segmented control listing every account by name and type; it follows the page's account filter when one account is selected (and moves it) (2026-11-15) |
+| One account at a time on Drawdown and Monte Carlo | the account switcher sits in the page-tab row, centred, after a faint divider: the same underline tabs, one per account with its name and a small type badge; fades in on Drawdown / Monte Carlo, stays between them, fades out elsewhere; ← → switch accounts; it follows the page's account filter (and moves it); a compact dropdown in the same spot when the row can't hold it (2026-11-15; a Waterline bar was tried and dropped) |
 | Mock accounts | mffur1 MFFU Rapid EOD 25k evaluation, mffub1 MFFU Builder 25k funded, lucid1 Lucid Flex 25k funded, each with its SPEC §6.7 preset rules (2026-11-15) |
 | Account filter | every view (KPIs, equity, calendar, trades) follows it |

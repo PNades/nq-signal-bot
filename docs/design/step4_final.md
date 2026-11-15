@@ -177,8 +177,8 @@ Q-step14a (13).
 below the footer. Screenshots: `step4/round4/footer_<width>.png` (re-shot). Nothing else changed.
 
 **One account at a time, and an MFFU Builder account (owner 2026-11-15):**
-- **Switcher:** the Drawdown and Monte Carlo tabs show one account at a time. ← → arrows step through the accounts
-  (wrapping), and a segmented control lists every account by name and type (the keyboard ← → move it too).
+- **Switcher:** the Drawdown and Monte Carlo tabs show one account at a time. (The arrows-and-segmented switcher
+  first built here was replaced the same day by the tab-row switcher below.)
 - **Following the filter:** when the page's account filter is one account, the switcher follows it; moving the
   switcher then moves the filter, so the KPIs and the chart always show the same account.
 - **Builder rules:** the repo already had them in SPEC §6.7's preset table (`config/accounts.yaml` holds no accounts
@@ -188,8 +188,24 @@ below the footer. Screenshots: `step4/round4/footer_<width>.png` (re-shot). Noth
 - **Seed:** 267 still works with three accounts. No account breaches in the backtest order, and mffub1's floor locks
   on Oct 2, lucid1's on Nov 17.
 - **Monte Carlo chance of reaching the floor:** mffur1 54.5%, mffub1 25.2%, lucid1 59.4%.
-- **Checks** (`docs/design/mock/shot-switcher.mjs`, [`step4/switcher/checks.json`](step4/switcher/checks.json)):
-  one panel at a time, the arrows wrap, the segmented control and keyboard pick, the filter follows. No console errors.
-- **Screenshots:** [drawdown_mffub1_1440](step4/switcher/drawdown_mffub1_1440.png),
-  [drawdown_mffub1_960](step4/switcher/drawdown_mffub1_960.png),
-  [montecarlo_mffub1_1440](step4/switcher/montecarlo_mffub1_1440.png).
+- **Checks and screenshots:** see the tab-row switcher below (the same script and folder).
+
+**The account switcher moves into the page-tab row (owner 2026-11-15):**
+- **The Waterline trial is dropped:** the liquid-glass bar as the switcher left too much empty space above the chart.
+  Its changes to the shared navbar component were reverted, and nothing of it is committed.
+- **Where:** on Drawdown and Monte Carlo the switcher now sits in the page-tab row, centred in it, after a faint
+  divider. It uses the same underline tabs at the same size, one per account with its name and a small type badge
+  (`mffur1` Rapid, `mffub1` Builder, `lucid1` Lucid Flex).
+- **Animation:** it fades and slides in when Drawdown or Monte Carlo opens, stays in place without re-animating
+  between those two (checked: the same element, fully shown at once), and fades out on any other tab.
+- **Keys and filter:** ← → switch accounts and wrap. It follows the page's account filter and moves it.
+- **Compact fallback:** when the row can't hold the page tabs, the account tabs centred and the filter chips, it
+  becomes a compact dropdown. The dropdown sits in the space between the page tabs and the chips, centred there,
+  because a truly centred dropdown would overlap the page tabs by 43 px at 960. Resizing back up returns to tabs.
+  - At 1440 the tabs need 437 px of the 466 available and fit.
+  - At 960 the dropdown shows, 22 px clear of the page tabs and of the chips.
+- **Checks:** `docs/design/mock/shot-switcher.mjs`, [`step4/switcher/checks.json`](step4/switcher/checks.json); all
+  passed, no console errors.
+- **Screenshots:** [drawdown_1440](step4/switcher/drawdown_1440.png),
+  [drawdown_1440_mffub1](step4/switcher/drawdown_1440_mffub1.png), [montecarlo_1440](step4/switcher/montecarlo_1440.png),
+  [drawdown_960](step4/switcher/drawdown_960.png), [drawdown_960_menu_open](step4/switcher/drawdown_960_menu_open.png).

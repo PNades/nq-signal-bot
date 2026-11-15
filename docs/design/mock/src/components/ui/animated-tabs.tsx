@@ -1,6 +1,8 @@
 "use client";
 // Animated Tabs: 21st.dev id 24930 (educalvolpz), code read 2026-11-15: no network calls, no remote assets.
-// CreamFlow changes: the indicator in cream/gold tokens, the pill on the raised surface, `animated` off = Calm.
+// CreamFlow changes: the indicator in cream/gold tokens, the pill on the raised surface, `animated` off = Calm;
+// (2026-11-15) an optional small `badge` per tab (the Performance account tabs: "mffur1 · Rapid"), `ariaLabel` for the
+// tab list (default "Tabs") and `tabTitle` (a tab's full accessible name).
 
 import { cn } from "@/lib/utils";
 import { motion, useReducedMotion } from "motion/react";
@@ -12,15 +14,17 @@ export interface AnimatedTabsProps {
   defaultTab?: string;
   layoutId?: string;
   onChange?: (tabId: string) => void;
-  tabs: { id: string; label: string; icon?: ReactNode }[];
+  tabs: { id: string; label: string; icon?: ReactNode; badge?: string; title?: string }[];
   variant?: "underline" | "pill" | "segment";
   animated?: boolean;
+  ariaLabel?: string;
 }
 
 const SPRING = { bounce: 0.05, duration: 0.25, type: "spring" as const };
 
 export default function AnimatedTabs({
   tabs, activeTab: controlledActiveTab, defaultTab, onChange, variant = "underline", layoutId: customLayoutId, className, animated = true,
+  ariaLabel = "Tabs",
 }: AnimatedTabsProps) {
   const shouldReduceMotion = useReducedMotion() || !animated;
   const generatedId = useId();
@@ -49,7 +53,7 @@ export default function AnimatedTabs({
   }, [tabs, handleTabChange, layoutId]);
 
   return (
-    <div aria-label="Tabs" role="tablist" className={cn(
+    <div aria-label={ariaLabel} role="tablist" className={cn(
       "relative inline-flex",
       variant === "underline" && "gap-1 border-b border-line-strong/60",
       variant === "pill" && "gap-1 rounded-full bg-bg-3/70 p-1",
@@ -61,6 +65,7 @@ export default function AnimatedTabs({
         return (
           <button
             aria-selected={isActive}
+            aria-label={tab.title}
             className={cn(
               "relative z-10 flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap font-medium transition-colors duration-150",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cream",
@@ -86,6 +91,10 @@ export default function AnimatedTabs({
             )}
             {tab.icon ? <span className="relative z-10">{tab.icon}</span> : null}
             <span className="relative z-10">{tab.label}</span>
+            {tab.badge ? (
+              <span aria-hidden="true" className={cn("relative z-10 rounded-full border px-1.5 py-px font-mono text-[10.5px] font-medium leading-4",
+                isActive ? "border-gold/40 text-cream" : "border-line-strong text-text-3")}>{tab.badge}</span>
+            ) : null}
           </button>
         );
       })}

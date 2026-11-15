@@ -95,7 +95,7 @@
 - performance | drawdown chart | candidates: 39725 bjork-drawdown-chart, 29532 portfolio-chart (both draw a fixed dashed limit only)
 - performance | drawdown per account under its own rule: the floor as a stepped dashed line, a "floor locked" badge, one account at a time (2026-11-15) | Lightweight Charts (MASTER §11): an area series plus a stepped line series; the badge from the status badges row (25395); built in the mock
 - performance | Monte Carlo per account: bands, median, backtest-order path, the account's floor, P(reaching the floor) (2026-11-15) | the custom SVG of the fan row below, one account at a time; built in the mock
-- performance | per-account switcher on Drawdown and Monte Carlo: ← → arrows plus a segmented control with name and type (2026-11-15) | the settings segmented-control candidates (ddoemonn segmented-control, halaska-studio segmented-control) with Motion's layoutId pill; built in the mock as our own radio group
+- performance | per-account switcher on Drawdown and Monte Carlo, in the page-tab row (2026-11-15) | **picked: Animated Tabs 24930** (the page tabs' own underline variant, with a small type badge per tab); the compact fallback is the select-with-sub-labels row (25123 pattern, our own listbox). The Waterline bar 43059 was tried here and dropped (too much empty space above the chart)
 - performance | account filter and phase selector (2026-11-15) | see "shared | select with sub-labels"
 - performance | "backtest" label on data (2026-11-15) | the status badges row (25395)
 - performance | Monte Carlo fan | candidate frame 35059 brush-chart; fan itself: searched (confidence band, monte carlo fan, percentile band), nothing fit (only a hard-coded price-target fan) → custom canvas

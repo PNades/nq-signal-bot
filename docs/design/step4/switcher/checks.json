@@ -1,46 +1,129 @@
 {
   "checks": {
-    "all_start": {
-      "checked": "mffur1Rapid EOD · eval",
-      "panels": 1,
+    "d1440": {
+      "present": true,
+      "fit": "tabs",
+      "selected": "mffur1",
       "shown": "mffur1",
-      "filter": "All accounts"
+      "filter": "All accounts",
+      "offCentre": 0,
+      "offGapCentre": -65,
+      "clearOfTabs": 30,
+      "clearOfChips": 161,
+      "need": "{\"need\":437,\"avail\":466}"
     },
-    "all_next": {
-      "checked": "mffub1Builder · funded",
-      "panels": 1,
+    "keys_left_wraps": {
+      "present": true,
+      "fit": "tabs",
+      "selected": "lucid1",
+      "shown": "lucid1",
+      "filter": "All accounts",
+      "offCentre": 0,
+      "offGapCentre": -65,
+      "clearOfTabs": 30,
+      "clearOfChips": 161,
+      "need": "{\"need\":437,\"avail\":466}"
+    },
+    "keys_right": {
+      "present": true,
+      "fit": "tabs",
+      "selected": "mffub1",
       "shown": "mffub1",
-      "filter": "All accounts"
+      "filter": "All accounts",
+      "offCentre": 0,
+      "offGapCentre": -65,
+      "clearOfTabs": 30,
+      "clearOfChips": 161,
+      "need": "{\"need\":437,\"avail\":466}"
     },
-    "all_prev_wraps": {
-      "checked": "lucid1Lucid Flex · funded",
-      "panels": 1,
+    "stays_between": {
+      "same": true,
+      "opacity": 1
+    },
+    "mc1440": {
+      "present": true,
+      "fit": "tabs",
+      "selected": "mffub1",
+      "shown": "mffub1",
+      "filter": "All accounts",
+      "offCentre": 0,
+      "offGapCentre": -65,
+      "clearOfTabs": 30,
+      "clearOfChips": 161,
+      "need": "{\"need\":437,\"avail\":466}"
+    },
+    "equity_gone": {
+      "present": false,
+      "fit": null,
+      "selected": null,
+      "shown": null,
+      "filter": "All accounts",
+      "offCentre": null,
+      "offGapCentre": null,
+      "clearOfTabs": null,
+      "clearOfChips": null,
+      "need": "{\"need\":437,\"avail\":466}",
+      "midFade": 0.562715
+    },
+    "filter_start": {
+      "present": true,
+      "fit": "tabs",
+      "selected": "lucid1",
       "shown": "lucid1",
-      "filter": "All accounts"
+      "filter": "lucid1",
+      "offCentre": 0,
+      "offGapCentre": -65,
+      "clearOfTabs": 30,
+      "clearOfChips": 161,
+      "need": "{\"need\":437,\"avail\":466}"
     },
-    "all_keyboard_right": {
-      "checked": "lucid1Lucid Flex · funded",
-      "panels": 1,
-      "shown": "lucid1",
-      "filter": "All accounts"
+    "filter_follows": {
+      "present": true,
+      "fit": "tabs",
+      "selected": "mffub1",
+      "shown": "mffub1",
+      "filter": "mffub1",
+      "offCentre": 0,
+      "offGapCentre": -65,
+      "clearOfTabs": 30,
+      "clearOfChips": 161,
+      "need": "{\"need\":437,\"avail\":466}"
     },
-    "one_start": {
-      "checked": "lucid1Lucid Flex · funded",
-      "panels": 1,
-      "shown": "lucid1",
-      "filter": "lucid1"
-    },
-    "one_next_moves_filter": {
-      "checked": "mffur1Rapid EOD · eval",
-      "panels": 1,
+    "d960": {
+      "present": true,
+      "fit": "menu",
+      "selected": "Account shown: mffur1",
       "shown": "mffur1",
-      "filter": "mffur1"
+      "filter": "All accounts",
+      "offCentre": 65,
+      "offGapCentre": 0,
+      "clearOfTabs": 22,
+      "clearOfChips": 22,
+      "need": "{\"need\":421,\"avail\":2}"
     },
-    "w960": {
-      "checked": "mffub1Builder · funded",
-      "panels": 1,
+    "d960_key_right": {
+      "present": true,
+      "fit": "menu",
+      "selected": "Account shown: mffub1",
       "shown": "mffub1",
-      "filter": "mffub1"
+      "filter": "All accounts",
+      "offCentre": 65,
+      "offGapCentre": 0,
+      "clearOfTabs": 21,
+      "clearOfChips": 21,
+      "need": "{\"need\":421,\"avail\":2}"
+    },
+    "d960_to_1440": {
+      "present": true,
+      "fit": "tabs",
+      "selected": "mffub1",
+      "shown": "mffub1",
+      "filter": "All accounts",
+      "offCentre": 0,
+      "offGapCentre": -65,
+      "clearOfTabs": 30,
+      "clearOfChips": 161,
+      "need": "{\"need\":437,\"avail\":466}"
     }
   },
   "problems": []
