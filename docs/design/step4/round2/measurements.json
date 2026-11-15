@@ -1,0 +1,102 @@
+[
+  {
+    "shot": "footer_1920",
+    "footerW": 1920,
+    "footerH": 425,
+    "pad": 44,
+    "inkLeft": 48,
+    "inkRight": 49,
+    "gapUnderDetails": 61,
+    "pageEndsAtFooterBottom": true,
+    "belowFooter": 0,
+    "bottomRowInkPx": 1172,
+    "weight": null
+  },
+  {
+    "shot": "footer_1440",
+    "footerW": 1440,
+    "footerH": 354,
+    "pad": 44,
+    "inkLeft": 43,
+    "inkRight": 48,
+    "gapUnderDetails": 48,
+    "pageEndsAtFooterBottom": true,
+    "belowFooter": 0,
+    "bottomRowInkPx": 478,
+    "weight": null
+  },
+  {
+    "shot": "footer_1280",
+    "footerW": 1280,
+    "footerH": 324,
+    "pad": 44,
+    "inkLeft": 43,
+    "inkRight": 44,
+    "gapUnderDetails": 37,
+    "pageEndsAtFooterBottom": true,
+    "belowFooter": 0,
+    "bottomRowInkPx": 402,
+    "weight": null
+  },
+  {
+    "shot": "footer_1024",
+    "footerW": 1024,
+    "footerH": 277,
+    "pad": 35,
+    "inkLeft": 36,
+    "inkRight": 35,
+    "gapUnderDetails": 29,
+    "pageEndsAtFooterBottom": true,
+    "belowFooter": 0,
+    "bottomRowInkPx": 282,
+    "weight": null
+  },
+  {
+    "shot": "footer_960",
+    "footerW": 960,
+    "footerH": 265,
+    "pad": 33,
+    "inkLeft": 32,
+    "inkRight": 36,
+    "gapUnderDetails": 31,
+    "pageEndsAtFooterBottom": true,
+    "belowFooter": 0,
+    "bottomRowInkPx": 256,
+    "weight": null
+  },
+  {
+    "shot": "footer_resize_1920_to_960",
+    "footerW": 960,
+    "footerH": 265,
+    "pad": 33,
+    "inkLeft": 32,
+    "inkRight": 36,
+    "gapUnderDetails": 31,
+    "pageEndsAtFooterBottom": true,
+    "belowFooter": 0,
+    "bottomRowInkPx": 256,
+    "weight": null
+  },
+  {
+    "shot": "footer_resize_960_to_1920",
+    "footerW": 1920,
+    "footerH": 425,
+    "pad": 44,
+    "inkLeft": 48,
+    "inkRight": 49,
+    "gapUnderDetails": 61,
+    "pageEndsAtFooterBottom": true,
+    "belowFooter": 0,
+    "bottomRowInkPx": 1172,
+    "weight": null
+  },
+  {
+    "shot": "home_no_dock_1440",
+    "docks": 0
+  },
+  {
+    "shot": "tile_bottom_dock_1440",
+    "lastContentBottom": 556,
+    "dockTop": 618
+  }
+]

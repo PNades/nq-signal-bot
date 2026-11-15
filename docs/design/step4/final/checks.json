@@ -1,0 +1,80 @@
+{
+  "checks": {
+    "kpiOrder": [
+      "Net P&L",
+      "Trades",
+      "Net R per trade",
+      "Win rate",
+      "Profit factor",
+      "Max drawdown"
+    ],
+    "drawdown_all_1440_headers": [
+      "$1,000 EOD-trailing, no lock",
+      "$1,000 EOD-trailing, locked at $25,100 once it gets there or at the first payout"
+    ],
+    "lucidTooltip": "2026-01-20Drawdown−$340.00Balance$32,679.22Floor$25,100.00Room to the floor$7,579.22",
+    "drawdown_lucid1_1440_headers": [
+      "$1,000 EOD-trailing, locked at $25,100 once it gets there or at the first payout"
+    ],
+    "drawdown_mffur1_1440_headers": [
+      "$1,000 EOD-trailing, no lock"
+    ],
+    "montecarlo_all_1440_headers": [
+      "$1,000 EOD-trailing, no lock",
+      "$1,000 EOD-trailing, locked at $25,100 once it gets there or at the first payout"
+    ],
+    "montecarlo_all_1440_p": [
+      "P(reaching the floor) 78.1% · median on trading day 43",
+      "P(reaching the floor) 43.5% · median on trading day 11"
+    ],
+    "montecarlo_lucid1_1440_headers": [
+      "$1,000 EOD-trailing, locked at $25,100 once it gets there or at the first payout"
+    ],
+    "montecarlo_lucid1_1440_p": [
+      "P(reaching the floor) 43.5% · median on trading day 11"
+    ],
+    "drawdown_all_960_headers": [
+      "$1,000 EOD-trailing, no lock",
+      "$1,000 EOD-trailing, locked at $25,100 once it gets there or at the first payout"
+    ],
+    "montecarlo_all_960_headers": [
+      "$1,000 EOD-trailing, no lock",
+      "$1,000 EOD-trailing, locked at $25,100 once it gets there or at the first payout"
+    ],
+    "montecarlo_all_960_p": [
+      "P(reaching the floor) 78.1% · median on trading day 43",
+      "P(reaching the floor) 43.5% · median on trading day 11"
+    ],
+    "dotText": {
+      "transitions": [
+        [
+          0,
+          "1"
+        ],
+        [
+          3306,
+          "0"
+        ],
+        [
+          3907,
+          "1"
+        ],
+        [
+          6809,
+          "0"
+        ],
+        [
+          7424,
+          "1"
+        ]
+      ],
+      "settles": 3,
+      "wakes": 2,
+      "endsSettled": true
+    },
+    "beamsTile": 1,
+    "beams_performance": 1,
+    "beams_home": 0
+  },
+  "problems": []
+}

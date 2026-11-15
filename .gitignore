@@ -18,3 +18,8 @@ __pycache__/
 # Claude Code settings and hook scripts for this machine only (owner 2026-10-31)
 .claude/settings.local.json
 .claude/local/
+# Design videos (Playwright recordings, kept out of git; owner 2026-11-14)
+/docs/design/video/
+# Node packages (design workspace now, ui/web at step 14)
+node_modules/
+/docs/design/mock/dist/
