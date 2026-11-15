@@ -171,3 +171,7 @@ Your two follow-ups. Screenshots and measurements are in [`step4/round4/`](step4
 
 **Docs:** `MASTER.md` (toasts), `pages/home.md`, `pages/shell.md`, `pages/performance.md`, `picks.md`, SPEC §13
 Q-step14a (13).
+
+**Footer follow-up (owner 2026-11-15):** the bottom edge now hides 2/7 (≈ 29%) of the letter height, hidden to visible
+2:5 (it was a third). Measured hidden share: 1920 0.294, 1440 0.298, 1280 0.270, 1024 0.267, 960 0.281. Still 0 px
+below the footer. Screenshots: `step4/round4/footer_<width>.png` (re-shot). Nothing else changed.

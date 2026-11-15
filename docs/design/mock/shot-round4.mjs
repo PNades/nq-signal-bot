@@ -1,7 +1,7 @@
 // Step-4 round 4 (owner 2026-11-15): node shot-round4.mjs -> docs/design/step4/round4/ (screenshots + checks.json).
 // Home: the toast and the key hint in the bottom-right corner, clear of every node (hover card open too); the
 // Performance node and key 6 open the Performance page. Dock pages: the toast never under the dock (open, minimized
-// corner, minimized centre). Footer: a third of the letters hidden by the bottom edge at 1920/1440/1280/1024/960.
+// corner, minimized centre). Footer: 2/7 of the letters hidden (hidden : visible = 2 : 5) by the bottom edge at 1920/1440/1280/1024/960.
 import { chromium } from "playwright";
 import fs from "node:fs";
 import path from "node:path";
@@ -93,7 +93,7 @@ for (const [w, h] of [[1920, 1080], [1440, 900], [1280, 800], [1024, 768], [960,
     return { cap: Math.round(cap), visible: Math.round(visible), hiddenShare: +(1 - visible / cap).toFixed(3), crop: +f.dataset.hwfCrop, belowFooter: Math.round(mr.bottom - fr.bottom) };
   });
   checks[`footer_${w}`] = m;
-  if (Math.abs(m.hiddenShare - 1 / 3) > 0.03 || m.belowFooter !== 0) problems.push(`footer ${w}: ${JSON.stringify(m)}`);
+  if (Math.abs(m.hiddenShare - 2 / 7) > 0.03 || m.belowFooter !== 0) problems.push(`footer ${w}: ${JSON.stringify(m)}`);
   await page.screenshot({ path: path.join(OUT, `footer_${w}.png`) });
   await ctx.close();
 }

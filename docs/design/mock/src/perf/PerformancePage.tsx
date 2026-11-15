@@ -173,13 +173,13 @@ export function PerformancePage({ initialTab = "equity", initialAccount = "all" 
       </motion.div>
 
       {/* the dot-matrix footer ends the page (owner 2026-11-15): "cream" in heavy Geist, Black (900) at full screen down
-          to SemiBold (600) at 960 px, sized from its own box; the page ends inside the letters (a third of their height
-          hidden by the bottom edge, owner 2026-11-15), so it cancels the dock's bottom padding (--dock-pad) */}
+          to SemiBold (600) at 960 px, sized from its own box; the page ends inside the letters (2/7 ≈ 29% of their height
+          hidden by the bottom edge, hidden to visible 2:5, owner 2026-11-15), so it cancels the dock's bottom padding (--dock-pad) */}
       <HalftoneWordmarkFooter
         wordmark="cream" label="CreamFlow · NQ" meta="Local control panel · 127.0.0.1" columns={[]} backToTop={false}
         palette={{ background: "#111111", ink: "#ffe0c2", warm: "#ff9a3c" }} fontFamily='"Geist Variable", ui-sans-serif, sans-serif'
         fontWeight={footerWeight} fit="inset" fitHeight={{ gapRatio: 0.18, minGap: 32 }}
-        monoFamily='"Geist Mono Variable", monospace' crop={1 / 3} grain={0.25} interactive={animated} height="320px"
+        monoFamily='"Geist Mono Variable", monospace' crop={2 / 7} grain={0.25} interactive={animated} height="320px"
         className="shrink-0" />
 
       {toast && <div role="status" style={{ bottom: "var(--toast-bottom, 24px)" }} className="fixed right-6 z-50 rounded-md border border-line-strong bg-bg-3 px-4 py-2.5 text-[13px] text-text-1 shadow-[0_12px_32px_rgba(0,0,0,.55)]">{toast}</div>}

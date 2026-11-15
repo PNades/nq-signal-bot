@@ -59,7 +59,7 @@
 | Flip-disk next window | Flip-Disk Matrix 24220 | the next setup window | never used for risk numbers |
 | Burst | Burst 33152 | evaluation passed, payout requested | a static badge in Calm |
 | Dot Matrix Text | Dot Text 25484 | empty states, splash | **stops redrawing once settled**; wakes only for a text change or a resize |
-| Dot-matrix footer | Halftone Wordmark Footer 37628 | the end of a page | the word "cream" in Geist 900 at full screen down to 600 at 960 px, sized from its own box, the page ending inside the letters (a third of their height hidden by the bottom edge, owner 2026-11-15) |
+| Dot-matrix footer | Halftone Wordmark Footer 37628 | the end of a page | the word "cream" in Geist 900 at full screen down to 600 at 960 px, sized from its own box, the page ending inside the letters (2/7 ≈ 29% of their height hidden by the bottom edge, hidden to visible 2:5, owner 2026-11-15) |
 
 Also in use: KPI Tile 40086, Animated Tabs 24930.
 

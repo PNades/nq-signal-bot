@@ -157,37 +157,37 @@
     },
     "footer_1920": {
       "cap": 328,
-      "visible": 216,
-      "hiddenShare": 0.342,
-      "crop": 0.3333333333333333,
+      "visible": 232,
+      "hiddenShare": 0.294,
+      "crop": 0.2857142857142857,
       "belowFooter": 0
     },
     "footer_1440": {
       "cap": 252,
-      "visible": 165,
-      "hiddenShare": 0.346,
-      "crop": 0.3333333333333333,
+      "visible": 177,
+      "hiddenShare": 0.298,
+      "crop": 0.2857142857142857,
       "belowFooter": 0
     },
     "footer_1280": {
       "cap": 219,
-      "visible": 149,
-      "hiddenShare": 0.32,
-      "crop": 0.3333333333333333,
+      "visible": 160,
+      "hiddenShare": 0.27,
+      "crop": 0.2857142857142857,
       "belowFooter": 0
     },
     "footer_1024": {
       "cap": 179,
-      "visible": 123,
-      "hiddenShare": 0.312,
-      "crop": 0.3333333333333333,
+      "visible": 131,
+      "hiddenShare": 0.267,
+      "crop": 0.2857142857142857,
       "belowFooter": 0
     },
     "footer_960": {
       "cap": 168,
-      "visible": 113,
-      "hiddenShare": 0.329,
-      "crop": 0.3333333333333333,
+      "visible": 121,
+      "hiddenShare": 0.281,
+      "crop": 0.2857142857142857,
       "belowFooter": 0
     }
   },
