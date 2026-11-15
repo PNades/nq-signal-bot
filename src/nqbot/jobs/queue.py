@@ -8,7 +8,8 @@ task starts one instance at a time, and the job lock refuses a second run of any
 same machine is reclaimed, so a run cut off by a reboot, power loss or crash resumes from its last chunk).
 
 A job is resumed only if its last run ended at --until (`until`), on an SSD drop (`ssd_missing`), inside the job-lock
-window (`lock_window`), or never recorded an end (the process died). Every other end waits for the owner, who
+window (`lock_window`), on a two-builds budget mutex that stayed locked (`budget_stall`, owner 2026-11-15), or never
+recorded an end (the process died). Every other end waits for the owner, who
 resumes it by hand with `nqbot run <job>` (after which resume picks it up again): `stopped` (the owner asked),
 `credits`, `failures`, `api_error`, `low_space`, a refusal before it started (`refused`: no approval, a missing key,
 ...), or anything new. A job whose last `ops.resume_max_crashes` resume
@@ -44,7 +45,9 @@ from nqbot.storage import Paths, atomic_write_json, atomic_write_text
 
 QUEUE_FILE = "queue.txt"
 RESUME_STATE = "resume_state.json"
-RESUMABLE = ("until", "ssd_missing", "lock_window")  # last-run ends resume picks up again by itself
+# last-run ends resume picks up again by itself; `budget_stall` (owner 2026-11-15): a two-builds budget mutex that
+# stayed locked, retried at the next resume
+RESUMABLE = ("until", "ssd_missing", "lock_window", "budget_stall")
 DIED = "died"  # a run whose end was never recorded (reboot, power loss, killed) or that raised
 BOOT_TOL_SEC = 5  # psutil.boot_time() can move by a second or two between reads
 MAX_TOGETHER = 2  # owner 2026-11-12: at most two builds at once

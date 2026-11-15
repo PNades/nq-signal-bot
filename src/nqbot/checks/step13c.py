@@ -1037,7 +1037,8 @@ class TuneJob:
         bad = {j: r for j, r in res.items() if r.status != "complete"}
         if bad:
             statuses = {r.status for r in bad.values()}
-            status = next((s for s in ("stopped", "ssd_missing", "low_space", "until", "lock_window") if s in statuses),
+            status = next((s for s in ("stopped", "ssd_missing", "low_space", "budget_stall", "until", "lock_window")
+                           if s in statuses),
                           "failures")
             raise StopChunk("; ".join(f"{j}: {r.status} {r.message}" for j, r in bad.items()),
                             status=None if status == "until" else status)

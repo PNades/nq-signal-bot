@@ -352,7 +352,10 @@ def _main(argv: list[str] | None = None) -> int:
         print(f"stopped on request (nqbot stop); resume with: uv run nqbot run {job.name}")
     if job.name == "skylit_backup":
         print(f"backup report: {paths.reports_dir / 'backup' / 'backup.md'}")
-    return 0 if result.status in ("complete", "until", "stopped") else EXIT_REFUSED
+    if result.status == "budget_stall":
+        print(f"stopped cleanly: the two-builds budget mutex stayed locked (resumed by itself: nqbot resume, or run: "
+              f"uv run nqbot run {job.name})")
+    return 0 if result.status in ("complete", "until", "stopped", "budget_stall") else EXIT_REFUSED
 
 
 def _head_or_none() -> str | None:

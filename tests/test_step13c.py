@@ -420,6 +420,31 @@ def test_a_child_stopped_by_the_clock_leaves_the_chunk_to_rerun(monkeypatch):
     assert e.value.status is None                      # the runner turns it into "until": resume runs it again
 
 
+
+def test_a_child_stopped_on_the_build_budget_passes_that_status_on(monkeypatch):
+    """Owner 2026-11-15: a budget mutex that stayed locked was recorded as `until`; the driver now passes it on."""
+    from nqbot.checks import step13c as s13c
+    from nqbot.jobs.runner import RunResult, StopChunk
+
+    row = prog.rows(F, S)[0]
+    monkeypatch.setattr(s13c, "build_over", lambda env, rid: {})
+    monkeypatch.setattr(s13c, "key_for", lambda env, over: f"k{over.get('zone_proximity')}")
+    monkeypatch.setattr(s13c, "build_complete", lambda env, key, days: False)
+    monkeypatch.setattr(s13c.fbj, "plan_slot", lambda *a: None)
+    monkeypatch.setattr(s13c, "run_jobs", lambda env, ctx, jobs: {"feature_build": RunResult("budget_stall", 85, 86),
+                                                                  "feature_build_2": RunResult("until", 85, 86)})
+
+    class Env_:
+        features, settings = F, S
+        paths = log = cal = None
+
+        def echo(self, *_):
+            pass
+
+    with pytest.raises(StopChunk) as e:
+        s13c.TuneJob._builds(None, Env_(), None, row, 1, [])
+    assert e.value.status == "budget_stall"
+
 # --- the scoring functions end to end on synthetic builds (reports and winners in a temporary folder) ------------------
 
 def _synthetic(tmp_path, monkeypatch, n_events=60, seed=0):

@@ -60,6 +60,7 @@ BUDGET_DIR = "build_budget"
 BUDGET_MUTEX = ".mutex"
 BUDGET_WAIT_SEC = 60.0   # longest wait for the budget mutex (held only while one start is decided) before a clean stop
 BUDGET_RETRY_SEC = 0.05
+BUDGET_STALL = "budget_stall"   # the stop status of a budget mutex that stayed locked (owner 2026-11-15; resumed by itself)
 GB = 2**30
 PROGRESS_KEEP = 50                     # the last pass-2 session times kept there (the per-session --until check)
 KILL_WAIT_SEC = 30.0                   # how long a killed session tree may take to go
@@ -383,9 +384,11 @@ def budget_mutex(paths) -> Iterator[None]:
     from nqbot.jobs.lock import JobLock, LockHeld
     from nqbot.jobs.runner import StopChunk
 
+    from nqbot.jobs.lock import LockReleaseFailed
+
     path = budget_dir(paths) / BUDGET_MUTEX
     path.parent.mkdir(parents=True, exist_ok=True)
-    lk = JobLock(path, "build budget")
+    lk = JobLock(path, "build budget", reclaim_own=True)   # one pool thread per process: our leftover is taken back
     t0 = _time.monotonic()
     while True:
         try:
@@ -393,12 +396,16 @@ def budget_mutex(paths) -> Iterator[None]:
             break
         except LockHeld as e:
             if _time.monotonic() - t0 > BUDGET_WAIT_SEC:
-                raise StopChunk(f"the build budget stayed locked for {BUDGET_WAIT_SEC:.0f} s: {e}") from None
+                raise StopChunk(f"the build budget stayed locked for {BUDGET_WAIT_SEC:.0f} s: {e}",
+                                status=BUDGET_STALL) from None
             _time.sleep(BUDGET_RETRY_SEC)
     try:
         yield
     finally:
-        lk.release()
+        try:
+            lk.release()
+        except LockReleaseFailed as e:   # the other build stalls on it until our next start takes it back
+            raise StopChunk(f"the build budget mutex could not be released: {e}", status=BUDGET_STALL) from None
 
 
 # --- the job -------------------------------------------------------------------------------------------------------
@@ -525,6 +532,7 @@ class FeatureBuildJob:
         queue = list(todo)
         peaks: list[float] = []
         failed, stop = [], None
+        stop_status = None   # a StopChunk's own status, kept for the stop at the end (a budget stall is not `until`)
         started: dict = {}
         n_done = of[0]
         deadline = getattr(ctx, "deadline", None)
@@ -597,7 +605,7 @@ class FeatureBuildJob:
                 except StopChunk as e:
                     if not running:
                         raise
-                    stop, queue = str(e), []   # the running sessions finish first, as for any stop
+                    stop, stop_status, queue = str(e), e.status, []   # the running sessions finish first
                     break
             if running or queue:
                 sleep(POLL_SEC)
@@ -620,7 +628,7 @@ class FeatureBuildJob:
             raise StopChunk(f"{len(failed)} session(s) failed in pass {pass_no}: "
                             f"{', '.join(str(d) for d, *_ in failed)} (see the log)", status="failures")
         if stop is not None:
-            raise StopChunk(stop)
+            raise StopChunk(stop, status=stop_status)
         return max(peaks) if peaks else None
 
     def at_end(self, ctx) -> None:

@@ -36,6 +36,7 @@ def test_queue_file_round_trip_ignores_comments_and_duplicates(paths):
 
 
 @pytest.mark.parametrize("end,action", [(None, "run"), ("until", "run"), ("ssd_missing", "run"), ("died", "run"),
+                                        ("budget_stall", "run"),   # owner 2026-11-15: a stuck two-builds mutex
                                         ("stopped", "wait"), ("credits", "wait"), ("failures", "wait"),
                                         ("low_space", "wait"), ("api_error", "wait")])
 def test_decide_resumes_only_clean_interruptions(end, action):

@@ -88,7 +88,8 @@ class Ctx:
 
 @dataclass
 class RunResult:
-    status: str  # complete | until | stopped | ssd_missing | low_space | lock_window | credits | api_error | failures
+    status: str  # complete | until | stopped | ssd_missing | low_space | lock_window | budget_stall | credits |
+    #              api_error | failures
     done: int
     total: int
     ran: list[str] = field(default_factory=list)

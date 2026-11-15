@@ -206,12 +206,13 @@ def test_budget_timeout_lets_running_sessions_finish(env, monkeypatch):
     def mutex(paths):
         calls["n"] += 1
         if calls["n"] > 1:
-            raise StopChunk("the build budget stayed locked for 60 s")
+            raise StopChunk("the build budget stayed locked for 60 s", status=fbj.BUDGET_STALL)
         yield
     monkeypatch.setattr(fbj, "budget_mutex", mutex)
     with pytest.raises(StopChunk, match="budget stayed locked") as ex:
         job.run_chunk(ids[-1], ctx)
-    assert ex.value.status is None                             # a clean stop: resumed by itself
+    # owner 2026-11-15: the stall keeps its own status through the pool (it was turned into a plain `until`)
+    assert ex.value.status == fbj.BUDGET_STALL                 # a clean stop: resumed by itself
     assert len(seen["started"]) == 1 and seen["ended"] == seen["started"]
 
 

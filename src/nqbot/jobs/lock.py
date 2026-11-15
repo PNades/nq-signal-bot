@@ -16,6 +16,7 @@ with the exclusive holder. Each shared holder has its own file beside the lock (
 from __future__ import annotations
 
 import json
+import logging
 import os
 import socket
 import time
@@ -30,6 +31,14 @@ SKYLIT, DATABENTO = "skylit", "databento"
 ALL_LOCKS = (SKYLIT, DATABENTO)  # also the acquisition order
 LOCK_FILES = {SKYLIT: ".nqbot_skylit.lock", DATABENTO: ".nqbot_databento.lock"}
 SHARED_TAG = ".shared-"
+# Release (owner 2026-11-15, after the build-budget mutex stuck twice on 2026-11-15): Windows refuses to delete a file
+# another process has open (WinError 32), and a starter waiting for a lock opens it every 50 ms to read the holder, so
+# the delete is retried for this long before it fails loudly (it used to fail silently, leaving a live holder's lock).
+RELEASE_WAIT_SEC = 5.0
+RELEASE_RETRY_SEC = 0.05
+
+_log = logging.getLogger("nqbot")
+_HELD_HERE: set[str] = set()   # lock files a JobLock of this process holds now (for `reclaim_own`)
 
 
 def lock_path(root: Path, kind: str) -> Path:
@@ -53,6 +62,10 @@ class LockHeld(Exception):
             f"job lock {path} is held by {who}. If that job is no longer running (e.g. the SSD was "
             f"unplugged from the other machine), run: {unlock_cmd}"
         )
+
+
+class LockReleaseFailed(OSError):
+    """Our lock file could not be removed within RELEASE_WAIT_SEC (it stays, held by this live process)."""
 
 
 def _create_time(pid: int) -> float | None:
@@ -125,9 +138,12 @@ def take_stale(path: Path, holder: dict | None) -> None:
 
 class JobLock:
     def __init__(self, path: Path, job: str, unlock_cmd: str = "uv run nqbot unlock",
-                 shared_of: tuple[Path, str] | None = None):
+                 shared_of: tuple[Path, str] | None = None, reclaim_own: bool = False):
         self.path = path
         self.shared_of = shared_of   # (root, kind) of an exclusive data lock: it also waits for no shared holder
+        # a lock only one thread of a process ever takes (the build-budget mutex): one held by this very process that
+        # no JobLock of ours holds can only be left by a release that failed, so it is taken back (owner 2026-11-15)
+        self.reclaim_own = reclaim_own
         self.job = job
         self.unlock_cmd = unlock_cmd
         self.host = socket.gethostname()
@@ -143,6 +159,11 @@ class JobLock:
                 if attempt == 0 and self._stale(holder):
                     take_stale(self.path, holder)
                     continue
+                if attempt == 0 and self._own_leftover(holder):
+                    _log.warning("%s: taking back our own leftover lock %s (an earlier release failed)", self.job,
+                                 self.path)
+                    take_stale(self.path, holder)
+                    continue
                 raise LockHeld(self.path, holder, self.unlock_cmd) from None
             info = {
                 "host": self.host,
@@ -156,6 +177,7 @@ class JobLock:
                 f.flush()
                 os.fsync(f.fileno())
             self._held = True
+            _HELD_HERE.add(str(self.path))
             if self.shared_of is not None:
                 self._refuse_if_shared(*self.shared_of)
             return
@@ -172,15 +194,52 @@ class JobLock:
             raise LockHeld(path, holder, self.unlock_cmd)
 
     def release(self) -> None:
-        """Remove our lock. If the SSD is gone this can't be done: the lock stays (see `nqbot unlock`)."""
-        if self._held:
-            holder = read_lock(self.path)
-            if holder and holder.get("host") == self.host and holder.get("pid") == self.pid:
-                try:
-                    self.path.unlink(missing_ok=True)
-                except OSError:
-                    pass
-            self._held = False
+        """Remove our lock. A delete (or read) refused because another process has the file open is retried for
+        RELEASE_WAIT_SEC, then logged and raised (`LockReleaseFailed`; owner 2026-11-15). A lock no longer ours is
+        left alone. If the SSD is gone this can't be done: the lock stays (see `nqbot unlock`)."""
+        if not self._held:
+            return
+        try:
+            self._remove_ours()
+        finally:
+            if not self._held:
+                _HELD_HERE.discard(str(self.path))
+
+    def _remove_ours(self) -> None:
+        t0 = time.monotonic()
+        while True:
+            try:
+                with open(self.path, encoding="utf-8") as f:
+                    holder = json.load(f)
+                if not (isinstance(holder, dict) and holder.get("host") == self.host
+                        and holder.get("pid") == self.pid):
+                    self._held = False   # someone else's now: never removed
+                    return
+                self.path.unlink()
+                self._held = False
+                return
+            except FileNotFoundError:
+                self._held = False       # gone already, or the SSD with it (the lock stays: `nqbot unlock`)
+                return
+            except (OSError, ValueError) as e:
+                if not self.path.parent.exists():
+                    self._held = False   # the SSD went away
+                    return
+                if time.monotonic() - t0 > RELEASE_WAIT_SEC:
+                    self._held = False   # not ours to retry again; a reclaim_own lock is taken back next time
+                    _log.error("%s: could not remove our lock %s within %.0f s: %s", self.job, self.path,
+                               RELEASE_WAIT_SEC, e)
+                    raise LockReleaseFailed(f"could not remove the lock {self.path} within "
+                                            f"{RELEASE_WAIT_SEC:.0f} s: {e}") from e
+                time.sleep(RELEASE_RETRY_SEC)
+
+    def _own_leftover(self, holder: dict | None) -> bool:
+        """This live process's own lock, while no JobLock of ours holds it (only with `reclaim_own`)."""
+        if not (self.reclaim_own and not self._held and str(self.path) not in _HELD_HERE and holder
+                and holder.get("host") == self.host and holder.get("pid") == self.pid):
+            return False
+        recorded, created = holder.get("pid_created"), _create_time(self.pid)
+        return recorded is None or created is None or abs(created - recorded) <= 1
 
     def _stale(self, holder: dict | None) -> bool:
         if holder is None or holder.get("host") != self.host:
