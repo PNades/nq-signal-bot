@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- the per-launch token: `nqbot ui` replaces the placeholder in every copy of this page it serves (SPEC §9b) -->
+  <meta name="cf-token" content="__CF_TOKEN__">
+  <!-- this launch's style nonce: the two libraries that insert a <style> element at run time carry it (CSP) -->
+  <meta name="cf-nonce" content="__CF_NONCE__">
+  <title>CreamFlow</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <!-- boot.css styles the splash, the noscript block and the watchdog notice even when the app's bundle fails -->
+  <link rel="stylesheet" href="/boot.css">
+</head>
+<body>
+  <a class="cf-skip" href="#cf-main">Skip to content</a>
+  <noscript>
+    <div class="cf-boot-notice">JavaScript is off, so the panel can't run. Kill and flat still work:
+      <a href="/emergency">open the emergency page</a>.</div>
+  </noscript>
+  <div id="cf-watchdog-notice" class="cf-boot-notice" hidden>The panel hasn't started. Kill and flat still work:
+    <a href="/emergency">open the emergency page</a>.</div>
+  <div id="root"><div class="cf-splash" aria-label="CreamFlow is loading"><span class="cf-splash-mark">Cream<i>Flow</i></span></div></div>
+  <!-- load watchdog (SPEC §9b): allowed by its CSP hash, computed by the server from this exact text -->
+  <script id="cf-watchdog">setTimeout(function(){if(!window.__cfMounted){var n=document.getElementById("cf-watchdog-notice");if(n){n.hidden=false;}}},6000);</script>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

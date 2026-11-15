@@ -37,6 +37,15 @@
 - **Ticker tape** (28 px, under the top bar): the day's key levels and their state, marquee in Full, a static
   scrollable row in Calm; paused on hover.
 - **Critical banner** slot under the ticker: crit alerts stay until acknowledged, stacked, newest first.
+- **Banners (owner 2026-11-15):** info banners slide down with a short fade (220 ms) and fade out after ~5 s, the
+  countdown paused while the pointer is over them, "Got it" closes at once; warnings and critical alerts never fade by
+  themselves; critical ones appear at once without motion (MASTER §7). Calm: no motion.
+- **Bell (owner 2026-11-15):** in the top bar before KILL; the history of every banner and toast shown in this tab
+  (sessionStorage, last 100), tabs All / Alerts / Info, unread badge (crit-red while a critical one is unread); its
+  panel opens below the banner stack, never over a banner.
+- **Date block (owner 2026-11-15):** the serif day number with "NOV 2026 / SUN · EASTERN", New York's date, fixed in the
+  bottom-left corner on every page (Home too) on a dark chip like the dock; pages keep at least 76 px bottom room;
+  hidden below 900 px (the top bar's clock stays). Home's scene (stage 2) keeps that corner clear.
 - **Page header:** eyebrow, two-line title (second line cream italic), one-line subtitle; then KPI row, tabs, body.
 
 ## z-index scale

@@ -1,0 +1,13 @@
+/* Loaded before the app bundle (index.html): the static splash, the skip link and the notices that link to
+   /emergency when JavaScript is off or the app hasn't mounted (SPEC §9b kill/flat fallback). No fonts, no images. */
+html, body { height: 100%; margin: 0; background: #111111; color: #eeeeee; }
+.cf-splash { position: fixed; inset: 0; display: grid; place-items: center; background: #111111; }
+.cf-splash-mark { font: 400 64px/1 "Instrument Serif", Georgia, serif; letter-spacing: -0.02em; color: #ffe0c2; }
+.cf-splash-mark i { font-style: italic; }
+.cf-boot-notice { position: fixed; z-index: 80; top: 0; left: 0; right: 0; padding: 14px 20px; background: #d4232a;
+  color: #fff; font: 600 15px/22px system-ui, sans-serif; }
+.cf-boot-notice a { color: #fff; text-decoration: underline; }
+.cf-boot-notice[hidden] { display: none; }
+.cf-skip { position: absolute; left: 8px; top: -60px; z-index: 90; padding: 8px 12px; background: #2a2a2a; color: #ffe0c2;
+  border-radius: 6px; font: 500 13px/18px system-ui, sans-serif; }
+.cf-skip:focus { top: 8px; }

@@ -1,0 +1,128 @@
+{
+  "stage": "1b",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "kill_dialog_1440": {
+      "focusOnKill": true,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "banner_info_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "date_block_home_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Home"
+    },
+    "kill_dialog_960": {
+      "focusOnKill": true,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "banner_info_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "date_block_home_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Home"
+    },
+    "kill_keys": {
+      "closedByEsc": true,
+      "enterSentKill": true
+    },
+    "banner_timing": {
+      "shownAt": 1,
+      "goneAfter": true,
+      "staysWhileHovered": true,
+      "goneAfterLeave": true,
+      "critStays": true,
+      "historyRows": 3
+    },
+    "bell_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Settings"
+    },
+    "palette_1440": {
+      "top": 224,
+      "topAfterTyping": 224,
+      "heightBefore": 358,
+      "heightAfter": 358,
+      "centreShare": 0.448,
+      "fieldOutline": "none"
+    },
+    "palette_960": {
+      "top": 178,
+      "topAfterTyping": 178,
+      "heightBefore": 358,
+      "heightAfter": 358,
+      "centreShare": 0.446,
+      "fieldOutline": "none"
+    },
+    "date_block_1440": {
+      "visible": true,
+      "date": {
+        "x": 16,
+        "y": 840,
+        "w": 159,
+        "h": 44
+      },
+      "gapToDock": 323
+    },
+    "date_block_1280": {
+      "visible": true,
+      "date": {
+        "x": 16,
+        "y": 740,
+        "w": 159,
+        "h": 44
+      },
+      "gapToDock": 243
+    },
+    "date_block_960": {
+      "visible": true,
+      "date": {
+        "x": 16,
+        "y": 740,
+        "w": 159,
+        "h": 44
+      },
+      "gapToDock": 83
+    },
+    "date_block_899": {
+      "visible": false,
+      "date": null,
+      "gapToDock": null
+    }
+  }
+}

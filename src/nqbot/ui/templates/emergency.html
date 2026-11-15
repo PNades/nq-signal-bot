@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="$refresh_sec">
+  <title>CreamFlow · Emergency</title>
+  <link rel="stylesheet" href="/emergency.css">
+</head>
+<body>
+  <main>
+    <p class="eyebrow">CREAMFLOW / EMERGENCY</p>
+    <h1>Kill and flat</h1>
+    <p class="lead">This page has no JavaScript and doesn't need the panel's app. It refreshes every $refresh_sec s
+      ($now_et ET). The same actions: <code>nqbot kill</code> / <code>nqbot flat</code> (step 22) and Discord
+      <code>!kill</code> / <code>!flat</code>.</p>
+    $reason
+    $result
+    <section class="actions" aria-label="Actions">
+      <form method="post" action="/emergency/action">
+        <input type="hidden" name="token" value="$token">
+        <input type="hidden" name="action" value="kill">
+        <button class="kill" type="submit">KILL</button>
+        <span>Sends <code>exit</code> to every account and ticker, then blocks new entries until the next session (the engine keeps running so the exits can retry).</span>
+      </form>
+      <form method="post" action="/emergency/action">
+        <input type="hidden" name="token" value="$token">
+        <input type="hidden" name="action" value="flat">
+        <button class="flat" type="submit">FLATTEN ALL</button>
+        <span>Sends <code>exit</code> to every account and ticker (this also removes pending entries), and pauses new entries until Resume.</span>
+      </form>
+      <form method="post" action="/emergency/action">
+        <input type="hidden" name="token" value="$token">
+        <input type="hidden" name="action" value="pause">
+        <button class="plain" type="submit">PAUSE</button>
+        <span>Stops new entries and removes pending unfilled entries; open trades are untouched.</span>
+      </form>
+      <form method="post" action="/emergency/action">
+        <input type="hidden" name="token" value="$token">
+        <input type="hidden" name="action" value="resume">
+        <button class="plain" type="submit">RESUME</button>
+        <span>Allows new entries again.</span>
+      </form>
+    </section>
+    <h2>Engine</h2>
+    <table>
+      <tbody>
+        <tr><th scope="row">State</th><td>$engine_state</td></tr>
+        <tr><th scope="row">Note</th><td>$engine_note</td></tr>
+        <tr><th scope="row">SSD</th><td>$ssd</td></tr>
+        <tr><th scope="row">Machine</th><td>$host</td></tr>
+      </tbody>
+    </table>
+    <h2>Accounts</h2>
+    $accounts
+    <p class="foot">$app_link</p>
+  </main>
+</body>
+</html>

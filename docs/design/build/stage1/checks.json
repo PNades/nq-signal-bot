@@ -1,0 +1,130 @@
+{
+  "stage": "1",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "accounts_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "performance_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Performance"
+    },
+    "accounts_1280": {
+      "flatH": 36,
+      "flatRight": 1260,
+      "flatFits": true,
+      "barW": 1280,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "performance_1280": {
+      "flatH": 36,
+      "flatRight": 1260,
+      "flatFits": true,
+      "barW": 1280,
+      "barOverflow": false,
+      "title": "CreamFlow · Performance"
+    },
+    "accounts_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "performance_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Performance"
+    },
+    "home_placeholder_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Home"
+    },
+    "palette_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "shortcuts_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "kill_confirm_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "flat_result_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "flat_result_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "dock_minimized_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Settings"
+    },
+    "dock_hover_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "calm_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Settings"
+    },
+    "splash": {
+      "flatAllVisibleDuringSplash": true
+    }
+  }
+}

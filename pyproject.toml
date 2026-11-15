@@ -21,8 +21,9 @@ dependencies = [
     "ruamel.yaml",
     "scikit-learn",
     "shap",
-    "streamlit",
+    "starlette>=1.7.0",
     "tzdata",
+    "uvicorn>=0.54.0",
 ]
 
 [project.scripts]

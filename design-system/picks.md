@@ -72,3 +72,15 @@ Also in use: KPI Tile 40086, Animated Tabs 24930.
 | One account at a time on Drawdown and Monte Carlo | the account switcher sits in the page-tab row, centred, after a faint divider: the same underline tabs, one per account with its name and a small type badge; fades in on Drawdown / Monte Carlo, stays between them, fades out elsewhere; ← → switch accounts; it follows the page's account filter (and moves it); a compact dropdown in the same spot when the row can't hold it (2026-11-15; a Waterline bar was tried and dropped) |
 | Mock accounts | mffur1 MFFU Rapid EOD 25k evaluation, mffub1 MFFU Builder 25k funded, lucid1 Lucid Flex 25k funded, each with its SPEC §6.7 preset rules (2026-11-15) |
 | Account filter | every view (KPIs, equity, calendar, trades) follows it |
+
+## Panel build, stage 1 changes (2026-11-15)
+
+| Pick | What it means |
+|---|---|
+| KILL dialog | 21st.dev Alert Dialog Layout 28277, its split layout: a crit-tinted band with the icon and the title, then what KILL does line by line (SPEC §9c `!kill`, word for word), a note when no engine runs here, Cancel (Esc) and KILL (Enter); focus on KILL at open, Esc / Cancel / backdrop back out, never hold-to-confirm, appears at once |
+| Banners | info banners slide down with a short fade and fade out after ~5 s, paused while the pointer is over them, "Got it" closes at once; warning and critical banners never fade by themselves; critical ones appear without motion (MASTER §7) |
+| Notification history | a bell in the top bar (before KILL): every banner and toast shown in the tab, newest first, tabs All / Alerts / Info, unread count (crit-red while a critical one is unread); the panel opens below the banner stack, never over it |
+| Date block | the old sidebar's date block (serif day number, "NOV 2026 / SUN · EASTERN") fixed in the bottom-left corner of every page, Home included; pages keep at least 76 px of bottom room; hidden below 900 px |
+| Command palette | no outline on its search field (a faint line under it only); its top sits so the palette is centred slightly above the middle (46% of the height) and stays put while typing |
+| KILL dialog: the band variant (2026-11-15) | picked over "ledger" and "seal" (`docs/design/build/stage1c/`): the red gradient band with a solid red badge and the serif title, the list with count chips; it sits ~26 px above the vertical centre; Esc closes it wherever focus is; a click on its text keeps focus on KILL; an outside click does nothing |
+| Focus rings (2026-11-15) | only for keyboard navigation: hidden while the last input was the mouse |

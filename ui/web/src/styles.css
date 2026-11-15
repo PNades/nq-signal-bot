@@ -1,0 +1,123 @@
+@import "tailwindcss";
+@import "@fontsource/instrument-serif/400.css";
+@import "@fontsource/instrument-serif/400-italic.css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+/* CreamFlow tokens: design-system/MASTER.md §3-§7. Surfaces, lines, text, accents and radii from the
+   21st.dev theme Cocoa Amber (serafimcloud), picked by the owner 2026-11-14; state, P&L and chart colours are CreamFlow's. */
+@theme {
+  --font-display: "Instrument Serif", Georgia, serif;
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+
+  --color-bg-0: #111111;
+  --color-bg-1: #18181b;
+  --color-bg-2: #191919;
+  --color-bg-3: #2a2a2a;
+  --color-bg-inset: #0c0c0c;
+  --color-line: #201e18;
+  --color-line-strong: #484848;
+  --color-line-chart: #1e1e1e;
+  --color-text-1: #eeeeee;
+  --color-text-2: #b4b4b4;
+  --color-text-3: #b4b4b4;
+  --color-cream: #ffe0c2;
+  --color-gold: #ffe0c2;
+  --color-caramel: #393028;
+  --color-ember: #ff9a3c;
+  --color-ok: #5fd39b;
+  --color-warn: #ffc93d;
+  --color-crit: #ff4f4f;
+  --color-crit-fill: #d4232a;
+  --color-info: #8fb3ff;
+  --color-pnl-up: #5fd39b;
+  --color-pnl-down: #ff7b6e;
+  --color-candle-up: #efe6d2;
+  --color-candle-down: #8494e6;
+  --color-orb-pika: #f2b950;
+  --color-orb-barney: #dd9be0;
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 8px;
+
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-enter: cubic-bezier(0, 0, 0.2, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* shadcn colour names used by the 21st.dev components, mapped onto the CreamFlow tokens (so a theme change
+   reaches them too). Positive news in the KPI components is P&L green, negative P&L red (MASTER §3.5). */
+@theme inline {
+  --color-background: var(--color-bg-0);
+  --color-foreground: var(--color-text-1);
+  --color-card: var(--color-bg-2);
+  --color-card-foreground: var(--color-text-1);
+  --color-popover: var(--color-bg-3);
+  --color-popover-foreground: var(--color-text-1);
+  --color-muted: var(--color-bg-3);
+  --color-muted-foreground: var(--color-text-2);
+  --color-border: var(--color-line-strong);
+  --color-input: var(--color-line-strong);
+  --color-ring: var(--color-cream);
+  --color-primary: var(--color-gold);
+  --color-primary-foreground: #081a1b;
+  --color-destructive: var(--color-pnl-down);
+  --color-brand: var(--color-gold);
+  --color-chart-2: var(--color-pnl-up);
+}
+
+:root { color-scheme: dark; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--color-bg-0);
+  color: var(--color-text-1);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-3);
+}
+:focus-visible { outline: 2px solid var(--color-cream); outline-offset: 2px; }
+
+/* ── App-wide additions for the real panel (step 14) ───────────────────────────────────────────────────────── */
+/* z-index scale (design-system/pages/shell.md): base 0, sticky 10, sidebar 20, topbar 30, popover 40, dialog 50,
+   toast 60, critical 70 (the critical banner and the kill confirm). */
+@theme {
+  --z-sticky: 10; --z-topbar: 30; --z-popover: 40; --z-dialog: 50; --z-toast: 60; --z-critical: 70;
+  --d-instant: 80ms; --d-fast: 150ms; --d-base: 220ms; --d-slow: 320ms; --d-number: 400ms;
+}
+@keyframes cf-tape { from { transform: translateX(0) } to { transform: translateX(-50%) } }
+@keyframes cf-skeleton { 0% { opacity: .55 } 50% { opacity: .9 } 100% { opacity: .55 } }
+.cf-skeleton { background: var(--color-bg-3); border-radius: var(--radius-sm); animation: cf-skeleton 1.6s ease-in-out infinite; }
+[data-effects="calm"] .cf-skeleton { animation: none; opacity: .7; }
+.cf-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+/* the static splash from boot.css hides once the app has mounted */
+.cf-skip { position: absolute; left: 8px; top: -60px; z-index: 90; }
+.cf-skip:focus { top: 8px; }
+.cf-stale { color: var(--color-text-3); text-decoration: underline dashed; text-underline-offset: 3px; }
+/* press feedback (Full): every button scales a little while pressed; Calm turns transitions off */
+[data-effects="full"] button:not(:disabled):active { transform: scale(.98); }
+button { transition: color var(--d-fast) var(--ease-standard), background-color var(--d-fast) var(--ease-standard), border-color var(--d-fast) var(--ease-standard), transform var(--d-instant) var(--ease-standard); }
+[data-effects="calm"] * { transition-duration: 0ms !important; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+}
+/* fields whose surroundings already show focus (the open command palette's search field): no cream box, the caret
+   and the palette itself are the cue (owner 2026-11-15). Unlayered, so it beats the global :focus-visible rule. */
+.cf-bare-focus:focus-visible { outline: none; }
+/* focus rings only for keyboard navigation (owner 2026-11-15): hidden while the last input was the mouse (main.tsx sets
+   <html data-input>); they come back on the next key press. */
+[data-input="pointer"] :focus-visible { outline: none !important; }

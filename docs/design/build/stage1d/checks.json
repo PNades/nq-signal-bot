@@ -1,0 +1,39 @@
+{
+  "stage": "1d",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "kill_dialog_1440": {
+      "cardCentreAboveMiddlePx": 26,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "kill_dialog_960": {
+      "cardCentreAboveMiddlePx": 26,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "behaviour": {
+      "focusStaysOnKillAfterTextClick": true,
+      "escClosesAfterTextClick": true,
+      "outsideClicksKeepItOpen": true,
+      "focusStillOnKill": true,
+      "escClosesAfterOutsideClicks": true,
+      "closedByCancel": true,
+      "focusBackOnTopKill": true,
+      "noRingAfterMouse": true,
+      "ringWithKeyboard": true
+    },
+    "video": {
+      "path": "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage1d\\kill_dialog_behaviour_1440.webm"
+    }
+  }
+}

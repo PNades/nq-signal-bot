@@ -51,3 +51,10 @@ Open them live: `npx vite preview` in `docs/design/mock/`, then `http://127.0.0.
 | `docs/design/video/step4_dock_minimize.webm` (≈ 14 s) | The floating dock minimizing into one circle and expanding again: `&dockmin=centre` (the circle stays at the bottom centre), then `&dockmin=corner` (it moves to the bottom-right corner). From `docs/design/mock/shot-round2.mjs` |
 
 Round-2 screenshots: `docs/design/step4/round2/` (summary in `docs/design/step4_round2.md`).
+
+## Step 14 build, stage 1 changes (2026-11-15)
+
+| Video | Shows |
+|---|---|
+| `docs/design/video/stage1c/banners_appear_fade_1440.webm` (≈ 14 s) | Banners at 1440 px: a FLAT ALL "nothing was sent" banner slides in, a second stacks on top, both fade after ~5 s and fold away (the page below glides up); a third is closed with Got it. From `ui/web/scripts/shoot.mjs 1c` |
+| `docs/design/video/stage1d/kill_dialog_behaviour_1440.webm` (≈ 12 s) | The KILL dialog (band): open, click on its text (focus stays on KILL), Esc closes; open, three clicks outside (nothing happens), Esc; open, Cancel with the mouse (no ring on the top-bar KILL); Shift+Tab / Tab brings the keyboard ring back. From `ui/web/scripts/shoot.mjs 1d` |

@@ -72,6 +72,39 @@ def _resolve_paths(settings: dict):
     raise first
 
 
+def _add_ui(sub) -> None:
+    ui = sub.add_parser("ui", help="CreamFlow, the Control Panel (SPEC §9b): serve it on 127.0.0.1:<ui_port>; "
+                                   "`ui build` builds its app (npm ci, npm audit, vite build)")
+    ui.add_argument("--synthetic", action="store_true",
+                    help="show the synthetic ledger and review cards (labelled SYNTHETIC DATA) instead of real ones")
+    ui.add_argument("--no-open", action="store_true", help="don't open the browser")
+    ui_sub = ui.add_subparsers(dest="action")
+    ui_sub.add_parser("build", help="npm ci from the committed lockfile, npm audit (fails on high or critical), "
+                                    "vite build into the git-ignored ui/web/dist/")
+
+
+def _run_ui(args, settings: dict) -> int:
+    if args.action == "build":
+        from nqbot.ui.build import build
+
+        return build()
+    from nqbot.storage import SSDNotFound
+    from nqbot.ui.app import PanelConfig
+    from nqbot.ui.serve import BindRefused, run
+
+    def paths_fn():
+        try:
+            return resolve_paths(settings)
+        except SSDNotFound:
+            return None
+
+    cfg = PanelConfig(port=int(settings["ui_port"]), paths_fn=paths_fn, synthetic=args.synthetic)
+    try:
+        return run(cfg, open_browser=not args.no_open)
+    except BindRefused as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return EXIT_REFUSED
+
 def _main(argv: list[str] | None = None) -> int:
     # The Windows console is cp1252: never crash on a character it can't show.
     for stream in (sys.stdout, sys.stderr):
@@ -145,6 +178,7 @@ def _main(argv: list[str] | None = None) -> int:
     _add_skylit(sub)
     _add_databento(sub)
     _add_gameplan(sub)
+    _add_ui(sub)
     args, extra = parser.parse_known_args(argv)
     if extra and args.command != "test":  # only `nqbot test` passes unknown arguments on (to pytest)
         parser.error(f"unrecognized arguments: {' '.join(extra)}")
@@ -158,6 +192,8 @@ def _main(argv: list[str] | None = None) -> int:
         from nqbot.preflight import preflight
 
         return EXIT_WARN if preflight(settings)["warnings"] else 0
+    if args.command == "ui":  # before resolve_paths: the panel and its /emergency page work without the SSD
+        return _run_ui(args, settings)
     if args.command == "setup-ssd":  # before resolve_paths: paths.root and the marker don't exist yet
         return _run_setup_ssd(args, settings)
     if args.command == "keys-check":  # needs no SSD

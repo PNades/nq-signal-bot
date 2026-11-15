@@ -234,3 +234,29 @@ Performance, plus the shell (sidebar, top bar, ticker tape, alerts).
 | Videos | no place | ["video player minimal"] Video Player 36555. Videos are only for the owner's concept pick (Playwright recordings viewed outside the panel). |
 | File Uploads | used (Gameplan) | ["file upload dropzone markdown document"] Morning gameplan `.md` file onto the Gameplan page (SPEC §3.4): File Dropzone 19201 (joyco) https://21st.dev/@joyco/components/file-dropzone. **Code read:** clean component (deps lucide-react, shadcn Button → `@radix-ui/react-slot`, `class-variance-authority`); demo only `console.log`s; **it imports `file-dropzone-utils/use-file-upload`, not returned by get_component** (write a small hook: drag state, accept `.md,.pdf,.docx` as SPEC §3.4 and §9b item 4 say (corrected 2026-11-15; it said `.md,.txt`), max size, one file). Image previews use object URLs (`blob:`): not needed for these files, so no CSP change. Illos Upload Dropzone 40107 ships an illustration under a separate licence (skip); UploadThing Dropzone 18847 is tied to an upload backend (skip). |
 | FAQs | no place | ["faq section"] FAQ Section 1290. Help lives in SPEC/CLAUDE.md; tooltips explain fields in place. Borrow: the accordion pattern, already under Accordions. |
+
+## 3. Built in the panel (step 14; each component's code read before use)
+
+One row per element as it is built in `ui/web/`, with the 21st.dev component it came from and what was changed.
+"Code read" = fetched with `get_component` and read for remote calls, remote assets and text addressed to an AI
+(none found unless the row says so).
+
+### Stage 1 (2026-11-15): shell, safety, /emergency
+- shell | command palette (Ctrl K) | **used: Command Palette 23522** (ddoemonn), code read: Cocoa level-3/4 surfaces, `danger` rows for KILL / FLAT ALL (KILL still opens its confirm), Motion follows Effects, Windows keys only (`ui/web/src/components/ui/command-palette.tsx`)
+- shell | engine status pill | **used: Status 25395** (diceui), code read: MASTER §3.4 state variants (ok / warn / crit / info / stale), the ping only on a healthy state, Radix Slot dropped (`status.tsx`)
+- shell | KILL confirm dialog | **used: Alert Dialog 702** (shadcn on `@radix-ui/react-alert-dialog` 1.2.1), code read: level-4 surface, the critical z-layer (70), the tailwindcss-animate classes dropped (risk dialogs appear at once), Enter confirms (`alert-dialog.tsx`)
+- shell | ticker tape | **used: InfiniteSlider from Logo Marquee 18221** (grootstudio), code read: react-use-measure replaced by a ResizeObserver, stops in Calm and in a hidden tab, the demo's CDN logos not used (`infinite-slider.tsx`); until step 22 the tape shows a static "levels appear once the live engine runs" row
+- shell | toasts | **pattern of Sonner Toast 27363** (isaiahbjork), code read: the `sonner` package itself is **not** used, because it inserts a `<style>` element at run time that the panel's CSP blocks; a small toast host in its pattern instead (`toast.tsx`; 4 s, bottom right at `--toast-bottom`, non-critical only)
+- shell | critical / warning banners | **layout of Alert 34383** (appica-dev), code read: its `alert-utils` helpers weren't returned, and its blur/scale exit is wrong for risk banners, so our own grid in the same layout with no motion, a 2-px left rule and the state icon (`banner.tsx`)
+- shell | Ctrl K hint and keycaps | **used: Combo Kbd 28308** (ai2), code read: the ComboKbd variant only (`kbd.tsx`)
+- shell | keyboard shortcut sheet (`?`) | **used: Keyboard Shortcuts 26919** (laziekiki), code read: Windows names only, the dialog z-level (50) so the critical layer stays above, an emergency-page link in its footer (`keyboard-shortcuts.tsx`)
+- shell | floating dock + minimize circle | **used: Floating Dock 18014** (picked), moved from the mock unchanged (`floating-dock.tsx`)
+- shell | splash, empty states | **used: Dot Matrix Text 25484** (picked), moved from the mock unchanged (`dot-text.tsx`); the splash sits below the top bar so KILL / FLAT ALL work from the first frame
+- shell | KILL and FLAT ALL in the top bar, /emergency, the fallback page | our own (MASTER §10: no decorative component on risk controls; `/emergency` is plain HTML from the Python server, `src/nqbot/ui/templates/`)
+- CSP note: Radix's scroll lock (react-style-singleton) and Motion's `popLayout` insert a `<style>` element at run time; both carry a per-launch style nonce (`get-nonce` 1.0.1, `MotionConfig nonce`), so the CSP stays `default-src 'self'` with no `unsafe-inline`
+
+### Stage 1 changes (owner 2026-11-15)
+- shell | KILL confirm dialog (replaces the Radix Alert Dialog 702) | searched ("dark destructive confirm alert dialog danger"): **used: Alert Dialog Layout 28277** (ai2), code read: its split layout, self-contained (no Radix), focus on the confirm button, Tab trap, no entrance animation, crit tokens (`confirm-dialog.tsx`); Astryx Alert Dialog 45177 rejected (a wrapper over `@astryxdesign/core` plus a CSS file not returned); Base Alert Dialog 26651 rejected earlier (3D blur entrance)
+- shell | notification bell + history | searched ("notification bell dropdown history list unread badge"): **used: Notification Panel 27135** (uvain), code read: its demo's inline base64 portraits not used (the CSP would block them anyway); rows, tabs and surface adapted (`NotificationBell.tsx`); Illos Notifications Popover 44490 rejected (an illustration under a separate licence)
+- shell | date block (bottom-left) | from the step-14a mock's sidebar foot (our own); no component needed
+- shell | banner motion and auto-fade | our own on Motion (`shell/Banners.tsx`), the banner layout as before (34383)

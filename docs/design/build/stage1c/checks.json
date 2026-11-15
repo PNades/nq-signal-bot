@@ -1,0 +1,120 @@
+{
+  "stage": "1c",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "topbar_1440": {
+      "gapBellToKill": 20,
+      "gapEffectsToBell": 78,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "topbar_960": {
+      "gapBellToKill": 20,
+      "gapEffectsToBell": 10,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "kill_ledger_1440": {
+      "focusOnKill": true,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "kill_ledger_960": {
+      "focusOnKill": true,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "kill_band_1440": {
+      "focusOnKill": true,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "kill_band_960": {
+      "focusOnKill": true,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "kill_seal_1440": {
+      "focusOnKill": true,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "kill_seal_960": {
+      "focusOnKill": true,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "palette_outside_1440": {
+      "left of it": true,
+      "right of it, same height": true,
+      "below it": true,
+      "inside stays open": true
+    },
+    "palette_outside_960": {
+      "left of it": true,
+      "right of it, same height": true,
+      "below it": true,
+      "inside stays open": true
+    },
+    "banner_collapse": {
+      "headingYWithBanner": 181,
+      "headingYAfter": 132,
+      "samples": [
+        181,
+        181,
+        181,
+        177,
+        156,
+        144,
+        137,
+        133,
+        132,
+        132,
+        132,
+        132,
+        132,
+        132
+      ],
+      "inBetweenPositions": 5
+    },
+    "banner_collapse_calm": {
+      "goneWithin60ms": true
+    },
+    "video": {
+      "path": "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage1c\\banners_appear_fade_1440.webm"
+    }
+  }
+}
