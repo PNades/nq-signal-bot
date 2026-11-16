@@ -7,6 +7,9 @@
   a glass bar at the bottom centre, 16 px above the edge, 64 px high, one round icon per page in sidebar order (Home,
   Live from step 21, Gameplan, Accounts, Settings, Review, Performance) with a tooltip on hover, magnification as the
   pointer passes (none in Calm), the current page marked by a gold wash and a cream dot.
+  Magnification up to 1.2× only (owner 2026-11-15). The unsaved-changes bar follows the dock: just above it, clear of
+  its hover labels, while it is open; near the bottom edge while it is minimized; a 220-ms slide, instant in Calm.
+  Toasts keep clear of the dock and of that bar.
   - **Not on Home:** Home's six nodes, keys `1`–`6` and `Ctrl K` cover navigation there.
   - **Minimize circle** at the end of the bar, behind a hairline: it collapses the dock into one 44-px glass circle,
     and clicking the circle expands it again (one shell morphs between bar and circle, a short spring; contents fade;
@@ -25,7 +28,8 @@
 - The sidebar (248 px, collapsible) and the Waterline bar stay in the design workspace only for comparison
   (`&nav=sidebar`, `&nav=waterline`).
 - **Top bar** (`bg-1`, 52 px): breadcrumb eyebrow `CREAMFLOW / <PAGE>`, account switcher (name + a small phase badge,
-  e.g. `EVAL`), engine status pill, ET clock (mono, recomputed every second from the system clock, stale cue if the
+  e.g. `EVAL`; a dropdown listing every account with its room to the floor, today's P&L, progress and lives, owner
+  2026-11-15; picking one sets the panel's focus account, never which accounts trade), engine status pill, ET clock (mono, recomputed every second from the system clock, stale cue if the
   clock check fails), Effects toggle (Full / Calm, shows "Calm (auto)" when forced), the `Ctrl K` hint (Windows: never
   `⌘`), and on the far right the **FLAT ALL** control (MASTER §10). Nothing ever covers the top bar's right end; dialogs
   open below it in z-order except the kill confirm.

@@ -1,5 +1,7 @@
-# Per-account rules (SPEC §6.7, §11 "Where settings live").
-# The owner enters accounts on the Control Panel's Accounts page at step 14, and the UI writes this file.
-# Field list and an annotated example: SPEC §6.7 (the MFFU Rapid EOD 25k and Builder 25k presets are in its table).
-# Daily state (balance, floor) is NOT stored here: it lives in <paths.live_dir>/account_state.json.
+# Per-account rules (SPEC §6.7, §11 "Where settings live"): the committed EXAMPLE and pointer only.
+# The owner's real accounts live on the SSD in <data_dir>/panel/accounts.yaml (owner 2026-11-15, SPEC §9b): the Control
+# Panel's Accounts and Settings pages write that file (pydantic schema src/nqbot/accounts/schema.py; never a secret, only
+# the webhook's .env variable name), keep each previous version in panel/history/, and `nqbot ui backup` copies it to
+# Google Drive. The built-in presets are config/presets.yaml. Daily state (balance, floor) is NOT stored in either: it
+# lives in <paths.live_dir>/account_state.json. Field list and an annotated example: SPEC §6.7.
 accounts: []

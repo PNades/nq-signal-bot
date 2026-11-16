@@ -41,13 +41,13 @@ export function RiskControls({ onResult, killOpen, setKillOpen, engineHere, acco
   return (
     // ml-2.5: KILL and FLAT ALL read as their own group, apart from the bell, Ctrl K and Effects (owner 2026-11-15)
     <div className="ml-2.5 flex shrink-0 items-center gap-2" data-risk-controls>
-      <button type="button" onClick={() => setKillOpen(true)} disabled={busy !== null} aria-haspopup="dialog"
-        title={`KILL (asks once; Enter confirms): ${ACTION_TEXT.kill}`}
+      <button type="button" onClick={() => setKillOpen(true)} disabled={busy !== null} aria-haspopup="dialog" data-risk-live
+        data-hint={`KILL (asks once; Enter confirms): ${ACTION_TEXT.kill}`}
         className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm border border-crit/70 bg-transparent px-3 text-[13px] font-semibold tracking-[0.04em] text-crit hover:bg-crit/10">
         <OctagonX className="size-4" strokeWidth={2} aria-hidden="true" /> KILL
       </button>
-      <button type="button" onClick={() => run("flat")} disabled={busy !== null} data-flat-all
-        title={`FLAT ALL (one click): ${ACTION_TEXT.flat} If the panel fails, use /emergency.`}
+      <button type="button" onClick={() => run("flat")} disabled={busy !== null} data-flat-all data-risk-live
+        data-hint={`FLAT ALL (one click): ${ACTION_TEXT.flat} If the panel fails, use /emergency.`}
         className="flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-sm bg-crit-fill px-4 text-[13px] font-semibold tracking-[0.04em] text-white shadow-[0_0_0_1px_rgba(255,255,255,.08)_inset] hover:bg-[#e02a31]">
         <Square className="size-3.5 fill-white" strokeWidth={2} aria-hidden="true" /> {busy === "flat" ? "SENDING…" : "FLAT ALL"}
       </button>

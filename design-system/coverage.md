@@ -260,3 +260,23 @@ One row per element as it is built in `ui/web/`, with the 21st.dev component it 
 - shell | notification bell + history | searched ("notification bell dropdown history list unread badge"): **used: Notification Panel 27135** (uvain), code read: its demo's inline base64 portraits not used (the CSP would block them anyway); rows, tabs and surface adapted (`NotificationBell.tsx`); Illos Notifications Popover 44490 rejected (an illustration under a separate licence)
 - shell | date block (bottom-left) | from the step-14a mock's sidebar foot (our own); no component needed
 - shell | banner motion and auto-fade | our own on Motion (`shell/Banners.tsx`), the banner layout as before (34383)
+
+### Stage 2 (2026-11-15): Home, Accounts, Settings
+- home | the scene, nodes, lines, opening sequence | moved from the step-14a mock (order flow, Pixel Flow Field 30145 prototype); the flowing-dash keyframes moved from an inline `<style>` into styles.css; node numbers from /api/home ("—" until their data exists)
+- accounts | tilt account card | **used: Tilt Card 12244** (picked), moved from the mock; a `disabled` switch added (Calm, an account in danger)
+- accounts | hold-to-confirm delete | **used: Hold to Confirm 23527** (ddoemonn), code read: 1.2-s hold, crit sweep, Calm snaps, enabled only once the typed name matches (`hold-to-confirm.tsx`); 28348 not used
+- accounts | unsaved-changes bar | **used: Unsaved changes 9576** (stvenchg), code read: its Button/cva replaced by our classes, change count, blocked reason, above the dock (`unsaved-changes.tsx`)
+- accounts, settings | segmented controls | **used: Segmented Control 44919** (vamsiy78), code read: look and spring pill kept; its `radix-ui` RadioGroup and a missing direction helper replaced by a plain radiogroup with arrow keys (`form-controls.tsx`)
+- accounts, settings | switches | **used: Switch 11886** (jshguo), code read: look kept on a native `role="switch"` button instead of @radix-ui/react-switch
+- accounts | preset picker | **pattern of Combobox 34727** (halaska-studio), code read: its inline token palette and undefined keyframe replaced; options grouped by firm with a SAVED tag (`preset-picker.tsx`)
+- accounts | drawdown gauge / meter | Meter 38114 (redrob-labs) code read but its `meter-utils` files weren't returned: not used; the card shows the rule in words and lives as pips until live balances exist (step 22)
+- accounts | lives pips | **from Progress Bar 9659** (jatin-yadav05), code read: segments only, no hover wobble or demo slider (`LivesPips`)
+- accounts | number inputs with units, text inputs, field + inline errors | our own (`form-controls.tsx`); searched: coss Number Field 28180 needs Base UI, Unit Field's helpers weren't returned
+- accounts, settings | save-as-preset, raising-risk, leave-without-saving dialogs | the shadcn / originui Dialog pattern on @radix-ui/react-dialog (already in the tree; nonce-carrying scroll lock) (`dialog.tsx`)
+- settings | sliders with labelled marks and a cap marker | **used: Marks Slider 29217** (ai2, LabelsSlider), code read: no packages; a cap marker and hatched track past the cap, thumb 1.15× while dragged in Full only (`slider.tsx`)
+- settings | risk-profile cards | our own radio cards in the Radio Group in Card pattern (28339), the KPI tile's number style
+- settings | section list (scroll spy) | our own (a scroll listener on the page; ddoemonn Scroll Spy's pattern)
+- settings | locked owner-rule rows | our own, the Label Disabled 29340 pattern with a static Lock icon
+- shell | the dot-matrix footer on Accounts and Settings | **used: Halftone Wordmark Footer 37628** (picked), moved from the mock; its scoped `<style>` moved into styles.css (CSP)
+- shell | top-bar account switcher, a real dropdown (owner 2026-11-15) | **structure of Workspaces 4511** (efferd), code read: no network calls (its demo's CDN logos not used); trigger, titled list with a check on the current row, footer actions, on our own portal instead of Radix Popover / Avatar (`shell/AccountSwitcher.tsx`); Select with Avatar 25130 not used
+- shared | hints (styled tooltips; no native `title` anywhere, owner 2026-11-15) | **look of originui Tooltip 207** (dark variant), code read 2026-11-15: Radix only, no network calls, no embedded instructions; built as one delegated layer over `data-hint` (`components/ui/hint-layer.tsx`) instead of wrapping each trigger in Radix providers

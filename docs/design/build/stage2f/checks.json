@@ -1,0 +1,251 @@
+{
+  "stage": "2f",
+  "base": "http://127.0.0.1:8733",
+  "problems": [
+    "banner_glide_1440 #1 arrive: a frame jumped 8.37 px"
+  ],
+  "checks": {
+    "banner_glide_1440": [
+      {
+        "arrive": {
+          "frames": 54,
+          "framesMoving": 16,
+          "maxStepPx": 8.37,
+          "maxStepAtMs": 194,
+          "maxStepPer60HzFramePx": 4.28,
+          "bannerStartFrame": 4,
+          "nodeStartFrame": 4,
+          "gapFrames": 0,
+          "totalMovePx": [
+            45.1,
+            46.1,
+            5.9,
+            4.9,
+            46.1,
+            5.9
+          ]
+        },
+        "leave": {
+          "frames": 55,
+          "framesMoving": 16,
+          "maxStepPx": 4.27,
+          "maxStepAtMs": 121,
+          "maxStepPer60HzFramePx": 4.27,
+          "bannerStartFrame": 3,
+          "nodeStartFrame": 3,
+          "gapFrames": 0,
+          "totalMovePx": [
+            45.1,
+            46.1,
+            5.9,
+            4.9,
+            46.1,
+            5.9
+          ]
+        }
+      },
+      {
+        "arrive": {
+          "frames": 55,
+          "framesMoving": 16,
+          "maxStepPx": 4.53,
+          "maxStepAtMs": 117,
+          "maxStepPer60HzFramePx": 4.25,
+          "bannerStartFrame": 3,
+          "nodeStartFrame": 3,
+          "gapFrames": 0,
+          "totalMovePx": [
+            45.1,
+            46.1,
+            5.9,
+            4.9,
+            46.1,
+            5.9
+          ]
+        },
+        "leave": {
+          "frames": 55,
+          "framesMoving": 16,
+          "maxStepPx": 4.27,
+          "maxStepAtMs": 101,
+          "maxStepPer60HzFramePx": 4.23,
+          "bannerStartFrame": 2,
+          "nodeStartFrame": 2,
+          "gapFrames": 0,
+          "totalMovePx": [
+            45.1,
+            46.1,
+            5.9,
+            4.9,
+            46.1,
+            5.9
+          ]
+        }
+      }
+    ],
+    "banner_glide_960": [
+      {
+        "arrive": {
+          "frames": 55,
+          "framesMoving": 17,
+          "maxStepPx": 5.43,
+          "maxStepAtMs": 142,
+          "maxStepPer60HzFramePx": 5.03,
+          "bannerStartFrame": 3,
+          "nodeStartFrame": 3,
+          "gapFrames": 0,
+          "totalMovePx": [
+            56.1,
+            32.3,
+            32.3,
+            6.1,
+            32.3,
+            32.3
+          ]
+        },
+        "leave": {
+          "frames": 55,
+          "framesMoving": 16,
+          "maxStepPx": 5.45,
+          "maxStepAtMs": 89,
+          "maxStepPer60HzFramePx": 5.28,
+          "bannerStartFrame": 3,
+          "nodeStartFrame": 3,
+          "gapFrames": 0,
+          "totalMovePx": [
+            56.1,
+            32.3,
+            32.3,
+            6.1,
+            32.3,
+            32.3
+          ]
+        }
+      },
+      {
+        "arrive": {
+          "frames": 55,
+          "framesMoving": 16,
+          "maxStepPx": 5.39,
+          "maxStepAtMs": 153,
+          "maxStepPer60HzFramePx": 5.23,
+          "bannerStartFrame": 4,
+          "nodeStartFrame": 4,
+          "gapFrames": 0,
+          "totalMovePx": [
+            56.1,
+            32.3,
+            32.3,
+            6.1,
+            32.3,
+            32.3
+          ]
+        },
+        "leave": {
+          "frames": 55,
+          "framesMoving": 16,
+          "maxStepPx": 5.21,
+          "maxStepAtMs": 104,
+          "maxStepPer60HzFramePx": 5.14,
+          "bannerStartFrame": 3,
+          "nodeStartFrame": 3,
+          "gapFrames": 0,
+          "totalMovePx": [
+            56.1,
+            32.3,
+            32.3,
+            6.1,
+            32.3,
+            32.3
+          ]
+        }
+      }
+    ],
+    "banner_glide_calm": {
+      "arrive": {
+        "frames": 56,
+        "framesMoving": 1,
+        "maxStepPx": 46.06,
+        "maxStepAtMs": 63,
+        "maxStepPer60HzFramePx": 44.9,
+        "bannerStartFrame": 4,
+        "nodeStartFrame": 4,
+        "gapFrames": 0,
+        "totalMovePx": [
+          45.1,
+          46.1,
+          5.9,
+          4.9,
+          46.1,
+          5.9
+        ]
+      },
+      "leave": {
+        "frames": 56,
+        "framesMoving": 1,
+        "maxStepPx": 46.06,
+        "maxStepAtMs": 47,
+        "maxStepPer60HzFramePx": 46.06,
+        "bannerStartFrame": 3,
+        "nodeStartFrame": 3,
+        "gapFrames": 0,
+        "totalMovePx": [
+          45.1,
+          46.1,
+          5.9,
+          4.9,
+          46.1,
+          5.9
+        ]
+      }
+    },
+    "card_anim_1440": {
+      "Live": {
+        "inBetweenFrames": 9,
+        "scaledUp": true,
+        "glowOnCardHover": 1,
+        "liftOnCardHover": "0px -2px",
+        "goneAfterMs": 147
+      },
+      "Performance": {
+        "inBetweenFrames": 10,
+        "scaledUp": true,
+        "glowOnCardHover": 1,
+        "liftOnCardHover": "0px -2px",
+        "goneAfterMs": 149
+      },
+      "headersStill": true
+    },
+    "card_anim_960": {
+      "Live": {
+        "inBetweenFrames": 10,
+        "scaledUp": true,
+        "glowOnCardHover": 1,
+        "liftOnCardHover": "0px -2px",
+        "goneAfterMs": 141
+      },
+      "Performance": {
+        "inBetweenFrames": 10,
+        "scaledUp": true,
+        "glowOnCardHover": 1,
+        "liftOnCardHover": "0px -2px",
+        "goneAfterMs": 149
+      },
+      "headersStill": true
+    },
+    "card_anim_calm": {
+      "opacities": [
+        "1.00"
+      ]
+    },
+    "home_still_30s": {
+      "frames": 1730,
+      "changes": [],
+      "stop": true
+    },
+    "videos": [
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage2f\\home_still_cards_then_banners_1440.webm",
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage2f\\home_cards_960.webm"
+    ]
+  }
+}

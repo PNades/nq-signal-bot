@@ -1,0 +1,226 @@
+{
+  "stage": "2",
+  "base": "http://127.0.0.1:8733",
+  "problems": [
+    "raise_risk_1440: console error: Failed to load resource: the server responded with a status of 428 (Precondition Required)"
+  ],
+  "checks": {
+    "home_1440": {
+      "nodes": 6,
+      "dateBlockClearOfNodes": true,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Home"
+    },
+    "home_1280": {
+      "nodes": 6,
+      "dateBlockClearOfNodes": true,
+      "flatH": 36,
+      "flatRight": 1260,
+      "flatFits": true,
+      "barW": 1280,
+      "barOverflow": false,
+      "title": "CreamFlow · Home"
+    },
+    "home_960": {
+      "nodes": 6,
+      "dateBlockClearOfNodes": true,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Home"
+    },
+    "accounts_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "accounts_1280": {
+      "flatH": 36,
+      "flatRight": 1260,
+      "flatFits": true,
+      "barW": 1280,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "accounts_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "accounts_card_hover_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "account_form_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "account_form_limits_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "account_form_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "account_form_limits_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "account_form_funded_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "preset_picker_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "save_as_preset_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "raise_risk": {
+      "dialog": 1
+    },
+    "raise_risk_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "account_invalid_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "account_delete_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "leave_guard_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "settings_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Settings"
+    },
+    "settings_custom_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Settings"
+    },
+    "settings_global_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Settings"
+    },
+    "settings_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Settings"
+    },
+    "settings_custom_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Settings"
+    },
+    "settings_global_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Settings"
+    },
+    "settings_footer_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Settings"
+    },
+    "budget_home_full": {
+      "mainThreadShare": 0.078,
+      "limit": 0.15
+    },
+    "budget_home_calm": {
+      "mainThreadShare": 0.004,
+      "limit": 0.03
+    }
+  }
+}

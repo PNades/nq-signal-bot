@@ -1,9 +1,9 @@
 // App shell (design-system/pages/shell.md): top bar (brand, breadcrumb, account switcher, engine pill, ET clock,
 // Effects, Ctrl K hint, KILL and FLAT ALL), ticker tape, the critical-banner slot, the page area with the dock's bottom
 // padding, and the floating dock with its minimize circle (not on Home). Ported from the step-14a mock.
-import { useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { ChevronDown, Clock, Leaf, LayoutGrid, Minus, Sparkles, SunMoon, Wallet } from "lucide-react";
+import { Clock, Leaf, LayoutGrid, Minus, Sparkles, SunMoon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { etClock } from "@/lib/format";
 import { useNow } from "@/lib/hooks";
@@ -16,6 +16,7 @@ import { PAGES, type PageId } from "./pages";
 import type { ServerStatus } from "./status";
 import { RiskControls, type ActionResult } from "./RiskControls";
 import { NotificationBell } from "./NotificationBell";
+import { AccountSwitcher } from "./AccountSwitcher";
 import { DATE_BLOCK_MIN_W, DATE_BLOCK_PAD, DateBlock } from "./DateBlock";
 import { useViewportWidth } from "@/lib/hooks";
 
@@ -34,7 +35,7 @@ function EffectsButton({ onChange }: { onChange: (s: EffectsSetting) => void }) 
   const Icon = fx.setting === "auto" ? SunMoon : fx.active === "full" ? Sparkles : Leaf;
   return (
     <button type="button" onClick={() => onChange(EFFECTS_NEXT[fx.setting])} data-effects-button
-      title={`Effects: ${fx.setting} (click for ${EFFECTS_NEXT[fx.setting]})${why ? `. ${why}` : ""}`} aria-label={`Effects: ${label}. Click to switch to ${EFFECTS_NEXT[fx.setting]}.`}
+      data-hint={`Effects: ${fx.setting} (click for ${EFFECTS_NEXT[fx.setting]})${why ? `. ${why}` : ""}`} aria-label={`Effects: ${label}. Click to switch to ${EFFECTS_NEXT[fx.setting]}.`}
       className="flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-line-strong px-2 font-mono text-[11px] text-text-2 hover:text-text-1 min-[1100px]:px-2.5">
       <Icon className={cn("size-3.5", fx.active === "full" && "text-gold")} aria-hidden="true" />
       <span className="hidden min-[1100px]:inline">{label}</span>
@@ -42,30 +43,11 @@ function EffectsButton({ onChange }: { onChange: (s: EffectsSetting) => void }) 
   );
 }
 
-function AccountSwitcher({ status, onOpenAccounts }: { status: ServerStatus | null; onOpenAccounts: () => void }) {
-  const accounts = status?.accounts ?? [];
-  const first = accounts.find((a) => !a.draft) ?? accounts[0];
-  return (
-    <button type="button" onClick={onOpenAccounts} title="Accounts"
-      className="flex h-8 shrink-0 items-center gap-2 rounded-sm border border-line-strong bg-bg-2 px-2.5 text-[13px] text-text-1 hover:border-text-3 min-[1180px]:ml-2">
-      {first ? (
-        <>
-          <span className="grid size-5 place-items-center rounded-full bg-gold/15 font-mono text-[10px] text-gold">{first.name.slice(0, 2).toUpperCase()}</span>
-          <span className="font-mono">{first.name}</span>
-          <span className="rounded-xs border border-gold/40 px-1 font-mono text-[10px] leading-4 tracking-[0.06em] text-gold">{first.draft ? "DRAFT" : first.phase === "funded" ? "FUNDED" : "EVAL"}</span>
-          {accounts.length > 1 && <span className="font-mono text-[11px] text-text-3">+{accounts.length - 1}</span>}
-        </>
-      ) : (
-        <><Wallet className="size-4 text-text-2" aria-hidden="true" /> <span className="text-text-2">No accounts yet</span></>
-      )}
-      <ChevronDown className="size-3.5 text-text-3" aria-hidden="true" />
-    </button>
-  );
-}
-
-export function TopBar({ pageName, status, connected, onEffects, onNavigate, onResult, killOpen, setKillOpen, onPalette, animated }: {
+export function TopBar({ pageName, status, connected, onEffects, onNavigate, onOpenPath, onResult, killOpen, setKillOpen, onPalette, animated, focus, onFocus }: {
   pageName: string; status: ServerStatus | null; connected: boolean; onEffects: (s: EffectsSetting) => void; onNavigate: (p: PageId) => void;
+  onOpenPath: (path: string) => void;
   onResult: (r: ActionResult) => void; killOpen: boolean; setKillOpen: (v: boolean) => void; onPalette: () => void; animated: boolean;
+  focus: string | null; onFocus: (name: string) => void;
 }) {
   const now = useNow();
   const pill = !connected ? { variant: "crit" as const, word: "NO SERVER" } : ENGINE_PILL[status?.engine.state ?? "offline"];
@@ -77,12 +59,13 @@ export function TopBar({ pageName, status, connected, onEffects, onNavigate, onR
         <LogoMark size={24} /><Wordmark className="hidden text-[23px] min-[1100px]:inline" />
       </button>
       <div className="eyebrow hidden min-w-0 truncate min-[1180px]:block"><span className="text-text-2">CREAMFLOW</span> / {pageName.toUpperCase()}</div>
-      <AccountSwitcher status={status} onOpenAccounts={() => onNavigate("accounts")} />
+      <AccountSwitcher accounts={status?.accounts ?? []} focus={focus} onFocus={onFocus} animated={animated}
+        onManage={() => onNavigate("accounts")} onAdd={() => onOpenPath("/accounts/new")} />
       <div className="ml-auto flex shrink-0 items-center gap-2.5">
-        <Status variant={pill.variant} title={connected ? status?.engine.note : "The panel lost its server. Kill/flat from this page won't arrive: use the emergency page, nqbot kill / nqbot flat, or Discord."}>
+        <Status variant={pill.variant} data-hint={connected ? status?.engine.note : "The panel lost its server. Kill/flat from this page won't arrive: use the emergency page, nqbot kill / nqbot flat, or Discord."}>
           <StatusIndicator pulse={pill.variant === "ok"} /><StatusLabel>{pill.word}</StatusLabel>
         </Status>
-        <span className={cn("flex items-center gap-1 font-mono text-[13px]", connected ? "text-text-1" : "cf-stale")} title={connected ? "Eastern time from this computer's clock" : "No server: the clock is this computer's, not checked"}>
+        <span className={cn("flex items-center gap-1 font-mono text-[13px]", connected ? "text-text-1" : "cf-stale")} data-hint={connected ? "Eastern time from this computer's clock" : "No server: the clock is this computer's, not checked"}>
           {!connected && <Clock className="size-3.5" aria-hidden="true" />}{etClock(now)} <span className="text-text-3">ET</span>
         </span>
         <EffectsButton onChange={onEffects} />
@@ -127,6 +110,14 @@ export function TickerTape({ items, calm, note }: { items: TapeItem[]; calm: boo
 // The dock's footprint from the bottom edge (bottom offset + height) plus air: every page gets this much bottom padding
 // so nothing stays behind the dock when scrolled to the bottom (owner 2026-11-15)
 const DOCK_BOTTOM = 16, DOCK_H = 64, DOCK_MIN_D = 44, DOCK_AIR = 16;
+// Where floating bars (the unsaved-changes bar) sit (owner 2026-11-15): just above the open dock, clear of its hover
+// labels (they rise ~28 px above the dock's top edge), or near the bottom edge while the dock is minimized (the circle
+// is in the corner, the date block in the other) or absent
+const DOCK_LABEL_ZONE = 28, BAR_GAP = 10;
+export const BAR_BOTTOM = { open: DOCK_BOTTOM + DOCK_H + DOCK_LABEL_ZONE + BAR_GAP, low: DOCK_BOTTOM } as const;
+export interface DockLayout { /** the bar's bottom offset in px for the current dock state */ barBottom: number }
+const DockLayoutContext = createContext<DockLayout>({ barBottom: BAR_BOTTOM.low });
+export const useDockLayout = () => useContext(DockLayoutContext);
 export const DOCK_PAD = { open: DOCK_BOTTOM + DOCK_H + DOCK_AIR, min: DOCK_BOTTOM + DOCK_MIN_D + DOCK_AIR } as const;
 const TOAST_EDGE = 14;
 const DOCK_MIN_KEY = "creamflow.dockMinimized";
@@ -146,7 +137,8 @@ function Dock({ active, animated, minimized, onMinimized, onNavigate }: {
   const spring = animated ? { type: "spring" as const, stiffness: 420, damping: 36 } : { duration: 0 };
   const fade = (delay: number) => (animated ? { duration: 0.14, delay } : { duration: 0 });
   return (
-    <div className={cn("pointer-events-none fixed left-0 right-0 z-[30] flex px-4", minimized ? "justify-end" : "justify-center")} style={{ bottom: DOCK_BOTTOM }}>
+    // z 46: above the unsaved-changes bar (45), so the hover labels are never hidden by it (owner 2026-11-15)
+    <div className={cn("pointer-events-none fixed left-0 right-0 z-[46] flex px-4", minimized ? "justify-end" : "justify-center")} style={{ bottom: DOCK_BOTTOM }}>
       <motion.div layout transition={spring} data-dock={minimized ? "min" : "open"}
         // dark glass (owner 2026-11-15): 90% #111111 keeps the icons readable over the cream footer dots
         className="pointer-events-auto border border-white/[.08] bg-bg-0/90 shadow-[0_18px_40px_rgba(0,0,0,.5)] backdrop-blur-md"
@@ -164,7 +156,7 @@ function Dock({ active, animated, minimized, onMinimized, onNavigate }: {
                 className="border-0 bg-transparent shadow-none backdrop-blur-none"
                 items={PAGES.map((p) => { const Icon = p.icon; return { id: p.id, title: p.unavailable ? `${p.name} (${p.unavailable})` : p.name, icon: <Icon strokeWidth={1.6} aria-hidden="true" />, disabled: !!p.unavailable }; })}
                 trailing={
-                  <button type="button" aria-label="Minimize the page dock" aria-expanded={true} title="Minimize" onClick={() => onMinimized(true)}
+                  <button type="button" aria-label="Minimize the page dock" aria-expanded={true} data-hint="Minimize the page dock" onClick={() => onMinimized(true)}
                     className="grid size-10 place-items-center rounded-full border border-white/10 bg-bg-1 text-text-3 hover:text-text-1">
                     <Minus className="size-4" strokeWidth={1.8} aria-hidden="true" />
                   </button>
@@ -189,16 +181,23 @@ export function AppFrame({ active, animated, hideDock, onNavigate, top, children
   const dockPad = Math.max(showDock ? (minimized ? DOCK_PAD.min : DOCK_PAD.open) : 0, datePad);
   // toasts sit in the bottom-right corner, always above the dock's footprint (owner 2026-11-15)
   const toastBottom = showDock ? Math.max(dockPad, DOCK_PAD.min) : TOAST_EDGE;
+  // on the page root: the toasts are drawn outside this frame (a stage-1 bug kept them at the 14-px fallback)
+  useEffect(() => { document.documentElement.style.setProperty("--toast-bottom", `${toastBottom}px`); }, [toastBottom]);
   return (
-    <div className="flex h-full flex-col" style={{ ["--toast-bottom" as string]: `${toastBottom}px` }}>
+    <DockLayoutContext.Provider value={{ barBottom: showDock && !minimized ? BAR_BOTTOM.open : BAR_BOTTOM.low }}>
+    <div className="flex h-full flex-col" style={{ ["--toast-bottom" as string]: `${toastBottom}px` }} data-app-frame>
       {top}
       {/* --dock-pad: a page that ends in the dot-matrix footer cancels it (the page ends inside the letters) */}
-      <main id="cf-main" tabIndex={-1} className="relative min-h-0 flex-1 overflow-y-auto outline-none"
+      {/* the scrollbar's space is reserved on both sides of every page all the time (scrollbar-gutter: stable both-edges):
+          a long page's scrollbar appearing mid-transition never narrows the content (it shifted 7.5 px at 1440 px), and
+          every page, Home included, stays exactly centred in the window (owner 2026-11-15) */}
+      <main id="cf-main" tabIndex={-1} className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden outline-none [scrollbar-gutter:stable_both-edges]"
         style={{ paddingBottom: dockPad, ["--dock-pad" as string]: `${dockPad}px` }}>
         {children}
       </main>
       {showDock && <Dock active={active} animated={animated} minimized={minimized} onMinimized={onMinimized} onNavigate={onNavigate} />}
       <DateBlock />
     </div>
+    </DockLayoutContext.Provider>
   );
 }

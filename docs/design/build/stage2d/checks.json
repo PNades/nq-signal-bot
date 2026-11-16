@@ -1,0 +1,89 @@
+{
+  "stage": "2d",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "home_1440": {
+      "sceneBottomGap": 0,
+      "hintBottom": 16,
+      "dateBottom": 16,
+      "cardsInside": {
+        "Live": true,
+        "Gameplan": true,
+        "Review": true,
+        "Accounts": true,
+        "Settings": true,
+        "Performance": true
+      }
+    },
+    "home_960": {
+      "sceneBottomGap": 0,
+      "hintBottom": 16,
+      "dateBottom": 16,
+      "cardsInside": {
+        "Live": true,
+        "Gameplan": true,
+        "Review": true,
+        "Accounts": true,
+        "Settings": true,
+        "Performance": true
+      }
+    },
+    "home_banner_glide": {
+      "enterHeights": [
+        820,
+        771
+      ],
+      "enterTransformSteps": 18,
+      "leaveHeights": [
+        771,
+        820
+      ],
+      "leaveTransformSteps": 18,
+      "frames": [
+        43,
+        49
+      ]
+    },
+    "home_banner_calm": {
+      "transformSteps": 1
+    },
+    "accounts_transition": {
+      "openInBetween": 12,
+      "closeInBetween": 14,
+      "url": "/accounts"
+    },
+    "accounts_transition_calm": {
+      "openInBetween": 0,
+      "closeInBetween": 0,
+      "url": "/accounts"
+    },
+    "dock_sweep": {
+      "slots": 7,
+      "slotsMoved": false,
+      "maxScale": 1.179
+    },
+    "switcher_pin": {
+      "hoverOpens": true,
+      "clickWhileHoverOpenKeepsOpen": true,
+      "staysPinnedAway": true,
+      "secondClickCloses": true,
+      "noneLitAtOpen": true,
+      "rowLitOnHover": true,
+      "clearedOnLeave": true,
+      "keysHighlight": true,
+      "outsideClickCloses": true,
+      "escCloses": true,
+      "paletteNoneAtOpen": true,
+      "paletteLitOnHover": true,
+      "paletteClearedOnLeave": true,
+      "paletteKeysHighlight": true,
+      "enterRunsTop": "/performance"
+    },
+    "videos": [
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage2d\\home_banner_appear_leave_1440.webm",
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage2d\\accounts_list_editor_1440.webm",
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage2d\\dock_sweep_1440.webm"
+    ]
+  }
+}

@@ -5,7 +5,18 @@ import { getJson } from "@/lib/api";
 
 export type EngineState = "offline" | "live" | "paused" | "killed";
 export interface ServerAlert { id: string; kind: "crit" | "warn" | "info"; title: string; text: string }
-export interface AccountBrief { name: string; firm: string; phase: string; draft: boolean; demo: boolean; preset?: string | null }
+export interface AccountLive {
+  /** from the engine (step 22): paused, blown, unknown, maybe filled, flat-unconfirmed...; null before */
+  state: string | null; room_to_floor_usd: number | null; today_pnl_usd: number | null; progress_usd: number | null; lives_left: number | null;
+}
+export interface AccountBrief {
+  name: string; firm: string; phase: string; draft: boolean; demo: boolean; active: boolean; preset?: string | null;
+  /** Rapid, Builder, Pro, Lucid Flex, or a saved preset's name */
+  kind: string; drawdown_usd: number | null;
+  /** evaluation: the profit target; funded: the next payout's target */
+  target: { kind: "profit_target" | "payout"; usd: number | null };
+  live: AccountLive;
+}
 export interface ServerStatus {
   server_time_utc: string;
   host: string;
@@ -16,6 +27,8 @@ export interface ServerStatus {
   calm_forced: boolean;
   alerts: ServerAlert[];
   accounts: AccountBrief[];
+  /** the panel's own settings (data/panel/ui.yaml) */
+  ui: { effects?: "full" | "calm" | "auto" };
 }
 
 export function useServerStatus() {

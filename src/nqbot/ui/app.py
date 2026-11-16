@@ -24,7 +24,8 @@ from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, R
 from starlette.routing import Route
 
 from nqbot.storage import Paths
-from nqbot.ui import actions, emergency, spa
+from nqbot.ui import actions, api_panel, emergency, spa
+from nqbot.ui.panel_store import PanelStore, PanelUnavailable
 from nqbot.ui.security import TOKEN_FIELD, TOKEN_HEADER, GuardMiddleware, new_token, token_ok
 from nqbot.ui.status import build_status
 
@@ -43,15 +44,59 @@ class PanelConfig:
     token: str = field(default_factory=new_token)
     style_nonce: str = field(default_factory=lambda: new_token()[:24])
     web_dir: Path = spa.WEB_DIR
-    accounts_fn: Callable[[Paths | None], list[dict[str, Any]]] | None = None
+    settings: dict[str, Any] = field(default_factory=dict)
+    features: dict[str, Any] = field(default_factory=dict)
+    config_dir: Path | None = None  # tests point the built-in presets elsewhere; None = config/
 
 
 def create_app(cfg: PanelConfig) -> Starlette:
     results: OrderedDict[str, dict[str, Any]] = OrderedDict()
     spa_cache: dict[str, Any] = {"mtime": None, "html": "", "hashes": []}
 
+    store = PanelStore(cfg.paths_fn, config_dir=cfg.config_dir)
+
+    def accounts_brief(paths: Paths | None) -> list[dict[str, Any]]:
+        if paths is None:
+            return []
+        try:
+            accts = store.accounts().data["accounts"]
+        except (PanelUnavailable, OSError, ValueError):
+            return []
+        labels = {p.id: p.label for p in store.all_presets()}
+
+        def kind(a: dict[str, Any]) -> str:
+            # the account's type in a word or two (Rapid, Builder, Pro, Lucid Flex, or the saved preset's name)
+            pid = str(a.get("preset") or "")
+            for key, word in (("rapid", "Rapid"), ("builder", "Builder"), ("pro_", "Pro"), ("lucid_flex", "Lucid Flex")):
+                if key in pid and not pid.startswith("own_"):
+                    return word
+            return labels.get(pid) or str(a.get("firm") or "")
+
+        def target(a: dict[str, Any]) -> dict[str, Any]:
+            if a.get("phase") == "funded":
+                v = a.get("payout_target_usd") or a.get("payout_min_usd")
+                return {"kind": "payout", "usd": v}
+            return {"kind": "profit_target", "usd": a.get("profit_target_usd")}
+
+        return [{"name": a.get("name"), "firm": a.get("firm"), "phase": a.get("phase"), "draft": bool(a.get("draft")),
+                 "demo": bool(a.get("demo")), "active": a.get("active", True), "preset": a.get("preset"), "kind": kind(a),
+                 "drawdown_usd": a.get("drawdown_usd"), "target": target(a),
+                 # live numbers come with the engine (step 22): balance, floor, today's P&L, progress, lives left, and
+                 # its state (paused, blown, unknown...); null until then, shown as "—"
+                 "live": {"state": None, "room_to_floor_usd": None, "today_pnl_usd": None, "progress_usd": None,
+                          "lives_left": None}} for a in accts]
+
+    def ui_settings(paths: Paths | None) -> dict[str, Any]:
+        if paths is None:
+            return {}
+        try:
+            data = store.ui().data
+        except (PanelUnavailable, OSError, ValueError):
+            return {}
+        return {"effects": data.get("effects")} if isinstance(data, dict) and data.get("effects") else {}
+
     def status() -> dict[str, Any]:
-        return build_status(cfg.paths_fn, synthetic=cfg.synthetic, accounts_fn=cfg.accounts_fn)
+        return build_status(cfg.paths_fn, synthetic=cfg.synthetic, accounts_fn=accounts_brief, ui_fn=ui_settings)
 
     def spa_page() -> tuple[spa.SpaState, str]:
         state = spa.spa_state(cfg.web_dir)
@@ -142,12 +187,14 @@ def create_app(cfg: PanelConfig) -> Starlette:
 
     routes = [
         *[Route(p, page, methods=["GET", "HEAD"]) for p in PAGE_PATHS],
+        Route("/accounts/{name}", page, methods=["GET", "HEAD"]),  # an account's form (Accounts page)
         Route("/api/status", api_status, methods=["GET"]),
         Route("/api/events", api_events, methods=["GET"]),
         Route("/api/actions/{action}", api_action, methods=["POST"]),
         Route("/emergency", emergency_page, methods=["GET", "HEAD"]),
         Route("/emergency.css", emergency_css, methods=["GET"]),
         Route("/emergency/action", emergency_action, methods=["POST"]),
+        *(api_panel.routes(store, cfg.settings, cfg.features, require_token) if cfg.settings else []),
         Route("/api/{rest:path}", api_missing, methods=["GET", "POST"]),
         Route("/{rest:path}", static, methods=["GET", "HEAD"]),
     ]

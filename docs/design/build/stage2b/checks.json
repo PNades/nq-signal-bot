@@ -1,0 +1,60 @@
+{
+  "stage": "2b",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "bar_dock_1440": {
+      "barBottomOpen": 118,
+      "dockTop": 82,
+      "barBottomMinimized": 16,
+      "barBottomBack": 118,
+      "magnification": 1.2,
+      "labelClearOfBar": true,
+      "barClearOfDateBlock": true,
+      "barClearOfCircle": true
+    },
+    "bar_dock_960": {
+      "barBottomOpen": 118,
+      "dockTop": 82,
+      "barBottomMinimized": 16,
+      "barBottomBack": 118,
+      "magnification": 1.2,
+      "labelClearOfBar": true,
+      "barClearOfDateBlock": true,
+      "barClearOfCircle": true
+    },
+    "bar_buttons_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Accounts"
+    },
+    "discard_new": {
+      "url": "/accounts",
+      "cardsBefore": 3,
+      "cardsAfter": 3,
+      "resetStays": true
+    },
+    "preset_delete_1440_toast": {
+      "toastClearOfDock": true
+    },
+    "preset_delete_1440": {
+      "deleteCalled": true,
+      "undoShown": true,
+      "undoRestored": true
+    },
+    "preset_delete_960_toast": {
+      "toastClearOfDock": true
+    },
+    "preset_delete_960": {
+      "deleteCalled": true,
+      "undoShown": true,
+      "undoRestored": true
+    },
+    "video": {
+      "path": "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage2b\\bar_follows_dock_and_hover_1440.webm"
+    }
+  }
+}

@@ -1,0 +1,291 @@
+{
+  "stage": "2g",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "banner_gap_1440": {
+      "events": [
+        {
+          "e": "first arrives",
+          "bannerStartFrame": 4,
+          "nodeStartFrame": 4,
+          "lineStartFrame": 4,
+          "gapFrames": 0,
+          "lineGapFrames": 0,
+          "maxStepPx": 4.27,
+          "maxLineStepPx": 4.28,
+          "lineMovingFrames": 17,
+          "maxNodeEndOffPx": 0.07,
+          "longestFrameMs": 19
+        },
+        {
+          "e": "first leaves",
+          "bannerStartFrame": 2,
+          "nodeStartFrame": 2,
+          "lineStartFrame": 2,
+          "gapFrames": 0,
+          "lineGapFrames": 0,
+          "maxStepPx": 4.27,
+          "maxLineStepPx": 4.28,
+          "lineMovingFrames": 16,
+          "maxNodeEndOffPx": 0.07,
+          "longestFrameMs": 18
+        },
+        {
+          "e": "1 of 3 arrives",
+          "bannerStartFrame": 3,
+          "nodeStartFrame": 3,
+          "lineStartFrame": 3,
+          "gapFrames": 0,
+          "lineGapFrames": 0,
+          "maxStepPx": 4.51,
+          "maxLineStepPx": 4.52,
+          "lineMovingFrames": 16,
+          "maxNodeEndOffPx": 0.07,
+          "longestFrameMs": 18
+        },
+        {
+          "e": "2 of 3 arrives",
+          "bannerStartFrame": 3,
+          "nodeStartFrame": 3,
+          "lineStartFrame": 3,
+          "gapFrames": 0,
+          "lineGapFrames": 0,
+          "maxStepPx": 4.27,
+          "maxLineStepPx": 4.27,
+          "lineMovingFrames": 16,
+          "maxNodeEndOffPx": 0.07,
+          "longestFrameMs": 18
+        },
+        {
+          "e": "3 of 3 arrives",
+          "bannerStartFrame": 3,
+          "nodeStartFrame": 3,
+          "lineStartFrame": 3,
+          "gapFrames": 0,
+          "lineGapFrames": 0,
+          "maxStepPx": 4.28,
+          "maxLineStepPx": 4.28,
+          "lineMovingFrames": 16,
+          "maxNodeEndOffPx": 0.06,
+          "longestFrameMs": 18
+        },
+        {
+          "e": "3 of 3 leaves",
+          "bannerStartFrame": 3,
+          "nodeStartFrame": 3,
+          "lineStartFrame": 3,
+          "gapFrames": 0,
+          "lineGapFrames": 0,
+          "maxStepPx": 4.45,
+          "maxLineStepPx": 4.45,
+          "lineMovingFrames": 16,
+          "maxNodeEndOffPx": 0.06,
+          "longestFrameMs": 19
+        },
+        {
+          "e": "2 of 3 leaves",
+          "bannerStartFrame": 2,
+          "nodeStartFrame": 2,
+          "lineStartFrame": 2,
+          "gapFrames": 0,
+          "lineGapFrames": 0,
+          "maxStepPx": 4.48,
+          "maxLineStepPx": 4.47,
+          "lineMovingFrames": 16,
+          "maxNodeEndOffPx": 0.07,
+          "longestFrameMs": 18
+        },
+        {
+          "e": "1 of 3 leaves",
+          "bannerStartFrame": 3,
+          "nodeStartFrame": 3,
+          "lineStartFrame": 3,
+          "gapFrames": 0,
+          "lineGapFrames": 0,
+          "maxStepPx": 4.22,
+          "maxLineStepPx": 4.22,
+          "lineMovingFrames": 16,
+          "maxNodeEndOffPx": 0.07,
+          "longestFrameMs": 19
+        }
+      ],
+      "linesReadyAhead": "820,771,759,722,710,698,673,661,649,637",
+      "solvedLate": null
+    },
+    "banner_gap_960": {
+      "events": [
+        {
+          "e": "first arrives",
+          "bannerStartFrame": 3,
+          "nodeStartFrame": 3,
+          "lineStartFrame": 3,
+          "gapFrames": 0,
+          "lineGapFrames": 0,
+          "maxStepPx": 5.51,
+          "maxLineStepPx": 5.51,
+          "lineMovingFrames": 17,
+          "maxNodeEndOffPx": 0.05,
+          "longestFrameMs": 19
+        },
+        {
+          "e": "first leaves",
+          "bannerStartFrame": 2,
+          "nodeStartFrame": 2,
+          "lineStartFrame": 2,
+          "gapFrames": 0,
+          "lineGapFrames": 0,
+          "maxStepPx": 5.49,
+          "maxLineStepPx": 5.5,
+          "lineMovingFrames": 17,
+          "maxNodeEndOffPx": 0.05,
+          "longestFrameMs": 19
+        },
+        {
+          "e": "1 of 3 arrives",
+          "bannerStartFrame": 4,
+          "nodeStartFrame": 4,
+          "lineStartFrame": 4,
+          "gapFrames": 0,
+          "lineGapFrames": 0,
+          "maxStepPx": 5.45,
+          "maxLineStepPx": 5.45,
+          "lineMovingFrames": 16,
+          "maxNodeEndOffPx": 0.05,
+          "longestFrameMs": 18
+        },
+        {
+          "e": "2 of 3 arrives",
+          "bannerStartFrame": 3,
+          "nodeStartFrame": 3,
+          "lineStartFrame": 3,
+          "gapFrames": 0,
+          "lineGapFrames": 0,
+          "maxStepPx": 5.21,
+          "maxLineStepPx": 5.2,
+          "lineMovingFrames": 16,
+          "maxNodeEndOffPx": 0.05,
+          "longestFrameMs": 18
+        },
+        {
+          "e": "3 of 3 arrives",
+          "bannerStartFrame": 3,
+          "nodeStartFrame": 3,
+          "lineStartFrame": 3,
+          "gapFrames": 0,
+          "lineGapFrames": 0,
+          "maxStepPx": 5.32,
+          "maxLineStepPx": 5.32,
+          "lineMovingFrames": 16,
+          "maxNodeEndOffPx": 0.06,
+          "longestFrameMs": 18
+        },
+        {
+          "e": "3 of 3 leaves",
+          "bannerStartFrame": 2,
+          "nodeStartFrame": 2,
+          "lineStartFrame": 2,
+          "gapFrames": 0,
+          "lineGapFrames": 0,
+          "maxStepPx": 5.57,
+          "maxLineStepPx": 5.56,
+          "lineMovingFrames": 16,
+          "maxNodeEndOffPx": 0.06,
+          "longestFrameMs": 18
+        },
+        {
+          "e": "2 of 3 leaves",
+          "bannerStartFrame": 2,
+          "nodeStartFrame": 2,
+          "lineStartFrame": 2,
+          "gapFrames": 0,
+          "lineGapFrames": 0,
+          "maxStepPx": 5.2,
+          "maxLineStepPx": 5.2,
+          "lineMovingFrames": 17,
+          "maxNodeEndOffPx": 0.05,
+          "longestFrameMs": 18
+        },
+        {
+          "e": "1 of 3 leaves",
+          "bannerStartFrame": 2,
+          "nodeStartFrame": 2,
+          "lineStartFrame": 2,
+          "gapFrames": 0,
+          "lineGapFrames": 0,
+          "maxStepPx": 5.5,
+          "maxLineStepPx": 5.5,
+          "lineMovingFrames": 16,
+          "maxNodeEndOffPx": 0.05,
+          "longestFrameMs": 18
+        }
+      ],
+      "linesReadyAhead": "720,671,659,622,610,598,573,561,549,537",
+      "solvedLate": null
+    },
+    "label_hover": {
+      "inStarts": [
+        3,
+        3,
+        3,
+        3
+      ],
+      "inSettles": [
+        13,
+        13,
+        12,
+        13
+      ],
+      "outStarts": [
+        3,
+        3,
+        3,
+        3
+      ],
+      "outSettles": [
+        13,
+        13,
+        12,
+        13
+      ],
+      "inSameFrame": true,
+      "outSameFrame": true,
+      "inFrames": 10,
+      "outFrames": 10
+    },
+    "label_hover_calm": {
+      "inStarts": [
+        -1,
+        -1,
+        -1,
+        -1
+      ],
+      "inSettles": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "outStarts": [
+        -1,
+        -1,
+        -1,
+        -1
+      ],
+      "outSettles": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "inSameFrame": true,
+      "outSameFrame": true,
+      "inFrames": 1,
+      "outFrames": 1
+    },
+    "videos": [
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage2g\\home_banners_and_labels_1440.webm",
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage2g\\home_banners_960.webm"
+    ]
+  }
+}

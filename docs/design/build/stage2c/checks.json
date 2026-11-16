@@ -1,0 +1,33 @@
+{
+  "stage": "2c",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "switcher_1440": {
+      "openAt80": false,
+      "openAt330": true,
+      "stillOpenOverPanel": true,
+      "closedAfterLeave": true,
+      "keyOpen": true,
+      "focusMoved": true,
+      "escCloses": true,
+      "clickOpen": true,
+      "addPath": "/accounts/new"
+    },
+    "switcher_960": {
+      "openAt80": false,
+      "openAt330": true,
+      "stillOpenOverPanel": true,
+      "closedAfterLeave": true,
+      "keyOpen": true,
+      "focusMoved": true,
+      "escCloses": true,
+      "clickOpen": true,
+      "addPath": "/accounts/new"
+    },
+    "switcher_preview_live_1440": {
+      "rows": 7,
+      "scrollable": true
+    }
+  }
+}

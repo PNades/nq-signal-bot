@@ -3,6 +3,7 @@
 // skeletons shaped like the content.
 import type { ReactNode } from "react";
 import { DotMatrixText } from "@/components/ui/dot-text";
+import HalftoneWordmarkFooter from "@/components/ui/halftone-wordmark-footer";
 import { useAnimated } from "@/effects";
 import { cn } from "@/lib/utils";
 import type { PageDef } from "./pages";
@@ -38,4 +39,31 @@ export function EmptyState({ word, message, action, className }: { word: string;
 
 export function Skeleton({ className }: { className?: string }) {
   return <div className={cn("cf-skeleton", className)} aria-hidden="true" />;
+}
+
+// ── the dot-matrix footer that ends the scrolling pages (Accounts, Settings, Performance; picks.md) ─────────────────
+
+// the footer word's weight from the footer's width: SemiBold (600) at the 960-px window (≈ 945 px of footer), Black (900)
+// at full screen (≈ 1905 px), straight in between (owner 2026-11-15)
+const FOOTER_W_NARROW = 945, FOOTER_W_FULL = 1905, FOOTER_WEIGHT_NARROW = 600, FOOTER_WEIGHT_FULL = 900;
+function footerWeight(width: number) {
+  const t = Math.min(1, Math.max(0, (width - FOOTER_W_NARROW) / (FOOTER_W_FULL - FOOTER_W_NARROW)));
+  return Math.round((FOOTER_WEIGHT_NARROW + t * (FOOTER_WEIGHT_FULL - FOOTER_WEIGHT_NARROW)) / 10) * 10;
+}
+
+/** A scrolling page that ends inside the "cream" letters (2/7 of their height hidden by the bottom edge): it cancels
+ *  the bottom padding the dock and date block keep (--dock-pad), which may float over the letters. */
+export function FooterPage({ children }: { children: ReactNode }) {
+  const animated = useAnimated();
+  return (
+    <div className="flex min-h-full flex-col" style={{ marginBottom: "calc(-1 * var(--dock-pad, 0px))" }}>
+      <div className="flex-1">{children}</div>
+      <HalftoneWordmarkFooter
+        wordmark="cream" label="CreamFlow · NQ" meta="Local control panel · 127.0.0.1" columns={[]} backToTop={false}
+        palette={{ background: "#111111", ink: "#ffe0c2", warm: "#ff9a3c" }} fontFamily='"Geist Variable", ui-sans-serif, sans-serif'
+        fontWeight={footerWeight} fit="inset" fitHeight={{ gapRatio: 0.18, minGap: 32 }}
+        monoFamily='"Geist Mono Variable", monospace' crop={2 / 7} grain={0.25} interactive={animated} height="320px"
+        className="mt-16 shrink-0" />
+    </div>
+  );
 }

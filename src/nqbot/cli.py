@@ -81,14 +81,26 @@ def _add_ui(sub) -> None:
     ui_sub = ui.add_subparsers(dest="action")
     ui_sub.add_parser("build", help="npm ci from the committed lockfile, npm audit (fails on high or critical), "
                                     "vite build into the git-ignored ui/web/dist/")
+    ui_sub.add_parser("backup", help="copy the panel's files (<data_dir>/panel/: accounts, presets, UI settings) to "
+                                     "Google Drive <drive_folder>/panel/ with rclone, then check the copy")
 
 
 def _run_ui(args, settings: dict) -> int:
+    from nqbot.storage import SSDNotFound
+
     if args.action == "build":
         from nqbot.ui.build import build
 
         return build()
-    from nqbot.storage import SSDNotFound
+    if args.action == "backup":
+        from nqbot.ui.panel_backup import backup
+
+        try:
+            paths = resolve_paths(settings)
+        except SSDNotFound as e:
+            print(f"refused: {e}", file=sys.stderr)
+            return EXIT_REFUSED
+        return backup(paths, settings)
     from nqbot.ui.app import PanelConfig
     from nqbot.ui.serve import BindRefused, run
 
@@ -98,7 +110,10 @@ def _run_ui(args, settings: dict) -> int:
         except SSDNotFound:
             return None
 
-    cfg = PanelConfig(port=int(settings["ui_port"]), paths_fn=paths_fn, synthetic=args.synthetic)
+    from nqbot.config import load_features
+
+    cfg = PanelConfig(port=int(settings["ui_port"]), paths_fn=paths_fn, synthetic=args.synthetic,
+                      settings=settings, features=load_features())
     try:
         return run(cfg, open_browser=not args.no_open)
     except BindRefused as e:
@@ -278,7 +293,12 @@ def _main(argv: list[str] | None = None) -> int:
         from nqbot.clock import clock_checks
         from nqbot.status_push import push
 
-        return push(paths, settings, clock=lambda: clock_checks(settings))
+        code = push(paths, settings, clock=lambda: clock_checks(settings))
+        # the panel's files ride along hourly (owner 2026-11-15); a failure is printed, status-push's own code stands
+        from nqbot.ui.panel_backup import backup as panel_backup
+
+        panel_backup(paths, settings)
+        return code
     if args.command == "resume":
         from nqbot.jobs.queue import resume
         from nqbot.verify import run_verify

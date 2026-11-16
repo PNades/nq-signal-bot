@@ -1,0 +1,70 @@
+{
+  "stage": "2e",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "overlays_1440": {
+      "frameInert": true,
+      "hitUnderPointerIsRoot": true,
+      "dropdownOutsideClickOnlyCloses": true,
+      "killFirstClickWithDropdown": true,
+      "dropdownClosedByKill": true,
+      "paletteFrameInert": true,
+      "paletteOutsideClickOnlyCloses": true,
+      "paletteBellClickOnlyCloses": true,
+      "flatFirstClickWithPalette": true,
+      "paletteClosedByFlat": true,
+      "hintShown": true,
+      "nativeTitles": []
+    },
+    "overlays_960": {
+      "frameInert": true,
+      "hitUnderPointerIsRoot": true,
+      "dropdownOutsideClickOnlyCloses": true,
+      "killFirstClickWithDropdown": true,
+      "dropdownClosedByKill": true,
+      "paletteFrameInert": true,
+      "paletteOutsideClickOnlyCloses": true,
+      "paletteBellClickOnlyCloses": true,
+      "flatFirstClickWithPalette": true,
+      "paletteClosedByFlat": true,
+      "hintShown": true,
+      "nativeTitles": []
+    },
+    "home_inert_1440": {
+      "cardWhileOpen": 0,
+      "cardAfter": 1
+    },
+    "home_inert_960": {
+      "cardWhileOpen": 0,
+      "cardAfter": 1
+    },
+    "accounts_transition_no_hscroll": [
+      {
+        "bad": 0,
+        "frames": 43
+      },
+      {
+        "bad": 0,
+        "frames": 44
+      },
+      {
+        "bad": 0,
+        "frames": 44
+      },
+      {
+        "bad": 0,
+        "frames": 44
+      }
+    ],
+    "home_still": {
+      "frames": 1845,
+      "changes": [],
+      "stop": true
+    },
+    "videos": [
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage2e\\home_still_idle_then_hover_1440.webm",
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage2e\\accounts_transition_and_inert_1440.webm"
+    ]
+  }
+}

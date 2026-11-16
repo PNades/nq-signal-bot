@@ -255,6 +255,10 @@ hidden (`visibilitychange`) or the element is off-screen (`IntersectionObserver`
 **Budget** (measured with Playwright/Chrome tracing at 1440 px, device pixel ratio capped at 2): the whole panel idle
 in Full ≤ 15% of one CPU core and ≤ 1 active requestAnimationFrame loop per visible showpiece; each canvas/WebGL
 effect ≤ 4 ms per frame; Calm idle ≤ 3%. An effect over budget is cut, not the data.
+**Exception (owner 2026-11-15):** Home's flowing wordmark runs at 60 fps in Full, idle included, even though that is
+over the 15% idle budget (one measurement at 60 fps read 15.3% while 13c's builds shared the CPU; 7.8% at 30 fps).
+Calm is the owner's way to save CPU,
+and Auto still switches to Calm by itself while the live engine runs on the same machine during market hours.
 
 ---
 

@@ -71,6 +71,15 @@
 
 :root { color-scheme: dark; }
 html, body, #root { height: 100%; }
+/* no page is ever wider than the window, also while content slides in (owner 2026-11-15) */
+html, body, #root { overflow-x: hidden; }
+/* an open account dropdown or command palette makes the page behind it inert (lib/overlay.ts, owner 2026-11-15): no
+   hover effects, no click-through; KILL and FLAT ALL stay live, and so does the open dropdown's own trigger */
+/* (!important and every descendant: some elements set pointer-events: auto themselves, the dock and Home's nodes) */
+:root[data-cf-overlay] [data-app-frame], :root[data-cf-overlay] [data-app-frame] *,
+:root[data-cf-overlay] ol[aria-label="Notifications"], :root[data-cf-overlay] ol[aria-label="Notifications"] * { pointer-events: none !important; }
+:root[data-cf-overlay] [data-risk-live], :root[data-cf-overlay] [data-risk-live] *,
+:root[data-cf-overlay~="switcher"] [data-account-switcher], :root[data-cf-overlay~="switcher"] [data-account-switcher] * { pointer-events: auto !important; }
 body {
   margin: 0;
   background: var(--color-bg-0);
@@ -121,3 +130,47 @@ button { transition: color var(--d-fast) var(--ease-standard), background-color 
 /* focus rings only for keyboard navigation (owner 2026-11-15): hidden while the last input was the mouse (main.tsx sets
    <html data-input>); they come back on the next key press. */
 [data-input="pointer"] :focus-visible { outline: none !important; }
+/* Home's flowing dashes along the node lines (pages/home.md; moved out of an inline <style> for the CSP) */
+@keyframes cf-flowdash { to { stroke-dashoffset: -24 } }
+.cf-flowdash { animation: cf-flowdash 2.6s linear infinite; }
+.cf-flowdash-lit { animation-duration: 1.2s; }
+
+/* Halftone Wordmark Footer (21st.dev 37628, picked): its scoped rules, moved out of an inline <style> for the CSP */
+.hwf-root {
+  position: relative; width: 100%; overflow: hidden; isolation: isolate;
+  background: var(--hwf-bg); color: var(--hwf-ink); -webkit-font-smoothing: antialiased;
+}
+.hwf-root canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; max-width: none; }
+.hwf-top {
+  position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1.25fr) repeat(3, minmax(0, 1fr));
+  gap: 24px; padding: clamp(22px, 3.4vw, 40px) clamp(20px, 3.4vw, 44px) 0;
+  font-family: var(--hwf-mono); font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase; line-height: 1.75;
+}
+.hwf-brand strong { display: block; font-weight: 500; }
+.hwf-brand span { opacity: .45; }
+.hwf-brand:only-child { grid-column: 1 / -1; } /* CreamFlow: no link columns, the details use the full width */
+.hwf-col h3 { margin: 0; font: inherit; opacity: .4; font-weight: 500; }
+.hwf-col ul { list-style: none; margin: 0; padding: 0; }
+.hwf-col a, .hwf-up {
+  color: inherit; text-decoration: none; opacity: .78; background: none; border: 0; padding: 0;
+  font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer;
+  background-image: linear-gradient(currentColor, currentColor); background-size: 0% 1px;
+  background-repeat: no-repeat; background-position: 0 100%; transition: opacity .25s ease, background-size .35s cubic-bezier(.2,.7,.1,1);
+}
+.hwf-col a:hover, .hwf-up:hover { opacity: 1; background-size: 100% 1px; }
+.hwf-col a:focus-visible, .hwf-up:focus-visible { outline: 1px solid currentColor; outline-offset: 3px; opacity: 1; }
+.hwf-rule {
+  position: relative; z-index: 1; display: flex; justify-content: flex-end; align-items: center; gap: 16px;
+  margin: clamp(18px, 2.6vw, 30px) clamp(20px, 3.4vw, 44px) 0; padding-top: 12px;
+  border-top: 0.5px solid color-mix(in srgb, var(--hwf-ink) 16%, transparent);
+  font-family: var(--hwf-mono); font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase;
+}
+.hwf-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 720px) {
+  .hwf-top { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); row-gap: 18px; }
+  .hwf-brand { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hwf-col a, .hwf-up { transition: none; }
+}
+

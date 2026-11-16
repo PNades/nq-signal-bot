@@ -1,0 +1,208 @@
+{
+  "stage": "2i",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "switch_1440": [
+      {
+        "switch": "Home → Accounts",
+        "mainWidths": [
+          1410
+        ],
+        "h1Lefts": [
+          "Prop accounts@112"
+        ],
+        "homeBoxes": [
+          "15.00/1410.00"
+        ],
+        "jumps": 0,
+        "maxJumpPx": 0
+      },
+      {
+        "switch": "Accounts → Home",
+        "mainWidths": [
+          1410
+        ],
+        "h1Lefts": [
+          "Prop accounts@112"
+        ],
+        "homeBoxes": [
+          "15.00/1410.00"
+        ],
+        "jumps": 0,
+        "maxJumpPx": 0
+      },
+      {
+        "switch": "Home → Settings",
+        "mainWidths": [
+          1410
+        ],
+        "h1Lefts": [
+          "Strategy settings@112"
+        ],
+        "homeBoxes": [
+          "15.00/1410.00"
+        ],
+        "jumps": 0,
+        "maxJumpPx": 0
+      },
+      {
+        "switch": "Settings → Home",
+        "mainWidths": [
+          1410
+        ],
+        "h1Lefts": [
+          "Strategy settings@112"
+        ],
+        "homeBoxes": [
+          "15.00/1410.00"
+        ],
+        "jumps": 0,
+        "maxJumpPx": 0
+      },
+      {
+        "switch": "Home → Review (short)",
+        "mainWidths": [
+          1410
+        ],
+        "h1Lefts": [
+          "Setup review@162"
+        ],
+        "homeBoxes": [
+          "15.00/1410.00"
+        ],
+        "jumps": 0,
+        "maxJumpPx": 0
+      },
+      {
+        "switch": "Review → Accounts",
+        "mainWidths": [
+          1410
+        ],
+        "h1Lefts": [
+          "Setup review@162",
+          "Prop accounts@112"
+        ],
+        "homeBoxes": [],
+        "jumps": 0,
+        "maxJumpPx": 0
+      }
+    ],
+    "centred_1440": {
+      "home": {
+        "offCentrePx": 0,
+        "scrollbar": false
+      },
+      "accounts": {
+        "offCentrePx": 0,
+        "scrollbar": true
+      },
+      "settings": {
+        "offCentrePx": 0,
+        "scrollbar": true
+      }
+    },
+    "videos": [
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage2i\\page_switches_1440.webm"
+    ],
+    "switch_960": [
+      {
+        "switch": "Home → Accounts",
+        "mainWidths": [
+          930
+        ],
+        "h1Lefts": [
+          "Prop accounts@39"
+        ],
+        "homeBoxes": [
+          "15.00/930.00"
+        ],
+        "jumps": 0,
+        "maxJumpPx": 0
+      },
+      {
+        "switch": "Accounts → Home",
+        "mainWidths": [
+          930
+        ],
+        "h1Lefts": [
+          "Prop accounts@39"
+        ],
+        "homeBoxes": [
+          "15.00/930.00"
+        ],
+        "jumps": 0,
+        "maxJumpPx": 0
+      },
+      {
+        "switch": "Home → Settings",
+        "mainWidths": [
+          930
+        ],
+        "h1Lefts": [
+          "Strategy settings@39"
+        ],
+        "homeBoxes": [
+          "15.00/930.00"
+        ],
+        "jumps": 0,
+        "maxJumpPx": 0
+      },
+      {
+        "switch": "Settings → Home",
+        "mainWidths": [
+          930
+        ],
+        "h1Lefts": [
+          "Strategy settings@39"
+        ],
+        "homeBoxes": [
+          "15.00/930.00"
+        ],
+        "jumps": 0,
+        "maxJumpPx": 0
+      },
+      {
+        "switch": "Home → Review (short)",
+        "mainWidths": [
+          930
+        ],
+        "h1Lefts": [
+          "Setup review@39"
+        ],
+        "homeBoxes": [
+          "15.00/930.00"
+        ],
+        "jumps": 0,
+        "maxJumpPx": 0
+      },
+      {
+        "switch": "Review → Accounts",
+        "mainWidths": [
+          930
+        ],
+        "h1Lefts": [
+          "Setup review@39",
+          "Prop accounts@39"
+        ],
+        "homeBoxes": [],
+        "jumps": 0,
+        "maxJumpPx": 0
+      }
+    ],
+    "centred_960": {
+      "home": {
+        "offCentrePx": 0,
+        "scrollbar": false
+      },
+      "accounts": {
+        "offCentrePx": 0,
+        "scrollbar": true
+      },
+      "settings": {
+        "offCentrePx": 0,
+        "scrollbar": true
+      }
+    }
+  }
+}

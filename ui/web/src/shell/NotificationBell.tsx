@@ -82,7 +82,7 @@ export function NotificationBell({ animated }: { animated: boolean }) {
   return (
     <>
       <button ref={btn} type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="dialog" data-bell
-        aria-label={`Notifications${unread.length ? `, ${unread.length} unread` : ""}`} title="Notifications (every message shown in this tab)"
+        aria-label={`Notifications${unread.length ? `, ${unread.length} unread` : ""}`} data-hint="Notifications (every message shown in this tab)"
         className={cn("relative grid size-8 shrink-0 place-items-center rounded-full border border-line-strong text-text-2 hover:text-text-1", open && "border-text-3 text-text-1")}>
         <Bell className="size-4" strokeWidth={1.6} aria-hidden="true" />
         {unread.length > 0 && (

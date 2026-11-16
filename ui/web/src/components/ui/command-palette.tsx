@@ -5,6 +5,7 @@
 // their normal confirm, pages/shell.md); reduced motion follows the panel's Effects (`animated`) as well as the OS;
 // the layer sits on the dialog z-level; `⌘` never shown (Windows).
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { isRiskControl, useInertBehind } from "@/lib/overlay";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { cn } from "@/lib/utils";
@@ -68,8 +69,23 @@ export function CommandPalette({ items, onSelect, onDismiss, open, animated = tr
   const pointer = useRef({ x: -1, y: -1 });
   const [query, setQuery] = useState("");
   const [pinned, setPinned] = useState<string | null>(null);
+  useInertBehind(open, "palette");
+  // a click on the inert page (the top bar included) lands on the page root: it only closes the palette. KILL and FLAT
+  // ALL are live: the palette closes and their click acts (owner 2026-11-15).
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => {
+      if (surfaceRef.current?.contains(e.target as Node)) return;
+      if (!isRiskControl(e.target)) e.preventDefault();
+      onDismiss();
+    };
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, [open, onDismiss]);
   const results = useMemo(() => rank(items, query), [items, query]);
-  const activeId = results.some((r) => r.id === pinned) ? pinned : (results.find((r) => !r.disabled)?.id ?? null);
+  // highlighted only while the pointer is over a row or the arrow keys moved to it (owner 2026-11-15); Enter with
+  // nothing highlighted runs the top result
+  const activeId = results.some((r) => r.id === pinned) ? pinned : null;
   const activeIndex = results.findIndex((r) => r.id === activeId);
   const count = results.length;
   const rows = Math.max(1, Math.min(maxRows, items.length));
@@ -97,9 +113,9 @@ export function CommandPalette({ items, onSelect, onDismiss, open, animated = tr
     setPinned(results[next].id);
     reveal(next);
   };
-  const move = (delta: number) => { if (results.length) jump(((activeIndex < 0 ? 0 : activeIndex) + delta + results.length) % results.length); };
+  const move = (delta: number) => { if (!results.length) return; if (activeIndex < 0) jump(delta > 0 ? 0 : results.length - 1); else jump((activeIndex + delta + results.length) % results.length); };
   const run = (item?: CommandItem) => {
-    const target = item ?? results.find((r) => r.id === activeId);
+    const target = item ?? results.find((r) => r.id === activeId) ?? results.find((r) => !r.disabled);
     if (target && !target.disabled) onSelect(target);
   };
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -124,7 +140,7 @@ export function CommandPalette({ items, onSelect, onDismiss, open, animated = tr
         <span className="min-w-[3ch] shrink-0 text-right font-mono text-[11px] text-text-3">{count}</span>
       </div>
       <div className="relative" style={{ height }}>
-        <ul ref={listRef} id={`${uid}-list`} role="listbox" aria-label={label} onMouseDown={(e) => e.preventDefault()}
+        <ul ref={listRef} id={`${uid}-list`} role="listbox" aria-label={label} onMouseDown={(e) => e.preventDefault()} onPointerLeave={() => setPinned(null)}
           className="absolute inset-0 flex flex-col gap-[2px] overflow-y-auto overscroll-contain p-[5px] [scrollbar-gutter:stable]">
           {results.map((item) => {
             const active = item.id === activeId;
@@ -170,11 +186,10 @@ export function CommandPalette({ items, onSelect, onDismiss, open, animated = tr
       {open && (
         // the panel's top sits so the open palette is centred slightly above the middle of the window, and stays put while
         // typing (the list keeps a fixed height; owner 2026-11-15)
-        <motion.div key="palette-layer" className="fixed inset-0 z-[50] flex items-start justify-center px-4 pt-[max(16px,calc(46vh-190px))]" role="dialog" aria-modal="true" aria-label={label}
-          initial="closed" animate="open" exit="gone" variants={{ closed: {}, open: {}, gone: {} }}
-          // a click anywhere outside the palette closes it, as Esc does (owner 2026-11-15); the backdrop and the full-width
-          // wrapper both count as outside
-          onPointerDown={(e) => { if (!surfaceRef.current?.contains(e.target as Node)) { e.preventDefault(); onDismiss(); } }}>
+        // the layer starts below the 52-px top bar, so KILL and FLAT ALL stay sharp and clickable above it (owner
+        // 2026-11-15); the panel keeps its place (46vh - 190 px from the window top)
+        <motion.div key="palette-layer" className="fixed inset-x-0 bottom-0 top-[52px] z-[50] flex items-start justify-center px-4 pt-[max(16px,calc(46vh-242px))]" role="dialog" aria-modal="true" aria-label={label}
+          initial="closed" animate="open" exit="gone" variants={{ closed: {}, open: {}, gone: {} }}>
           <motion.div aria-hidden className="absolute inset-0 bg-black/60 backdrop-blur-[8px]"
             variants={{ closed: { opacity: 0 }, open: { opacity: 1, transition: animated ? { duration: 0.2 } : { duration: 0 } }, gone: { opacity: 0, transition: animated ? { duration: 0.15 } : { duration: 0 } } }} />
           <motion.div className="relative flex w-full justify-center"

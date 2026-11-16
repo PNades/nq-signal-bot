@@ -9,6 +9,7 @@ import { OctagonX, Pause, Play, Square } from "lucide-react";
 import "./styles.css";
 import { EffectsContext, resolveEffects, type EffectsSetting } from "./effects";
 import { isTyping, useReducedMotion } from "./lib/hooks";
+import { postJson } from "./lib/api";
 import { AppFrame, TickerTape, TopBar } from "./shell/Shell";
 import { Banners } from "./shell/Banners";
 import { condition, notify } from "./lib/notify";
@@ -19,7 +20,14 @@ import { Splash, shouldShowSplash } from "./shell/Splash";
 import { CommandPalette, type CommandItem } from "./components/ui/command-palette";
 import { ShortcutsDialog, type ShortcutGroup } from "./components/ui/keyboard-shortcuts";
 import { Toaster } from "./components/ui/toast";
+import { HintLayer } from "@/components/ui/hint-layer";
 import { PlaceholderPage } from "./pages/Placeholder";
+import { HomeScene } from "./home/HomeScene";
+import { AccountsPage } from "./pages/accounts/AccountsPage";
+import { SettingsPage } from "./pages/settings/SettingsPage";
+import { pendingChanges } from "./lib/leave-guard";
+import { FocusContext, readFocus, writeFocus } from "./lib/focus";
+import { Dialog, btn } from "./components/ui/dialog";
 
 declare global { interface Window { __cfMounted?: boolean } }
 
@@ -68,13 +76,34 @@ function App() {
   useEffect(() => { window.__cfMounted = true; first.current = false; }, []);
   useEffect(() => { document.documentElement.dataset.effects = fx.active; }, [fx.active]);
 
-  const changeEffects = (s: EffectsSetting) => { setSetting(s); try { localStorage.setItem(EFFECTS_KEY, s); } catch { /* per-viewer convenience only */ } };
+  // the Effects setting lives in data/panel/ui.yaml (stage 2); localStorage only caches it for the first frame
+  const changeEffects = (s: EffectsSetting) => {
+    setSetting(s);
+    try { localStorage.setItem(EFFECTS_KEY, s); } catch { /* per-viewer cache only */ }
+    postJson("/api/ui", { effects: s }).catch(() => { /* no SSD: the choice holds for this browser only */ });
+  };
+  const fileEffects = status?.ui?.effects;
+  useEffect(() => { if (fileEffects && fileEffects !== setting) { setSetting(fileEffects); try { localStorage.setItem(EFFECTS_KEY, fileEffects); } catch { /* cache */ } } }, [fileEffects]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [leaveTo, setLeaveTo] = useState<string | null>(null);
+  const [focus, setFocusState] = useState<string | null>(readFocus);
+  const setFocus = useCallback((name: string) => { setFocusState(name); writeFocus(name); }, []);
+  // open a path (a page, or a page's sub-path such as /accounts/new); the page's own popstate listener follows it
+  const go = useCallback((path: string) => {
+    if (location.pathname !== path) history.pushState({}, "", path);
+    setView(pageFromPath(path));
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, []);
+  const openPath = useCallback((path: string) => {
+    if (pendingChanges() > 0) { setLeaveTo(path); return; }
+    go(path);
+  }, [go]);
+  // leaving a form with unsaved changes asks first (our own dialog, never the browser's confirm(); lib/leave-guard.ts)
   const navigate = useCallback((p: PageId) => {
     const def = pageById(p);
     if (def.unavailable) return;
-    setView(p);
-    if (location.pathname !== pathOf(p)) history.pushState({}, "", pathOf(p));
-  }, []);
+    if (pendingChanges() > 0) { setLeaveTo(pathOf(p)); return; }
+    go(pathOf(p));
+  }, [go]);
   useEffect(() => { const on = () => setView(pageFromPath(location.pathname)); window.addEventListener("popstate", on); return () => window.removeEventListener("popstate", on); }, []);
   const onResult = announce;
 
@@ -125,7 +154,7 @@ function App() {
   const onCommand = async (c: CommandItem) => {
     setPaletteOpen(false);
     if (c.id.startsWith("page-")) navigate(c.id.slice(5) as PageId);
-    else if (c.id.startsWith("acct-")) navigate("accounts");
+    else if (c.id.startsWith("acct-")) setFocus(c.id.slice(5));
     else if (c.id === "act-flat") onResult(await sendRiskAction("flat"));
     else if (c.id === "act-kill") setKillOpen(true); // the normal confirm, as from the top bar
     else if (c.id === "act-pause") onResult(await sendRiskAction("pause"));
@@ -146,9 +175,10 @@ function App() {
   const top = (
     <>
       <TopBar pageName={page.name} status={status} connected={connected} onEffects={changeEffects} onNavigate={navigate}
-        onResult={onResult} killOpen={killOpen} setKillOpen={setKillOpen} onPalette={() => setPaletteOpen(true)} animated={animated} />
+        onResult={onResult} killOpen={killOpen} setKillOpen={setKillOpen} onPalette={() => setPaletteOpen(true)} animated={animated}
+        onOpenPath={openPath} focus={focus} onFocus={setFocus} />
       <TickerTape items={[]} calm={!animated} note="Today's key levels appear here once the live engine runs (step 22)." />
-      <Banners animated={animated} />
+      <Banners animated={animated} fold={view !== "home"} />
       {status?.synthetic && (
         <div className="flex h-6 shrink-0 items-center justify-center bg-caramel font-mono text-[11px] tracking-[0.12em] text-cream" data-synthetic>SYNTHETIC DATA · `nqbot ui --synthetic` · nothing here is a result</div>
       )}
@@ -158,14 +188,20 @@ function App() {
   return (
     <MotionConfig nonce={STYLE_NONCE} reducedMotion={animated ? "never" : "always"}>
     <EffectsContext.Provider value={fx}>
+    <FocusContext.Provider value={{ focus, setFocus }}>
       <AppFrame active={view} animated={animated} hideDock={view === "home"} onNavigate={navigate} top={top}>
         <AnimatePresence mode="wait">
+          {/* Home fills the whole content area; its bottom row shares the date block's line (owner 2026-11-15) */}
           <motion.div key={view} className={view === "home" ? "absolute inset-0" : "min-h-full"}
             initial={first.current || !animated ? false : view === "home" ? { opacity: 0 } : { opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={animated ? { opacity: 0, transition: { duration: 0.15 } } : { opacity: 0, transition: { duration: 0 } }}
             transition={{ duration: animated ? (view === "home" ? 0.2 : 0.32) : 0, ease: [0.2, 0, 0, 1] }}>
-            <PlaceholderPage id={view} />
+            {view === "home"
+              ? <HomeScene calm={!animated} onOpenPage={navigate} blocked={paletteOpen || shortcutsOpen || killOpen} />
+              : view === "accounts" ? <AccountsPage />
+              : view === "settings" ? <SettingsPage onEffects={changeEffects} />
+              : <PlaceholderPage id={view} />}
           </motion.div>
         </AnimatePresence>
       </AppFrame>
@@ -173,7 +209,15 @@ function App() {
       <ShortcutsDialog groups={shortcutGroups} open={shortcutsOpen} onOpenChange={setShortcutsOpen} animated={animated}
         footer={<a href="/emergency" className="text-text-1 underline underline-offset-2">Emergency page (no JavaScript)</a>} />
       <Toaster animated={animated} />
+      <HintLayer />
+      <Dialog open={leaveTo !== null} onOpenChange={(v) => { if (!v) setLeaveTo(null); }} title="Leave without" titleItalic="saving?"
+        description={`${pendingChanges()} unsaved change${pendingChanges() === 1 ? "" : "s"} on this page will be lost.`}
+        footer={<>
+          <button type="button" className={btn.secondary} onClick={() => setLeaveTo(null)}>Stay</button>
+          <button type="button" className={btn.primary} onClick={() => { const p = leaveTo; setLeaveTo(null); if (p) go(p); }}>Discard and leave</button>
+        </>} />
       {splash && <Splash animated={animated} ready={status !== null || !connected} onDone={() => setSplash(false)} />}
+    </FocusContext.Provider>
     </EffectsContext.Provider>
     </MotionConfig>
   );

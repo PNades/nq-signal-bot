@@ -18,7 +18,8 @@ ENGINE_NOTE_NONE = "No live engine on this machine (the engine is built at step 
 
 
 def build_status(paths_fn: Callable[[], Paths | None], *, synthetic: bool,
-                 accounts_fn: Callable[[Paths | None], list[dict[str, Any]]] | None = None) -> dict[str, Any]:
+                 accounts_fn: Callable[[Paths | None], list[dict[str, Any]]] | None = None,
+                 ui_fn: Callable[[Paths | None], dict[str, Any]] | None = None) -> dict[str, Any]:
     paths = paths_fn()
     alerts: list[dict[str, str]] = []
     if paths is None:
@@ -35,4 +36,6 @@ def build_status(paths_fn: Callable[[], Paths | None], *, synthetic: bool,
         "calm_forced": False,
         "alerts": alerts,
         "accounts": accounts_fn(paths) if accounts_fn else [],
+        # the panel's own settings (data/panel/ui.yaml): the Effects setting
+        "ui": ui_fn(paths) if ui_fn else {},
     }

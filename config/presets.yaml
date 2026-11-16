@@ -1,0 +1,295 @@
+# Built-in account presets (SPEC §6.7 preset table, §9b item 1; owner-confirmed rules: Rapid EOD and Builder 2026-10,
+# Pro 50k 2026-10-07/09, Lucid Flex 25k 2026-11-04). The Accounts page's preset picker offers each stage; picking one
+# fills every field below, and every field stays editable. The owner's own presets (Save as preset) live on the SSD in
+# <data_dir>/panel/presets.yaml, never here. Not read by the feature build (not in any build key).
+# `common` holds the fields every stage shares unless the stage sets them; each stage lists only what differs.
+common:
+  flat_by: "15:59"
+  max_risk_fraction_divisor: 3
+  max_loss_run_rate: 0.15
+  risk_profile: normal
+  min_ev_r: 0.20
+  min_target_prob: 0.40
+  lives_mode: true
+  last_life_top_pct: auto
+  lambda_risk_penalty: 0
+  breakeven_enabled: true
+  sim_fills: true
+  micro_mini_ratio: 10
+  max_contracts_total: null
+  scaling_tiers: null
+  scaling_tier_update: intraday
+  allow_micros: true
+  allow_mixed: true
+  stop_at_target: false
+  min_trading_days: null
+  payout_min_days: null
+  profit_cap_mode: none
+  profit_target_usd: null
+  consistency_pct: null
+  payout_target_usd: null
+  funded_buffer_usd: null
+  payout_min_usd: null
+  payout_profit_since_last_usd: null
+  payout_max_usd: null
+  payout_pct_of_profit: null
+  payout_profit_days_min: null
+  payout_profit_day_min_usd: null
+  payouts_taken: 0
+  after_first_payout: null
+  payout_wait_calendar_days: null
+  payout_clock_hold: "off"
+  profit_split_pct: null
+  firm_balance_from_zero: false
+  flip_hold_max_sec: null
+  flip_profit_share_max: null
+  flip_profit_share_warn: null
+  payout_cap_group: null
+  payout_cap_group_usd: null
+  auto_protect_within_usd: null
+  drawdown_lock_usd: null
+  drawdown_lock_trigger: floor
+  dll_enabled: false
+  firm_daily_loss_limit_usd: null
+  bot_daily_loss_cap_usd: null
+  max_losses_per_day: null
+  max_trades_per_day: null
+  custom_risk_usd: null
+
+presets:
+  # ── MyFundedFutures Rapid EOD 25k ───────────────────────────────────────────────────────────────────────────────
+  - id: mffu_rapid_eod_25k_evaluation
+    label: MFFU Rapid EOD 25k
+    firm: MyFundedFutures
+    stage: evaluation
+    fields: &mffu_25k
+      firm: MyFundedFutures
+      phase: evaluation
+      start_balance_usd: 25000
+      drawdown_usd: 1000
+      drawdown_type: eod_trailing
+      max_inactive_days: 7
+      commission_per_mini_rt: 4.68
+      commission_per_micro_rt: 1.90
+      risk_usd_per_trade: 333
+      max_minis: 2
+      max_micros: 20
+      # evaluation: target $1,500, 30% consistency (→ $450/day), no DLL, min 4 trading days, trails with no lock
+      profit_cap_mode: consistency
+      profit_target_usd: 1500
+      consistency_pct: 0.30
+      stop_at_target: true
+      min_trading_days: 4
+  - id: mffu_rapid_eod_25k_funded
+    label: MFFU Rapid EOD 25k
+    firm: MyFundedFutures
+    stage: funded
+    fields: &rapid_funded
+      firm: MyFundedFutures
+      phase: funded
+      start_balance_usd: 25000
+      drawdown_usd: 1000
+      drawdown_type: eod_trailing
+      max_inactive_days: 7
+      commission_per_mini_rt: 4.68
+      commission_per_micro_rt: 1.90
+      risk_usd_per_trade: 333
+      max_minis: 2
+      max_micros: 20
+      # funded: trails until the floor reaches start + $100 (when the $1,100 buffer is reached), then static; no DLL,
+      # no consistency; payouts min $500, no cap, each later one needs $250 net since the last
+      drawdown_lock_usd: 25100
+      drawdown_lock_trigger: floor
+      funded_buffer_usd: 1100
+      payout_min_usd: 500
+      payout_profit_since_last_usd: 250
+  - id: mffu_rapid_eod_25k_after_first_payout
+    label: MFFU Rapid EOD 25k
+    firm: MyFundedFutures
+    stage: after first payout
+    fields:
+      <<: *rapid_funded
+      payouts_taken: 1
+
+  # ── MyFundedFutures Builder 25k ─────────────────────────────────────────────────────────────────────────────────
+  - id: mffu_builder_25k_evaluation
+    label: MFFU Builder 25k
+    firm: MyFundedFutures
+    stage: evaluation
+    fields:
+      firm: MyFundedFutures
+      phase: evaluation
+      start_balance_usd: 25000
+      drawdown_usd: 1000
+      drawdown_type: eod_trailing
+      max_inactive_days: 7
+      commission_per_mini_rt: 4.68
+      commission_per_micro_rt: 1.90
+      risk_usd_per_trade: 333
+      max_minis: 2
+      max_micros: 20
+      # evaluation: target $1,500, $600 soft DLL, no consistency (can pass in one day), trails with no lock
+      profit_target_usd: 1500
+      stop_at_target: true
+      min_trading_days: 1
+      dll_enabled: true
+      firm_daily_loss_limit_usd: 600
+  - id: mffu_builder_25k_funded
+    label: MFFU Builder 25k
+    firm: MyFundedFutures
+    stage: funded
+    fields: &builder_funded
+      firm: MyFundedFutures
+      phase: funded
+      start_balance_usd: 25000
+      drawdown_usd: 1000
+      drawdown_type: eod_trailing
+      max_inactive_days: 7
+      commission_per_mini_rt: 4.68
+      commission_per_micro_rt: 1.90
+      risk_usd_per_trade: 333
+      max_minis: 2
+      max_micros: 20
+      # funded: lock at start + $100; $1,100 buffer + a max first payout of $1,000 under a 50% consistency rule
+      # (→ $1,050/day); then each payout needs another $1,000 and the 50% rule caps a day at $500
+      drawdown_lock_usd: 25100
+      drawdown_lock_trigger: floor
+      profit_cap_mode: consistency
+      profit_target_usd: 2100
+      consistency_pct: 0.50
+      funded_buffer_usd: 1100
+      payout_min_usd: 250
+      payout_max_usd: 1000
+      payout_target_usd: 1000
+      payout_min_days: 2
+      dll_enabled: true
+      firm_daily_loss_limit_usd: 600
+      after_first_payout: {profit_cap_mode: consistency, profit_target_usd: 1000, consistency_pct: 0.50}
+  - id: mffu_builder_25k_after_first_payout
+    label: MFFU Builder 25k
+    firm: MyFundedFutures
+    stage: after first payout
+    fields:
+      <<: *builder_funded
+      profit_cap_mode: consistency
+      profit_target_usd: 1000
+      consistency_pct: 0.50
+      payouts_taken: 1
+
+  # ── MyFundedFutures Pro 50k (offered as a preset) ───────────────────────────────────────────────────────────────
+  - id: mffu_pro_50k_evaluation
+    label: MFFU Pro 50k
+    firm: MyFundedFutures
+    stage: evaluation
+    fields:
+      firm: MyFundedFutures
+      phase: evaluation
+      start_balance_usd: 50000
+      drawdown_usd: 2000
+      drawdown_type: eod_trailing
+      max_inactive_days: 7
+      commission_per_mini_rt: 4.68
+      commission_per_micro_rt: 1.90
+      risk_usd_per_trade: 666
+      max_minis: 3
+      max_micros: 30
+      # evaluation: target $3,000, 50% consistency (→ $1,500/day), no DLL, min 2 trading days, trails with no lock
+      profit_cap_mode: consistency
+      profit_target_usd: 3000
+      consistency_pct: 0.50
+      stop_at_target: true
+      min_trading_days: 2
+  - id: mffu_pro_50k_funded
+    label: MFFU Pro 50k
+    firm: MyFundedFutures
+    stage: funded
+    fields:
+      firm: MyFundedFutures
+      phase: funded
+      start_balance_usd: 50000
+      drawdown_usd: 2000
+      drawdown_type: eod_trailing
+      max_inactive_days: 7
+      commission_per_mini_rt: 4.68
+      commission_per_micro_rt: 1.90
+      risk_usd_per_trade: 666
+      # funded: trails until the first payout, then locked at $50,100; 5 contracts in total, minis and micros alike;
+      # $2,100 buffer, 14 calendar days per payout, min $1,000, 80/20 split, $100,000 cap across all Pro accounts
+      drawdown_lock_usd: 50100
+      drawdown_lock_trigger: first_payout
+      max_minis: 5
+      max_micros: 5
+      max_contracts_total: 5
+      funded_buffer_usd: 2100
+      payout_min_usd: 1000
+      payout_wait_calendar_days: 14
+      payout_clock_hold: "off"
+      profit_split_pct: 0.80
+      payout_cap_group: mffu_pro
+      payout_cap_group_usd: 100000
+
+  # ── Lucid Flex 25k (offered as a preset) ───────────────────────────────────────────────────────────────────────
+  - id: lucid_flex_25k_evaluation
+    label: Lucid Flex 25k
+    firm: Lucid
+    stage: evaluation
+    fields:
+      firm: Lucid
+      phase: evaluation
+      start_balance_usd: 25000
+      drawdown_usd: 1000
+      drawdown_type: eod_trailing
+      max_inactive_days: 30
+      commission_per_mini_rt: 3.50
+      commission_per_micro_rt: 1.00
+      risk_usd_per_trade: 333
+      max_minis: 2
+      max_micros: 20
+      # evaluation: target $1,250, 50% consistency (→ $625/day), $600 soft DLL, no minimum days, trails with no lock
+      profit_cap_mode: consistency
+      profit_target_usd: 1250
+      consistency_pct: 0.50
+      stop_at_target: true
+      dll_enabled: true
+      firm_daily_loss_limit_usd: 600
+      flip_hold_max_sec: 5
+      flip_profit_share_max: 0.50
+      flip_profit_share_warn: 0.25
+  - id: lucid_flex_25k_funded
+    label: Lucid Flex 25k
+    firm: Lucid
+    stage: funded
+    fields:
+      firm: Lucid
+      phase: funded
+      start_balance_usd: 25000
+      drawdown_usd: 1000
+      drawdown_type: eod_trailing
+      max_inactive_days: 30
+      commission_per_mini_rt: 3.50
+      commission_per_micro_rt: 1.00
+      risk_usd_per_trade: 333
+      max_minis: 2
+      max_micros: 20
+      # funded: locked at $25,100 when the EOD high reaches $26,100 or at the first payout, whichever first; $600 soft
+      # DLL; scaling tiers updated at end of day; payouts: 5 days of >= $100 per cycle, min($1,000, 50% of profit),
+      # min $500, the owner's max-payout policy (target $1,000); 90/10 split; Lucid shows the funded balance from $0
+      drawdown_lock_usd: 25100
+      drawdown_lock_trigger: floor_or_first_payout
+      dll_enabled: true
+      firm_daily_loss_limit_usd: 600
+      scaling_tiers:
+        - {min_profit_usd: null, max_minis: 1, max_micros: 10}
+        - {min_profit_usd: 1000, max_minis: 2, max_micros: 20}
+      scaling_tier_update: eod
+      payout_pct_of_profit: 0.50
+      payout_max_usd: 1000
+      payout_min_usd: 500
+      payout_target_usd: 1000
+      payout_profit_days_min: 5
+      payout_profit_day_min_usd: 100
+      profit_split_pct: 0.90
+      firm_balance_from_zero: true
+      flip_hold_max_sec: 5
+      flip_profit_share_max: 0.50
+      flip_profit_share_warn: 0.25

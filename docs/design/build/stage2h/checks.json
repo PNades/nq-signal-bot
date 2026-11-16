@@ -1,0 +1,226 @@
+{
+  "stage": "2h",
+  "base": "http://127.0.0.1:8733",
+  "problems": [
+    "line_morph_1440 first arrives: a node jumped 7.07 px",
+    "line_morph_1440 first arrives: a line point jumped 7.07 px"
+  ],
+  "checks": {
+    "line_morph_1440": [
+      {
+        "e": "first arrives",
+        "bannerStartFrame": 4,
+        "nodeStartFrame": 4,
+        "lineStartFrame": 4,
+        "gapFrames": 0,
+        "lineGapFrames": 0,
+        "maxStepPx": 7.07,
+        "maxLineStepPx": 7.07,
+        "lineMovingFrames": 16,
+        "maxNodeEndOffPx": 0.07,
+        "longestFrameMs": 37
+      },
+      {
+        "e": "first leaves",
+        "bannerStartFrame": 2,
+        "nodeStartFrame": 2,
+        "lineStartFrame": 2,
+        "gapFrames": 0,
+        "lineGapFrames": 0,
+        "maxStepPx": 4.45,
+        "maxLineStepPx": 4.46,
+        "lineMovingFrames": 17,
+        "maxNodeEndOffPx": 0.07,
+        "longestFrameMs": 18
+      },
+      {
+        "e": "1 of 3 arrives",
+        "bannerStartFrame": 3,
+        "nodeStartFrame": 3,
+        "lineStartFrame": 3,
+        "gapFrames": 0,
+        "lineGapFrames": 0,
+        "maxStepPx": 4.28,
+        "maxLineStepPx": 4.28,
+        "lineMovingFrames": 16,
+        "maxNodeEndOffPx": 0.07,
+        "longestFrameMs": 19
+      },
+      {
+        "e": "2 of 3 arrives",
+        "bannerStartFrame": 3,
+        "nodeStartFrame": 3,
+        "lineStartFrame": 3,
+        "gapFrames": 0,
+        "lineGapFrames": 0,
+        "maxStepPx": 4.28,
+        "maxLineStepPx": 4.27,
+        "lineMovingFrames": 16,
+        "maxNodeEndOffPx": 0.07,
+        "longestFrameMs": 19
+      },
+      {
+        "e": "3 of 3 arrives",
+        "bannerStartFrame": 4,
+        "nodeStartFrame": 4,
+        "lineStartFrame": 4,
+        "gapFrames": 0,
+        "lineGapFrames": 0,
+        "maxStepPx": 4.53,
+        "maxLineStepPx": 4.53,
+        "lineMovingFrames": 16,
+        "maxNodeEndOffPx": 0.06,
+        "longestFrameMs": 18
+      },
+      {
+        "e": "3 of 3 leaves",
+        "bannerStartFrame": 2,
+        "nodeStartFrame": 2,
+        "lineStartFrame": 2,
+        "gapFrames": 0,
+        "lineGapFrames": 0,
+        "maxStepPx": 4.27,
+        "maxLineStepPx": 4.28,
+        "lineMovingFrames": 16,
+        "maxNodeEndOffPx": 0.06,
+        "longestFrameMs": 20
+      },
+      {
+        "e": "2 of 3 leaves",
+        "bannerStartFrame": 2,
+        "nodeStartFrame": 2,
+        "lineStartFrame": 2,
+        "gapFrames": 0,
+        "lineGapFrames": 0,
+        "maxStepPx": 4.43,
+        "maxLineStepPx": 4.43,
+        "lineMovingFrames": 16,
+        "maxNodeEndOffPx": 0.07,
+        "longestFrameMs": 19
+      },
+      {
+        "e": "1 of 3 leaves",
+        "bannerStartFrame": 2,
+        "nodeStartFrame": 2,
+        "lineStartFrame": 2,
+        "gapFrames": 0,
+        "lineGapFrames": 0,
+        "maxStepPx": 4.45,
+        "maxLineStepPx": 4.45,
+        "lineMovingFrames": 17,
+        "maxNodeEndOffPx": 0.07,
+        "longestFrameMs": 18
+      }
+    ],
+    "line_morph_960": [
+      {
+        "e": "first arrives",
+        "bannerStartFrame": 3,
+        "nodeStartFrame": 3,
+        "lineStartFrame": 3,
+        "gapFrames": 0,
+        "lineGapFrames": 0,
+        "maxStepPx": 5.21,
+        "maxLineStepPx": 5.2,
+        "lineMovingFrames": 16,
+        "maxNodeEndOffPx": 0.05,
+        "longestFrameMs": 19
+      },
+      {
+        "e": "first leaves",
+        "bannerStartFrame": 3,
+        "nodeStartFrame": 3,
+        "lineStartFrame": 3,
+        "gapFrames": 0,
+        "lineGapFrames": 0,
+        "maxStepPx": 5.2,
+        "maxLineStepPx": 5.2,
+        "lineMovingFrames": 17,
+        "maxNodeEndOffPx": 0.05,
+        "longestFrameMs": 18
+      },
+      {
+        "e": "1 of 3 arrives",
+        "bannerStartFrame": 3,
+        "nodeStartFrame": 3,
+        "lineStartFrame": 3,
+        "gapFrames": 0,
+        "lineGapFrames": 0,
+        "maxStepPx": 5.21,
+        "maxLineStepPx": 5.2,
+        "lineMovingFrames": 16,
+        "maxNodeEndOffPx": 0.05,
+        "longestFrameMs": 19
+      },
+      {
+        "e": "2 of 3 arrives",
+        "bannerStartFrame": 3,
+        "nodeStartFrame": 3,
+        "lineStartFrame": 3,
+        "gapFrames": 0,
+        "lineGapFrames": 0,
+        "maxStepPx": 5.52,
+        "maxLineStepPx": 5.52,
+        "lineMovingFrames": 16,
+        "maxNodeEndOffPx": 0.05,
+        "longestFrameMs": 18
+      },
+      {
+        "e": "3 of 3 arrives",
+        "bannerStartFrame": 4,
+        "nodeStartFrame": 4,
+        "lineStartFrame": 4,
+        "gapFrames": 0,
+        "lineGapFrames": 0,
+        "maxStepPx": 5.62,
+        "maxLineStepPx": 5.62,
+        "lineMovingFrames": 16,
+        "maxNodeEndOffPx": 0.06,
+        "longestFrameMs": 18
+      },
+      {
+        "e": "3 of 3 leaves",
+        "bannerStartFrame": 3,
+        "nodeStartFrame": 3,
+        "lineStartFrame": 3,
+        "gapFrames": 0,
+        "lineGapFrames": 0,
+        "maxStepPx": 5.32,
+        "maxLineStepPx": 5.31,
+        "lineMovingFrames": 17,
+        "maxNodeEndOffPx": 0.06,
+        "longestFrameMs": 18
+      },
+      {
+        "e": "2 of 3 leaves",
+        "bannerStartFrame": 2,
+        "nodeStartFrame": 2,
+        "lineStartFrame": 2,
+        "gapFrames": 0,
+        "lineGapFrames": 0,
+        "maxStepPx": 5.21,
+        "maxLineStepPx": 5.21,
+        "lineMovingFrames": 17,
+        "maxNodeEndOffPx": 0.05,
+        "longestFrameMs": 18
+      },
+      {
+        "e": "1 of 3 leaves",
+        "bannerStartFrame": 3,
+        "nodeStartFrame": 3,
+        "lineStartFrame": 3,
+        "gapFrames": 0,
+        "lineGapFrames": 0,
+        "maxStepPx": 5.21,
+        "maxLineStepPx": 5.2,
+        "lineMovingFrames": 16,
+        "maxNodeEndOffPx": 0.05,
+        "longestFrameMs": 18
+      }
+    ],
+    "videos": [
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage2h\\home_line_morph_1440.webm",
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage2h\\home_line_morph_960.webm"
+    ]
+  }
+}
