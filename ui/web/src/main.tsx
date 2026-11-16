@@ -1,6 +1,9 @@
 // CreamFlow Control Panel (SPEC §9b): the app root. Routing by path (/, /gameplan, /accounts, ...; the server answers
 // every page path with this app), the Effects setting, the server status stream, banners, the command palette, the
 // shortcut sheet, toasts, the splash and page transitions (design-system/pages/shell.md).
+// Page changes (owner 2026-11-16): the current page stays until the next page's data is loaded (lib/nav.ts), then the
+// next page crossfades in filled; the scrolling pages share one footer that glides with the height; a load slower than
+// ~300 ms shows a thin progress line; hovering a dock icon or a link to a page preloads it. Calm: an instant swap.
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
@@ -29,6 +32,9 @@ import { SettingsPage } from "./pages/settings/SettingsPage";
 import { pendingChanges } from "./lib/leave-guard";
 import { FocusContext, readFocus, writeFocus } from "./lib/focus";
 import { Dialog, btn } from "./components/ui/dialog";
+import { BusyBar } from "./components/ui/busy-bar";
+import { NavContext, preloadPath } from "./lib/nav";
+import { PagesFrame } from "./shell/page";
 
 declare global { interface Window { __cfMounted?: boolean } }
 
@@ -46,6 +52,8 @@ window.addEventListener("keydown", (e) => { if (!e.ctrlKey && !e.metaKey && !e.a
 setInput("pointer");
 
 const EFFECTS_KEY = "creamflow.effects";
+// a page change's crossfade (the height glide under it is the tab switch's, 0.25 s)
+const PAGE_FADE_S = 0.24;
 function readEffects(): EffectsSetting {
   try { const v = localStorage.getItem(EFFECTS_KEY); if (v === "full" || v === "calm" || v === "auto") return v; } catch { /* storage blocked */ }
   return "auto";
@@ -69,6 +77,12 @@ function App() {
   const fx = resolveEffects(setting, reduced, status?.calm_forced ?? false);
   const animated = fx.active === "full";
   const [view, setView] = useState<PageId>(() => pageFromPath(location.pathname));
+  // the first page shows once its data is loaded too (no half-filled first frame)
+  const [ready, setReady] = useState(false);
+  useEffect(() => { preloadPath(location.pathname).catch(() => null).finally(() => setReady(true)); }, []);
+  // a page change in progress (its data loading): the latest one wins
+  const navToken = useRef(0);
+  const [navBusy, setNavBusy] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [killOpen, setKillOpen] = useState(false);
@@ -88,16 +102,38 @@ function App() {
   const [leaveTo, setLeaveTo] = useState<string | null>(null);
   const [focus, setFocusState] = useState<string | null>(readFocus);
   const setFocus = useCallback((name: string) => { setFocusState(name); writeFocus(name); }, []);
-  // open a path (a page, or a page's sub-path such as /accounts/new); the page's own popstate listener follows it
-  const go = useCallback((path: string) => {
-    if (location.pathname !== path) history.pushState({}, "", path);
-    setView(pageFromPath(path));
-    window.dispatchEvent(new PopStateEvent("popstate"));
+  // open a path (a page, or a page's sub-path such as /accounts/new) once its data is loaded; the page's own popstate
+  // listener follows it; `state` rides on the history entry (e.g. where the account editor's back button goes)
+  const go = useCallback((path: string, state: Record<string, unknown> = {}) => {
+    const t = ++navToken.current;
+    setNavBusy(true);
+    preloadPath(path).catch(() => null).then(() => {
+      if (t !== navToken.current) return;
+      setNavBusy(false);
+      if (location.pathname !== path) history.pushState(state, "", path);
+      else history.replaceState(state, "", path);
+      const next = pageFromPath(path);
+      setView((v) => { if (v !== next) document.getElementById("cf-main")?.scrollTo({ top: 0 }); return next; });
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
   }, []);
-  const openPath = useCallback((path: string) => {
+  const openPath = useCallback((path: string, state?: Record<string, unknown>) => {
     if (pendingChanges() > 0) { setLeaveTo(path); return; }
-    go(path);
+    go(path, state);
   }, [go]);
+  const nav = useMemo(() => ({ open: openPath }), [openPath]);
+  // hovering (or focusing) a dock icon, a Home card or a link marked data-preload loads that page's data ahead
+  useEffect(() => {
+    const ahead = (e: Event) => {
+      const el = (e.target as Element | null)?.closest?.("[data-preload], [data-dock-item], [data-home-node]");
+      if (!el) return;
+      const path = el.getAttribute("data-preload") ?? pathOf((el.getAttribute("data-dock-item") ?? el.getAttribute("data-home-node")) as PageId);
+      preloadPath(path).catch(() => null);
+    };
+    window.addEventListener("pointerover", ahead);
+    window.addEventListener("focusin", ahead);
+    return () => { window.removeEventListener("pointerover", ahead); window.removeEventListener("focusin", ahead); };
+  }, []);
   // leaving a form with unsaved changes asks first (our own dialog, never the browser's confirm(); lib/leave-guard.ts)
   const navigate = useCallback((p: PageId) => {
     const def = pageById(p);
@@ -105,7 +141,16 @@ function App() {
     if (pendingChanges() > 0) { setLeaveTo(pathOf(p)); return; }
     go(pathOf(p));
   }, [go]);
-  useEffect(() => { const on = () => setView(pageFromPath(location.pathname)); window.addEventListener("popstate", on); return () => window.removeEventListener("popstate", on); }, []);
+  // back / forward: the same rule (the page shown changes once the next one's data is loaded)
+  useEffect(() => {
+    const on = () => {
+      const path = location.pathname, next = pageFromPath(path);
+      const t = ++navToken.current;
+      preloadPath(path).catch(() => null).then(() => { if (t === navToken.current) { setNavBusy(false); setView(next); } });
+    };
+    window.addEventListener("popstate", on);
+    return () => window.removeEventListener("popstate", on);
+  }, []);
   const onResult = announce;
 
   // server conditions become notes once per occurrence (lib/notify.ts): losing the server is critical (kill/flat from
@@ -180,6 +225,8 @@ function App() {
         onOpenPath={openPath} focus={focus} onFocus={setFocus} />
       <TickerTape items={[]} calm={!animated} note="Today's key levels appear here once the live engine runs (step 22)." />
       <Banners animated={animated} fold={view !== "home"} />
+      {/* a page change whose data takes longer than ~300 ms: a thin line under the top bar (it never moves the layout) */}
+      <div className="relative z-[29] h-0"><BusyBar busy={navBusy} animated={animated} label="Loading the page" className="top-0" data-nav-loading /></div>
       {status?.synthetic && (
         <div className="flex h-6 shrink-0 items-center justify-center bg-caramel font-mono text-[11px] tracking-[0.12em] text-cream" data-synthetic>SYNTHETIC DATA · `nqbot ui --synthetic` · nothing here is a result</div>
       )}
@@ -190,22 +237,35 @@ function App() {
     <MotionConfig nonce={STYLE_NONCE} reducedMotion={animated ? "never" : "always"}>
     <EffectsContext.Provider value={fx}>
     <FocusContext.Provider value={{ focus, setFocus }}>
+    <NavContext.Provider value={nav}>
       <AppFrame active={view} animated={animated} hideDock={view === "home"} onNavigate={navigate} top={top}>
-        <AnimatePresence mode="wait">
-          {/* Home fills the whole content area; its bottom row shares the date block's line (owner 2026-11-15) */}
-          <motion.div key={view} className={view === "home" ? "absolute inset-0" : "min-h-full"}
-            initial={first.current || !animated ? false : view === "home" ? { opacity: 0 } : { opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={animated ? { opacity: 0, transition: { duration: 0.15 } } : { opacity: 0, transition: { duration: 0 } }}
-            transition={{ duration: animated ? (view === "home" ? 0.2 : 0.32) : 0, ease: [0.2, 0, 0, 1] }}>
-            {view === "home"
-              ? <HomeScene calm={!animated} onOpenPage={navigate} blocked={paletteOpen || shortcutsOpen || killOpen} />
-              : view === "accounts" ? <AccountsPage />
-              : view === "settings" ? <SettingsPage onEffects={changeEffects} />
-              : view === "performance" ? <PerformancePage />
-              : <PlaceholderPage id={view} />}
-          </motion.div>
+        {/* the pages crossfade (both on screen at once, never a blank gap); Home fills the whole content area (its bottom
+            row shares the date block's line, owner 2026-11-15); the scrolling pages share one frame and footer */}
+        {ready && (
+        <AnimatePresence initial={false}>
+          {view === "home" ? (
+            <motion.div key="home" className="absolute inset-0" data-view="home"
+              initial={animated ? { opacity: 0 } : false} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: animated ? PAGE_FADE_S : 0, ease: "easeOut" }}>
+              <HomeScene calm={!animated} onOpenPage={navigate} blocked={paletteOpen || shortcutsOpen || killOpen} />
+            </motion.div>
+          ) : (
+            <motion.div key="pages" className="min-h-full" data-pages
+              initial={animated ? { opacity: 0 } : false} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: animated ? PAGE_FADE_S : 0, ease: "easeOut" }}>
+              <PagesFrame k={view}>
+                <AnimatePresence initial={false} mode="popLayout">
+                  <motion.div key={view} data-view={view}
+                    initial={animated ? { opacity: 0 } : false} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: animated ? PAGE_FADE_S : 0, ease: "easeOut" }}>
+                    {view === "accounts" ? <AccountsPage />
+                      : view === "settings" ? <SettingsPage onEffects={changeEffects} />
+                      : view === "performance" ? <PerformancePage />
+                      : <PlaceholderPage id={view} />}
+                  </motion.div>
+                </AnimatePresence>
+              </PagesFrame>
+            </motion.div>
+          )}
         </AnimatePresence>
+        )}
       </AppFrame>
       <CommandPalette open={paletteOpen} items={commands} onSelect={onCommand} onDismiss={() => setPaletteOpen(false)} animated={animated} />
       <ShortcutsDialog groups={shortcutGroups} open={shortcutsOpen} onOpenChange={setShortcutsOpen} animated={animated}
@@ -219,6 +279,7 @@ function App() {
           <button type="button" className={btn.primary} onClick={() => { const p = leaveTo; setLeaveTo(null); if (p) go(p); }}>Discard and leave</button>
         </>} />
       {splash && <Splash animated={animated} ready={status !== null || !connected} onDone={() => setSplash(false)} />}
+    </NavContext.Provider>
     </FocusContext.Provider>
     </EffectsContext.Provider>
     </MotionConfig>

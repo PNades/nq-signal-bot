@@ -71,6 +71,8 @@ function IconContainer({ mouseX, epoch, item, active, onPick }: { mouseX: Motion
         disabled={item.disabled}
         aria-label={item.title}
         aria-current={active ? "page" : undefined}
+        // CreamFlow: hovering the icon preloads its page (main.tsx, owner 2026-11-16)
+        data-dock-item={item.disabled ? undefined : item.id}
         onClick={() => onPick?.(item.id)}
         style={{ scale, transformOrigin: "50% 100%" }}
         className={cn(

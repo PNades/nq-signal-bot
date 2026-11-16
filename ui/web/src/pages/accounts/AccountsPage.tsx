@@ -6,6 +6,9 @@ import { AnimatePresence, motion } from "motion/react";
 import { useAnimated } from "@/effects";
 import { HardDrive, Plus, RotateCw } from "lucide-react";
 import { getJson, ApiError } from "@/lib/api";
+import { peek, prime } from "@/lib/prefetch";
+import { PAGE_URL, useNav } from "@/lib/nav";
+import { pageFromPath } from "@/shell/pages";
 import { FooterPage, PageHeader, Skeleton } from "@/shell/page";
 import { pageById } from "@/shell/pages";
 import { btn } from "@/components/ui/dialog";
@@ -42,7 +45,9 @@ function Swap({ k, dir, children }: { k: string; dir: number; children: ReactNod
 }
 
 export function AccountsPage() {
-  const [data, setData] = useState<AccountsData | null>(null);
+  // the page opens filled: its data was loaded before the page change (lib/nav.ts)
+  const [data, setData] = useState<AccountsData | null>(() => peek<AccountsData>(PAGE_URL.accounts) ?? null);
+  const nav = useNav();
   // "Add its funded account" from a passed evaluation: the new account starts from the plan's funded preset
   const [newPreset, setNewPreset] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,19 +57,16 @@ export function AccountsPage() {
   const prevSub = useRef(sub);
   if (prevSub.current !== sub) { dir.current = sub ? 1 : -1; prevSub.current = sub; }
   const load = useCallback(async () => {
-    try { const d = await getJson<AccountsData>("/api/accounts"); setData(d); setError(null); return d; }
+    try { const d = await getJson<AccountsData>(PAGE_URL.accounts); prime(PAGE_URL.accounts, d); setData(d); setError(null); return d; }
     catch (e) { setError(e instanceof ApiError ? e.message : String(e)); return null; }
   }, []);
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => { const on = () => setSub(subPath()); window.addEventListener("popstate", on); return () => window.removeEventListener("popstate", on); }, []);
+  useEffect(() => { if (!peek(PAGE_URL.accounts)) load(); }, [load]);
+  // only this page's own paths: leaving for another page keeps this view until that page has come in
+  useEffect(() => { const on = () => { if (pageFromPath(location.pathname) === "accounts") setSub(subPath()); }; window.addEventListener("popstate", on); return () => window.removeEventListener("popstate", on); }, []);
   const go = (next: string | null) => { history.pushState({}, "", next ? `/accounts/${encodeURIComponent(next)}` : "/accounts"); setSub(next); document.getElementById("cf-main")?.scrollTo({ top: 0 }); };
   // an editor opened from Performance's breakdown (Edit) goes back there when it closes (owner 2026-11-16)
   const back = (history.state as { back?: string } | null)?.back ?? null;
-  const close = () => {
-    if (!back) { go(null); return; }
-    history.pushState({}, "", back);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  };
+  const close = () => { if (back) nav.open(back); else go(null); };
 
   if (error) {
     return (

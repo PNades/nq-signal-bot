@@ -75,6 +75,8 @@ const withZero = (orig: () => AutoscaleInfo | null): AutoscaleInfo | null => {
 export function EquityChart({ points, starts, unit, animated, perTrade = false }: { points: EquityPoint[]; starts: PhaseStart[]; unit: Unit; animated: boolean; perTrade?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<Tip>(null);
+  // false until the curve has been drawn once (its first appearance is drawn whole)
+  const drawn = useRef(false);
   useEffect(() => {
     const el = ref.current;
     if (!el || !points.length) return;
@@ -105,7 +107,9 @@ export function EquityChart({ points, starts, unit, animated, perTrade = false }
     if (markers.length) createSeriesMarkers(series[0].s, markers);
     let stop: (() => void) | undefined;
     const all = series.flatMap(({ data }) => data);
-    if (animated && series.length === 1 && series[0].data.length > 3) {
+    const drawIn = animated && drawn.current && series.length === 1 && series[0].data.length > 3;
+    drawn.current = true;
+    if (drawIn) {
       // draw in from the left once (Full only)
       const data = series[0].data;
       let i = 2;

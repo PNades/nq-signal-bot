@@ -17,7 +17,9 @@ import { BorderBeamPanel } from "@/components/ui/border-beam-panel";
 import { toast } from "@/components/ui/toast";
 import { useAnimated } from "@/effects";
 import { ApiError, getJson } from "@/lib/api";
-import { load } from "@/lib/prefetch";
+import { load, peek } from "@/lib/prefetch";
+import { useNav } from "@/lib/nav";
+import { perfMemory, perfQuery, perfUrl } from "./query";
 import { BusyBar } from "@/components/ui/busy-bar";
 import { useFocusAccount } from "@/lib/focus";
 import { money, pnlClass, rr } from "@/lib/format";
@@ -150,25 +152,28 @@ export function PerformancePage() {
   const [equityView, setEquityView] = useState<"curve" | "live">("curve");
   const [unit, setUnit] = useState<Unit>("usd");
   const [account, setAccount] = useState<string>(focus ?? "all");
-  // each phase on its own (owner 2026-11-15: no "All phases"); Development by default
-  const [phase, setPhase] = useState("development");
+  // each phase on its own (owner 2026-11-15: no "All phases"); Development at first, then the last one shown while the
+  // panel is open (leaving and coming back, e.g. the breakdown's Edit and back, keeps it; owner 2026-11-16)
+  const [phase, setPhase] = useState(perfMemory.phase);
+  useEffect(() => { perfMemory.phase = phase; }, [phase]);
   const [range, setRange] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
-  const [data, setData] = useState<PerfPage | null>(null);
+  // the page opens filled (owner 2026-11-16): its data, and for a backtest phase its first plan, were loaded before the
+  // page change (query.ts preloadPerformance)
+  const [planId, setPlanId] = useState<string | null>(() => peek<PerfPage>(perfUrl(perfQuery({ account: focus ?? "all", phase: perfMemory.phase, planId: null })))?.plans[0]?.id ?? null);
+  const [data, setData] = useState<PerfPage | null>(() => peek<PerfPage>(perfUrl(perfQuery({ account: focus ?? "all", phase: perfMemory.phase, planId }))) ?? null);
   // the query the shown data answers: everything below the header follows it, not the menus, so an account switch shows
   // all at once when its data has arrived (owner 2026-11-16)
-  const [dataQuery, setDataQuery] = useState<string | null>(null);
+  const [dataQuery, setDataQuery] = useState<string | null>(() => (data ? perfQuery({ account: focus ?? "all", phase: perfMemory.phase, planId }) : null));
   const [refused, setRefused] = useState<{ reason: string; gate: string | null } | null>(null);
-  const [planId, setPlanId] = useState<string | null>(null);
   const realMode = phase === "demo" || phase === "prop" || phase === "live";
   const backtestMode = phase === "development" || phase === "walk_forward" || phase === "sealed";
   // the account filter and the top-bar focus are one selection (real-trades phases have no "All accounts")
   useEffect(() => { if (focus) setAccount(focus); }, [focus]);
   const pickAccount = (name: string) => { setAccount(name); setFocus(name); };
-  // the breakdown's Edit (owner 2026-11-16): the account's editor, whose back button returns here
-  const editAccount = (name: string) => {
-    history.pushState({ back: "/performance" }, "", `/accounts/${encodeURIComponent(name)}`);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  };
+  // the breakdown's Edit (owner 2026-11-16): straight to the account's editor (filled, never through the accounts list),
+  // whose back button returns here
+  const nav = useNav();
+  const editAccount = (name: string) => nav.open(`/accounts/${encodeURIComponent(name)}`, { back: "/performance" });
   // the last single account selected (the page's filter, the top bar or a breakdown row): what Drawdown and Monte Carlo
   // show under "All accounts" (owner 2026-11-16); kept per browser
   const [lastSingle, setLastSingle] = useState<string | null>(() => { try { return localStorage.getItem(LAST_KEY); } catch { return null; } });
@@ -177,13 +182,7 @@ export function PerformancePage() {
     setLastSingle(account);
     try { localStorage.setItem(LAST_KEY, account); } catch { /* storage blocked */ }
   }, [account]);
-  const query = useMemo(() => {
-    const q = new URLSearchParams({ account: backtestMode ? "all" : account, phase });
-    if (!realMode && planId) q.set("plan", planId);
-    if (range.start) q.set("start", range.start);
-    if (range.end) q.set("end", range.end);
-    return q.toString();
-  }, [account, phase, range, planId, realMode, backtestMode]);
+  const query = useMemo(() => perfQuery({ account, phase, planId, start: range.start, end: range.end }), [account, phase, range, planId]);
   const [horizon, setHorizon] = useState(60);
   // the Monte Carlo plan comparison and the calendar's month live here, so a switch can load the open tab ahead
   const [compare, setCompare] = useState(false);
@@ -191,7 +190,12 @@ export function PerformancePage() {
   const [loading, setLoading] = useState(false);
   // the account Drawdown and Monte Carlo show, decided with the data it goes with (so picking an account never changes
   // them before the rest of the page follows)
-  const [riskPick, setRiskPick] = useState<ReturnType<typeof pickRealAccount>>({ name: null, why: null });
+  const [riskPick, setRiskPick] = useState<ReturnType<typeof pickRealAccount>>(() => {
+    if (!data) return { name: null, why: null };
+    let last: string | null = null;
+    try { last = localStorage.getItem(LAST_KEY); } catch { /* storage blocked */ }
+    return pickRealAccount(data, data.selection.account, last);
+  });
   // A switch (account, phase, plan, dates) keeps the current page on screen until everything it needs has arrived: the
   // page's data and the open tab's own data. Then all of it shows in one step: the KPI numbers roll, the tab's content
   // crossfades, sections that come or go (the breakdown) open or close with the height glide (owner 2026-11-16). No
@@ -213,7 +217,7 @@ export function PerformancePage() {
       if (risk && early && !(isReal && acct === "all")) add(load(early, ctl.signal));
       if (tab === "calendar") add(loadCalendar({ account: isReal ? acct : "all", unit, phase: ph, month: calMonth.phase === ph ? calMonth.ym : null, plan: isReal ? null : dPlan }, ctl.signal));
       if (tab === "trades") add(load(tradesUrl(query), ctl.signal));
-      const d = await getJson<PerfPage>(`/api/performance?${query}`, ctl.signal);
+      const d = await load<PerfPage>(perfUrl(query), ctl.signal);
       if (risk && isReal && acct === "all") { const u = riskFor(pickRealAccount(d, "all", lastSingle).name); if (u) add(load(u, ctl.signal)); }
       // a tab whose own load fails doesn't hold the page back (the tab then shows its own message)
       await Promise.allSettled(ahead);
@@ -236,7 +240,7 @@ export function PerformancePage() {
   const viewPlan = viewQuery.get("plan") ?? planId;
   const viewRange = rangeOf(viewQuery);
   // the entry stagger runs once, when the page first fills
-  const settled = useRef(false);
+  const settled = useRef(data !== null);
   useEffect(() => { if (data) settled.current = true; }, [data]);
   // the Drawdown and Monte Carlo tabs (owner 2026-11-15): real-trades phases (demo, prop, live) show the account in the
   // filter (= the top-bar focus); every other phase runs the strategy's backtest days on the plan in the header; under
@@ -369,7 +373,7 @@ export function PerformancePage() {
               ].map((k) => (
                 <Spotlight key={k.label} enabled={animated} className="rounded-md" data-kpi={k.label}>
                   <KpiTile label={k.label} value={k.value} format={k.fmt} trend={k.trend} trendLabels={labels} delta={k.trend.filter(Number.isFinite).length > 1 ? k.delta : undefined}
-                    deltaLabel={deltaLabel} lowerIsBetter={k.lower} animated={animated} className="h-full min-h-[200px] bg-bg-2/90" />
+                    deltaLabel={deltaLabel} lowerIsBetter={k.lower} animated={animated} entrance={false} className="h-full min-h-[200px] bg-bg-2/90" />
                 </Spotlight>
               ))}
             </motion.div>

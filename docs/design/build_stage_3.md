@@ -453,3 +453,27 @@ The code does both. The page uses (a) until you decide.
   scratch panel (127.0.0.1:8734, its own accounts file with the finished accounts; removed after) Edit on mffur91
   (failed) → status Active → Save → back on Performance, and the Accounts page lists mffur91 again.
 - The editor's separate "Active" switch (whether an account trades) is unchanged: un-archiving sets the status only.
+
+### Page changes: the next page arrives filled (owner 2026-11-16)
+- **Cause:** every page loaded its data after it mounted (skeleton cards, then the content), the old page faded out
+  before the new one came in (a blank gap), each scrolling page drew its own footer once its data was in (on Accounts
+  it popped in), and Edit in the breakdown changed the address before the accounts data was there (the list's three
+  skeleton cards, then the editor).
+- **Fix:** `lib/nav.ts` knows what each page needs to open filled and `main.tsx` waits for it before switching (also
+  back / forward, and the first page after a reload); the pages read their first data from the cache
+  (`lib/prefetch.ts`), so they mount filled; the pages crossfade (both on screen); the scrolling pages share one footer
+  (`PagesFrame`) whose position glides with the height (`GlideOnKey`: from the old page's height to the new one's,
+  following the new page as it settles, frame-driven so a late frame can't jump); KPI tiles start at their values with
+  their lines drawn (`entrance={false}`) and the equity curve doesn't draw in on arrival; hovering or focusing a dock icon,
+  a Home node or a `data-preload` link (the breakdown's Edit, the top bar's Manage / Add account) loads ahead; Edit opens
+  the editor directly; Performance keeps its phase while the panel is open, so the editor's back returns to it; a save
+  (any POST) forgets the cache. A change slower than ~300 ms shows the progress line under the top bar.
+- **Evidence:** [`build/stage3s/`](build/stage3s/) ([`checks.json`](build/stage3s/checks.json), all passed) and the
+  video `docs/design/video/stage3s/page_changes.webm` (git-ignored). Twelve page changes covering Home, Accounts,
+  Settings and Performance in both directions, plus Edit → editor → back, at 1440 and 960 px, Full and Calm, every
+  animation frame: no placeholder on screen, no card whose text changes after it first appears (the editor's inputs
+  included), no frame with less than a whole page visible, the footer the same element and gliding (never back, never
+  most of a move in one frame) between scrolling pages and fading (with in-between frames) to and from Home, Calm in one
+  frame. With the pointer resting on the icon first (as a person does), the click to the next page's first frame took
+  19–109 ms (median 55 ms) in the page; a deliberately slow page (900 ms) kept the old page fully on screen, showed the
+  line at 378 ms and switched in one step.

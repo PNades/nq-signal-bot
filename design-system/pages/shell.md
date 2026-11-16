@@ -69,9 +69,12 @@ kill/flat actions are listed but still ask their normal confirm), `F` full-scree
 - **Stale:** `—` or the last value dimmed to `text-3` with a `Clock` icon and "as of HH:MM:SS".
 
 ## Page transitions
-Full: outgoing fades 150 ms, incoming fades + 8-px rise 320 ms with a 40-ms child stagger (cards, then tabs, then
-body); shared-layout animation for the nav indicator and the account card → account page. Calm: instant. The top bar,
-sidebar and kill/flat control never take part in a transition.
+Owner 2026-11-16 (SPEC §13 Q-pages; replaces the fade-out-then-rise): the current page stays until the next page's data
+is loaded (`lib/nav.ts` preloads it, also on hovering a dock icon, a Home node or a link marked `data-preload`), then the
+two crossfade (240 ms, both on screen, never a blank gap) and the next page arrives filled: no placeholders, no
+roll-up or draw-in on arrival. The scrolling pages share one footer (`PagesFrame`), whose position glides with the page
+height (the tab switch's 250-ms glide, frame-driven). A change slower than ~300 ms shows a thin progress line under the
+top bar (`BusyBar`). Calm: an instant swap. The top bar, dock and kill/flat control never take part in a transition.
 
 ## Dot-matrix footer
 The halftone CreamFlow wordmark spans the full width at the bottom of the scrolling pages (Performance, Accounts,

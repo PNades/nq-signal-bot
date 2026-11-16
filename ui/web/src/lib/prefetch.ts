@@ -1,7 +1,8 @@
-// A small read cache for the Performance page's GET answers (owner 2026-11-16): on an account switch the page loads its
+// A small read cache for the panel's GET answers (owner 2026-11-16): every page change preloads the next page's data here, and on
+// a Performance account switch the page loads its
 // own data and the open tab's data together and shows them in one step; the tab then finds its answer here at once
 // instead of drawing a loading placeholder. Answers are kept briefly and only in memory (this tab of the browser).
-import { getJson } from "./api";
+import { getJson, onPost } from "./api";
 
 /** a kept answer counts as fresh for this long (a tab mounting right after the page loaded it doesn't ask again) */
 const FRESH_MS = 5_000;
@@ -12,6 +13,8 @@ const MAX_KEPT = 40;
 
 const kept = new Map<string, { at: number; data: unknown }>();
 const flying = new Map<string, Promise<unknown>>();
+// a save can change any page's data: forget everything kept (owner 2026-11-16, page preloading)
+onPost(() => kept.clear());
 
 /** The kept answer for `url`, if there is one young enough to show. */
 export function peek<T>(url: string | null): T | undefined {

@@ -21,7 +21,15 @@ export async function getJson<T>(path: string, signal?: AbortSignal): Promise<T>
   return handle<T>(await fetch(path, { headers: { Accept: "application/json" }, signal, cache: "no-store" }));
 }
 
+// called after every POST (lib/prefetch.ts forgets its kept answers: a save can change any page's data)
+const afterPost: (() => void)[] = [];
+export function onPost(fn: () => void) { afterPost.push(fn); }
+
 export async function postJson<T>(path: string, data: unknown = {}): Promise<T> {
+  try { return await post<T>(path, data); } finally { for (const fn of afterPost) fn(); }
+}
+
+async function post<T>(path: string, data: unknown): Promise<T> {
   return handle<T>(await fetch(path, {
     method: "POST", cache: "no-store",
     headers: { "Content-Type": "application/json", Accept: "application/json", "X-CF-Token": token },

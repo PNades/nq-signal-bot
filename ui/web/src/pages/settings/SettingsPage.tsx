@@ -9,6 +9,8 @@ import { useScrollSpy } from "@/lib/scrollspy";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Gauge, HardDrive, Lock, RotateCw, ShieldCheck, Sparkles, Leaf, SunMoon } from "lucide-react";
 import { ApiError, getJson, postJson } from "@/lib/api";
+import { peek, prime } from "@/lib/prefetch";
+import { PAGE_URL } from "@/lib/nav";
 import { money0 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAnimated, useEffectsState, type EffectsSetting } from "@/effects";
@@ -74,13 +76,20 @@ function LockedRow({ label, value, note = "changed through Claude Code" }: { lab
   );
 }
 
+/** the account the page opens on: the first checked one, else the first */
+const firstAccount = (d: SettingsData) => (d.accounts.find((r) => !r.account.draft)?.account.name as string) ?? (d.accounts[0]?.account.name as string) ?? null;
+
 export function SettingsPage({ onEffects }: { onEffects: (s: EffectsSetting) => void }) {
   const animated = useAnimated();
   const fx = useEffectsState();
-  const [data, setData] = useState<SettingsData | null>(null);
+  // the page opens filled: its data was loaded before the page change (lib/nav.ts)
+  const [data, setData] = useState<SettingsData | null>(() => peek<SettingsData>(PAGE_URL.settings) ?? null);
   const [error, setError] = useState<string | null>(null);
-  const [name, setName] = useState<string | null>(null);
-  const [edit, setEdit] = useState<Acc>({});
+  const [name, setName] = useState<string | null>(() => (data ? firstAccount(data) : null));
+  const [edit, setEdit] = useState<Acc>(() => {
+    const o = data?.accounts.find((r) => r.account.name === name)?.account;
+    return o ? Object.fromEntries(FIELDS.map((k) => [k, o[k]])) : {};
+  });
   const [issues, setIssues] = useState<FieldIssue[]>([]);
   const [saving, setSaving] = useState(false);
   const [active, setActive] = useState("profile");
@@ -88,13 +97,14 @@ export function SettingsPage({ onEffects }: { onEffects: (s: EffectsSetting) => 
 
   const load = useCallback(async () => {
     try {
-      const d = await getJson<SettingsData>("/api/settings");
+      const d = await getJson<SettingsData>(PAGE_URL.settings);
+      prime(PAGE_URL.settings, d);
       setData(d); setError(null);
-      setName((n) => n ?? (d.accounts.find((r) => !r.account.draft)?.account.name as string) ?? (d.accounts[0]?.account.name as string) ?? null);
+      setName((n) => n ?? firstAccount(d));
       return d;
     } catch (e) { setError(e instanceof ApiError ? e.message : String(e)); return null; }
   }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (!peek(PAGE_URL.settings)) load(); }, [load]);
 
   const row = data?.accounts.find((r) => r.account.name === name);
   const original = row?.account ?? null;

@@ -1110,6 +1110,15 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   fields, else its preset's. Saving an evaluation as passed asks "add its funded account?": Add opens a new account
   filled from the same plan's funded preset (its own name, §6.7: a passed evaluation becomes a new funded account);
   Not now closes. A passed evaluation opened later shows the same offer in its editor.
+- **Q-pages (owner 2026-11-16; built):** one rule for every page change (Home, Accounts, Settings, Performance, the
+  account editor): the current page stays on screen until the next page's data is loaded, then the next page
+  crossfades in already filled (no placeholder, no card filling in, no number rolling up or line drawing in on
+  arrival), and the scrolling pages share one footer that glides into place with the tab switch's height glide (driven
+  frame by frame, so a late frame never carries most of the move). Hovering or focusing a dock icon, a Home node or a
+  link to a page loads its data ahead, so most changes are immediate. Edit in Performance's breakdown goes straight to
+  the filled account editor (never through the accounts list); the editor's back returns to Performance on the phase it
+  was on. A change slower than ~300 ms shows a thin progress line under the top bar. Calm: an instant swap. A save
+  forgets every loaded answer (the next page change loads fresh).
 - **Q-perf-switch (owner 2026-11-16; built):** a switch on the Performance page (account, and so phase, plan and dates
   too) never jumps: the current page stays on screen until everything the new selection needs has arrived (the page's
   data and the open tab's own data: Drawdown / Monte Carlo, the calendar month, the trades), with no loading

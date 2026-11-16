@@ -2967,6 +2967,183 @@ S["3r"] = async () => {
   }
 };
 
+// owner 2026-11-16: every page change keeps the current page until the next page's data is loaded, then crossfades to
+// it filled, the shared footer gliding with the height; Edit in the breakdown goes straight to the filled editor; a thin
+// line only past ~300 ms; Calm: an instant swap. Frame by frame, every page switch, 1440 and 960, Full and Calm.
+S["3s"] = async () => {
+  const { menuPick } = helpers3f;
+  const sample = (page, ms) => page.evaluate((ms) => new Promise((done) => {
+    const out = []; const t0 = performance.now();
+    const op = (el) => { let o = 1; for (let e = el; e && e !== document.body; e = e.parentElement) o *= parseFloat(getComputedStyle(e).opacity || "1"); return Math.round(o * 100) / 100; };
+    const main = document.getElementById("cf-main");
+    const step = () => {
+      const views = [...document.querySelectorAll("[data-view]")].map((v) => ({ id: v.getAttribute("data-view"), o: op(v) }));
+      const holes = [...document.querySelectorAll(".cf-skeleton, .animate-pulse")].filter((e) => { const r = e.getBoundingClientRect(); return r.height > 20 && r.bottom > 0 && r.top < innerHeight && op(e) > 0.05; }).length;
+      const cards = {};
+      for (const el of document.querySelectorAll("[data-view] [data-kpi], [data-view] [data-account-card], [data-view] [data-breakdown], [data-view] section[id^='set-'], [data-view] form, [data-view] [data-field]")) {
+        const v = el.closest("[data-view]")?.getAttribute("data-view") ?? "home";
+        const key = `${v}|${el.getAttribute("data-kpi") ?? el.getAttribute("data-account-card") ?? el.getAttribute("data-home-card") ?? el.getAttribute("data-field") ?? el.id ?? el.tagName}`;
+        const vals = [...el.querySelectorAll("input")].map((i) => i.value).join("|");
+        cards[key] = (el.textContent ?? "").replace(/\s+/g, " ").slice(0, 300) + "#" + vals;
+      }
+      const foot = document.querySelector("[data-page-footer]");
+      out.push({ t: Math.round(performance.now() - t0), views, holes, cards, path: location.pathname,
+        foot: foot ? { y: Math.round(foot.getBoundingClientRect().top + (main?.scrollTop ?? 0)), o: op(foot), kept: foot.__cfTag === "kept" } : null,
+        list: !!document.querySelector("[data-view] [data-account-card]"), hint: !!document.querySelector("[data-nav-loading][data-busy='true']") });
+      if (performance.now() - t0 < ms) requestAnimationFrame(step); else done(out);
+    };
+    step();
+  }), ms);
+  const judge = (s, from, to, calm) => {
+    const bad = [];
+    if (s.some((f) => f.holes)) bad.push(`placeholder on screen (${s.filter((f) => f.holes).length} frames)`);
+    // no blank frame: the old page and the new one together are always fully there
+    const low = s.filter((f) => f.views.reduce((a, v) => a + v.o, 0) < 0.6);
+    if (low.length) bad.push(`blank frames ${low.length}`);
+    // every card of the arriving page shows its final content from its first frame
+    const fin = s[s.length - 1].cards;
+    const late = new Set();
+    for (const f of s) for (const [k, v] of Object.entries(f.cards)) if (k.startsWith(`${to}|`) && fin[k] !== undefined && v !== fin[k]) late.add(k.split("|")[1]);
+    if (late.size) bad.push(`cards filling in: ${[...late].slice(0, 4).join(", ")}`);
+    // the footer: between scrolling pages the same one glides (never fades, never jumps); to or from Home it fades
+    const fs = s.map((f) => f.foot);
+    if (from !== "home" && to !== "home") {
+      if (fs.some((f) => !f || !f.kept || f.o < 0.95)) bad.push("footer replaced or faded");
+      const ys = fs.filter(Boolean).map((f) => f.y);
+      const steps = ys.slice(1).map((y, i) => y - ys[i]).filter((d) => Math.abs(d) > 1);
+      const total = ys[ys.length - 1] - ys[0];
+      if (steps.some((d) => Math.sign(d) !== Math.sign(steps[0]))) bad.push(`footer goes back (${steps.join(",")})`);
+      if (!calm && Math.abs(total) > 40 && Math.max(...steps.map(Math.abs)) > Math.max(24, 0.45 * Math.abs(total))) bad.push(`footer jumps ${Math.max(...steps.map(Math.abs))} of ${total}`);
+      if (calm && steps.length > 1) bad.push(`footer moves over ${steps.length} frames in Calm`);
+    } else if (!calm) {
+      // the footer fades with its page (frames come slowly on a loaded PC, so the fade must show in-between frames
+      // rather than one small step each)
+      const os = fs.map((f) => (f ? f.o : 0));
+      const mid = os.filter((o) => o > 0.08 && o < 0.92).length;
+      if (os[0] !== os[os.length - 1] && mid < 2) bad.push(`footer pops (${mid} in-between frames)`);
+    }
+    return bad;
+  };
+  const viewOf = (s) => { const f = s[s.length - 1]; return f.views.filter((v) => v.o > 0.9).map((v) => v.id).join(); };
+  const clickTo = async (page, from, to) => {
+    if (from === "home") return page.locator(`[data-home-node='${to}'] button`).first().click();
+    return page.locator(`[data-dock-item='${to}']`).first().click();
+  };
+  const ROUTE = [["home", "accounts"], ["accounts", "settings"], ["settings", "performance"], ["performance", "accounts"], ["accounts", "performance"],
+    ["performance", "settings"], ["settings", "home"], ["home", "performance"], ["performance", "home"], ["home", "settings"], ["settings", "accounts"], ["accounts", "home"]];
+  for (const [label, reduced] of [["full", "no-preference"], ["calm", "reduce"]]) {
+    for (const [w, h] of [[1440, 900], [960, 800]]) {
+      const name = `pages_${label}_${w}`;
+      const { ctx, page } = await open(name, w, h, "/", { reducedMotion: reduced });
+      await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "all"));
+      await page.reload(); await page.waitForTimeout(2600);
+      const c = (checks[name] = { switches: [] });
+      for (const [from, to] of ROUTE) {
+        await page.mouse.move(5, 300); await page.waitForTimeout(150);
+        await page.evaluate(() => { const f = document.querySelector("[data-page-footer]"); if (f) f.__cfTag = "kept"; });
+        const run = sample(page, 2000);
+        const t0 = Date.now();
+        await clickTo(page, from, to);
+        const s = await run;
+        const arrived = s.find((f) => f.views.some((v) => v.id === to));
+        const bad = judge(s, from, to, label === "calm");
+        if (viewOf(s) !== to) bad.push(`ended on ${viewOf(s)}`);
+        c.switches.push({ from, to, bad, arriveMs: arrived ? arrived.t : null, hint: s.some((f) => f.hint) });
+        if (bad.length) problems.push(`${name} ${from} → ${to}: ${bad.join("; ")}`);
+        if (w === 1440 && label === "full" && ["accounts", "performance", "settings"].includes(to) && from !== "home") await page.screenshot({ path: path.join(OUT, `${label}_${from}_to_${to}_${w}.png`) });
+        void t0;
+        await page.waitForTimeout(450);
+      }
+      // Edit in the breakdown: straight to the filled editor (never the accounts list), and back (the route ends on Home)
+      await page.locator("[data-home-node='performance'] button").first().click(); await page.waitForTimeout(1500);
+      await menuPick(page, "Phase", "Prop"); await page.waitForTimeout(800);
+      await page.locator("[data-breakdown-edit='mffur1']").scrollIntoViewIfNeeded(); await page.waitForTimeout(300);
+      await page.evaluate(() => { const f = document.querySelector("[data-page-footer]"); if (f) f.__cfTag = "kept"; });
+      const run = sample(page, 2000);
+      await page.locator("[data-breakdown-edit='mffur1']").click();
+      const s = await run;
+      const bad = judge(s, "performance", "accounts", label === "calm");
+      if (s.some((f) => f.list)) bad.push("the accounts list showed");
+      const firstEd = s.find((f) => f.views.some((v) => v.id === "accounts"));
+      const nameVal = firstEd ? Object.entries(firstEd.cards).find(([k]) => k.startsWith("accounts|fld-name"))?.[1] ?? "" : "";
+      if (!/mffur1/.test(nameVal)) bad.push(`editor not filled on its first frame (${nameVal.slice(0, 40)})`);
+      if (s[s.length - 1].path !== "/accounts/mffur1") bad.push(`path ${s[s.length - 1].path}`);
+      c.edit = { bad, arriveMs: firstEd ? firstEd.t : null };
+      if (bad.length) problems.push(`${name} Edit → editor: ${bad.join("; ")}`);
+      if (w === 1440 && label === "full") await page.screenshot({ path: path.join(OUT, `${label}_edit_to_editor_${w}.png`) });
+      await page.waitForTimeout(400);
+      await page.evaluate(() => { const f = document.querySelector("[data-page-footer]"); if (f) f.__cfTag = "kept"; });
+      const run2 = sample(page, 2000);
+      await page.getByRole("button", { name: /^Performance$/ }).first().click();
+      const s2 = await run2;
+      const bad2 = judge(s2, "accounts", "performance", label === "calm");
+      if (viewOf(s2) !== "performance") bad2.push(`ended on ${viewOf(s2)}`);
+      const phaseShown = await page.getByRole("button", { name: /^Phase:/ }).innerText();
+      if (!/Prop/.test(phaseShown)) bad2.push(`came back to ${phaseShown}`);
+      c.editBack = { bad: bad2 };
+      if (bad2.length) problems.push(`${name} editor → Performance: ${bad2.join("; ")}`);
+      await ctx.close();
+    }
+  }
+  // a slow page (its answer held 900 ms on purpose): the current page stays, the line shows after ~300 ms, then one step
+  {
+    const name = "slow_settings_1440";
+    const { ctx, page } = await open(name, 1440, 900, "/accounts");
+    await page.reload(); await page.waitForTimeout(2200);
+    await page.route(/\/api\/settings$/, async (r) => { await new Promise((ok) => setTimeout(ok, 900)); await r.continue(); });
+    await page.evaluate(() => { const f = document.querySelector("[data-page-footer]"); if (f) f.__cfTag = "kept"; });
+    const run = sample(page, 2200);
+    await page.locator("[data-dock-item='settings']").first().click();
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: path.join(OUT, `slow_page_hint_1440.png`), clip: { x: 0, y: 0, width: 1440, height: 360 } });
+    const s = await run;
+    const hintAt = s.find((f) => f.hint)?.t ?? null;
+    const arrived = s.find((f) => f.views.some((v) => v.id === "settings"))?.t ?? null;
+    const bad = judge(s, "accounts", "settings", false);
+    const c = (checks[name] = { hintAt, arrived, bad });
+    if (bad.length || hintAt === null || hintAt < 250 || arrived === null || arrived < 850 || s.filter((f) => f.t < arrived).some((f) => !f.views.some((v) => v.id === "accounts" && v.o > 0.95)))
+      problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+  // the video: every page, then Edit and back, at 1440 (Full)
+  const VID = path.resolve(here, "../../../docs/design/video/stage3s");
+  fs.mkdirSync(VID, { recursive: true });
+  const vctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", recordVideo: { dir: VID, size: { width: 1440, height: 900 } } });
+  const vp = await vctx.newPage();
+  await vp.goto(BASE + "/");
+  await vp.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); localStorage.setItem("creamflow.focusAccount", "all"); } catch {} });
+  await vp.reload(); await vp.waitForTimeout(2400);
+  // hover first (as a person does): the page's data is loading while the pointer rests on the icon, so the switch is quick
+  const hovered = [];
+  for (const [from, to] of ROUTE.slice(0, 9)) {
+    await (from === "home" ? vp.locator(`[data-home-node='${to}'] button`).first() : vp.locator(`[data-dock-item='${to}']`).first()).hover(); await vp.waitForTimeout(250);
+    // in the page: the click, the address change (= the data was there and the switch began) and the next page's first frame
+    const watch = vp.evaluate((v) => new Promise((done) => {
+      let t0 = null, tUrl = null; const p0 = location.pathname;
+      addEventListener("pointerdown", () => { t0 = performance.now(); }, { once: true, capture: true });
+      const step = () => {
+        if (t0 !== null && tUrl === null && location.pathname !== p0) tUrl = performance.now();
+        if (t0 !== null && document.querySelector(`[data-view='${v}']`)) { done({ dataWait: Math.round((tUrl ?? performance.now()) - t0), total: Math.round(performance.now() - t0) }); return; }
+        requestAnimationFrame(step);
+      };
+      step();
+    }), to);
+    await clickTo(vp, from, to);
+    hovered.push({ from, to, ...(await watch) });
+    await vp.waitForTimeout(1300);
+  }
+  checks.hover_first_1440 = hovered;
+  await vp.locator("[data-home-node='performance'] button").first().click(); await vp.waitForTimeout(1500);
+  await menuPick(vp, "Phase", "Prop"); await vp.waitForTimeout(800);
+  await vp.locator("[data-breakdown-edit='mffur1']").scrollIntoViewIfNeeded(); await vp.waitForTimeout(500);
+  await vp.locator("[data-breakdown-edit='mffur1']").hover(); await vp.waitForTimeout(300);
+  await vp.locator("[data-breakdown-edit='mffur1']").click(); await vp.waitForTimeout(1500);
+  await vp.getByRole("button", { name: /^Performance$/ }).first().click(); await vp.waitForTimeout(1500);
+  const video = vp.video();
+  await vctx.close();
+  fs.renameSync(await video.path(), path.join(VID, "page_changes.webm"));
+};
+
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();
 await browser.close();
 fs.writeFileSync(path.join(OUT, "checks.json"), JSON.stringify({ stage, base: BASE, problems, checks }, null, 2));

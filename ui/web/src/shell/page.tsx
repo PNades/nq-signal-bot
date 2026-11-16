@@ -52,17 +52,94 @@ function footerWeight(width: number) {
   return Math.round((FOOTER_WEIGHT_NARROW + t * (FOOTER_WEIGHT_FULL - FOOTER_WEIGHT_NARROW)) / 10) * 10;
 }
 
-/** A scrolling page that ends inside the "cream" letters (2/7 of their height hidden by the bottom edge): it cancels
- *  the bottom padding the dock and date block keep (--dock-pad), which may float over the letters.
- *  `ready` (owner 2026-11-15): until the page's content is in place, the content area fills at least the window and the
- *  footer isn't rendered, so it can never flash into view while a page loads; it then fades in (Calm: at once). */
-export function FooterPage({ children, ready = true }: { children: ReactNode; ready?: boolean }) {
+/** A scrolling page's content. Owner 2026-11-16: the footer is no longer the page's own: every scrolling page shares
+ *  the one in PagesFrame (main.tsx), which stays in place across page changes and glides with the height. */
+export function FooterPage({ children }: { children: ReactNode; ready?: boolean }) {
+  return <>{children}</>;
+}
+
+/**
+ * The height glide on a page change (owner 2026-11-16): when `k` changes (the next page has come in, fully filled), the
+ * block animates from the old page's height to the new one's (the tab switch's glide), so the footer below glides into
+ * place; between page changes it follows its content as it is. Calm: at once.
+ */
+export function GlideOnKey({ k, children }: { k: string; children: ReactNode }) {
+  const animated = useAnimated();
+  const box = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
+  const last = useRef<number | null>(null);
+  const prevK = useRef(k);
+  // the glide in progress: from, to, progress (ms) and length (ms); driven frame by frame, each frame counting at most
+  // GLIDE_STEP_MS, so a frame that comes late (a heavy page painting) never carries most of the move
+  const run = useRef<{ from: number; to: number; t: number; ms: number; raf: number } | null>(null);
+  const stop = () => {
+    const b = box.current;
+    if (run.current) cancelAnimationFrame(run.current.raf);
+    run.current = null;
+    if (b) { b.style.height = ""; b.style.overflow = ""; }
+    last.current = inner.current?.offsetHeight ?? last.current;
+  };
+  const start = (b: HTMLDivElement, from: number, to: number, ms: number) => {
+    if (run.current) cancelAnimationFrame(run.current.raf);
+    b.style.overflow = "hidden";
+    b.style.height = `${from}px`;
+    const r = { from, to, t: 0, ms, raf: 0 };
+    run.current = r;
+    let prev = performance.now();
+    const tick = (now: number) => {
+      if (run.current !== r) return;
+      r.t += Math.min(Math.max(0, now - prev), GLIDE_STEP_MS);
+      prev = now;
+      const p = Math.min(1, r.t / r.ms);
+      b.style.height = `${r.from + (r.to - r.from) * foldCurve(p)}px`;
+      if (p < 1) r.raf = requestAnimationFrame(tick); else stop();
+    };
+    r.raf = requestAnimationFrame(tick);
+  };
+  useLayoutEffect(() => {
+    const el = inner.current;
+    if (!el) return;
+    last.current = el.offsetHeight;
+    // while it glides, the next page can still settle (a few pixels as it lays out): the glide follows the live height
+    // to its end instead of snapping at the end
+    const ro = new ResizeObserver(() => {
+      const r = run.current, b = box.current;
+      if (!r || !b) { last.current = el.offsetHeight; return; }
+      const to = el.offsetHeight;
+      if (Math.abs(to - r.to) < 1) return;
+      r.from = b.getBoundingClientRect().height; r.to = to; r.ms = Math.max(80, r.ms - r.t); r.t = 0;
+    });
+    ro.observe(el);
+    return () => { ro.disconnect(); if (run.current) cancelAnimationFrame(run.current.raf); };
+  }, []);
+  useLayoutEffect(() => {
+    if (prevK.current === k) return;
+    prevK.current = k;
+    const b = box.current, el = inner.current;
+    if (!b || !el) return;
+    const from = run.current ? b.getBoundingClientRect().height : last.current, to = el.offsetHeight;
+    if (!animated || from === null || Math.abs(to - from) < 8) { stop(); return; }
+    start(b, from, to, FOLD_S * 1000);
+  }, [k, animated]); // eslint-disable-line react-hooks/exhaustive-deps
+  return <div ref={box} className="relative" data-glide-box><div ref={inner} className="flow-root">{children}</div></div>;
+}
+
+/** The scrolling pages' frame: the page area (its height glides on a page change) and the one dot-matrix footer, which
+ *  ends inside the "cream" letters (2/7 of their height hidden by the bottom edge) by cancelling the bottom padding the
+ *  dock and date block keep (--dock-pad). */
+export function PagesFrame({ k, children }: { k: string; children: ReactNode }) {
+  return (
+    <div className="flex min-h-full flex-col" style={{ marginBottom: "calc(-1 * var(--dock-pad, 0px))" }} data-footer-page>
+      <div className="flex-1"><GlideOnKey k={k}>{children}</GlideOnKey></div>
+      <PageFooter />
+    </div>
+  );
+}
+
+function PageFooter() {
   const animated = useAnimated();
   return (
-    <div className="flex min-h-full flex-col" style={{ marginBottom: "calc(-1 * var(--dock-pad, 0px))" }} data-footer-page data-ready={ready ? "1" : "0"}>
-      <div className="flex-1" style={ready ? undefined : { minHeight: "100dvh" }}>{children}</div>
-      {ready && (
-        <motion.div initial={animated ? { opacity: 0 } : false} animate={{ opacity: 1 }} transition={{ duration: animated ? 0.24 : 0, ease: [0, 0, 0.2, 1] }}
+        <div
           // the same gap above the footer on every scrolling page (owner 2026-11-16: 80 px from the content to its label)
           className="mt-10 shrink-0" data-page-footer>
           <HalftoneWordmarkFooter
@@ -71,15 +148,23 @@ export function FooterPage({ children, ready = true }: { children: ReactNode; re
             fontWeight={footerWeight} fit="inset" fitHeight={{ gapRatio: 0.18, minGap: 32 }}
             monoFamily='"Geist Mono Variable", monospace' crop={2 / 7} grain={0.25} interactive={animated} height="320px"
             className="shrink-0" />
-        </motion.div>
-      )}
-    </div>
+        </div>
   );
 }
 
 // The fold's motion (shell/Banners.tsx): ~250 ms, ease-out
 const FOLD_S = 0.25;
 const FOLD_EASE = [0, 0, 0.2, 1] as const;
+// FOLD_EASE as a function (the page-change glide is driven frame by frame): cubic-bezier(0, 0, 0.2, 1), x solved by bisection
+function foldCurve(p: number) {
+  const x = (t: number) => 3 * (1 - t) * t * t * FOLD_EASE[2] + t * t * t;
+  const y = (t: number) => 3 * (1 - t) * t * t * FOLD_EASE[3] + t * t * t;
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 24; i++) { const m = (lo + hi) / 2; if (x(m) < p) lo = m; else hi = m; }
+  return y((lo + hi) / 2);
+}
+// a page-change glide counts at most this much time per frame (a late frame slows it instead of jumping)
+const GLIDE_STEP_MS = 34;
 
 /**
  * A block whose height follows its content smoothly (owner 2026-11-16): when what is inside gets shorter or taller

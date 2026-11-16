@@ -38,6 +38,9 @@ export type KpiTileProps = {
   loading?: boolean;
   /** CreamFlow: false = Calm (no roll, no draw-in) */
   animated?: boolean;
+  /** CreamFlow: false = the tile appears with its value and line already in place (a page that arrives filled, owner
+   * 2026-11-16); later value changes still roll */
+  entrance?: boolean;
   className?: string;
 };
 
@@ -89,7 +92,7 @@ const spot = (point: Point) => ({ left: `${(point.x / W) * 100}%`, top: `${(poin
 
 export function KpiTile({
   label, value, format = decimal.format, delta, deltaLabel, lowerIsBetter = false, trend = [], trendLabels,
-  live = false, loading = false, animated = true, className,
+  live = false, loading = false, animated = true, entrance = true, className,
 }: KpiTileProps) {
   const systemReduced = useSyncExternalStore(watchMotion, reducesMotion, () => false);
   const reduced = systemReduced || !animated;
@@ -107,7 +110,7 @@ export function KpiTile({
   const [toneText, toneTint] = TONES[tone];
 
   const target = isEmpty ? 0 : value;
-  const shown = useMotionValue(reduced ? target : 0);
+  const shown = useMotionValue(reduced || !entrance ? target : 0);
   const text = useTransform(() => {
     const now = format(shown.get());
     return point ? format(point.value) : isEmpty ? "—" : now;
@@ -167,7 +170,7 @@ export function KpiTile({
                   <stop offset="1" stopColor="currentColor" stopOpacity={0} />
                 </linearGradient>
                 <clipPath id={`${id}-clip`}>
-                  <motion.rect animate={{ width: W + PAD * 2 }} height={H + PAD * 2} initial={{ width: reduced ? W + PAD * 2 : 0 }} key={String(reduced)} transition={reduced ? INSTANT : DRAW} x={-PAD} y={-PAD} />
+                  <motion.rect animate={{ width: W + PAD * 2 }} height={H + PAD * 2} initial={{ width: reduced || !entrance ? W + PAD * 2 : 0 }} key={String(reduced)} transition={reduced ? INSTANT : DRAW} x={-PAD} y={-PAD} />
                 </clipPath>
               </defs>
               {points.length < 2 ? (

@@ -1,0 +1,448 @@
+{
+  "stage": "3s",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "pages_full_1440": {
+      "switches": [
+        {
+          "from": "home",
+          "to": "accounts",
+          "bad": [],
+          "arriveMs": 1204,
+          "hint": false
+        },
+        {
+          "from": "accounts",
+          "to": "settings",
+          "bad": [],
+          "arriveMs": 76,
+          "hint": false
+        },
+        {
+          "from": "settings",
+          "to": "performance",
+          "bad": [],
+          "arriveMs": 582,
+          "hint": false
+        },
+        {
+          "from": "performance",
+          "to": "accounts",
+          "bad": [],
+          "arriveMs": 209,
+          "hint": false
+        },
+        {
+          "from": "accounts",
+          "to": "performance",
+          "bad": [],
+          "arriveMs": 370,
+          "hint": true
+        },
+        {
+          "from": "performance",
+          "to": "settings",
+          "bad": [],
+          "arriveMs": 289,
+          "hint": false
+        },
+        {
+          "from": "settings",
+          "to": "home",
+          "bad": [],
+          "arriveMs": 155,
+          "hint": false
+        },
+        {
+          "from": "home",
+          "to": "performance",
+          "bad": [],
+          "arriveMs": 347,
+          "hint": false
+        },
+        {
+          "from": "performance",
+          "to": "home",
+          "bad": [],
+          "arriveMs": 70,
+          "hint": false
+        },
+        {
+          "from": "home",
+          "to": "settings",
+          "bad": [],
+          "arriveMs": 84,
+          "hint": false
+        },
+        {
+          "from": "settings",
+          "to": "accounts",
+          "bad": [],
+          "arriveMs": 190,
+          "hint": false
+        },
+        {
+          "from": "accounts",
+          "to": "home",
+          "bad": [],
+          "arriveMs": 137,
+          "hint": false
+        }
+      ],
+      "edit": {
+        "bad": [],
+        "arriveMs": 219
+      },
+      "editBack": {
+        "bad": []
+      }
+    },
+    "pages_full_960": {
+      "switches": [
+        {
+          "from": "home",
+          "to": "accounts",
+          "bad": [],
+          "arriveMs": 224,
+          "hint": false
+        },
+        {
+          "from": "accounts",
+          "to": "settings",
+          "bad": [],
+          "arriveMs": 83,
+          "hint": false
+        },
+        {
+          "from": "settings",
+          "to": "performance",
+          "bad": [],
+          "arriveMs": 618,
+          "hint": true
+        },
+        {
+          "from": "performance",
+          "to": "accounts",
+          "bad": [],
+          "arriveMs": 201,
+          "hint": false
+        },
+        {
+          "from": "accounts",
+          "to": "performance",
+          "bad": [],
+          "arriveMs": 72,
+          "hint": false
+        },
+        {
+          "from": "performance",
+          "to": "settings",
+          "bad": [],
+          "arriveMs": 302,
+          "hint": false
+        },
+        {
+          "from": "settings",
+          "to": "home",
+          "bad": [],
+          "arriveMs": 143,
+          "hint": false
+        },
+        {
+          "from": "home",
+          "to": "performance",
+          "bad": [],
+          "arriveMs": 350,
+          "hint": false
+        },
+        {
+          "from": "performance",
+          "to": "home",
+          "bad": [],
+          "arriveMs": 148,
+          "hint": false
+        },
+        {
+          "from": "home",
+          "to": "settings",
+          "bad": [],
+          "arriveMs": 114,
+          "hint": false
+        },
+        {
+          "from": "settings",
+          "to": "accounts",
+          "bad": [],
+          "arriveMs": 194,
+          "hint": false
+        },
+        {
+          "from": "accounts",
+          "to": "home",
+          "bad": [],
+          "arriveMs": 131,
+          "hint": false
+        }
+      ],
+      "edit": {
+        "bad": [],
+        "arriveMs": 219
+      },
+      "editBack": {
+        "bad": []
+      }
+    },
+    "pages_calm_1440": {
+      "switches": [
+        {
+          "from": "home",
+          "to": "accounts",
+          "bad": [],
+          "arriveMs": 225,
+          "hint": false
+        },
+        {
+          "from": "accounts",
+          "to": "settings",
+          "bad": [],
+          "arriveMs": 74,
+          "hint": false
+        },
+        {
+          "from": "settings",
+          "to": "performance",
+          "bad": [],
+          "arriveMs": 342,
+          "hint": false
+        },
+        {
+          "from": "performance",
+          "to": "accounts",
+          "bad": [],
+          "arriveMs": 192,
+          "hint": false
+        },
+        {
+          "from": "accounts",
+          "to": "performance",
+          "bad": [],
+          "arriveMs": 316,
+          "hint": false
+        },
+        {
+          "from": "performance",
+          "to": "settings",
+          "bad": [],
+          "arriveMs": 87,
+          "hint": false
+        },
+        {
+          "from": "settings",
+          "to": "home",
+          "bad": [],
+          "arriveMs": 68,
+          "hint": false
+        },
+        {
+          "from": "home",
+          "to": "performance",
+          "bad": [],
+          "arriveMs": 344,
+          "hint": false
+        },
+        {
+          "from": "performance",
+          "to": "home",
+          "bad": [],
+          "arriveMs": 67,
+          "hint": false
+        },
+        {
+          "from": "home",
+          "to": "settings",
+          "bad": [],
+          "arriveMs": 82,
+          "hint": false
+        },
+        {
+          "from": "settings",
+          "to": "accounts",
+          "bad": [],
+          "arriveMs": 184,
+          "hint": false
+        },
+        {
+          "from": "accounts",
+          "to": "home",
+          "bad": [],
+          "arriveMs": 142,
+          "hint": false
+        }
+      ],
+      "edit": {
+        "bad": [],
+        "arriveMs": 245
+      },
+      "editBack": {
+        "bad": []
+      }
+    },
+    "pages_calm_960": {
+      "switches": [
+        {
+          "from": "home",
+          "to": "accounts",
+          "bad": [],
+          "arriveMs": 229,
+          "hint": false
+        },
+        {
+          "from": "accounts",
+          "to": "settings",
+          "bad": [],
+          "arriveMs": 84,
+          "hint": false
+        },
+        {
+          "from": "settings",
+          "to": "performance",
+          "bad": [],
+          "arriveMs": 385,
+          "hint": false
+        },
+        {
+          "from": "performance",
+          "to": "accounts",
+          "bad": [],
+          "arriveMs": 200,
+          "hint": false
+        },
+        {
+          "from": "accounts",
+          "to": "performance",
+          "bad": [],
+          "arriveMs": 331,
+          "hint": false
+        },
+        {
+          "from": "performance",
+          "to": "settings",
+          "bad": [],
+          "arriveMs": 69,
+          "hint": false
+        },
+        {
+          "from": "settings",
+          "to": "home",
+          "bad": [],
+          "arriveMs": 68,
+          "hint": false
+        },
+        {
+          "from": "home",
+          "to": "performance",
+          "bad": [],
+          "arriveMs": 326,
+          "hint": false
+        },
+        {
+          "from": "performance",
+          "to": "home",
+          "bad": [],
+          "arriveMs": 60,
+          "hint": false
+        },
+        {
+          "from": "home",
+          "to": "settings",
+          "bad": [],
+          "arriveMs": 72,
+          "hint": false
+        },
+        {
+          "from": "settings",
+          "to": "accounts",
+          "bad": [],
+          "arriveMs": 207,
+          "hint": false
+        },
+        {
+          "from": "accounts",
+          "to": "home",
+          "bad": [],
+          "arriveMs": 133,
+          "hint": false
+        }
+      ],
+      "edit": {
+        "bad": [],
+        "arriveMs": 194
+      },
+      "editBack": {
+        "bad": []
+      }
+    },
+    "slow_settings_1440": {
+      "hintAt": 376,
+      "arrived": 1003,
+      "bad": []
+    },
+    "hover_first_1440": [
+      {
+        "from": "home",
+        "to": "accounts",
+        "dataWait": 60,
+        "total": 60
+      },
+      {
+        "from": "accounts",
+        "to": "settings",
+        "dataWait": 34,
+        "total": 34
+      },
+      {
+        "from": "settings",
+        "to": "performance",
+        "dataWait": 55,
+        "total": 55
+      },
+      {
+        "from": "performance",
+        "to": "accounts",
+        "dataWait": 19,
+        "total": 19
+      },
+      {
+        "from": "accounts",
+        "to": "performance",
+        "dataWait": 36,
+        "total": 36
+      },
+      {
+        "from": "performance",
+        "to": "settings",
+        "dataWait": 21,
+        "total": 21
+      },
+      {
+        "from": "settings",
+        "to": "home",
+        "dataWait": 95,
+        "total": 95
+      },
+      {
+        "from": "home",
+        "to": "performance",
+        "dataWait": 57,
+        "total": 57
+      },
+      {
+        "from": "performance",
+        "to": "home",
+        "dataWait": 109,
+        "total": 109
+      }
+    ]
+  }
+}

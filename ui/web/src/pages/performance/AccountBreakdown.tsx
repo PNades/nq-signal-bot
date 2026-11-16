@@ -84,7 +84,7 @@ export function AccountBreakdown({ data, focus, onPick, onEdit, editable }: {
                 <td className={cn("whitespace-nowrap px-3 py-2 text-right", r.net_cash === null ? "" : pnlClass(r.net_cash))}>{r.net_cash === null ? "—" : money(r.net_cash)}</td>
                 <td className={cn(STICK, "whitespace-nowrap bg-bg-2 px-2 py-1 text-right group-hover:[background-image:linear-gradient(rgba(255,255,255,.035),rgba(255,255,255,.035))]")}>
                   {editable(r.account) ? (
-                    <button type="button" onClick={(e) => { e.stopPropagation(); onEdit(r.account); }} aria-label={`Edit ${r.account}`} data-breakdown-edit={r.account}
+                    <button type="button" onClick={(e) => { e.stopPropagation(); onEdit(r.account); }} aria-label={`Edit ${r.account}`} data-breakdown-edit={r.account} data-preload={`/accounts/${encodeURIComponent(r.account)}`}
                       className="inline-flex h-7 items-center gap-1.5 rounded-sm border border-transparent px-2 font-sans text-[12px] text-text-2 transition-colors hover:border-line-strong hover:bg-white/[.04] hover:text-text-1 focus-visible:border-line-strong focus-visible:text-text-1">
                       <Pencil className="size-3.5" aria-hidden="true" />Edit</button>
                   ) : (

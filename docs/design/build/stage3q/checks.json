@@ -28,22 +28,22 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 79,
-          "footMoves": 14,
+          "frames": 80,
+          "footMoves": 15,
           "footFrom": 1195,
           "footTo": 1669,
           "hint": false,
-          "kpiTexts": 37
+          "kpiTexts": 38
         },
         {
           "to": "mffur1",
           "bad": [],
           "frames": 81,
-          "footMoves": 16,
+          "footMoves": 15,
           "footFrom": 1669,
           "footTo": 1195,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         },
         {
           "to": "All accounts",
@@ -53,7 +53,7 @@
           "footFrom": 1195,
           "footTo": 1669,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         },
         {
           "to": "mffub1",
@@ -85,7 +85,7 @@
           "footFrom": 1410,
           "footTo": 1410,
           "hint": false,
-          "kpiTexts": 36
+          "kpiTexts": 37
         },
         {
           "to": "All accounts",
@@ -101,9 +101,9 @@
           "to": "mffur1",
           "bad": [],
           "frames": 81,
-          "footMoves": 16,
+          "footMoves": 15,
           "footFrom": 1926,
-          "footTo": 1420,
+          "footTo": 1440,
           "hint": false,
           "kpiTexts": 39
         },
@@ -112,20 +112,20 @@
           "bad": [],
           "frames": 80,
           "footMoves": 16,
-          "footFrom": 1420,
+          "footFrom": 1440,
           "footTo": 1926,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         },
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 81,
-          "footMoves": 15,
+          "frames": 80,
+          "footMoves": 16,
           "footFrom": 1926,
           "footTo": 1440,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         }
       ],
       "Monte Carlo": [
@@ -147,23 +147,23 @@
           "footFrom": 1593,
           "footTo": 1621,
           "hint": false,
-          "kpiTexts": 37
+          "kpiTexts": 38
         },
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 79,
+          "frames": 80,
           "footMoves": 16,
           "footFrom": 1621,
           "footTo": 2137,
           "hint": false,
-          "kpiTexts": 37
+          "kpiTexts": 38
         },
         {
           "to": "mffur1",
           "bad": [],
-          "frames": 80,
-          "footMoves": 17,
+          "frames": 81,
+          "footMoves": 16,
           "footFrom": 2137,
           "footTo": 1593,
           "hint": false,
@@ -172,22 +172,22 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 78,
-          "footMoves": 15,
+          "frames": 79,
+          "footMoves": 16,
           "footFrom": 1593,
           "footTo": 2109,
           "hint": false,
-          "kpiTexts": 36
+          "kpiTexts": 38
         },
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 79,
-          "footMoves": 15,
+          "frames": 81,
+          "footMoves": 16,
           "footFrom": 2109,
           "footTo": 1593,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         }
       ],
       "Calendar": [
@@ -239,17 +239,17 @@
           "footFrom": 1439,
           "footTo": 1913,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         },
         {
           "to": "mffub1",
           "bad": [],
           "frames": 81,
-          "footMoves": 15,
+          "footMoves": 16,
           "footFrom": 1913,
           "footTo": 1439,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         }
       ],
       "Trades": [
@@ -266,12 +266,12 @@
         {
           "to": "mffurf92",
           "bad": [],
-          "frames": 79,
+          "frames": 80,
           "footMoves": 15,
           "footFrom": 1053,
           "footTo": 1299,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         },
         {
           "to": "All accounts",
@@ -281,12 +281,12 @@
           "footFrom": 1299,
           "footTo": 1773,
           "hint": false,
-          "kpiTexts": 37
+          "kpiTexts": 38
         },
         {
           "to": "mffur1",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 17,
           "footFrom": 1773,
           "footTo": 929,
@@ -301,7 +301,7 @@
           "footFrom": 929,
           "footTo": 1773,
           "hint": false,
-          "kpiTexts": 37
+          "kpiTexts": 38
         },
         {
           "to": "mffub1",
@@ -311,21 +311,21 @@
           "footFrom": 1773,
           "footTo": 1053,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         }
       ],
       "slow": [
         {
           "to": "All accounts",
           "bad": [],
-          "hintAt": 414,
-          "movedAt": 1184
+          "hintAt": 397,
+          "movedAt": 1130
         },
         {
           "to": "mffub1",
           "bad": [],
-          "hintAt": 388,
-          "movedAt": 1106
+          "hintAt": 373,
+          "movedAt": 1090
         }
       ],
       "quickWithHint": 0
@@ -355,7 +355,7 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 80,
+          "frames": 79,
           "footMoves": 15,
           "footFrom": 1653,
           "footTo": 2127,
@@ -365,17 +365,17 @@
         {
           "to": "mffur1",
           "bad": [],
-          "frames": 79,
+          "frames": 80,
           "footMoves": 15,
           "footFrom": 2127,
           "footTo": 1653,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         },
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 79,
+          "frames": 80,
           "footMoves": 15,
           "footFrom": 1653,
           "footTo": 2127,
@@ -390,7 +390,7 @@
           "footFrom": 2127,
           "footTo": 1653,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         }
       ],
       "Drawdown": [
@@ -412,37 +412,37 @@
           "footFrom": 1985,
           "footTo": 1985,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         },
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 79,
+          "frames": 80,
           "footMoves": 16,
           "footFrom": 1985,
           "footTo": 2521,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         },
         {
           "to": "mffur1",
           "bad": [],
           "frames": 80,
-          "footMoves": 16,
+          "footMoves": 15,
           "footFrom": 2521,
-          "footTo": 1985,
+          "footTo": 1998,
           "hint": false,
-          "kpiTexts": 37
+          "kpiTexts": 38
         },
         {
           "to": "All accounts",
           "bad": [],
           "frames": 80,
-          "footMoves": 16,
-          "footFrom": 1985,
+          "footMoves": 15,
+          "footFrom": 1998,
           "footTo": 2521,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         },
         {
           "to": "mffub1",
@@ -450,7 +450,7 @@
           "frames": 80,
           "footMoves": 16,
           "footFrom": 2521,
-          "footTo": 1985,
+          "footTo": 2028,
           "hint": false,
           "kpiTexts": 39
         }
@@ -469,12 +469,12 @@
         {
           "to": "mffurf92",
           "bad": [],
-          "frames": 79,
+          "frames": 80,
           "footMoves": 12,
           "footFrom": 2195,
           "footTo": 2223,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         },
         {
           "to": "All accounts",
@@ -484,13 +484,13 @@
           "footFrom": 2223,
           "footTo": 2759,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         },
         {
           "to": "mffur1",
           "bad": [],
           "frames": 80,
-          "footMoves": 17,
+          "footMoves": 16,
           "footFrom": 2759,
           "footTo": 2195,
           "hint": false,
@@ -504,12 +504,12 @@
           "footFrom": 2195,
           "footTo": 2731,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         },
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 80,
+          "frames": 79,
           "footMoves": 16,
           "footFrom": 2731,
           "footTo": 2195,
@@ -556,17 +556,17 @@
           "footFrom": 2475,
           "footTo": 2001,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         },
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 78,
-          "footMoves": 14,
+          "frames": 80,
+          "footMoves": 15,
           "footFrom": 2001,
           "footTo": 2475,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         },
         {
           "to": "mffub1",
@@ -597,26 +597,26 @@
           "footMoves": 15,
           "footFrom": 1581,
           "footTo": 1757,
-          "hint": true,
-          "kpiTexts": 38
+          "hint": false,
+          "kpiTexts": 39
         },
         {
           "to": "All accounts",
           "bad": [],
           "frames": 79,
-          "footMoves": 14,
+          "footMoves": 15,
           "footFrom": 1757,
           "footTo": 2231,
           "hint": false,
-          "kpiTexts": 37
+          "kpiTexts": 38
         },
         {
           "to": "mffur1",
           "bad": [],
           "frames": 80,
-          "footMoves": 15,
+          "footMoves": 16,
           "footFrom": 2231,
-          "footTo": 1517,
+          "footTo": 1417,
           "hint": false,
           "kpiTexts": 38
         },
@@ -625,7 +625,7 @@
           "bad": [],
           "frames": 79,
           "footMoves": 17,
-          "footFrom": 1517,
+          "footFrom": 1417,
           "footTo": 2231,
           "hint": false,
           "kpiTexts": 37
@@ -633,15 +633,15 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 79,
-          "footMoves": 15,
+          "frames": 80,
+          "footMoves": 17,
           "footFrom": 2231,
-          "footTo": 1658,
+          "footTo": 1581,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         }
       ],
-      "quickWithHint": 1
+      "quickWithHint": 0
     },
     "jump_calm_1440": {
       "Equity": [
@@ -710,7 +710,7 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 0,
           "footFrom": 1410,
           "footTo": 1410,
@@ -740,7 +740,7 @@
         {
           "to": "mffur1",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 1,
           "footFrom": 1926,
           "footTo": 1410,
@@ -750,7 +750,7 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 1,
           "footFrom": 1410,
           "footTo": 1926,
@@ -760,7 +760,7 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 1926,
           "footTo": 1410,
@@ -834,7 +834,7 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 0,
           "footFrom": 1439,
           "footTo": 1439,
@@ -864,7 +864,7 @@
         {
           "to": "mffur1",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 1913,
           "footTo": 1439,
@@ -896,7 +896,7 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 0,
           "footFrom": 1053,
           "footTo": 1053,
@@ -906,7 +906,7 @@
         {
           "to": "mffurf92",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 1,
           "footFrom": 1053,
           "footTo": 1299,
@@ -958,14 +958,14 @@
         {
           "to": "All accounts",
           "bad": [],
-          "hintAt": 352,
-          "movedAt": 1191
+          "hintAt": 349,
+          "movedAt": 1182
         },
         {
           "to": "mffub1",
           "bad": [],
-          "hintAt": 367,
-          "movedAt": 1132
+          "hintAt": 357,
+          "movedAt": 1094
         }
       ],
       "quickWithHint": 0
@@ -975,7 +975,7 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 0,
           "footFrom": 1653,
           "footTo": 1653,
@@ -1005,7 +1005,7 @@
         {
           "to": "mffur1",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 2127,
           "footTo": 1653,
@@ -1047,7 +1047,7 @@
         {
           "to": "mffurf92",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 0,
           "footFrom": 1985,
           "footTo": 1985,
@@ -1099,7 +1099,7 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 0,
           "footFrom": 2195,
           "footTo": 2195,
@@ -1119,7 +1119,7 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 2223,
           "footTo": 2759,
@@ -1171,7 +1171,7 @@
         {
           "to": "mffurf92",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 1,
           "footFrom": 2001,
           "footTo": 1999,
@@ -1181,7 +1181,7 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 1,
           "footFrom": 1999,
           "footTo": 2475,
@@ -1201,7 +1201,7 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 2001,
           "footTo": 2475,
@@ -1233,7 +1233,7 @@
         {
           "to": "mffurf92",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 1581,
           "footTo": 1757,

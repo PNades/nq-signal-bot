@@ -297,10 +297,10 @@ export function AccountSwitcher({ accounts, summary = null, focus, onFocus, onMa
                 Picking an account sets the panel's focus: pages that filter by account follow it. It never changes which accounts trade.
               </p>
               <div className="flex items-center gap-1 border-t border-line-strong p-1.5">
-                <button type="button" onClick={() => { hide(); onManage(); }} className="flex h-8 flex-1 items-center gap-2 rounded-sm px-2.5 text-left text-[13px] text-text-1 hover:bg-bg-2">
+                <button type="button" data-preload="/accounts" onClick={() => { hide(); onManage(); }} className="flex h-8 flex-1 items-center gap-2 rounded-sm px-2.5 text-left text-[13px] text-text-1 hover:bg-bg-2">
                   <Settings2 className="size-4 text-text-2" aria-hidden="true" />Manage accounts
                 </button>
-                <button type="button" onClick={() => { hide(); onAdd(); }} className="flex h-8 items-center gap-2 rounded-sm px-2.5 text-[13px] text-cream hover:bg-bg-2">
+                <button type="button" data-preload="/accounts/new" onClick={() => { hide(); onAdd(); }} className="flex h-8 items-center gap-2 rounded-sm px-2.5 text-[13px] text-cream hover:bg-bg-2">
                   <Plus className="size-4" aria-hidden="true" />Add account
                 </button>
               </div>

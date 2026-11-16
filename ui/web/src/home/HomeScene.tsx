@@ -9,6 +9,8 @@ import { AnimatePresence, animate, motion, useMotionValue } from "motion/react";
 import { Activity, ChartNoAxesCombined, Map, ScanEye, SlidersHorizontal, Wallet, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getJson } from "@/lib/api";
+import { peek } from "@/lib/prefetch";
+import { PAGE_URL } from "@/lib/nav";
 import { isTyping, useNow } from "@/lib/hooks";
 import { money0 } from "@/lib/format";
 import type { PageId } from "@/shell/pages";
@@ -84,7 +86,8 @@ export function HomeScene({ calm, onOpenPage, blocked }: {
   const [arrived, setArrived] = useState(play ? 0 : 6);
   const [hover, setHover] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [data, setData] = useState<HomeData | null>(null);
+  // opens filled: its data was loaded before the page change (lib/nav.ts)
+  const [data, setData] = useState<HomeData | null>(() => peek<HomeData>(PAGE_URL.home) ?? null);
   const now = useNow(15000);
   const sceneRef = useRef<HTMLDivElement>(null);
   // the scene's geometry: width, the banner-free height c (the scene plus the banners above it) and the scene's own
@@ -97,7 +100,7 @@ export function HomeScene({ calm, onOpenPage, blocked }: {
 
   useEffect(() => {
     let live = true;
-    const load = () => getJson<HomeData>("/api/home").then((d) => live && setData(d)).catch(() => { /* numbers stay "—" */ });
+    const load = () => getJson<HomeData>(PAGE_URL.home).then((d) => live && setData(d)).catch(() => { /* numbers stay "—" */ });
     load();
     const id = setInterval(load, 30000);
     return () => { live = false; clearInterval(id); };
