@@ -2469,6 +2469,143 @@ S["3m"] = async () => {
   }
 };
 
+// "All accounts" in real-trades phases (owner 2026-11-16): the combined view with the per-account breakdown, the top-bar
+// option, Drawdown / Monte Carlo per account with the note; the Accounts page's archived accounts (scratch panel 8734).
+S["3n"] = async () => {
+  const { tab, toPanel, top, menuPick } = helpers3f;
+  const SCRATCH = process.env.CF_SCRATCH ?? "http://127.0.0.1:8734";
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `all_accounts_${w}`;
+    const { ctx, page } = await open(name, w, h, "/performance");
+    await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "mffur1"));
+    await page.reload(); await page.waitForTimeout(2400);
+    const c = (checks[name] = {});
+    await menuPick(page, "Phase", "Prop");
+    await menuPick(page, "Account", "All accounts"); await page.waitForTimeout(800);
+    c.topbar = await page.locator("[data-account-switcher]").getAttribute("aria-label");
+    c.rows = await page.locator("[data-breakdown-row]").count();
+    c.totals = (await page.locator("[data-breakdown-totals]").innerText()).replace(/\s+/g, " ");
+    await page.locator("[data-breakdown]").scrollIntoViewIfNeeded(); await page.waitForTimeout(300);
+    await page.locator("#cf-main").evaluate((m) => m.scrollTo({ top: 0 })); await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(OUT, `all_accounts_top_${w}.png`) });
+    await page.locator("[data-breakdown]").screenshot({ path: path.join(OUT, `breakdown_${w}.png`) });
+    // sort by net cash: a number column sorts largest first on its first click
+    await page.locator("[data-breakdown] th button", { hasText: "Net cash" }).click(); await page.waitForTimeout(200);
+    c.firstByCash = await page.locator("[data-breakdown-row]").first().getAttribute("data-breakdown-row");
+    await page.locator("[data-breakdown]").screenshot({ path: path.join(OUT, `breakdown_sorted_net_cash_${w}.png`) });
+    // the combined equity curve, trades with the account column, calendar; Drawdown with the note
+    await tab(page, "Equity"); await page.waitForTimeout(1400); await toPanel(page);
+    await page.screenshot({ path: path.join(OUT, `all_equity_${w}.png`) });
+    await tab(page, "Trades"); await page.waitForTimeout(1400); await toPanel(page);
+    c.tradeAccounts = await page.evaluate(() => new Set([...document.querySelectorAll("tbody tr")].map((r) => r.children[2]?.textContent)).size);
+    await page.screenshot({ path: path.join(OUT, `all_trades_${w}.png`) });
+    await tab(page, "Drawdown"); await page.waitForTimeout(1500); await toPanel(page);
+    c.note = await page.locator("[data-account-note]").innerText().catch(() => null);
+    await page.screenshot({ path: path.join(OUT, `all_drawdown_note_${w}.png`) });
+    // a row click focuses that account (the page filter and the top bar)
+    await top(page); await page.locator("[data-breakdown-row='lucidf91']").click(); await page.waitForTimeout(1200);
+    c.afterRow = await page.getByRole("button", { name: /^Account:/ }).getAttribute("aria-label");
+    // the top-bar list: "All accounts" first, archived accounts not offered
+    await page.locator("[data-account-switcher]").click(); await page.waitForTimeout(350);
+    c.switcherRows = await page.locator("[data-switcher-row]").evaluateAll((els) => els.map((e) => e.getAttribute("data-switcher-row")));
+    await page.screenshot({ path: path.join(OUT, `topbar_all_accounts_${w}.png`) });
+    await page.keyboard.press("Escape");
+    const ok = /All accounts/.test(c.topbar ?? "") && c.rows >= 7 && /totals/i.test(c.totals) && c.firstByCash === "mffurf92" &&
+      c.tradeAccounts >= 5 && /showing/.test(c.note ?? "") && /lucidf91/.test(c.afterRow ?? "") && c.switcherRows[0] === "all";
+    if (!ok) problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+  // the Accounts page on the scratch panel: archived accounts hidden, then shown; an archived account's editor
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `archived_${w}`;
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: "dark" });
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => problems.push(`${name}: page error ${e.message}`));
+    await page.goto(SCRATCH + "/accounts");
+    await page.evaluate(() => sessionStorage.setItem("creamflow.splashShown", "1"));
+    await page.reload(); await page.waitForTimeout(2200);
+    const c = (checks[name] = {});
+    c.hidden = await page.locator("[data-account-card]").count();
+    await page.screenshot({ path: path.join(OUT, `accounts_default_${w}.png`) });
+    await page.locator("[data-show-archived] [role=switch]").click(); await page.waitForTimeout(600);
+    c.shown = await page.locator("[data-account-card]").count();
+    await page.screenshot({ path: path.join(OUT, `accounts_show_archived_${w}.png`), fullPage: false });
+    await page.locator("[data-account-card='mffur91']").click(); await page.waitForTimeout(1500);
+    c.archiveNote = await page.locator("[data-archive-instead]").count();
+    c.deleteBox = await page.getByText("Delete this account").count();
+    await page.locator("[data-archive-instead]").scrollIntoViewIfNeeded(); await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(OUT, `account_with_trades_editor_${w}.png`) });
+    if (!(c.shown > c.hidden && c.archiveNote === 1 && c.deleteBox === 0)) problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+};
+
+// owner 2026-11-16 decisions: passed evaluations archived; saving an evaluation as passed asks for its funded account;
+// under "All accounts" Drawdown / Monte Carlo show the last single account selected, else the most recently active one.
+S["3o"] = async () => {
+  const { tab, toPanel, top, menuPick } = helpers3f;
+  const SCRATCH = process.env.CF_SCRATCH ?? "http://127.0.0.1:8734";
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `last_account_${w}`;
+    const { ctx, page } = await open(name, w, h, "/performance");
+    await page.evaluate(() => { localStorage.removeItem("creamflow.lastAccount"); localStorage.setItem("creamflow.focusAccount", "all"); });
+    await page.reload(); await page.waitForTimeout(2400);
+    const c = (checks[name] = {});
+    await menuPick(page, "Phase", "Prop"); await page.waitForTimeout(600);
+    await tab(page, "Drawdown"); await page.waitForTimeout(1400);
+    c.fallback = await page.locator("[data-account-note]").innerText().catch(() => null);
+    await toPanel(page); await page.screenshot({ path: path.join(OUT, `all_fallback_most_recent_${w}.png`) });
+    await top(page); await menuPick(page, "Account", "mffub1"); await page.waitForTimeout(900);
+    await menuPick(page, "Account", "All accounts"); await page.waitForTimeout(900);
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(1500);
+    c.last = await page.locator("[data-account-note]").innerText().catch(() => null);
+    await toPanel(page); await page.screenshot({ path: path.join(OUT, `all_last_selected_mc_${w}.png`) });
+    // a breakdown row click counts as a selection too
+    await top(page); await page.locator("[data-breakdown-row='lucidf91']").click(); await page.waitForTimeout(900);
+    await menuPick(page, "Account", "All accounts"); await page.waitForTimeout(900);
+    await tab(page, "Drawdown"); await page.waitForTimeout(1400);
+    c.afterRow = await page.locator("[data-account-note]").innerText().catch(() => null);
+    // it survives a reload
+    await page.reload(); await page.waitForTimeout(2400);
+    await menuPick(page, "Phase", "Prop"); await page.waitForTimeout(600);
+    await tab(page, "Drawdown"); await page.waitForTimeout(1400);
+    c.afterReload = await page.locator("[data-account-note]").innerText().catch(() => null);
+    const ok = /showing mffub1 \(the most recently active account\)/.test(c.fallback ?? "") && /showing mffub1 \(the last account you selected\)/.test(c.last ?? "") &&
+      /showing lucidf91 \(the last account you selected\)/.test(c.afterRow ?? "") && /showing lucidf91/.test(c.afterReload ?? "");
+    if (!ok) problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `passed_${w}`;
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: "dark" });
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => problems.push(`${name}: page error ${e.message}`));
+    await page.goto(SCRATCH + "/accounts");
+    await page.evaluate(() => sessionStorage.setItem("creamflow.splashShown", "1"));
+    await page.reload(); await page.waitForTimeout(2200);
+    const c = (checks[name] = {});
+    c.cards = await page.locator("[data-account-card]").evaluateAll((els) => els.map((e) => e.getAttribute("data-account-card")));
+    await page.screenshot({ path: path.join(OUT, `accounts_passed_archived_${w}.png`) });
+    if (w === 1440) {
+      // mark an evaluation passed and save: the funded-account question, then the new account from the funded preset
+      await page.locator("[data-account-card='mffur1']").click(); await page.waitForTimeout(1500);
+      await page.getByRole("radiogroup", { name: "Status" }).getByRole("radio", { name: "Passed" }).click(); await page.waitForTimeout(500);
+      await page.locator("[data-add-funded]").scrollIntoViewIfNeeded(); await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(OUT, `editor_marked_passed_${w}.png`) });
+      await page.getByRole("button", { name: /^Save as checked$|^Save$/ }).first().click(); await page.waitForTimeout(1500);
+      c.dialog = await page.getByRole("dialog").innerText().catch(() => null);
+      await page.screenshot({ path: path.join(OUT, `ask_funded_dialog_${w}.png`) });
+      await page.locator("[data-ask-funded-add]").click(); await page.waitForTimeout(1500);
+      c.url = new URL(page.url()).pathname;
+      c.preset = await page.getByText(/MFFU Rapid EOD 25k.*funded|funded/i).count();
+      await page.screenshot({ path: path.join(OUT, `new_funded_account_${w}.png`) });
+    }
+    const ok = !c.cards.some((n) => ["mffur92", "lucid91"].includes(n)) && (w !== 1440 || (/add its funded account/i.test(c.dialog ?? "") && c.url === "/accounts/new" && c.preset > 0));
+    if (!ok) problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+};
+
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();
 await browser.close();
 fs.writeFileSync(path.join(OUT, "checks.json"), JSON.stringify({ stage, base: BASE, problems, checks }, null, 2));

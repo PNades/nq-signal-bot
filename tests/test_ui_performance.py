@@ -168,3 +168,32 @@ def test_calendar_follows_the_phase(synth):
     prop = synth.get("/api/performance/calendar?phase=prop&account=mffur1").json()
     assert prop["months"] and all(m > months[12] for m in prop["months"])        # after the window
     assert synth.get("/api/performance/calendar?phase=nope").status_code == 400
+
+
+def test_all_accounts_breakdown_with_the_archived_history(synth):
+    # owner 2026-11-16: "All accounts" in a real-trades phase adds a per-account breakdown, archived accounts included
+    r = synth.get("/api/performance?phase=prop&account=all").json()
+    rows, tot = r["breakdown"]["rows"], r["breakdown"]["totals"]
+    by = {x["account"]: x for x in rows}
+    assert {"mffur91", "mffur92", "mffurf92", "lucid91", "lucidf91", "mffub91", "mffur1"} <= set(by)
+    assert by["mffur91"]["status"] == "failed" and by["mffur91"]["archived"] is True and by["mffur92"]["archived"] is True   # passed too
+    assert by["mffur1"]["archived"] is False and tot["archived"] == 6 and by["mffur1"]["last_trade"] >= by["mffur1"]["start"]
+    assert by["mffur91"]["fees"] == 97.20 and by["mffurf92"]["fees"] == 0 and by["mffub91"]["fees"] == 63.00
+    assert by["lucidf91"]["payouts"] == round(by["lucidf91"]["payouts_gross"] * 0.9, 2) > 0      # Lucid's 90% split
+    assert by["mffur1"]["status"] == "active" and by["mffur1"]["end"] is None
+    assert by["mffur1"]["fees"] == 97.20                              # from its preset (drafts made before the fee fields)
+    assert tot["fees"] == round(sum(x["fees"] for x in rows), 2) and tot["fees_unknown"] == 0
+    assert tot["net_cash"] == round(tot["payouts"] - tot["fees"], 2)
+    assert tot["net_usd"] == pytest.approx(r["kpis"]["net_usd"])     # every prop trade, once
+    accounts = {a["name"]: a for a in r["accounts"]}
+    assert accounts["mffur91"]["archived"] is True and accounts["mffur1"]["status"] == "active"
+    assert "breakdown" not in synth.get("/api/performance?phase=prop&account=mffur1").json()
+
+
+def test_an_account_with_trades_is_never_deleted(synth):
+    H = {"origin": BASE, "x-cf-token": "tok"}
+    acc = synth.get("/api/accounts").json()
+    rows = {a["account"]["name"]: a for a in acc["accounts"]}
+    assert rows["mffur1"]["trades"] > 0
+    r = synth.post("/api/accounts/delete", json={"name": "mffur1", "typed": "mffur1", "hash": acc["hash"]}, headers=H)
+    assert r.status_code == 409 and "never deleted" in r.json()["error"]

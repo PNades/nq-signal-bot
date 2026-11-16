@@ -47,6 +47,7 @@ export function AccountCard({ row, presets, onOpen }: { row: Row; presets: Prese
             <Badge tone="cream">{a.phase === "funded" ? "FUNDED" : "EVALUATION"}</Badge>
             {a.demo ? <Badge tone="stale" icon={FlaskConical}>DEMO</Badge> : null}
             {a.active === false ? <Badge tone="stale">INACTIVE</Badge> : null}
+            {a.status && a.status !== "active" ? <Badge tone={a.status === "passed" ? "ok" : a.status === "failed" ? "crit" : "stale"}>{String(a.status).toUpperCase()}</Badge> : null}
           </div>
         </div>
         <div className="flex items-center justify-between gap-3">

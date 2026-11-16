@@ -1,0 +1,33 @@
+{
+  "stage": "3o",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "last_account_1440": {
+      "fallback": "All accounts: Drawdown and Monte Carlo show one account at a time · showing mffub1 (the most recently active account) · pick another in the account menu or the table",
+      "last": "All accounts: Drawdown and Monte Carlo show one account at a time · showing mffub1 (the last account you selected) · pick another in the account menu or the table",
+      "afterRow": "All accounts: Drawdown and Monte Carlo show one account at a time · showing lucidf91 (the last account you selected) · pick another in the account menu or the table",
+      "afterReload": "All accounts: Drawdown and Monte Carlo show one account at a time · showing lucidf91 (the last account you selected) · pick another in the account menu or the table"
+    },
+    "last_account_960": {
+      "fallback": "All accounts: Drawdown and Monte Carlo show one account at a time · showing mffub1 (the most recently active account) · pick another in the account menu or the table",
+      "last": "All accounts: Drawdown and Monte Carlo show one account at a time · showing mffub1 (the last account you selected) · pick another in the account menu or the table",
+      "afterRow": "All accounts: Drawdown and Monte Carlo show one account at a time · showing lucidf91 (the last account you selected) · pick another in the account menu or the table",
+      "afterReload": "All accounts: Drawdown and Monte Carlo show one account at a time · showing lucidf91 (the last account you selected) · pick another in the account menu or the table"
+    },
+    "passed_1440": {
+      "cards": [
+        "mffur1",
+        "mffub1"
+      ],
+      "dialog": "Evaluation passed: add its funded account?\n\nmffur1 is saved as passed and archived (always in All accounts and its totals). Its funded account is a new account with its own name, filled from the MFFU Rapid EOD 25k funded preset.\n\nNot now\nAdd funded account",
+      "url": "/accounts/new",
+      "preset": 7
+    },
+    "passed_960": {
+      "cards": [
+        "mffub1"
+      ]
+    }
+  }
+}

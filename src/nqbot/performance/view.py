@@ -15,6 +15,8 @@ import random
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable
 
+from nqbot.accounts.presets import ARCHIVED
+
 from .floor import Rule, floor_after, floor_path
 from .guard import Guard, apply
 from .ledger import Trade
@@ -239,6 +241,53 @@ def account_trade_run(trades: list[Trade], account: dict[str, Any], horizon: int
             # the floor in force now: set at the last session's close (the points carry the floor during each session)
             "floor_now": round(floor, 2), "high_now": round(hw, 2),
             "lock_usd": rule.lock_usd, "lock_trigger": rule.lock_trigger, "start_floor": rule.start_usd - rule.drawdown_usd}
+
+
+def account_fees(account: dict[str, Any], preset_fields: dict[str, dict[str, Any]]) -> float | None:
+    """What the account cost (owner 2026-11-16): an evaluation its evaluation price (one-time), a funded account its
+    activation fee; from the account's own fields, else from the preset it was made from; None if neither states it."""
+    key = "evaluation_fee_usd" if account.get("phase") == "evaluation" else "activation_fee_usd"
+    v = account.get(key)
+    if v is None:
+        v = preset_fields.get(str(account.get("preset") or ""), {}).get(key)
+    return None if v is None else float(v)
+
+
+def breakdown(trades: list[Trade], accounts: list[dict[str, Any]], *, phase: str,
+              preset_fields: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """The "All accounts" breakdown (owner 2026-11-16): one row per account with trades in this real-trades phase:
+    firm, plan, stage, status (archived when passed, failed or closed), first / last day, net P&L, payouts (to the trader, after
+    the profit split), fees paid and net cash (payouts - fees); the totals across every account ever."""
+    by: dict[str, list[Trade]] = {}
+    for t in trades:
+        if t.source == phase:
+            by.setdefault(t.account, []).append(t)
+    acc_of = {str(a.get("name")): a for a in accounts}
+    rows = []
+    for name, ts in by.items():
+        a = acc_of.get(name, {"name": name})
+        dates = sorted(t.date for t in ts)
+        status = str(a.get("status") or "active")
+        split = float(a.get("profit_split_pct") or 1.0)
+        pays = [p for p in (a.get("payouts") or []) if isinstance(p, dict)]
+        gross = round(sum(float(p.get("amount_usd") or 0) for p in pays), 2)
+        fees = account_fees(a, preset_fields) if a.get("phase") else None
+        payouts = round(gross * split, 2)
+        rows.append({"account": name, "firm": a.get("firm"), "plan": a.get("kind"), "stage": a.get("phase"),
+                     "status": status, "archived": status in ARCHIVED, "demo": bool(a.get("demo")),
+                     "last_trade": dates[-1].isoformat(),
+                     "start": str(a.get("started") or dates[0].isoformat()),
+                     "end": str(a.get("ended")) if a.get("ended") else (None if status == "active" else dates[-1].isoformat()),
+                     "trades": len(ts), "net_usd": round(sum(t.net_usd for t in ts), 2), "payouts_n": len(pays),
+                     "payouts_gross": gross, "payouts": payouts, "fees": fees,
+                     "net_cash": None if fees is None else round(payouts - fees, 2)})
+    rows.sort(key=lambda r: (r["start"], r["account"]))
+    known = [r for r in rows if r["fees"] is not None]
+    totals = {"accounts": len(rows), "archived": sum(r["archived"] for r in rows), "trades": sum(r["trades"] for r in rows),
+              "net_usd": round(sum(r["net_usd"] for r in rows), 2), "payouts": round(sum(r["payouts"] for r in rows), 2),
+              "fees": round(sum(r["fees"] for r in known), 2), "fees_unknown": len(rows) - len(known),
+              "net_cash": round(sum(r["payouts"] for r in rows) - sum(r["fees"] for r in known), 2)}
+    return {"rows": rows, "totals": totals}
 
 
 def expected_band(backtest: list[Trade], n_trades: int, seed: int = 11) -> list[dict[str, float]]:

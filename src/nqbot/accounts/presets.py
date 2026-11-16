@@ -18,7 +18,9 @@ from nqbot.config import CONFIG_DIR, load_yaml
 PRESETS_FILE = "presets.yaml"
 # fields that belong to the account, never to a preset (§9b: a preset "fills every field" of the rules)
 ACCOUNT_OWN_FIELDS = frozenset({"name", "active", "draft", "demo", "traderspost_webhook_env", "copied_accounts",
-                                "payouts", "first_funded_trade_date", "pending_risk", "preset"})
+                                "payouts", "first_funded_trade_date", "pending_risk", "preset", "last_payout_date",
+                                "status", "started", "ended"})
+ARCHIVED = ("passed", "failed", "closed")   # a finished account is archived (owner 2026-11-16)
 
 
 @dataclass(frozen=True)

@@ -107,6 +107,11 @@ class Account(BaseModel):
     payouts_taken: int = Field(default=0, ge=0)
     payouts: list[Payout] = Field(default_factory=list)
     first_funded_trade_date: date | None = None
+    # the account's life (owner 2026-11-16): active, or finished; a passed, failed or closed account is archived (hidden
+    # from the active list, always in "All accounts" and its totals); an account with trades is never deleted
+    status: Literal["active", "passed", "failed", "closed"] = "active"
+    started: date | None = None
+    ended: date | None = None
     # plan fees (owner 2026-11-16, §6.7): the evaluation's price, paid once per evaluation started (one-time billing only),
     # and the activation fee on a pass; reports and the plan lifecycle only, never a trading input
     evaluation_fee_usd: float | None = Field(default=None, ge=0)

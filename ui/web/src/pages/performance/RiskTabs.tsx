@@ -63,8 +63,8 @@ function Horizon({ value, options, onChange, animated, id }: { value: number; op
 
 type Data = McPlans | McAccount | DdPlans | DdAccount;
 
-export function RiskTab({ tab, realMode, account, range, planId, horizon, onHorizon, onPlan, animated, variant }: {
-  tab: "drawdown" | "montecarlo"; realMode: boolean; account: string | null;
+export function RiskTab({ tab, realMode, account, note = null, range, planId, horizon, onHorizon, onPlan, animated, variant }: {
+  tab: "drawdown" | "montecarlo"; realMode: boolean; account: string | null; note?: string | null;
   range: string; planId: string | null; horizon: number; onHorizon: (h: number) => void; onPlan: (id: string) => void; animated: boolean; variant: Variant;
 }) {
   const [data, setData] = useState<Data | null>(null);
@@ -94,6 +94,7 @@ export function RiskTab({ tab, realMode, account, range, planId, horizon, onHori
   }
   return (
     <div className="relative min-h-[560px]" data-risk-tab={tab}>
+      {note && <p className="mb-2 rounded-sm border border-info/30 bg-info/[.07] px-3 py-1.5 font-mono text-[11.5px] text-text-2" data-account-note>{note}</p>}
       <AnimatePresence initial={false} mode="popLayout">
         <motion.div key={key} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: animated ? 0.2 : 0, ease: "easeOut" }}>
           {body}

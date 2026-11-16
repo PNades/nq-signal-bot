@@ -362,3 +362,37 @@ The code does both. The page uses (a) until you decide.
    locks at $50,100"; locked → "Locked" · "at $25,100 since <date>".
 4. **Closest approach** now also counts the room left after each session's close (the floor that close set), so it is
    never above today's room (it was $1,576 for mffur1 against today's $1,000).
+
+## All accounts and archived accounts (owner 2026-11-16)
+- **Evidence:** [`build/stage3n/`](build/stage3n/) ([`checks.json`](build/stage3n/checks.json), all passed): the owner's
+  panel (synthetic) in Prop with "All accounts" (KPIs, stats, the breakdown, equity, trades, Drawdown with its note, the
+  top-bar list), and a scratch panel (127.0.0.1:8734, the drafts plus the synthetic finished accounts in its own
+  accounts file, removed after) for the Accounts page: archived hidden, "Show archived", an account with trades.
+1. **All accounts** in demo / prop / live, in the page's filter and the top-bar switcher (focus `all`, both ways):
+   every account's trades together; the trades table has its account column.
+2. **Breakdown** (`AccountBreakdown.tsx`, `view.breakdown`): one row per account with trades in the phase, archived ones
+   included; sortable; a row click focuses the account; totals across every account ever (synthetic Prop: 9 accounts, 4
+   archived, 73 trades, net P&L +$13,380.48, payouts $7,362, fees $565.20, net cash +$6,796.87).
+3. **Archived accounts:** `status` (active, passed, failed, closed) with `started` / `ended` in the account schema and the
+   editor; passed, failed or closed = archived: hidden from the Accounts page unless "Show archived", not offered in the top-bar
+   list, always in All accounts. An account with trades shows "This account has trades" instead of the delete box, and
+   the API refuses its delete (409). Finished accounts no longer count toward a firm's account limit.
+4. **Drawdown / Monte Carlo** under All accounts: the last single account selected, else the most recently active one
+   (latest trade), with a note naming which (owner 2026-11-16).
+5. **Synthetic history** (`performance/history.py`): mffur91 (Rapid evaluation, failed), mffur92 (passed) → mffurf92
+   (funded, closed after 6 payouts), lucid91 (passed) → lucidf91 (funded, 3 payouts, then failed), mffub91 (Builder,
+   failed); each played forward under its preset's rules; finished accounts get no new trades.
+- In synthetic mode the history accounts exist only in the synthetic ledger, so the top-bar switcher can't focus them
+  (it shows the panel's own accounts); a breakdown row click still focuses them on the page.
+
+### Owner's decisions on All accounts (2026-11-16)
+- **Evidence:** [`build/stage3o/`](build/stage3o/) ([`checks.json`](build/stage3o/checks.json), all passed) and
+  `build/stage3n/` re-shot (6 archived now).
+1. **Passed evaluations are archived** too (`ARCHIVED = passed, failed, closed`): hidden from the Accounts page and the
+   top-bar list, always in All accounts and its totals.
+2. **Funded-account prompt:** saving an evaluation as passed opens "Evaluation passed: add its funded account?"; Add opens
+   a new account filled from the same plan's funded preset (scratch panel: mffur1 → MFFU Rapid EOD 25k · funded); Not
+   now closes. A passed evaluation opened later shows the offer in its editor.
+3. **Drawdown / Monte Carlo under All accounts:** the last single account selected (page filter, top bar or breakdown
+   row; `creamflow.lastAccount`, survives a reload), else the most recently active one (synthetic: mffub1, last trade
+   2026-10-29); the note says which. Before this it was the first active account.

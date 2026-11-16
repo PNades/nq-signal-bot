@@ -104,3 +104,17 @@ def test_raising_risk_effect():
     assert rows[8.0]["limited_by"] == "daily profit cap" and rows[8.0]["effective_risk_usd"] == pytest.approx(180)
     with pytest.raises(Exception):
         derive.risk_raise_effect(a, 5, S)
+
+
+
+def test_finished_accounts_dont_count_toward_the_firm_limit():
+    # owner 2026-11-16: a passed, failed or closed account no longer holds one of the firm's places
+    from nqbot.accounts.presets import apply_preset, builtin_presets
+    from nqbot.config import load_settings
+    p = {x.id: x for x in builtin_presets()}["mffu_rapid_eod_25k_evaluation"]
+    mk = lambda n, st="active": {**apply_preset(p), "name": n, "status": st, "traderspost_webhook_env": f"TP_WEBHOOK_{n.upper()}"}  # noqa: E731
+    others = [mk("aa1"), mk("aa2"), mk("aa3", "failed"), mk("aa4", "closed"), mk("aa5", "passed")]
+    issues = derive.report(mk("aa6"), others, load_settings())["issues"]
+    assert not [i for i in issues if i["field"] == "firm"]          # 3 running: allowed
+    issues = derive.report(mk("aa6"), others + [mk("aa7")], load_settings())["issues"]
+    assert [i for i in issues if i["field"] == "firm"]              # 4 running: the warning

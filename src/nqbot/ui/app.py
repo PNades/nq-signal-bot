@@ -24,7 +24,7 @@ from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, R
 from starlette.routing import Route
 
 from nqbot.storage import Paths
-from nqbot.accounts.presets import account_kind
+from nqbot.accounts.presets import ARCHIVED, account_kind
 from nqbot.ui import actions, api_panel, api_performance, emergency, spa
 from nqbot.ui.panel_store import PanelStore, PanelUnavailable
 from nqbot.ui.security import TOKEN_FIELD, TOKEN_HEADER, GuardMiddleware, new_token, token_ok
@@ -77,6 +77,8 @@ def create_app(cfg: PanelConfig) -> Starlette:
         return [{"name": a.get("name"), "firm": a.get("firm"), "phase": a.get("phase"), "draft": bool(a.get("draft")),
                  "demo": bool(a.get("demo")), "active": a.get("active", True), "preset": a.get("preset"), "kind": kind(a),
                  "drawdown_usd": a.get("drawdown_usd"), "target": target(a),
+                 # failed / closed accounts are archived: not offered in the top-bar list (owner 2026-11-16)
+                 "status": a.get("status") or "active", "archived": (a.get("status") or "active") in ARCHIVED,
                  # live numbers come with the engine (step 22): balance, floor, today's P&L, progress, lives left, and
                  # its state (paused, blown, unknown...); null until then, shown as "—"
                  "live": {"state": None, "room_to_floor_usd": None, "today_pnl_usd": None, "progress_usd": None,
@@ -181,6 +183,8 @@ def create_app(cfg: PanelConfig) -> Starlette:
     async def api_missing(request: Request) -> Response:
         return JSONResponse({"error": f"no API route {request.url.path}"}, status_code=404)
 
+    # the Performance routes, and the ledger's trade count per account (an account with trades is never deleted)
+    perf = api_performance.build(store, cfg.paths_fn, cfg.settings, synthetic=cfg.synthetic) if cfg.settings else None
     routes = [
         *[Route(p, page, methods=["GET", "HEAD"]) for p in PAGE_PATHS],
         Route("/accounts/{name}", page, methods=["GET", "HEAD"]),  # an account's form (Accounts page)
@@ -190,8 +194,8 @@ def create_app(cfg: PanelConfig) -> Starlette:
         Route("/emergency", emergency_page, methods=["GET", "HEAD"]),
         Route("/emergency.css", emergency_css, methods=["GET"]),
         Route("/emergency/action", emergency_action, methods=["POST"]),
-        *(api_panel.routes(store, cfg.settings, cfg.features, require_token) if cfg.settings else []),
-        *(api_performance.routes(store, cfg.paths_fn, cfg.settings, synthetic=cfg.synthetic) if cfg.settings else []),
+        *(api_panel.routes(store, cfg.settings, cfg.features, require_token, perf[1]) if perf else []),
+        *(perf[0] if perf else []),
         Route("/api/{rest:path}", api_missing, methods=["GET", "POST"]),
         Route("/{rest:path}", static, methods=["GET", "HEAD"]),
     ]

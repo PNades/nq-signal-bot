@@ -25,6 +25,7 @@ import { EquityChart, LiveVsExpected } from "./charts";
 import { PnlCalendar } from "./PnlCalendar";
 import { Menu } from "./Menu";
 import { RiskTab } from "./RiskTabs";
+import { AccountBreakdown } from "./AccountBreakdown";
 import { StatsBox, readVariant } from "./summaries";
 import { TradesTable } from "./TradesTable";
 import type { AccountBrief, Notice, PerfPage, Unit } from "./types";
@@ -41,6 +42,7 @@ const PHASES: { id: string; label: string }[] = [
 const MONTH_SHORT = new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit", timeZone: "UTC" });
 /** a source's status as a sentence ("no demo trades yet (from step 24)" → "No demo trades yet (from step 24).") */
 const sentence = (s: string | undefined) => (s && s !== "ok" && s !== "synthetic" ? `${s[0].toUpperCase()}${s.slice(1)}.` : null);
+const LAST_KEY = "creamflow.lastAccount";
 const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
 function Scramble({ text, animated }: { text: string; animated: boolean }) {
@@ -132,8 +134,15 @@ export function PerformancePage() {
   const backtestMode = phase === "development" || phase === "walk_forward" || phase === "sealed";
   // the account filter and the top-bar focus are one selection (real-trades phases have no "All accounts")
   useEffect(() => { if (focus) setAccount(focus); }, [focus]);
-  useEffect(() => { if (realMode && account === "all") setAccount(focus ?? data?.accounts.find((a) => a.rule)?.name ?? "all"); }, [realMode]); // eslint-disable-line react-hooks/exhaustive-deps
-  const pickAccount = (name: string) => { setAccount(name); if (name !== "all") setFocus(name); };
+  const pickAccount = (name: string) => { setAccount(name); setFocus(name); };
+  // the last single account selected (the page's filter, the top bar or a breakdown row): what Drawdown and Monte Carlo
+  // show under "All accounts" (owner 2026-11-16); kept per browser
+  const [lastSingle, setLastSingle] = useState<string | null>(() => { try { return localStorage.getItem(LAST_KEY); } catch { return null; } });
+  useEffect(() => {
+    if (account === "all") return;
+    setLastSingle(account);
+    try { localStorage.setItem(LAST_KEY, account); } catch { /* storage blocked */ }
+  }, [account]);
   const query = useMemo(() => {
     const q = new URLSearchParams({ account: backtestMode ? "all" : account, phase });
     if (!realMode && planId) q.set("plan", planId);
@@ -155,7 +164,15 @@ export function PerformancePage() {
   // the Drawdown and Monte Carlo tabs (owner 2026-11-15): real-trades phases (demo, prop, live) show the account in the
   // filter (= the top-bar focus); every other phase runs the strategy's backtest days on the plan in the header
   const ruled: AccountBrief[] = (data?.accounts ?? []).filter((a) => a.rule);
-  const realAccount = account !== "all" ? account : (ruled.find((a) => a.name === focus)?.name ?? ruled[0]?.name ?? null);
+  // under "All accounts" Drawdown and Monte Carlo stay per account: the last single account selected, else the most
+  // recently active one (its latest trade), with a note
+  const recent = [...(data?.breakdown?.rows ?? [])].filter((r) => ruled.some((a) => a.name === r.account))
+    .sort((x, y) => (x.last_trade < y.last_trade ? 1 : x.last_trade > y.last_trade ? -1 : 0))[0]?.account ?? null;
+  const lastOk = lastSingle && ruled.some((a) => a.name === lastSingle) ? lastSingle : null;
+  const realAccount = account !== "all" ? account : (lastOk ?? recent ?? ruled[0]?.name ?? null);
+  const realNote = realMode && account === "all" && realAccount
+    ? `All accounts: Drawdown and Monte Carlo show one account at a time · showing ${realAccount} (${lastOk ? "the last account you selected" : "the most recently active account"}) · pick another in the account menu or the table`
+    : null;
   const [horizon, setHorizon] = useState(60);
   const plan = data?.plans.find((x) => x.id === planId) ?? null;
   const rangeQuery = useMemo(() => {
@@ -185,8 +202,11 @@ export function PerformancePage() {
   const stagger = { hidden: {}, show: { transition: { staggerChildren: animated ? 0.05 : 0 } } };
   const item: Variants = { hidden: animated ? { opacity: 0, y: 8 } : { opacity: 1 }, show: { opacity: 1, y: 0, transition: { duration: animated ? 0.32 : 0, ease: [0.2, 0, 0, 1] as const } } };
 
-  const accountOpts = [...(realMode ? [] : [{ id: "all", name: "All accounts", sub: `${data?.accounts.length ?? 0} accounts` }]),
-    ...(data?.accounts ?? []).map((a) => ({ id: a.name, name: a.name, sub: [a.kind, a.phase, a.draft ? "draft" : null].filter(Boolean).join(" · ") }))];
+  // active accounts first, then the archived ones (passed, failed, closed), all under "All accounts"
+  const accs = data?.accounts ?? [];
+  const accountOpts = [{ id: "all", name: "All accounts", sub: `${accs.length} accounts, archived included` },
+    ...[...accs.filter((a) => !a.archived), ...accs.filter((a) => a.archived)].map((a) => ({ id: a.name, name: a.name,
+      sub: [a.kind, a.phase, a.draft ? "draft" : null, a.archived ? `archived · ${a.status}` : null].filter(Boolean).join(" · ") }))];
   const planOpts = (data?.plans ?? []).map((x) => ({ id: x.id, name: x.label, sub: [x.evaluation ? "evaluation" : null, x.funded ? "funded" : null].filter(Boolean).join(" → ") + (x.builtin ? "" : " · saved preset") }));
   const stepPlan = (d: number) => { const ps = data?.plans ?? []; if (!ps.length) return; const i = ps.findIndex((x) => x.id === planId); setPlanId(ps[(i + d + ps.length) % ps.length].id); };
   // KPI sparklines: one point per trading day (owner 2026-11-15); the badge compares the last days with the earlier ones
@@ -281,6 +301,9 @@ export function PerformancePage() {
               ))}
             </motion.div>
             {S && S.trades > 0 && <motion.div variants={item}><StatsBox variant={variant} s={S} unitR={unit === "r"} animated={animated} /></motion.div>}
+            {realMode && account === "all" && data.breakdown && (
+              <motion.div variants={item}><AccountBreakdown data={data.breakdown} focus={null} onPick={pickAccount} /></motion.div>
+            )}
             {Object.keys(data.per_phase).length > 1 && (
               <motion.div variants={item} className="mt-3 flex flex-wrap gap-2 font-mono text-[11.5px] text-text-2" data-per-phase>
                 {Object.entries(data.per_phase).map(([ph, st]) => (
@@ -326,7 +349,7 @@ export function PerformancePage() {
                 )}
                 {(tab === "drawdown" || tab === "montecarlo") && (
                   <div className="min-h-[440px]">
-                    <RiskTab tab={tab} realMode={realMode} account={realAccount} range={rangeQuery}
+                    <RiskTab tab={tab} realMode={realMode} account={realAccount} note={realNote} range={rangeQuery}
                       planId={planId} onPlan={setPlanId} horizon={horizon} onHorizon={setHorizon} animated={animated} variant={variant} />
                   </div>
                 )}

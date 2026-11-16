@@ -26,6 +26,7 @@ from nqbot import calendar as cal
 from nqbot import months as ledger_months
 
 from .floor import Rule, floor_after
+from .history import history
 from .ledger import Trade
 
 # picked so no account breaches in the backtest order and both funded floors lock (the Monte Carlo still shows the
@@ -38,6 +39,8 @@ DEMO_SHARE = 0.35
 DEMO_ACCOUNT = "demo"
 # the strategy ledger's own sizing (the page re-prices it by plan)
 STRATEGY = "strategy"
+# the finished prop history (performance/history.py) trades on this many sessions before the window ends
+HISTORY_SESSIONS = 70
 STRATEGY_RISK_USD = 333.0
 STRATEGY_COMMISSIONS = (4.68, 1.90)   # MFFU, per NQ / MNQ round trip
 
@@ -97,7 +100,8 @@ def fit_rules(trades: list[Trade], accounts: list[dict[str, Any]]) -> list[Trade
 
 
 def ledger(settings: dict[str, Any], accounts: list[dict[str, Any]] | None = None, seed: int = SEED) -> list[Trade]:
-    accs = accounts or DEFAULT_ACCOUNTS
+    # only active accounts trade now; finished ones (passed, failed, closed) have their history (performance/history.py)
+    accs = [a for a in (accounts or []) if (a.get("status") or "active") == "active"] or DEFAULT_ACCOUNTS
     first, last = ledger_months.span(settings)
     days = _trading_days(first, last)
     demo = _trading_days(last + timedelta(days=1), last + timedelta(days=60))[:AFTER_SESSIONS]
@@ -138,4 +142,11 @@ def ledger(settings: dict[str, Any], accounts: list[dict[str, Any]] | None = Non
                 direction="long" if long else "short", style="d" if rnd.random() < 0.55 else "c", minis=minis, micros=micros,
                 entry=entry, exit=exit_, net_usd=round(r * risk - comm, 2), r=r, commission_usd=round(comm, 2),
                 mae_usd=mae, run="synthetic"))
-    return fit_rules(out, accs)
+    # the finished prop history (archived accounts, owner 2026-11-16) on the sessions just before the window ends
+    return fit_rules(out, accs) + history(days[-HISTORY_SESSIONS:])[1]
+
+
+def history_accounts(settings: dict[str, Any]) -> list[dict[str, Any]]:
+    """The synthetic finished accounts (status, dates, payouts), the records of the history trades in `ledger`."""
+    first, last = ledger_months.span(settings)
+    return history(_trading_days(first, last)[-HISTORY_SESSIONS:])[0]

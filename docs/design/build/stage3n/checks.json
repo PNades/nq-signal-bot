@@ -1,0 +1,49 @@
+{
+  "stage": "3n",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "all_accounts_1440": {
+      "topbar": "Account focus: All accounts. Opens the account list.",
+      "rows": 9,
+      "totals": "TOTALS · EVERY ACCOUNT EVER 73 +$13,380.48 $7,362 $565.20 +$6,796.87",
+      "firstByCash": "mffurf92",
+      "tradeAccounts": 12,
+      "note": "All accounts: Drawdown and Monte Carlo show one account at a time · showing mffur1 (the last account you selected) · pick another in the account menu or the table",
+      "afterRow": "Account: lucidf91",
+      "switcherRows": [
+        "all",
+        "mffur1",
+        "mffub1",
+        "mffur2"
+      ]
+    },
+    "all_accounts_960": {
+      "topbar": "Account focus: All accounts. Opens the account list.",
+      "rows": 9,
+      "totals": "TOTALS · EVERY ACCOUNT EVER 73 +$13,380.48 $7,362 $565.20 +$6,796.87",
+      "firstByCash": "mffurf92",
+      "tradeAccounts": 12,
+      "note": "All accounts: Drawdown and Monte Carlo show one account at a time · showing mffur1 (the last account you selected) · pick another in the account menu or the table",
+      "afterRow": "Account: lucidf91",
+      "switcherRows": [
+        "all",
+        "mffur1",
+        "mffub1",
+        "mffur2"
+      ]
+    },
+    "archived_1440": {
+      "hidden": 1,
+      "shown": 8,
+      "archiveNote": 1,
+      "deleteBox": 0
+    },
+    "archived_960": {
+      "hidden": 1,
+      "shown": 8,
+      "archiveNote": 1,
+      "deleteBox": 0
+    }
+  }
+}

@@ -98,7 +98,12 @@ export function AccountSwitcher({ accounts, focus, onFocus, onManage, onAdd, ani
   const panel = useRef<HTMLDivElement>(null);
   const openTimer = useRef<number | undefined>(undefined);
   const closeTimer = useRef<number | undefined>(undefined);
-  const current = accounts.find((a) => a.name === focus) ?? accounts.find((a) => !a.draft) ?? accounts[0];
+  // archived accounts (failed / closed) aren't offered here; "All accounts" (focus "all") combines every account, archived
+  // ones included, on pages that filter by account (owner 2026-11-16)
+  const listed = accounts.filter((a) => !a.archived);
+  const allFocus = focus === "all";
+  const current = allFocus ? null : (listed.find((a) => a.name === focus) ?? listed.find((a) => !a.draft) ?? listed[0]);
+  const total = listed.length + (listed.length ? 1 : 0);   // row 0 is "All accounts"
 
   const clearTimers = () => { window.clearTimeout(openTimer.current); window.clearTimeout(closeTimer.current); };
   const show = useCallback((viaKeys = false, pin = false) => {
@@ -138,15 +143,16 @@ export function AccountSwitcher({ accounts, focus, onFocus, onManage, onAdd, ani
     el?.scrollIntoView({ block: "nearest" });
   }, [active, open]);
 
-  const pick = (a: AccountBrief) => { onFocus(a.name); hide(true); };
+  const pickName = (name: string) => { onFocus(name); hide(true); };
+  const nameAt = (i: number) => (i === 0 ? "all" : listed[i - 1]?.name);
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") { e.preventDefault(); hide(true); return; }
-    if (!accounts.length) return;
-    if (e.key === "ArrowDown") { e.preventDefault(); setActive((i) => (i < 0 ? 0 : Math.min(i + 1, accounts.length - 1))); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setActive((i) => (i < 0 ? accounts.length - 1 : Math.max(i - 1, 0))); }
+    if (!total) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setActive((i) => (i < 0 ? 0 : Math.min(i + 1, total - 1))); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive((i) => (i < 0 ? total - 1 : Math.max(i - 1, 0))); }
     else if (e.key === "Home") { e.preventDefault(); setActive(0); }
-    else if (e.key === "End") { e.preventDefault(); setActive(accounts.length - 1); }
-    else if ((e.key === "Enter" || e.key === " ") && document.activeElement === panel.current) { e.preventDefault(); if (active >= 0) pick(accounts[active]); }
+    else if (e.key === "End") { e.preventDefault(); setActive(total - 1); }
+    else if ((e.key === "Enter" || e.key === " ") && document.activeElement === panel.current) { e.preventDefault(); if (active >= 0) pickName(nameAt(active)); }
   };
 
   return (
@@ -154,14 +160,20 @@ export function AccountSwitcher({ accounts, focus, onFocus, onManage, onAdd, ani
       <button ref={btn} type="button" aria-haspopup="listbox" aria-expanded={open} data-account-switcher
         onClick={onTriggerClick} onMouseEnter={hoverIn} onMouseLeave={hoverOut} data-pinned={open && pinned ? "1" : undefined}
         onKeyDown={(e) => { if (!open && (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ")) { e.preventDefault(); show(true, true); } }}
-        aria-label={current ? `Account focus: ${current.name}. Opens the account list.` : "Accounts"}
+        aria-label={allFocus ? "Account focus: All accounts. Opens the account list." : current ? `Account focus: ${current.name}. Opens the account list.` : "Accounts"}
         className={cn("flex h-8 shrink-0 items-center gap-2 rounded-sm border bg-bg-2 px-2.5 text-[13px] text-text-1 hover:border-text-3 min-[1180px]:ml-2", open ? "border-text-3" : "border-line-strong")}>
-        {current ? (
+        {allFocus ? (
+          <>
+            <span className="grid size-5 place-items-center rounded-full bg-gold/15 font-mono text-[9px] text-gold">ALL</span>
+            <span className="font-mono">All accounts</span>
+            <span className="font-mono text-[11px] text-text-3">{listed.length}</span>
+          </>
+        ) : current ? (
           <>
             <span className="grid size-5 place-items-center rounded-full bg-gold/15 font-mono text-[10px] text-gold">{current.name.slice(0, 2).toUpperCase()}</span>
             <span className="font-mono">{current.name}</span>
             <span className="rounded-xs border border-gold/40 px-1 font-mono text-[10px] leading-4 tracking-[0.06em] text-gold">{current.draft ? "DRAFT" : stage(current)}</span>
-            {accounts.length > 1 && <span className="font-mono text-[11px] text-text-3">+{accounts.length - 1}</span>}
+            {listed.length > 1 && <span className="font-mono text-[11px] text-text-3">+{listed.length - 1}</span>}
           </>
         ) : (<><Wallet className="size-4 text-text-2" aria-hidden="true" /><span className="text-text-2">No accounts yet</span></>)}
         <ChevronDown className={cn("size-3.5 text-text-3 transition-transform", open && "rotate-180")} aria-hidden="true" />
@@ -176,17 +188,26 @@ export function AccountSwitcher({ accounts, focus, onFocus, onManage, onAdd, ani
               className="cf-bare-focus fixed z-[40] w-[min(470px,calc(100vw-16px))] overflow-hidden rounded-lg border border-line-strong bg-bg-3 text-text-1 shadow-[0_12px_32px_rgba(0,0,0,.55)] outline-none"
               style={{ top: pos.top, left: pos.left }}>
               <div className="flex items-center justify-between border-b border-line-strong px-4 py-2.5">
-                <span className="text-[13px] font-semibold">Accounts <span className="font-mono text-[12px] font-normal text-text-3">{accounts.length}</span></span>
+                <span className="text-[13px] font-semibold">Accounts <span className="font-mono text-[12px] font-normal text-text-3">{listed.length}</span></span>
                 <span className="font-mono text-[11px] text-text-3">↑↓ move · Enter focus · Esc close</span>
               </div>
-              {accounts.length === 0 ? (
+              {listed.length === 0 ? (
                 <div className="px-4 py-6 text-center text-[13px] text-text-2">No accounts yet.</div>
               ) : (
-                <div role="listbox" aria-label="Accounts" aria-activedescendant={active >= 0 ? `sw-${accounts[active]?.name}` : undefined}
+                <div role="listbox" aria-label="Accounts" aria-activedescendant={active >= 0 ? `sw-${nameAt(active)}` : undefined}
                   onMouseLeave={() => setActive(-1)} className="overflow-y-auto p-1.5" style={{ maxHeight: ROW_H * VISIBLE_ROWS }}>
-                  {accounts.map((a, i) => (
-                    <div key={a.name} data-row-index={i}>
-                      <Row a={a} id={`sw-${a.name}`} focused={a.name === current?.name} active={i === active} onPick={() => pick(a)} onHover={() => setActive(i)} />
+                  <div data-row-index={0}>
+                    <div id="sw-all" role="option" aria-selected={allFocus} onClick={() => pickName("all")} onMouseMove={() => setActive(0)} data-switcher-row="all" data-lit={active === 0 ? "1" : undefined}
+                      className={cn("grid cursor-pointer grid-cols-[32px_1fr_16px] items-center gap-3 rounded-sm px-3 py-2.5", active === 0 ? "bg-cream/[0.08]" : "")}>
+                      <span className="grid size-8 place-items-center rounded-full bg-gold/15 font-mono text-[10px] text-gold" aria-hidden="true">ALL</span>
+                      <div className="min-w-0"><div className="font-mono text-[14px] text-text-1">All accounts</div>
+                        <div className="truncate font-mono text-[11.5px] text-text-3">every account's trades together, archived ones included</div></div>
+                      <span>{allFocus && <Check className="size-4 text-cream" aria-label="focused" />}</span>
+                    </div>
+                  </div>
+                  {listed.map((a, i) => (
+                    <div key={a.name} data-row-index={i + 1}>
+                      <Row a={a} id={`sw-${a.name}`} focused={a.name === current?.name} active={i + 1 === active} onPick={() => pickName(a.name)} onHover={() => setActive(i + 1)} />
                     </div>
                   ))}
                 </div>

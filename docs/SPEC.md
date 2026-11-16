@@ -1093,6 +1093,19 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   to it, the payouts over the horizon. "P(reaching the floor from here)" is removed everywhere. Built in
   `performance/account_mc.py` on the lifecycle engine (`start=`, `restart=False`). Not known before step 22: where a
   funded account's current payout cycle started after a payout (taken as today until the engine records it).
+- **Q-perf-all (owner 2026-11-16; approved and built 2026-11-16):** an "All accounts" view in the real-trades phases
+  (demo, prop, live), also in the top-bar switcher (focus `all`): every account's trades together (KPIs, stats, the
+  equity curve, calendar, trades with their account), and under the KPIs a per-account breakdown (account, firm, plan,
+  stage, status, start / end, net P&L, payouts to the trader, fees paid, net cash; sortable; a row click focuses the
+  account) with totals across every account ever. Drawdown and Monte Carlo stay per account, with a note: the last
+  single account selected (the page's filter, the top bar or a breakdown row; kept per browser), else the most recently
+  active one (latest trade). **Accounts are never deleted once they have trades:** a new account field `status` (active,
+  passed, failed, closed; with `started` / `ended`); every finished account (passed, failed or closed) = archived: hidden from the Accounts page ("Show archived") and
+  the top-bar list, always in "All accounts" and its totals; deleting is refused while the ledger holds trades for it.
+  Finished accounts no longer count toward a firm's account limit (§6.7). Fees per account: the account's own fee
+  fields, else its preset's. Saving an evaluation as passed asks "add its funded account?": Add opens a new account
+  filled from the same plan's funded preset (its own name, §6.7: a passed evaluation becomes a new funded account);
+  Not now closes. A passed evaluation opened later shows the same offer in its editor.
 - **Q-perf-ui7 (owner 2026-11-16; built, waiting for the owner's OK; variant A kept):** the Monte Carlo summary tightened
   (smaller padding and gaps, legend values beside their labels, "3 days", the backtest details in the header's
   tooltip), a calmer ring (124 px, 7 px stroke, a 19 px number); on the Performance page uppercase labels at 0.05 em,

@@ -13,7 +13,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from nqbot.accounts.presets import account_kind, builtin_presets
+from nqbot.accounts.presets import ARCHIVED, account_kind, builtin_presets
 from nqbot.performance import account_mc, acctypes, export, ledger, plans as lifecycle, pnl_calendar, view
 from nqbot.performance.lifecycle import PayoutRules
 from nqbot.performance import state as acct_state
@@ -35,6 +35,12 @@ def _date(v: str | None) -> date | None:
 
 def routes(store: PanelStore, paths_fn: Callable[[], Paths | None], settings: dict[str, Any], *,
            synthetic: bool = False) -> list[Route]:
+    return build(store, paths_fn, settings, synthetic=synthetic)[0]
+
+
+def build(store: PanelStore, paths_fn: Callable[[], Paths | None], settings: dict[str, Any], *,
+          synthetic: bool = False) -> tuple[list[Route], Callable[[str], int]]:
+    """The routes, and how many trades an account has in the ledger (an account with trades is never deleted)."""
     synth = synthetic
     cache: dict[str, Any] = {}
 
@@ -54,7 +60,13 @@ def routes(store: PanelStore, paths_fn: Callable[[], Paths | None], settings: di
             if cache.get("synth_key") != key:
                 cache.update(synth_key=key, synth=synthetic_ledger.ledger(settings, accs or None), mc={})
             names = {t.account for t in cache["synth"]}
-            shown = accs if accs else synthetic_ledger.DEFAULT_ACCOUNTS
+            # the synthetic finished history (archived accounts, owner 2026-11-16) beside the panel's own accounts
+            if "history" not in cache:
+                labels = {p.id: p.label for p in builtin_presets(store.config_dir)}
+                cache["history"] = [{**a, "kind": account_kind(a, labels)} for a in synthetic_ledger.history_accounts(settings)]
+            base = accs if accs else synthetic_ledger.DEFAULT_ACCOUNTS
+            have = {a.get("name") for a in base}
+            shown = base + [h for h in cache["history"] if h["name"] not in have]
             status = {"backtest": "synthetic", "demo": "synthetic", "prop": "synthetic",
                       "live": "no live trades yet (synthetic ledger)"}
             return cache["synth"], status, \
@@ -68,7 +80,9 @@ def routes(store: PanelStore, paths_fn: Callable[[], Paths | None], settings: di
 
     def brief(a: dict[str, Any]) -> dict[str, Any]:
         rule = Rule.of(a).text() if a.get("drawdown_type") else None
+        status = str(a.get("status") or "active")
         return {"name": a["name"], "kind": a.get("kind"), "phase": a.get("phase"), "demo": bool(a.get("demo")),
+                "status": status, "archived": status in ARCHIVED,
                 "draft": bool(a.get("draft")), "rule": rule}
 
     def params(request: Request) -> dict[str, Any]:
@@ -111,6 +125,10 @@ def routes(store: PanelStore, paths_fn: Callable[[], Paths | None], settings: di
             return _err(403, e.reason, gate=e.gate)
         pl = plan_of(request)
         body = view.page(priced(request, trades), g, accs, **p)
+        if p["account"] == "all" and p["phase"] in acct_state.REAL:
+            # every account's history in this real-trades phase, archived ones included (owner 2026-11-16)
+            fields = {pr.id: pr.fields for pr in builtin_presets(store.config_dir)}
+            body["breakdown"] = view.breakdown(apply(trades, "trade", g).trades, accs, phase=p["phase"], preset_fields=fields)
         body.update(accounts=[brief(a) for a in accs], sources=status, synthetic=synth,
                     plan=pl.brief() if pl else None, plans=[x.brief() for x in plans()],
                     gates_passed=sorted(g.passed), months={str(k): v for k, v in settings.get("months", {}).items()})
@@ -306,6 +324,10 @@ def routes(store: PanelStore, paths_fn: Callable[[], Paths | None], settings: di
             "Content-Disposition": f'attachment; filename="{name}"',
             "X-CF-Held": json.dumps({k: v["count"] for k, v in held.items()})})
 
+    def trade_count(name: str) -> int:
+        trades, _, _ = data()
+        return sum(1 for t in trades if t.account == name)
+
     return [
         Route("/api/performance", page, methods=["GET"]),
         Route("/api/performance/montecarlo", monte_carlo, methods=["GET"]),
@@ -314,4 +336,4 @@ def routes(store: PanelStore, paths_fn: Callable[[], Paths | None], settings: di
         Route("/api/performance/day", day_rows, methods=["GET"]),
         Route("/api/performance/trades", trade_rows, methods=["GET"]),
         Route("/api/performance/export.csv", export_csv, methods=["GET"]),
-    ]
+    ], trade_count

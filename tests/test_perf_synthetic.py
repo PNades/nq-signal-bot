@@ -40,3 +40,19 @@ def test_every_account_state_is_allowed_by_its_rules(accounts):
         st = state.from_trades(trades, acc, synthetic=True)
         assert st["balance_usd"] == pytest.approx(eod[-1]) and st["floor_usd"] < st["balance_usd"] <= st["high_water_usd"]
         assert not st["floor_reached"]
+
+
+def test_the_synthetic_history_accounts_are_valid_accounts():
+    # owner 2026-11-16: finished accounts with their status, dates and payouts; each one a valid panel account
+    from nqbot.accounts.schema import Account
+    hist = synthetic.history_accounts(load_settings())
+    assert {a["status"] for a in hist} == {"failed", "passed", "closed"}
+    from nqbot.accounts import derive
+    for a in hist:
+        acc = Account.model_validate(a)
+        assert acc.status == a["status"] and acc.ended is not None and acc.started <= acc.ended
+        issues = derive.report(a, [], load_settings())["issues"]
+        assert not [i for i in issues if i["field"] == "name"], issues     # lowercase letters and digits
+    trades = synthetic.ledger(load_settings())
+    names = {a["name"] for a in hist}
+    assert all(t.source == "prop" for t in trades if t.account in names)

@@ -13,6 +13,8 @@ export interface AccountBrief {
   name: string; firm: string; phase: string; draft: boolean; demo: boolean; active: boolean; preset?: string | null;
   /** Rapid, Builder, Pro, Lucid Flex, or a saved preset's name */
   kind: string; drawdown_usd: number | null;
+  /** active, or finished (owner 2026-11-16): failed / closed accounts are archived, not listed in the top bar */
+  status?: "active" | "passed" | "failed" | "closed"; archived?: boolean;
   /** evaluation: the profit target; funded: the next payout's target */
   target: { kind: "profit_target" | "payout"; usd: number | null };
   live: AccountLive;

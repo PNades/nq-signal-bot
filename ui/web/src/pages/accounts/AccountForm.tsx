@@ -19,7 +19,7 @@ import { toast } from "@/components/ui/toast";
 import { GROUPS, type Acc, type FieldDef } from "./fields";
 import type { AccountsData, Preset, Report, RiskEffect } from "./types";
 
-const ACCOUNT_OWN = new Set(["name", "active", "draft", "demo", "traderspost_webhook_env", "copied_accounts", "payouts", "first_funded_trade_date", "last_payout_date", "pending_risk", "preset"]);
+const ACCOUNT_OWN = new Set(["name", "active", "draft", "demo", "traderspost_webhook_env", "copied_accounts", "payouts", "first_funded_trade_date", "last_payout_date", "pending_risk", "preset", "status", "started", "ended"]);
 const eq = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 function useDebounced<T>(value: T, ms: number) {
@@ -128,16 +128,28 @@ function StopRow({ label, v, note }: { label: string; v: Record<string, number |
   );
 }
 
-export function AccountForm({ data, name, onClose, reload }: { data: AccountsData; name: string | null; onClose: () => void; reload: () => Promise<AccountsData | null> }) {
+export function AccountForm({ data, name, onClose, reload, initialPreset = null, onAddFunded }: {
+  data: AccountsData; name: string | null; onClose: () => void; reload: () => Promise<AccountsData | null>;
+  /** a new account's preset (from "Add its funded account") */ initialPreset?: string | null;
+  /** a passed evaluation offers its funded account (owner 2026-11-16) */ onAddFunded?: (presetId: string) => void;
+}) {
   const animated = useAnimated();
   const row = name ? data.accounts.find((r) => r.account.name === name) : undefined;
   const original: Acc | null = row ? row.account : null;
   const blank = useMemo(() => {
-    const p = data.presets.find((x) => x.id === "mffu_rapid_eod_25k_evaluation") ?? data.presets[0];
+    const p = data.presets.find((x) => x.id === (initialPreset ?? "mffu_rapid_eod_25k_evaluation")) ?? data.presets[0];
     const fields = Object.fromEntries(Object.entries(p.fields).filter(([k]) => !ACCOUNT_OWN.has(k)));
     return { ...fields, name: "", active: true, draft: false, demo: false, traderspost_webhook_env: null, copied_accounts: 0, payouts: [], preset: p.id } as Acc;
-  }, [data.presets]);
+  }, [data.presets, initialPreset]);
   const [acc, setAcc] = useState<Acc>(() => original ?? blank);
+  // a passed evaluation: its funded account is a new account with its own ID, from the same plan's funded preset
+  const fundedPreset = useMemo(() => {
+    const own = data.presets.find((x) => x.id === acc.preset);
+    return own ? data.presets.find((x) => x.label === own.label && x.stage === "funded") ?? null : null;
+  }, [data.presets, acc.preset]);
+  const passedEval = acc.phase === "evaluation" && acc.status === "passed";
+  // saved as passed just now: ask about the funded account before closing (owner 2026-11-16)
+  const [askFunded, setAskFunded] = useState(false);
   const [report, setReport] = useState<Report | null>(row ? { derived: row.derived, issues: row.issues, ok: row.ok } : null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -186,6 +198,7 @@ export function AccountForm({ data, name, onClose, reload }: { data: AccountsDat
       notify({ kind: "info", title: `Saved ${String(account.name)}.`, text: "Written to the panel's accounts file on the SSD; the previous version is in panel/history/.", banner: false });
       const fresh = await reload();
       if (fresh && account.name !== name) history.replaceState({}, "", `/accounts/${String(account.name)}`);
+      if (account.phase === "evaluation" && account.status === "passed" && original?.status !== "passed" && onAddFunded) { setAskFunded(true); return; }
       onClose();
     } catch (e) {
       if (e instanceof ApiError && e.status === 428) { setEffect((e.body as { effect: RiskEffect }).effect); }
@@ -290,7 +303,25 @@ export function AccountForm({ data, name, onClose, reload }: { data: AccountsDat
               </div>
             </section>
           ))}
-          {original && (
+          {passedEval && (
+            <section className="rounded-md border border-ok/40 bg-ok/[.06] p-5" data-add-funded>
+              <h2 className="m-0 text-[16px] font-semibold text-text-1">Evaluation passed: add its funded account?</h2>
+              <p className="m-0 mt-1 text-[13px] text-text-2">The funded account is a new account with its own name{fundedPreset ? `, from the ${fundedPreset.label} funded preset` : ""}. This evaluation is archived once saved as passed; it stays in All accounts and its totals.</p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button type="button" className={btn.primary} disabled={!fundedPreset || original?.status !== "passed"}
+                  onClick={() => fundedPreset && onAddFunded?.(fundedPreset.id)} data-add-funded-button>Add funded account</button>
+                {original?.status !== "passed" && <span className="text-[12.5px] text-text-3">Saving it as passed asks you next.</span>}
+                {!fundedPreset && <span className="text-[12.5px] text-text-3">No funded preset for this plan: add the account from a preset.</span>}
+              </div>
+            </section>
+          )}
+          {original && (data.accounts.find((r) => r.account.name === original.name)?.trades ?? 0) > 0 && (
+            <section className="rounded-md border border-line-strong/70 bg-bg-1 p-5" data-archive-instead>
+              <h2 className="m-0 text-[16px] font-semibold text-text-1">This account has trades</h2>
+              <p className="m-0 mt-1 text-[13px] text-text-2">An account with trades is never deleted: its history stays in All accounts and its totals. When it passes, fails or is closed, set its status above; it is archived (hidden from the active list, shown with Show archived).</p>
+            </section>
+          )}
+          {original && !((data.accounts.find((r) => r.account.name === original.name)?.trades ?? 0) > 0) && (
             <section className="rounded-md border border-crit/40 bg-bg-1 p-5">
               <h2 className="m-0 text-[16px] font-semibold text-text-1">Delete this account</h2>
               <p className="m-0 mt-1 text-[13px] text-text-2">It leaves the panel's accounts file; the previous version stays in panel/history/. Type <span className="font-mono text-text-1">{String(original.name)}</span>, then hold the button.</p>
@@ -359,6 +390,15 @@ export function AccountForm({ data, name, onClose, reload }: { data: AccountsDat
         )}
       </Dialog>
 
+      <Dialog open={askFunded} onOpenChange={(v) => { if (!v) { setAskFunded(false); onClose(); } }} title="Evaluation passed:" titleItalic="add its funded account?"
+        description={`${String(acc.name)} is saved as passed and archived (always in All accounts and its totals). Its funded account is a new account with its own name${fundedPreset ? `, filled from the ${fundedPreset.label} funded preset` : ""}.`}
+        footer={<>
+          <button type="button" className={btn.secondary} onClick={() => { setAskFunded(false); onClose(); }}>Not now</button>
+          <button type="button" className={btn.primary} disabled={!fundedPreset} data-ask-funded-add
+            onClick={() => { setAskFunded(false); if (fundedPreset) onAddFunded?.(fundedPreset.id); }}>Add funded account</button>
+        </>}>
+        {!fundedPreset && <p className="m-0 text-[13px] text-text-2">No funded preset for this plan: add the account with Add account and pick a preset.</p>}
+      </Dialog>
       <Dialog open={presetOpen} onOpenChange={setPresetOpen} title="Save as" titleItalic="preset"
         description="Keeps this account's rule fields (not its name, webhook or copies) as a named preset in the picker, e.g. a larger Lucid Flex size. Its stages get profile thresholds from the next overnight sweep (from step 15)."
         footer={<>

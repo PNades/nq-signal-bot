@@ -14,7 +14,14 @@ export interface Run {
   locked_at: number | null; breach_at: number | null; closest_at: number | null;
 }
 export interface Monthly { month: string; net_usd: number; net_r: number; trades: number; r_per_trade: number | null; win_rate: number | null; profit_factor: number | null; max_dd_usd: number }
-export interface AccountBrief { name: string; kind: string | null; phase: string | null; demo: boolean; draft: boolean; rule: string | null }
+export interface AccountBrief { name: string; kind: string | null; phase: string | null; demo: boolean; draft: boolean; rule: string | null; status?: string; archived?: boolean }
+// "All accounts" in a real-trades phase (owner 2026-11-16; src/nqbot/performance/view.py breakdown)
+export interface BreakdownRow {
+  account: string; firm: string | null; plan: string | null; stage: string | null; status: string; archived: boolean; demo: boolean;
+  start: string; end: string | null; last_trade: string; trades: number; net_usd: number; payouts_n: number; payouts_gross: number; payouts: number;
+  fees: number | null; net_cash: number | null;
+}
+export interface Breakdown { rows: BreakdownRow[]; totals: { accounts: number; archived: number; trades: number; net_usd: number; payouts: number; fees: number; fees_unknown: number; net_cash: number } }
 export interface Band { p5: number; p50: number; p95: number }
 export interface PerfPage {
   selection: { account: string; phase: string; start: string | null; end: string | null };
@@ -22,7 +29,7 @@ export interface PerfPage {
   equity: { points: EquityPoint[]; phase_starts: PhaseStart[]; per_trade: boolean }; monthly: Monthly[]; drawdown: Run[];
   live_vs_expected: { live_r: number[]; band: Band[]; trades: number };
   accounts: AccountBrief[]; sources: Record<string, string>; synthetic: boolean; gates_passed: string[]; months: Record<string, string>;
-  plan: PlanBrief | null; plans: PlanBrief[]; kpi_trend: KpiTrend;
+  plan: PlanBrief | null; plans: PlanBrief[]; kpi_trend: KpiTrend; breakdown?: Breakdown;
 }
 export interface McFan {
   n: number; days: number; method: string; start_usd: number; floor0: number; target_balance: number | null;

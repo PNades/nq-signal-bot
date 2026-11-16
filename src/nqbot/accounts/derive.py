@@ -181,9 +181,10 @@ def validate(raw: dict[str, Any], others: list[dict[str, Any]], settings: Mappin
     if a.dll_enabled and a.bot_daily_loss_cap_usd and a.firm_daily_loss_limit_usd and a.bot_daily_loss_cap_usd > a.firm_daily_loss_limit_usd:
         issues.append(Issue("bot_daily_loss_cap_usd", "warning", f"above the firm's DLL (${a.firm_daily_loss_limit_usd:,.0f}): the firm's limit stops the day first"))
     limit = FIRM_ACCOUNT_LIMITS.get(a.firm)
-    if limit and a.active and not a.draft and not a.demo:
+    # only accounts still running count: a finished one (passed, failed, closed; owner 2026-11-16) no longer holds a place
+    if limit and a.active and not a.draft and not a.demo and a.status == "active":
         same = [o for o in others if o.get("name") not in (a.name, original_name) and o.get("firm") == a.firm
-                and o.get("active", True) and not o.get("draft") and not o.get("demo")]
+                and o.get("active", True) and not o.get("draft") and not o.get("demo") and (o.get("status") or "active") == "active"]
         count = 1 + a.copied_accounts + sum(1 + int(o.get("copied_accounts") or 0) for o in same)
         if count > limit:
             issues.append(Issue("firm", "warning", f"{count} {a.firm} accounts (copies counted): the firm allows {limit} at once"))

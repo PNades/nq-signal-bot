@@ -48,7 +48,8 @@ def windows(settings: dict[str, Any], features: dict[str, Any]) -> dict[str, str
 
 
 def routes(store: PanelStore, settings: dict[str, Any], features: dict[str, Any],
-           require_token: Callable[[str | None], Response | None]) -> list[Route]:
+           require_token: Callable[[str | None], Response | None],
+           trade_count: Callable[[str], int] | None = None) -> list[Route]:
 
     async def guarded(request: Request) -> tuple[dict[str, Any] | None, Response | None]:
         refused = require_token(request.headers.get("x-cf-token"))
@@ -66,7 +67,9 @@ def routes(store: PanelStore, settings: dict[str, Any], features: dict[str, Any]
         rows = []
         for raw in accts:
             others = [o for o in accts if o is not raw]
-            rows.append({"account": raw, **derive.report(raw, others, settings)})
+            # trades in the ledger: an account with trades is never deleted, only archived (owner 2026-11-16)
+            rows.append({"account": raw, **derive.report(raw, others, settings),
+                         "trades": trade_count(str(raw.get("name"))) if trade_count else 0})
         return {"hash": loaded.hash, "presets_hash": store.saved_presets().hash, "accounts": rows,
                 "presets": [p.to_dict() for p in store.all_presets()],
                 "folder": str(store.folder()), "windows": windows(settings, features)}
@@ -149,6 +152,10 @@ def routes(store: PanelStore, settings: dict[str, Any], features: dict[str, Any]
         accts = loaded.data["accounts"]
         if not any(o.get("name") == name for o in accts):
             return _err(404, f"no account {name!r}")
+        n = trade_count(str(name)) if trade_count else 0
+        if n:
+            return _err(409, f"{name} has {n} trade{'s' if n != 1 else ''}: an account with trades is never deleted; set its status to "
+                             "failed or closed to archive it")
         h = store.save("accounts.yaml", {"accounts": [o for o in accts if o.get("name") != name]}, body.get("hash", ""),
                        f"deleted account {name}")
         return JSONResponse({"ok": True, "hash": h})

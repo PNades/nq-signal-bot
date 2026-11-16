@@ -7,7 +7,7 @@ export interface Derived {
   min_stop_full_risk_pts: Record<string, number | null>; max_stop_one_contract_pts: Record<string, number | null>; one_contract: string;
 }
 export interface Report { derived: Derived | null; issues: FieldIssue[]; ok: boolean }
-export interface Row extends Report { account: Acc }
+export interface Row extends Report { account: Acc; /** trades in the ledger: an account with trades is never deleted */ trades?: number }
 export interface Preset { id: string; label: string; firm: string; stage: string; fields: Acc; builtin: boolean }
 export interface AccountsData { hash: string; presets_hash: string; accounts: Row[]; presets: Preset[]; folder: string }
 export interface RiskEffect {
