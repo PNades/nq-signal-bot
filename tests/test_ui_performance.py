@@ -197,3 +197,16 @@ def test_an_account_with_trades_is_never_deleted(synth):
     assert rows["mffur1"]["trades"] > 0
     r = synth.post("/api/accounts/delete", json={"name": "mffur1", "typed": "mffur1", "hash": acc["hash"]}, headers=H)
     assert r.status_code == 409 and "never deleted" in r.json()["error"]
+
+
+def test_top_bar_all_accounts_summary(synth, real):
+    # owner 2026-11-16: the top bar's "All accounts" row shows the all-time net cash; synthetic mode lists the synthetic
+    # finished accounts there too (archived, last)
+    s = synth.get("/api/status").json()
+    prop = synth.get("/api/performance?phase=prop&account=all").json()["breakdown"]["totals"]
+    assert s["accounts_all"]["net_cash_usd"] == pytest.approx(prop["net_cash"])        # prop is the only phase with fees
+    names = {a["name"]: a for a in s["accounts"]}
+    assert names["mffurf92"]["archived"] is True and names["mffur1"]["archived"] is False
+    r = real.get("/api/status").json()
+    assert r["accounts_all"] == {"net_cash_usd": 0, "fees_unknown": 0}                  # no trades before step 15
+    assert all(not a["archived"] for a in r["accounts"])

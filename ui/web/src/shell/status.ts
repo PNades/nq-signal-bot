@@ -13,7 +13,7 @@ export interface AccountBrief {
   name: string; firm: string; phase: string; draft: boolean; demo: boolean; active: boolean; preset?: string | null;
   /** Rapid, Builder, Pro, Lucid Flex, or a saved preset's name */
   kind: string; drawdown_usd: number | null;
-  /** active, or finished (owner 2026-11-16): failed / closed accounts are archived, not listed in the top bar */
+  /** active, or finished (owner 2026-11-16): passed / failed / closed accounts are archived, listed last under "Archived" */
   status?: "active" | "passed" | "failed" | "closed"; archived?: boolean;
   /** evaluation: the profit target; funded: the next payout's target */
   target: { kind: "profit_target" | "payout"; usd: number | null };
@@ -29,6 +29,8 @@ export interface ServerStatus {
   calm_forced: boolean;
   alerts: ServerAlert[];
   accounts: AccountBrief[];
+  /** the "All accounts" row (owner 2026-11-16): all-time net cash (payouts - fees) across every account; null if unknown */
+  accounts_all?: { net_cash_usd: number; fees_unknown: number } | null;
   /** the panel's own settings (data/panel/ui.yaml) */
   ui: { effects?: "full" | "calm" | "auto" };
 }

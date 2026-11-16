@@ -43,6 +43,9 @@ const MONTH_SHORT = new Intl.DateTimeFormat("en-US", { month: "short", year: "2-
 /** a source's status as a sentence ("no demo trades yet (from step 24)" → "No demo trades yet (from step 24).") */
 const sentence = (s: string | undefined) => (s && s !== "ok" && s !== "synthetic" ? `${s[0].toUpperCase()}${s.slice(1)}.` : null);
 const LAST_KEY = "creamflow.lastAccount";
+const REAL = new Set(["demo", "prop", "live"]);
+// the account menu shows at most this many accounts (plus "All accounts") before it scrolls; past it, a search field (owner 2026-11-16)
+const ACCOUNT_MENU_ROWS = 10;
 const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
 function Scramble({ text, animated }: { text: string; animated: boolean }) {
@@ -128,6 +131,9 @@ export function PerformancePage() {
   const [phase, setPhase] = useState("development");
   const [range, setRange] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
   const [data, setData] = useState<PerfPage | null>(null);
+  // the query the shown data answers: everything below the header follows it, not the menus, so an account switch shows
+  // all at once when its data has arrived (owner 2026-11-16)
+  const [dataQuery, setDataQuery] = useState<string | null>(null);
   const [refused, setRefused] = useState<{ reason: string; gate: string | null } | null>(null);
   const [planId, setPlanId] = useState<string | null>(null);
   const realMode = phase === "demo" || phase === "prop" || phase === "live";
@@ -153,7 +159,7 @@ export function PerformancePage() {
   useEffect(() => {
     const ctl = new AbortController();
     getJson<PerfPage>(`/api/performance?${query}`, ctl.signal)
-      .then((d) => { setData(d); setRefused(null); if (!planId && d.plans.length) setPlanId(d.plans[0].id); })
+      .then((d) => { setData(d); setDataQuery(query); setRefused(null); if (!planId && d.plans.length) setPlanId(d.plans[0].id); })
       .catch((e) => {
         if (ctl.signal.aborted) return;
         if (e instanceof ApiError && e.status === 403) setRefused({ reason: e.message, gate: (e.body as { gate?: string } | undefined)?.gate ?? null });
@@ -161,6 +167,15 @@ export function PerformancePage() {
     return () => ctl.abort();
   }, [query]);
 
+  // the account the shown data is for (the menus change at once; the page follows when its data arrives)
+  const viewAccount = data?.selection.account ?? account;
+  // an account switch in a real-trades phase crossfades the whole page body (KPIs, stats, breakdown, tabs) and its height
+  // glides (owner 2026-11-16); a phase switch keeps the body (its numbers roll)
+  const viewKey = useRef("acct:all");
+  if (data && REAL.has(data.selection.phase)) viewKey.current = `acct:${data.selection.account}`;
+  // the entry stagger runs once, when the page first fills; after it, a remounted body only crossfades
+  const settled = useRef(false);
+  useEffect(() => { if (data) settled.current = true; }, [data]);
   // the Drawdown and Monte Carlo tabs (owner 2026-11-15): real-trades phases (demo, prop, live) show the account in the
   // filter (= the top-bar focus); every other phase runs the strategy's backtest days on the plan in the header
   const ruled: AccountBrief[] = (data?.accounts ?? []).filter((a) => a.rule);
@@ -169,8 +184,8 @@ export function PerformancePage() {
   const recent = [...(data?.breakdown?.rows ?? [])].filter((r) => ruled.some((a) => a.name === r.account))
     .sort((x, y) => (x.last_trade < y.last_trade ? 1 : x.last_trade > y.last_trade ? -1 : 0))[0]?.account ?? null;
   const lastOk = lastSingle && ruled.some((a) => a.name === lastSingle) ? lastSingle : null;
-  const realAccount = account !== "all" ? account : (lastOk ?? recent ?? ruled[0]?.name ?? null);
-  const realNote = realMode && account === "all" && realAccount
+  const realAccount = viewAccount !== "all" ? viewAccount : (lastOk ?? recent ?? ruled[0]?.name ?? null);
+  const realNote = realMode && viewAccount === "all" && realAccount
     ? `All accounts: Drawdown and Monte Carlo show one account at a time · showing ${realAccount} (${lastOk ? "the last account you selected" : "the most recently active account"}) · pick another in the account menu or the table`
     : null;
   const [horizon, setHorizon] = useState(60);
@@ -200,13 +215,15 @@ export function PerformancePage() {
   };
 
   const stagger = { hidden: {}, show: { transition: { staggerChildren: animated ? 0.05 : 0 } } };
-  const item: Variants = { hidden: animated ? { opacity: 0, y: 8 } : { opacity: 1 }, show: { opacity: 1, y: 0, transition: { duration: animated ? 0.32 : 0, ease: [0.2, 0, 0, 1] as const } } };
+  const item: Variants = { hidden: animated && !settled.current ? { opacity: 0, y: 8 } : { opacity: 1 }, show: { opacity: 1, y: 0, transition: { duration: animated ? 0.32 : 0, ease: [0.2, 0, 0, 1] as const } } };
 
   // active accounts first, then the archived ones (passed, failed, closed), all under "All accounts"
   const accs = data?.accounts ?? [];
-  const accountOpts = [{ id: "all", name: "All accounts", sub: `${accs.length} accounts, archived included` },
+  const nArchived = accs.filter((a) => a.archived).length;
+  const accountOpts = [{ id: "all", name: "All accounts", sub: `${accs.length - nArchived} active · ${nArchived} archived` },
     ...[...accs.filter((a) => !a.archived), ...accs.filter((a) => a.archived)].map((a) => ({ id: a.name, name: a.name,
-      sub: [a.kind, a.phase, a.draft ? "draft" : null, a.archived ? `archived · ${a.status}` : null].filter(Boolean).join(" · ") }))];
+      group: a.archived ? "Archived" : undefined,
+      sub: [a.kind, a.phase, a.draft ? "draft" : null, a.archived ? a.status : null].filter(Boolean).join(" · ") }))];
   const planOpts = (data?.plans ?? []).map((x) => ({ id: x.id, name: x.label, sub: [x.evaluation ? "evaluation" : null, x.funded ? "funded" : null].filter(Boolean).join(" → ") + (x.builtin ? "" : " · saved preset") }));
   const stepPlan = (d: number) => { const ps = data?.plans ?? []; if (!ps.length) return; const i = ps.findIndex((x) => x.id === planId); setPlanId(ps[(i + d + ps.length) % ps.length].id); };
   // KPI sparklines: one point per trading day (owner 2026-11-15); the badge compares the last days with the earlier ones
@@ -249,7 +266,8 @@ export function PerformancePage() {
                   {!realMode && planId && planOpts.length > 0 && (
                     <Menu value={planId} options={planOpts} onChange={setPlanId} onStep={stepPlan} maxVisible={5} width={212} icon={<Route className="size-3.5 text-text-3" aria-hidden="true" />} label="Plan" animated={animated} />
                   )}
-                  {realMode && <Menu value={account} options={accountOpts} onChange={pickAccount} width={212} icon={<Wallet className="size-3.5 text-text-3" aria-hidden="true" />} label="Account" animated={animated} />}
+                  {realMode && <Menu value={account} options={accountOpts} onChange={pickAccount} width={212} icon={<Wallet className="size-3.5 text-text-3" aria-hidden="true" />} label="Account" animated={animated}
+                    maxVisible={ACCOUNT_MENU_ROWS + 1} searchable={accs.length > ACCOUNT_MENU_ROWS} />}
                 </motion.div>
               </AnimatePresence>
             </div>
@@ -273,7 +291,10 @@ export function PerformancePage() {
         {!data && !refused && <motion.div variants={item} className="mt-6 grid grid-cols-2 gap-3 min-[1400px]:grid-cols-6">{[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-[132px]" />)}</motion.div>}
 
         {data && !refused && (
-          <>
+          <AutoHeight className="relative">
+          <AnimatePresence initial={false} mode="popLayout">
+          <motion.div key={viewKey.current} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            transition={{ duration: animated ? 0.2 : 0, ease: "easeOut" }} data-page-body={viewKey.current}>
             <motion.div variants={item}><Notices notices={data.notices} /></motion.div>
             {noData && (
               <motion.div variants={item} className="mt-5">
@@ -301,7 +322,7 @@ export function PerformancePage() {
               ))}
             </motion.div>
             {S && S.trades > 0 && <motion.div variants={item}><StatsBox variant={variant} s={S} unitR={unit === "r"} animated={animated} /></motion.div>}
-            {realMode && account === "all" && data.breakdown && (
+            {data.breakdown && (
               <motion.div variants={item}><AccountBreakdown data={data.breakdown} focus={null} onPick={pickAccount} /></motion.div>
             )}
             {Object.keys(data.per_phase).length > 1 && (
@@ -316,7 +337,7 @@ export function PerformancePage() {
               <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                 <AnimatedTabs variant="underline" layoutId="perf-tabs" animated={animated} activeTab={tab} onChange={setTab} tabs={TABS} ariaLabel="Performance views" />
                 <div className="flex items-center gap-2 font-mono text-[11px] text-text-3 max-[1199px]:w-full" data-scope-chips>
-                  <span className="whitespace-nowrap rounded-xs border border-line-strong px-2 py-0.5" data-scope-chip>NQ · {realMode ? account : (plan?.label ?? "strategy")}</span>
+                  <span className="whitespace-nowrap rounded-xs border border-line-strong px-2 py-0.5" data-scope-chip>NQ · {realMode ? viewAccount : (plan?.label ?? "strategy")}</span>
                   <span className="whitespace-nowrap rounded-xs border border-line-strong px-2 py-0.5">{realMode ? "real trades" : "strategy backtest"}</span>
                   <span className="whitespace-nowrap rounded-xs border border-line-strong px-2 py-0.5">Eastern time</span>
                   <span className="whitespace-nowrap rounded-xs border border-line-strong px-2 py-0.5">read only</span>
@@ -353,14 +374,16 @@ export function PerformancePage() {
                       planId={planId} onPlan={setPlanId} horizon={horizon} onHorizon={setHorizon} animated={animated} variant={variant} />
                   </div>
                 )}
-                {tab === "calendar" && <PnlCalendar account={backtestMode ? "all" : account} phase={phase} plan={realMode ? null : planId} unit={unit} animated={animated} label={ledgerLabel} />}
-                {tab === "trades" && <TradesTable query={query} label={data.synthetic ? "synthetic" : "backtest and live"} />}
+                {tab === "calendar" && <PnlCalendar account={backtestMode ? "all" : viewAccount} phase={phase} plan={realMode ? null : planId} unit={unit} animated={animated} label={ledgerLabel} />}
+                {tab === "trades" && <TradesTable query={dataQuery ?? query} label={data.synthetic ? "synthetic" : "backtest and live"} />}
                 </motion.div>
                 </AnimatePresence>
                 </AutoHeight>
               </BorderBeamPanel>
             </motion.div>
-          </>
+          </motion.div>
+          </AnimatePresence>
+          </AutoHeight>
         )}
       </motion.div>
     </FooterPage>

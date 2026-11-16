@@ -290,6 +290,20 @@ def breakdown(trades: list[Trade], accounts: list[dict[str, Any]], *, phase: str
     return {"rows": rows, "totals": totals}
 
 
+def net_cash_all(trades: list[Trade], accounts: list[dict[str, Any]], *, phases: Iterable[str],
+                 preset_fields: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """All-time net cash (payouts to the trader - fees paid) across every account with trades in the real-trades phases,
+    each account once (the top bar's "All accounts" row; owner 2026-11-16)."""
+    seen: dict[str, dict[str, Any]] = {}
+    for ph in phases:
+        for r in breakdown(trades, accounts, phase=ph, preset_fields=preset_fields)["rows"]:
+            seen.setdefault(r["account"], r)
+    rows = list(seen.values())
+    known = [r for r in rows if r["fees"] is not None]
+    return {"accounts": len(rows), "net_cash": round(sum(r["payouts"] for r in rows) - sum(r["fees"] for r in known), 2),
+            "fees_unknown": len(rows) - len(known)}
+
+
 def expected_band(backtest: list[Trade], n_trades: int, seed: int = 11) -> list[dict[str, float]]:
     """5/50/95% of the cumulative R after k = 0..n trades, from whole development days drawn at random."""
     by_day: dict[Any, list[float]] = {}

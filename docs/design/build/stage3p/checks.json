@@ -1,0 +1,237 @@
+{
+  "stage": "3p",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "lists_1440": {
+      "top": {
+        "order": [
+          "all",
+          "mffur1",
+          "mffub1",
+          "mffur2",
+          "mffur91",
+          "mffur92",
+          "mffurf92",
+          "lucid91",
+          "lucidf91",
+          "mffub91"
+        ],
+        "allH": 105.34375,
+        "rowH": 92,
+        "allPad": "10px 12px",
+        "rowPad": "10px 12px",
+        "descWhole": true,
+        "descLines": 2,
+        "counts": "3 active · 6 archived",
+        "cash": "+$6,796.87",
+        "heading": true,
+        "scrolls": true,
+        "search": false
+      },
+      "menuGroups": 1,
+      "menuSearch": 0,
+      "allSub": "All accounts\n4 active · 6 archived"
+    },
+    "lists_960": {
+      "top": {
+        "order": [
+          "all",
+          "mffur1",
+          "mffub1",
+          "mffur2",
+          "mffur91",
+          "mffur92",
+          "mffurf92",
+          "lucid91",
+          "lucidf91",
+          "mffub91"
+        ],
+        "allH": 105.34375,
+        "rowH": 92,
+        "allPad": "10px 12px",
+        "rowPad": "10px 12px",
+        "descWhole": true,
+        "descLines": 2,
+        "counts": "3 active · 6 archived",
+        "cash": "+$6,796.87",
+        "heading": true,
+        "scrolls": true,
+        "search": false
+      },
+      "menuGroups": 1,
+      "menuSearch": 0,
+      "allSub": "All accounts\n4 active · 6 archived"
+    },
+    "search_1440": {
+      "top": {
+        "order": [
+          "all",
+          "mffur1",
+          "mffub1",
+          "mffur3",
+          "mffur4",
+          "mffur5",
+          "mffur6",
+          "mffur91",
+          "mffur92",
+          "mffurf92",
+          "lucid91",
+          "lucidf91",
+          "mffub91"
+        ],
+        "allH": 105.34375,
+        "rowH": 93,
+        "allPad": "10px 12px",
+        "rowPad": "10px 12px",
+        "descWhole": true,
+        "descLines": 2,
+        "counts": "6 active · 6 archived",
+        "cash": "+$6,505.27",
+        "heading": true,
+        "scrolls": true,
+        "search": true
+      },
+      "focusInSearch": "Search accounts",
+      "topFiltered": [
+        "lucid91",
+        "lucidf91"
+      ],
+      "pickedBySearch": "Account focus: lucid91. Opens the account list.",
+      "menuSearch": 1,
+      "menuScrolls": true,
+      "menuVisibleRows": 8,
+      "menuFiltered": [
+        "mffur91\nRapid · evaluation · failed",
+        "lucid91\nLucid Flex · evaluation · passed",
+        "lucidf91\nLucid Flex · funded · failed",
+        "mffub91\nBuilder · evaluation · failed"
+      ]
+    },
+    "search_960": {
+      "top": {
+        "order": [
+          "all",
+          "mffur1",
+          "mffub1",
+          "mffur3",
+          "mffur4",
+          "mffur5",
+          "mffur6",
+          "mffur91",
+          "mffur92",
+          "mffurf92",
+          "lucid91",
+          "lucidf91",
+          "mffub91"
+        ],
+        "allH": 105.34375,
+        "rowH": 93,
+        "allPad": "10px 12px",
+        "rowPad": "10px 12px",
+        "descWhole": true,
+        "descLines": 2,
+        "counts": "6 active · 6 archived",
+        "cash": "+$6,505.27",
+        "heading": true,
+        "scrolls": true,
+        "search": true
+      },
+      "focusInSearch": "Search accounts",
+      "topFiltered": [
+        "lucid91",
+        "lucidf91"
+      ],
+      "pickedBySearch": "Account focus: lucid91. Opens the account list.",
+      "menuSearch": 1,
+      "menuScrolls": true,
+      "menuVisibleRows": 6,
+      "menuFiltered": [
+        "mffur91\nRapid · evaluation · failed",
+        "lucid91\nLucid Flex · evaluation · passed",
+        "lucidf91\nLucid Flex · funded · failed",
+        "mffub91\nBuilder · evaluation · failed"
+      ]
+    },
+    "switch_full_1440": {
+      "All accounts": {
+        "late": false,
+        "heights": 13,
+        "framesWithBoth": 14,
+        "finalKey": [
+          "acct:all"
+        ],
+        "finalH": 1321
+      },
+      "mffur1": {
+        "late": false,
+        "heights": 17,
+        "framesWithBoth": 17,
+        "finalKey": [
+          "acct:mffur1"
+        ],
+        "finalH": 847
+      }
+    },
+    "switch_full_960": {
+      "All accounts": {
+        "late": false,
+        "heights": 16,
+        "framesWithBoth": 17,
+        "finalKey": [
+          "acct:all"
+        ],
+        "finalH": 1779
+      },
+      "mffur1": {
+        "late": false,
+        "heights": 16,
+        "framesWithBoth": 17,
+        "finalKey": [
+          "acct:mffur1"
+        ],
+        "finalH": 1305
+      }
+    },
+    "switch_calm_1440": {
+      "All accounts": {
+        "late": false,
+        "heights": 2,
+        "framesWithBoth": 1,
+        "finalKey": [
+          "acct:all"
+        ],
+        "finalH": 1321
+      },
+      "mffur1": {
+        "late": false,
+        "heights": 2,
+        "framesWithBoth": 1,
+        "finalKey": [
+          "acct:mffur1"
+        ],
+        "finalH": 847
+      }
+    },
+    "switch_calm_960": {
+      "All accounts": {
+        "late": false,
+        "heights": 2,
+        "framesWithBoth": 1,
+        "finalKey": [
+          "acct:all"
+        ],
+        "finalH": 1779
+      },
+      "mffur1": {
+        "late": false,
+        "heights": 2,
+        "framesWithBoth": 1,
+        "finalKey": [
+          "acct:mffur1"
+        ],
+        "finalH": 1305
+      }
+    }
+  }
+}

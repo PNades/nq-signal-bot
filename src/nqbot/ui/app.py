@@ -63,7 +63,14 @@ def create_app(cfg: PanelConfig) -> Starlette:
             accts = store.accounts().data["accounts"]
         except (PanelUnavailable, OSError, ValueError):
             return []
-        labels = {p.id: p.label for p in store.all_presets()}
+        return brief_list(accts, {p.id: p.label for p in store.all_presets()})
+
+    def brief_list(accts: list[dict[str, Any]], labels: dict[str, str] | None = None) -> list[dict[str, Any]]:
+        if labels is None:
+            try:
+                labels = {p.id: p.label for p in store.all_presets()}
+            except (PanelUnavailable, OSError, ValueError):
+                labels = {}
 
         def kind(a: dict[str, Any]) -> str:
             return account_kind(a, labels)
@@ -77,7 +84,7 @@ def create_app(cfg: PanelConfig) -> Starlette:
         return [{"name": a.get("name"), "firm": a.get("firm"), "phase": a.get("phase"), "draft": bool(a.get("draft")),
                  "demo": bool(a.get("demo")), "active": a.get("active", True), "preset": a.get("preset"), "kind": kind(a),
                  "drawdown_usd": a.get("drawdown_usd"), "target": target(a),
-                 # failed / closed accounts are archived: not offered in the top-bar list (owner 2026-11-16)
+                 # finished accounts (passed, failed, closed) are archived: listed last under "Archived" (owner 2026-11-16)
                  "status": a.get("status") or "active", "archived": (a.get("status") or "active") in ARCHIVED,
                  # live numbers come with the engine (step 22): balance, floor, today's P&L, progress, lives left, and
                  # its state (paused, blown, unknown...); null until then, shown as "—"
@@ -93,8 +100,22 @@ def create_app(cfg: PanelConfig) -> Starlette:
             return {}
         return {"effects": data.get("effects")} if isinstance(data, dict) and data.get("effects") else {}
 
+    def all_summary() -> dict[str, Any] | None:
+        if perf is None:
+            return None
+        try:
+            return perf[2]()
+        except Exception:   # noqa: BLE001 - the top bar never fails over the summary; it shows "—"
+            return None
+
     def status() -> dict[str, Any]:
-        return build_status(cfg.paths_fn, synthetic=cfg.synthetic, accounts_fn=accounts_brief, ui_fn=ui_settings)
+        out = build_status(cfg.paths_fn, synthetic=cfg.synthetic, accounts_fn=accounts_brief, ui_fn=ui_settings)
+        summ = all_summary()
+        # the top bar's "All accounts" row (owner 2026-11-16): all-time net cash across every account
+        out["accounts_all"] = {"net_cash_usd": summ["net_cash"], "fees_unknown": summ["fees_unknown"]} if summ else None
+        if summ and summ["history"] and out["accounts"] is not None:
+            out["accounts"] = out["accounts"] + brief_list(summ["history"])
+        return out
 
     def spa_page() -> tuple[spa.SpaState, str]:
         state = spa.spa_state(cfg.web_dir)

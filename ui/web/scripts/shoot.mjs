@@ -2606,6 +2606,159 @@ S["3o"] = async () => {
   }
 };
 
+// owner 2026-11-16: the top bar's "All accounts" row with its summary; both account lists capped at 10 accounts with
+// "Archived" last and a search field past 10 (scratch panel 8734 has 12); the account switch crossfades the page body
+// with the height glide (Calm: instant), and a video of the switch both ways.
+S["3p"] = async () => {
+  const { menuPick } = helpers3f;
+  const SCRATCH = process.env.CF_SCRATCH ?? "http://127.0.0.1:8734";
+  const scratchPage = async (name, w, h, url, opts = {}) => {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: "dark", ...opts });
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => problems.push(`${name}: page error ${e.message}`));
+    page.on("console", (m) => { if (m.type() === "error") problems.push(`${name}: console ${m.text()}`); });
+    await page.goto(SCRATCH + url);
+    await page.evaluate(() => { sessionStorage.setItem("creamflow.splashShown", "1"); localStorage.setItem("creamflow.focusAccount", "mffur1"); });
+    await page.reload(); await page.waitForTimeout(2200);
+    return { ctx, page };
+  };
+  const switcherFacts = (page) => page.evaluate(() => {
+    const rows = [...document.querySelectorAll("[data-switcher-row]")];
+    const all = document.querySelector("[data-switcher-row='all']");
+    const desc = all ? all.querySelector("p") : null;
+    const one = rows.find((r) => r.getAttribute("data-switcher-row") !== "all");
+    const list = document.querySelector("[data-switcher-list]");
+    const heading = document.querySelector("[data-switcher-heading]");
+    const pad = (el) => (el ? getComputedStyle(el).padding : null);
+    return {
+      order: rows.map((r) => r.getAttribute("data-switcher-row")),
+      allH: all ? all.getBoundingClientRect().height : 0, rowH: one ? one.getBoundingClientRect().height : 0,
+      allPad: pad(all), rowPad: pad(one),
+      descWhole: desc ? desc.scrollWidth <= desc.clientWidth + 1 && getComputedStyle(desc).textOverflow !== "ellipsis" : false,
+      descLines: desc ? Math.round(desc.getBoundingClientRect().height / parseFloat(getComputedStyle(desc).lineHeight)) : 0,
+      counts: document.querySelector("[data-all-counts]")?.textContent, cash: document.querySelector("[data-all-cash]")?.textContent,
+      heading: !!heading,
+      scrolls: list ? list.scrollHeight > list.clientHeight + 1 : false, search: !!document.querySelector("[data-switcher-search]"),
+    };
+  });
+  // 1. the owner's panel: the top bar and the page's account menu, no search (10 accounts or fewer)
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `lists_${w}`;
+    const { ctx, page } = await open(name, w, h, "/performance");
+    await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "mffur1"));
+    await page.reload(); await page.waitForTimeout(2400);
+    const c = (checks[name] = {});
+    await page.locator("[data-account-switcher]").click(); await page.waitForTimeout(400);
+    c.top = await switcherFacts(page);
+    await page.screenshot({ path: path.join(OUT, `topbar_all_row_${w}.png`) });
+    await page.locator("[data-switcher-list]").evaluate((l) => l.scrollTo({ top: l.scrollHeight })); await page.waitForTimeout(250);
+    await page.screenshot({ path: path.join(OUT, `topbar_archived_${w}.png`) });
+    await page.keyboard.press("Escape"); await page.waitForTimeout(300);
+    await menuPick(page, "Phase", "Prop");
+    await page.getByRole("button", { name: /^Account:/ }).click(); await page.waitForTimeout(350);
+    c.menuGroups = await page.locator("[data-menu-group]").count();
+    c.menuSearch = await page.locator("[data-menu-search]").count();
+    c.allSub = await page.locator("[data-menu-list] [role=option]").first().innerText();
+    await page.screenshot({ path: path.join(OUT, `page_account_menu_${w}.png`) });
+    await page.keyboard.press("Escape");
+    const t = c.top;
+    const ok = t.order[0] === "all" && t.allH >= t.rowH - 1 && t.allPad === t.rowPad && t.descWhole && /\d+ active · \d+ archived/.test(t.counts || "") &&
+      /\$/.test(t.cash || "") && t.heading && !t.search && c.menuGroups === 1 && c.menuSearch === 0 && /active · \d+ archived/.test(c.allSub);
+    if (!ok) problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+  // 2. the scratch panel's 12 accounts: both lists scroll after 10 and get a search field
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `search_${w}`;
+    const { ctx, page } = await scratchPage(name, w, h, "/performance");
+    const c = (checks[name] = {});
+    await page.locator("[data-account-switcher]").click(); await page.waitForTimeout(450);
+    c.top = await switcherFacts(page);
+    c.focusInSearch = await page.evaluate(() => document.activeElement?.getAttribute("aria-label"));
+    await page.screenshot({ path: path.join(OUT, `topbar_12_accounts_${w}.png`) });
+    await page.keyboard.type("lucid"); await page.waitForTimeout(300);
+    c.topFiltered = await page.locator("[data-switcher-row]").evaluateAll((els) => els.map((e) => e.getAttribute("data-switcher-row")));
+    await page.screenshot({ path: path.join(OUT, `topbar_search_lucid_${w}.png`) });
+    await page.keyboard.press("ArrowDown"); await page.keyboard.press("Enter"); await page.waitForTimeout(500);
+    c.pickedBySearch = await page.locator("[data-account-switcher]").getAttribute("aria-label");
+    await menuPick(page, "Phase", "Prop");
+    await page.getByRole("button", { name: /^Account:/ }).click(); await page.waitForTimeout(400);
+    c.menuSearch = await page.locator("[data-menu-search]").count();
+    c.menuScrolls = await page.locator("[data-menu-list]").evaluate((l) => l.scrollHeight > l.clientHeight + 1);
+    c.menuVisibleRows = await page.locator("[data-menu-list]").evaluate((l) => [...l.querySelectorAll("[role=option]")].filter((o) => { const r = o.getBoundingClientRect(), b = l.getBoundingClientRect(); return r.top >= b.top - 1 && r.bottom <= b.bottom + 1; }).length);
+    await page.screenshot({ path: path.join(OUT, `page_menu_12_accounts_${w}.png`) });
+    await page.keyboard.type("91"); await page.waitForTimeout(250);
+    c.menuFiltered = await page.locator("[data-menu-list] [role=option]").allInnerTexts();
+    await page.screenshot({ path: path.join(OUT, `page_menu_search_91_${w}.png`) });
+    await page.keyboard.press("Escape");
+    const t = c.top;
+    const ok = t.search && t.scrolls && c.focusInSearch === "Search accounts" && c.topFiltered.length >= 2 && c.topFiltered.every((n) => /lucid/.test(n)) &&
+      /lucid/.test(c.pickedBySearch || "") && c.menuSearch === 1 && c.menuScrolls && c.menuVisibleRows <= 11 && c.menuFiltered.length === 4 && /\+\$/.test(t.cash || "") && !/\+\+/.test(t.cash || "");
+    if (!ok) problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+  // 3. the account switch: the breakdown arrives with the body, in one crossfade; the height glides (Calm: instant)
+  const sample = (page) => page.evaluate(() => new Promise((done) => {
+    const out = []; const t0 = performance.now();
+    const step = () => {
+      const bodies = [...document.querySelectorAll("[data-page-body]")].map((b) => ({ key: b.getAttribute("data-page-body"), breakdown: !!b.querySelector("[data-breakdown]") }));
+      const first = document.querySelector("[data-page-body]");
+      const ah = first ? first.closest("[data-auto-height]") : null;
+      out.push({ t: Math.round(performance.now() - t0), bodies, h: ah ? Math.round(ah.getBoundingClientRect().height) : null });
+      if (performance.now() - t0 < 1500) requestAnimationFrame(step); else done(out);
+    };
+    step();
+  }));
+  for (const [label, reduced] of [["full", "no-preference"], ["calm", "reduce"]]) {
+    for (const [w, h] of [[1440, 900], [960, 800]]) {
+      const name = `switch_${label}_${w}`;
+      const { ctx, page } = await open(name, w, h, "/performance", { reducedMotion: reduced });
+      await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "mffur1"));
+      await page.reload(); await page.waitForTimeout(2400);
+      await menuPick(page, "Phase", "Prop"); await page.waitForTimeout(500);
+      const c = (checks[name] = {});
+      for (const to of ["All accounts", "mffur1"]) {
+        await page.getByRole("button", { name: /^Account:/ }).click(); await page.waitForTimeout(250);
+        const run = sample(page);
+        await page.locator("[data-menu-list]").getByRole("option", { name: new RegExp(`^${to}`) }).click();
+        const s = await run;
+        const late = s.some((f) => f.bodies.some((b) => b.key === "acct:all" && !b.breakdown) || f.bodies.some((b) => b.key !== "acct:all" && b.breakdown));
+        const hs = [...new Set(s.map((f) => f.h))];
+        const final = s[s.length - 1];
+        c[to] = { late, heights: hs.length, framesWithBoth: s.filter((f) => f.bodies.length > 1).length, finalKey: final.bodies.map((b) => b.key), finalH: final.h };
+        if (to === "All accounts") await page.screenshot({ path: path.join(OUT, `switch_${label}_to_all_${w}.png`) });
+        await page.waitForTimeout(400);
+      }
+      const a = c["All accounts"], b = c["mffur1"];
+      const ok = !a.late && !b.late && a.finalKey.join() === "acct:all" && b.finalKey.join() === "acct:mffur1" &&
+        (label === "full" ? a.heights > 3 && b.heights > 3 && a.framesWithBoth > 2 : a.heights <= 2 && b.heights <= 2 && a.framesWithBoth <= 1 && b.framesWithBoth <= 1);
+      if (!ok) problems.push(`${name}: ${JSON.stringify(c)}`);
+      await ctx.close();
+    }
+  }
+  // the video: the switch both ways, twice, at 1440
+  const VID = path.resolve(here, "../../../docs/design/video/stage3p");
+  fs.mkdirSync(VID, { recursive: true });
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", recordVideo: { dir: VID, size: { width: 1440, height: 900 } } });
+  const page = await ctx.newPage();
+  await page.goto(BASE + "/performance");
+  await page.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); localStorage.setItem("creamflow.focusAccount", "mffur1"); } catch {} });
+  await page.reload(); await page.waitForTimeout(2000);
+  await menuPick(page, "Phase", "Prop"); await page.waitForTimeout(800);
+  await page.mouse.move(1200, 700);
+  for (let i = 0; i < 2; i++) {
+    for (const to of ["All accounts", "mffur1"]) {
+      await page.getByRole("button", { name: /^Account:/ }).click(); await page.waitForTimeout(600);
+      await page.locator("[data-menu-list]").getByRole("option", { name: new RegExp(`^${to}`) }).click();
+      await page.mouse.move(1200, 700); await page.waitForTimeout(1800);
+    }
+  }
+  const video = page.video();
+  await ctx.close();
+  const src = await video.path();
+  fs.renameSync(src, path.join(VID, "account_switch_both_ways.webm"));
+};
+
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();
 await browser.close();
 fs.writeFileSync(path.join(OUT, "checks.json"), JSON.stringify({ stage, base: BASE, problems, checks }, null, 2));

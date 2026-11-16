@@ -396,3 +396,23 @@ The code does both. The page uses (a) until you decide.
 3. **Drawdown / Monte Carlo under All accounts:** the last single account selected (page filter, top bar or breakdown
    row; `creamflow.lastAccount`, survives a reload), else the most recently active one (synthetic: mffub1, last trade
    2026-10-29); the note says which. Before this it was the first active account.
+
+### Account lists and the account switch (owner 2026-11-16)
+- **Evidence:** [`build/stage3p/`](build/stage3p/) ([`checks.json`](build/stage3p/checks.json), all passed) and the
+  video `docs/design/video/stage3p/account_switch_both_ways.webm` (git-ignored, on this PC). The 12-account shots use the
+  scratch panel (127.0.0.1:8734: the drafts, four more drafts and the synthetic finished accounts; removed after).
+1. **Top bar "All accounts" row:** the whole description wraps onto a second line; the right side says "3 active · 6
+   archived"; a third line has today's combined P&L ("—" until the engine, step 22) and the all-time net cash (synthetic:
+   +$6,796.87, the breakdown's total). Same padding (10px 12px) and type as the account rows, and as tall or taller
+   (105 px vs 92).
+2. **Both account lists:** at most 10 accounts before the list scrolls (also capped to the window, above the dock);
+   active first, then "Archived" with the passed / failed / closed accounts (their status in its colour, "· archived");
+   past 10 accounts a search field tops the list and takes the keys (arrows, Enter picks, Esc clears then closes).
+   The top bar lists archived accounts now; in synthetic mode it includes the synthetic finished accounts (the status
+   payload adds them), so a pick there focuses them too.
+3. **Account switch:** the page body (KPIs, stats, the breakdown, the tabs) follows the data, not the menu: when the new
+   account's data arrives the whole body crossfades (0.2 s) and its height glides (the tab switch's AutoHeight). Measured
+   frame by frame: the breakdown is never shown in a single account's body or missing from the All accounts body; Full
+   glides over 16 frames, Calm switches in one frame. A phase switch keeps the body (its numbers roll), as before.
+- The page menu's "All accounts" counts the synthetic demo stand-in ("4 active") where the top bar has the panel's
+  three; a real demo account would be in both.

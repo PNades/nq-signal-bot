@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from collections.abc import Callable
 from datetime import date
 from typing import Any
@@ -33,14 +34,19 @@ def _date(v: str | None) -> date | None:
     return date.fromisoformat(v) if v else None
 
 
+# the top bar's "All accounts" summary is computed at most this often (it rides on the status heartbeat)
+SUMMARY_TTL_SEC = 30.0
+
+
 def routes(store: PanelStore, paths_fn: Callable[[], Paths | None], settings: dict[str, Any], *,
            synthetic: bool = False) -> list[Route]:
     return build(store, paths_fn, settings, synthetic=synthetic)[0]
 
 
 def build(store: PanelStore, paths_fn: Callable[[], Paths | None], settings: dict[str, Any], *,
-          synthetic: bool = False) -> tuple[list[Route], Callable[[str], int]]:
-    """The routes, and how many trades an account has in the ledger (an account with trades is never deleted)."""
+          synthetic: bool = False) -> tuple[list[Route], Callable[[str], int], Callable[[], dict[str, Any]]]:
+    """The routes, how many trades an account has in the ledger (an account with trades is never deleted), and the top
+    bar's "All accounts" summary (all-time net cash; in synthetic mode also the synthetic finished accounts)."""
     synth = synthetic
     cache: dict[str, Any] = {}
 
@@ -328,6 +334,20 @@ def build(store: PanelStore, paths_fn: Callable[[], Paths | None], settings: dic
         trades, _, _ = data()
         return sum(1 for t in trades if t.account == name)
 
+    def summary() -> dict[str, Any]:
+        now = time.monotonic()
+        got = cache.get("summary")
+        if got and now - got[0] < SUMMARY_TTL_SEC:
+            return got[1]
+        trades, _, accs = data()
+        fields = {pr.id: pr.fields for pr in builtin_presets(store.config_dir)}
+        out = view.net_cash_all(apply(trades, "trade", guard()).trades, accs, phases=acct_state.REAL, preset_fields=fields)
+        # synthetic mode: the synthetic finished accounts aren't in the panel's file; the top bar lists them too
+        own = {a.get("name") for a in accounts()}
+        out["history"] = [a for a in cache.get("history", []) if a["name"] not in own] if synth else []
+        cache["summary"] = (now, out)
+        return out
+
     return [
         Route("/api/performance", page, methods=["GET"]),
         Route("/api/performance/montecarlo", monte_carlo, methods=["GET"]),
@@ -336,4 +356,4 @@ def build(store: PanelStore, paths_fn: Callable[[], Paths | None], settings: dic
         Route("/api/performance/day", day_rows, methods=["GET"]),
         Route("/api/performance/trades", trade_rows, methods=["GET"]),
         Route("/api/performance/export.csv", export_csv, methods=["GET"]),
-    ], trade_count
+    ], trade_count, summary

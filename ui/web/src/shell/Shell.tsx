@@ -59,7 +59,7 @@ export function TopBar({ pageName, status, connected, onEffects, onNavigate, onO
         <LogoMark size={24} /><Wordmark className="hidden text-[23px] min-[1100px]:inline" />
       </button>
       <div className="eyebrow hidden min-w-0 truncate min-[1180px]:block"><span className="text-text-2">CREAMFLOW</span> / {pageName.toUpperCase()}</div>
-      <AccountSwitcher accounts={status?.accounts ?? []} focus={focus} onFocus={onFocus} animated={animated}
+      <AccountSwitcher accounts={status?.accounts ?? []} summary={status?.accounts_all ?? null} focus={focus} onFocus={onFocus} animated={animated}
         onManage={() => onNavigate("accounts")} onAdd={() => onOpenPath("/accounts/new")} />
       <div className="ml-auto flex shrink-0 items-center gap-2.5">
         <Status variant={pill.variant} data-hint={connected ? status?.engine.note : "The panel lost its server. Kill/flat from this page won't arrive: use the emergency page, nqbot kill / nqbot flat, or Discord."}>

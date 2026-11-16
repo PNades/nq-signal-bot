@@ -1106,6 +1106,14 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   fields, else its preset's. Saving an evaluation as passed asks "add its funded account?": Add opens a new account
   filled from the same plan's funded preset (its own name, §6.7: a passed evaluation becomes a new funded account);
   Not now closes. A passed evaluation opened later shows the same offer in its editor.
+- **Q-perf-lists (owner 2026-11-16; built):** the top bar's "All accounts" row shows its whole description (wrapped)
+  and a summary like an account row's: "n active · m archived", today's combined P&L (from the engine, "—" before step
+  22) and the all-time net cash (payouts - fees across every account ever, real-trades phases, each account once; the
+  status heartbeat, recomputed at most every 30 s). Both account lists (the top bar and the Performance page's menu)
+  show at most 10 accounts before they scroll (and never run under the dock), active accounts first, then the
+  archived ones under a small "Archived" heading (the top bar now lists archived accounts too); past 10 accounts a
+  search field tops the list. An account switch on the Performance page shows its new body (KPIs, stats, breakdown,
+  tabs) in one crossfade once its data has arrived, with the same height glide as the tab switch; Calm: instant.
 - **Q-perf-ui7 (owner 2026-11-16; built, waiting for the owner's OK; variant A kept):** the Monte Carlo summary tightened
   (smaller padding and gaps, legend values beside their labels, "3 days", the backtest details in the header's
   tooltip), a calmer ring (124 px, 7 px stroke, a 19 px number); on the Performance page uppercase labels at 0.05 em,
