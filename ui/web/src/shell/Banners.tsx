@@ -1,7 +1,7 @@
 // The banner stack under the ticker tape (pages/shell.md; owner 2026-11-15). Newest first.
-// - Info banners (e.g. "FLAT ALL: nothing was sent", a successful flat) slide down with a short fade and fade out by
+// - Info banners (e.g. "FLAT ALL: nothing was sent", a successful flat) unfold (270 ms) with a short fade and fade out by
 //   themselves after BANNER_INFO_MS; the countdown pauses while the pointer is over the banner; "Got it" closes it at once.
-// - Warning banners slide in the same way but never fade by themselves: they stay until dismissed.
+// - Warning banners come in the same way but never fade by themselves: they stay until dismissed.
 // - Critical banners appear at once with no motion (MASTER §7: risk alerts never animate in) and stay until dismissed.
 // Leaving, any banner fades, then its height folds (260 ms, ease-out) so what is below glides up; Calm: at once.
 // Everything stays in the bell's history after it has gone (lib/notify.ts).
@@ -29,14 +29,16 @@ function BannerRow({ n, animated, fold }: { n: Note; animated: boolean; fold: bo
   const moves = animated && n.kind !== "crit";
   const label = n.kind === "crit" ? "Acknowledge" : "Got it";
   // on Home (fold false) a banner unfolds and folds on the glide's timing, while the scene glides alongside it from
-  // the same frame (owner 2026-11-15); elsewhere it slides in at full height and folds away after fading
+  // the same frame (owner 2026-11-15); elsewhere it unfolds its height on the same 270-ms curve too (owner 2026-11-16:
+  // the page below glides down in step, banners stacking included, instead of being pushed down in one step) and folds
+  // away after fading
   const home = !fold;
   return (
     <motion.div className="overflow-hidden" data-banner-id={n.id}
-      initial={moves ? (home ? { opacity: 0, height: 0 } : { opacity: 0, y: -10 }) : false}
+      initial={moves ? { opacity: 0, height: 0 } : false}
       animate={home
         ? { opacity: 1, height: "auto", transition: { duration: moves ? GLIDE_S : 0, ease: glideEase } }
-        : { opacity: 1, y: 0, transition: { duration: moves ? 0.22 : 0, ease: [0, 0, 0.2, 1] } }}
+        : { opacity: 1, height: "auto", transition: { height: { duration: moves ? GLIDE_S : 0, ease: glideEase }, opacity: { duration: moves ? 0.22 : 0, ease: [0, 0, 0.2, 1] } } }}
       // leaving (faded out after ~5 s, Got it, Acknowledge): it fades first, then its height folds away so the banners
       // and the page below glide up instead of jumping (owner 2026-11-15; any kind, critical too: this is not an
       // entrance). Calm: gone at once.

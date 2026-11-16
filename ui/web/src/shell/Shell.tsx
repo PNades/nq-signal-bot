@@ -190,8 +190,9 @@ export function AppFrame({ active, animated, hideDock, onNavigate, top, children
       {/* --dock-pad: a page that ends in the dot-matrix footer cancels it (the page ends inside the letters) */}
       {/* the scrollbar's space is reserved on both sides of every page all the time (scrollbar-gutter: stable both-edges):
           a long page's scrollbar appearing mid-transition never narrows the content (it shifted 7.5 px at 1440 px), and
-          every page, Home included, stays exactly centred in the window (owner 2026-11-15) */}
-      <main id="cf-main" tabIndex={-1} className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden outline-none [scrollbar-gutter:stable_both-edges]"
+          every page, Home included, stays exactly centred in the window (owner 2026-11-15); no scroll anchoring
+          (owner 2026-11-16): on a page change the browser must never shift the scroll of the page that's leaving */}
+      <main id="cf-main" tabIndex={-1} className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden outline-none [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
         style={{ paddingBottom: dockPad, ["--dock-pad" as string]: `${dockPad}px` }}>
         {children}
       </main>

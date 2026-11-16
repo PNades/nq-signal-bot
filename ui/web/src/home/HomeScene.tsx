@@ -5,7 +5,7 @@
 // but Live opens its page, keys 1-6 never fire while typing or while a dialog is open, the flowing-dash keyframes live
 // in styles.css (the CSP allows no <style> element), and the bottom-left corner stays clear for the date block.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, animate, motion, useMotionValue } from "motion/react";
+import { AnimatePresence, animate, cubicBezier, motion, useMotionValue } from "motion/react";
 import { Activity, ChartNoAxesCombined, Map, ScanEye, SlidersHorizontal, Wallet, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getJson } from "@/lib/api";
@@ -63,6 +63,10 @@ function markIntroSeen() {
 // node arrives (about 1.7 s for all six; owner 2026-11-15)
 const ARRIVAL_ORDER: PageId[] = ["live", "review", "performance", "settings", "accounts", "gameplan"];
 const NODE_STAGGER_S = 0.2, NODE_IN_S = 0.35, LINE_DELAY_S = 0.08, LINE_DRAW_S = 0.6;
+// a return to Home after the first-open intro (owner 2026-11-16): a short entrance, about 450 ms in all: the wordmark
+// fades in with a slight scale-up, the nodes fade in 40 ms apart (same order), each line draws out to the word as its
+// node arrives; a click or a key finishes it at once; Calm: none
+const RET_WORD_S = 0.3, RET_WORD_FROM = 0.98, RET_STAGGER_S = 0.04, RET_NODE_S = 0.2, RET_LINE_S = 0.22, RET_STEP_MS = 34;
 // an open node card (kept 8 px inside the scene) and the node header's height
 const CARD_W = 270, CARD_MARGIN = 8, HEADER_H = 44;
 const CARD_IN_S = 0.18, CARD_OUT_S = 0.12, CARD_SCALE_FROM = 0.94;
@@ -80,10 +84,39 @@ export function HomeScene({ calm, onOpenPage, blocked }: {
   blocked: boolean;
 }) {
   const [play] = useState(() => !introSeen());
+  // a return (the intro was seen this session): the short return entrance, not in Calm
+  const [ret] = useState(() => !play && !calm);
   useEffect(() => { markIntroSeen(); }, []);
-  const [phase, setPhase] = useState<"title" | "nodes" | "idle">(play ? "title" : "idle");
-  const [skip, setSkip] = useState(!play);
-  const [arrived, setArrived] = useState(play ? 0 : 6);
+  const [phase, setPhase] = useState<"title" | "nodes" | "idle">(play ? "title" : ret ? "nodes" : "idle");
+  const [skip, setSkip] = useState(!play && !ret);
+  const [arrived, setArrived] = useState(play || ret ? 0 : 6);
+  // the return entrance, driven frame by frame from the first frame shown (each frame counts at most RET_STEP_MS, so a
+  // late frame slows it instead of bunching the nodes): the wordmark's opacity and scale, then the nodes 40 ms apart
+  const wordO = useMotionValue(ret ? 0 : 1), wordS = useMotionValue(ret ? RET_WORD_FROM : 1);
+  const skipRef = useRef(skip);
+  skipRef.current = skip;
+  useEffect(() => {
+    if (!ret) return;
+    const ease = cubicBezier(0, 0, 0.2, 1);
+    const total = (5 * RET_STAGGER_S + Math.max(RET_NODE_S, RET_LINE_S)) * 1000;
+    let raf = 0, prev = -1, acc = 0;
+    const tick = (ts: number) => {
+      if (skipRef.current) return;
+      if (prev >= 0) acc += Math.min(Math.max(0, ts - prev), RET_STEP_MS);
+      prev = ts;
+      const e = ease(Math.min(1, acc / (RET_WORD_S * 1000)));
+      wordO.set(e); wordS.set(RET_WORD_FROM + (1 - RET_WORD_FROM) * e);
+      const k = Math.min(6, Math.floor(acc / (RET_STAGGER_S * 1000)) + 1);
+      setArrived((a) => Math.max(a, k));
+      if (acc >= total) { setPhase("idle"); return; }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // a click or a key: everything at its end at once
+  useEffect(() => { if (skip) { wordO.set(1); wordS.set(1); } }, [skip]); // eslint-disable-line react-hooks/exhaustive-deps
+  const finish = () => { setSkip(true); setArrived(6); setPhase((p) => (p === "nodes" ? "idle" : p)); };
   const [hover, setHover] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   // opens filled: its data was loaded before the page change (lib/nav.ts)
@@ -165,8 +198,8 @@ export function HomeScene({ calm, onOpenPage, blocked }: {
   }), []);
   // the window or anything else changing the banner-free height: laid out again at once (no glide). The parent shrinks
   // exactly as much as the banners grow while they unfold or fold, so c stays the same through a banner's animation;
-  // changes under 1 px are ignored.
-  useEffect(() => {
+  // changes under 1 px are ignored. Measured before the first paint (owner 2026-11-16: Home complete in its first frame).
+  useLayoutEffect(() => {
     const el = sceneRef.current, parent = el?.parentElement; if (!parent) return;
     const measure = () => {
       const pr = parent.getBoundingClientRect();
@@ -184,10 +217,11 @@ export function HomeScene({ calm, onOpenPage, blocked }: {
 
   const onSettled = useCallback(() => setPhase((p) => (p === "title" ? "nodes" : p)), []);
   useEffect(() => {
-    if (phase !== "nodes") return;
+    if (phase !== "nodes" || ret) return;
     if (calm || skip) { setArrived(6); setPhase("idle"); return; }
-    const timers = Array.from({ length: 6 }, (_, k) => setTimeout(() => setArrived((a) => Math.max(a, k + 1)), k * NODE_STAGGER_S * 1000));
-    timers.push(setTimeout(() => setPhase("idle"), (5 * NODE_STAGGER_S + LINE_DELAY_S + LINE_DRAW_S) * 1000));
+    const stagger = ret ? RET_STAGGER_S : NODE_STAGGER_S;
+    const timers = Array.from({ length: 6 }, (_, k) => setTimeout(() => setArrived((a) => Math.max(a, k + 1)), k * stagger * 1000));
+    timers.push(setTimeout(() => setPhase("idle"), (ret ? 5 * RET_STAGGER_S + Math.max(RET_NODE_S, RET_LINE_S) : 5 * NODE_STAGGER_S + LINE_DELAY_S + LINE_DRAW_S) * 1000));
     return () => timers.forEach(clearTimeout);
   }, [phase, calm, skip]);
   useEffect(() => { if (skip) setArrived(6); }, [skip]);
@@ -216,11 +250,11 @@ export function HomeScene({ calm, onOpenPage, blocked }: {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (blocked || isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (phase !== "idle") setSkip(true);
+      if (phase !== "idle") { if (ret) finish(); else setSkip(true); }
       const n = nodes.find((d) => d.key === e.key);
       if (n) { setHover(null); open(n); }
     };
-    const onClick = () => { if (phase !== "idle") setSkip(true); };
+    const onClick = () => { if (phase !== "idle") { if (ret) finish(); else setSkip(true); } };
     window.addEventListener("keydown", onKey);
     window.addEventListener("pointerdown", onClick);
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("pointerdown", onClick); };
@@ -352,9 +386,12 @@ export function HomeScene({ calm, onOpenPage, blocked }: {
       <motion.div ref={stageRef} className="absolute inset-0 will-change-transform" style={{ x: fx, y: fy, scale: fs, transformOrigin: origin }} data-home-stage>
       {/* the canvas keeps the banner-free layout and is moved by the banners' exact offset (shiftLayout moves the ink by
           the same amount), so a banner never re-creates it: no canvas re-allocation, no frame lost */}
+      <motion.div className="absolute inset-0" style={{ opacity: wordO, scale: wordS, transformOrigin: `50% ${layout ? layout.cy : 0}px` }} data-home-word>
       <div className="absolute inset-0 will-change-transform" style={{ transform: `translateY(${layout && base ? layout.cy - base.cy : 0}px)` }}>
-        <FlowTitle skip={skip} still={calm} onSettled={onSettled} layout={base} />
+        {/* a return shows the wordmark drawn (its first-open intro only plays once a session) */}
+        <FlowTitle skip={skip || ret} still={calm} onSettled={onSettled} layout={base} />
       </div>
+      </motion.div>
       </motion.div>
 
       <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
@@ -365,10 +402,15 @@ export function HomeScene({ calm, onOpenPage, blocked }: {
           const instant = calm || skip;
           return (
             <g key={n.id} data-line={n.id}>
-              <motion.path d={d} fill="none" className={cn(lit ? "stroke-gold" : "stroke-gold/30", !calm && LINE_T)} strokeWidth={lit ? 1.3 : 1}
+              {calm ? (
+                // Calm: a plain line, drawn in the very first frame
+                <path d={d} fill="none" className={lit ? "stroke-gold" : "stroke-gold/30"} strokeWidth={lit ? 1.3 : 1} opacity={n.disabled ? 0.35 : 1} />
+              ) : (
+              <motion.path key={skip ? "done" : "in"} d={d} fill="none" className={cn(lit ? "stroke-gold" : "stroke-gold/30", LINE_T)} strokeWidth={lit ? 1.3 : 1}
                 initial={{ pathLength: instant && here ? 1 : 0, opacity: instant && here ? (n.disabled ? 0.35 : 1) : 0 }}
                 animate={{ pathLength: here ? 1 : 0, opacity: here ? (n.disabled ? 0.35 : 1) : 0 }}
-                transition={{ duration: instant ? 0 : LINE_DRAW_S, delay: instant ? 0 : LINE_DELAY_S, ease: [0.3, 0, 0, 1] }} />
+                transition={{ duration: instant ? 0 : ret ? RET_LINE_S : LINE_DRAW_S, delay: instant || ret ? 0 : LINE_DELAY_S, ease: [0.3, 0, 0, 1] }} />
+              )}
               {!calm && !n.disabled && (
                 <path d={d} fill="none" className={cn("cf-flowdash stroke-cream/55", lit && "cf-flowdash-lit")} strokeWidth={1.4} strokeDasharray="2 22" strokeLinecap="round"
                   style={{ opacity: phase === "idle" ? 1 : 0, transition: "opacity .6s" }} />
@@ -392,13 +434,13 @@ export function HomeScene({ calm, onOpenPage, blocked }: {
         return (
           <div key={n.id} className={cn("absolute size-0", lit ? "z-30" : "z-10")} style={{ left: px, top: py }} data-home-node={n.id} data-glide={n.id}
             onMouseEnter={() => here && setHover(n.id)} onMouseLeave={() => setHover(null)}>
-            <motion.button
+            <motion.button key={skip ? "done" : "in"}
               onFocus={() => setHover(n.id)} onBlur={() => setHover(null)}
               onClick={() => open(n)}
               aria-label={`${n.name} (key ${n.key})${n.disabled ? ", not available yet" : ""}`}
               initial={instant && here ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.85 }}
               animate={here ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.85 }}
-              transition={{ duration: instant ? 0 : NODE_IN_S, ease: [0, 0, 0.2, 1] }}
+              transition={{ duration: instant ? 0 : ret ? RET_NODE_S : NODE_IN_S, ease: [0, 0, 0.2, 1] }}
               tabIndex={here ? 0 : -1}
               className="absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2 rounded-lg text-left"
               style={{ pointerEvents: here ? "auto" : "none" }}
@@ -461,7 +503,7 @@ export function HomeScene({ calm, onOpenPage, blocked }: {
           )}
         </AnimatePresence>
         <div className="font-mono text-[11px] text-text-3">
-          {phase !== "idle" ? "click or press any key to skip" : "1–6 open a page · Ctrl K search"}
+          {play && phase !== "idle" ? "click or press any key to skip" : "1–6 open a page · Ctrl K search"}
         </div>
       </div>
     </div>

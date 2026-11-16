@@ -240,7 +240,11 @@ export function PerformancePage() {
   const viewPlan = viewQuery.get("plan") ?? planId;
   const viewRange = rangeOf(viewQuery);
   // the entry stagger runs once, when the page first fills
-  const settled = useRef(data !== null);
+  // (owner 2026-11-16: also when the page opens with its data already loaded; Calm: none)
+  const settled = useRef(false);
+  // true only while the page is first drawn: the equity curve draws in with the page's entrance, never on a switch
+  const arriving = useRef(true);
+  useEffect(() => { arriving.current = false; }, []);
   useEffect(() => { if (data) settled.current = true; }, [data]);
   // the Drawdown and Monte Carlo tabs (owner 2026-11-15): real-trades phases (demo, prop, live) show the account in the
   // filter (= the top-bar focus); every other phase runs the strategy's backtest days on the plan in the header; under
@@ -373,7 +377,7 @@ export function PerformancePage() {
               ].map((k) => (
                 <Spotlight key={k.label} enabled={animated} className="rounded-md" data-kpi={k.label}>
                   <KpiTile label={k.label} value={k.value} format={k.fmt} trend={k.trend} trendLabels={labels} delta={k.trend.filter(Number.isFinite).length > 1 ? k.delta : undefined}
-                    deltaLabel={deltaLabel} lowerIsBetter={k.lower} animated={animated} entrance={false} className="h-full min-h-[200px] bg-bg-2/90" />
+                    deltaLabel={deltaLabel} lowerIsBetter={k.lower} animated={animated} className="h-full min-h-[200px] bg-bg-2/90" />
                 </Spotlight>
               ))}
             </motion.div>
@@ -413,7 +417,7 @@ export function PerformancePage() {
                     </div>
                     {equityView === "curve" ? (
                       <div className="h-[380px]">
-                        {data.equity.points.length ? <EquityChart points={data.equity.points} starts={data.equity.phase_starts} unit={unit} animated={animated} perTrade={data.equity.per_trade} />
+                        {data.equity.points.length ? <EquityChart points={data.equity.points} starts={data.equity.phase_starts} unit={unit} animated={animated} perTrade={data.equity.per_trade} drawIn={arriving.current} />
                           : <p className="grid h-full place-items-center text-[13.5px] text-text-2">No day-level trades in this selection.</p>}
                       </div>
                     ) : (

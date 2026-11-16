@@ -1,0 +1,195 @@
+{
+  "stage": "3t",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "home_return_full_1440": {
+      "accounts_plain": {
+        "bad": [],
+        "doneMs": 361,
+        "nodeAt": {
+          "live": 12,
+          "review": 29,
+          "performance": 61,
+          "settings": 113,
+          "accounts": 145,
+          "gameplan": 178
+        },
+        "lineAt": {
+          "live": 45,
+          "review": 61,
+          "performance": 94,
+          "settings": 145,
+          "accounts": 178,
+          "gameplan": 212
+        }
+      },
+      "settings_plain": {
+        "bad": [],
+        "doneMs": 372,
+        "nodeAt": {
+          "live": 21,
+          "review": 38,
+          "performance": 71,
+          "settings": 121,
+          "accounts": 155,
+          "gameplan": 188
+        },
+        "lineAt": {
+          "live": 55,
+          "review": 71,
+          "performance": 105,
+          "settings": 155,
+          "accounts": 188,
+          "gameplan": 222
+        }
+      },
+      "performance_plain": {
+        "bad": [],
+        "doneMs": 363,
+        "nodeAt": {
+          "live": 15,
+          "review": 32,
+          "performance": 65,
+          "settings": 114,
+          "accounts": 148,
+          "gameplan": 181
+        },
+        "lineAt": {
+          "live": 49,
+          "review": 65,
+          "performance": 98,
+          "settings": 148,
+          "accounts": 181,
+          "gameplan": 215
+        }
+      },
+      "accounts_click": {
+        "bad": [],
+        "doneMs": 136,
+        "afterSkipFrames": 0
+      },
+      "settings_key": {
+        "bad": [],
+        "doneMs": 97,
+        "afterSkipFrames": 0
+      }
+    },
+    "home_return_full_960": {
+      "accounts_plain": {
+        "bad": [],
+        "doneMs": 371,
+        "nodeAt": {
+          "live": 20,
+          "review": 38,
+          "performance": 72,
+          "settings": 121,
+          "accounts": 155,
+          "gameplan": 188
+        },
+        "lineAt": {
+          "live": 54,
+          "review": 72,
+          "performance": 103,
+          "settings": 155,
+          "accounts": 188,
+          "gameplan": 220
+        }
+      },
+      "settings_plain": {
+        "bad": [],
+        "doneMs": 360,
+        "nodeAt": {
+          "live": 26,
+          "review": 26,
+          "performance": 59,
+          "settings": 110,
+          "accounts": 143,
+          "gameplan": 177
+        },
+        "lineAt": {
+          "live": 59,
+          "review": 59,
+          "performance": 93,
+          "settings": 143,
+          "accounts": 177,
+          "gameplan": 210
+        }
+      },
+      "performance_plain": {
+        "bad": [],
+        "doneMs": 362,
+        "nodeAt": {
+          "live": 14,
+          "review": 34,
+          "performance": 64,
+          "settings": 114,
+          "accounts": 146,
+          "gameplan": 180
+        },
+        "lineAt": {
+          "live": 47,
+          "review": 64,
+          "performance": 96,
+          "settings": 146,
+          "accounts": 180,
+          "gameplan": 213
+        }
+      },
+      "accounts_click": {
+        "bad": [],
+        "doneMs": 116,
+        "afterSkipFrames": 0
+      },
+      "settings_key": {
+        "bad": [],
+        "doneMs": 131,
+        "afterSkipFrames": 0
+      }
+    },
+    "home_return_calm_1440": {
+      "accounts_plain": {
+        "bad": [],
+        "doneMs": 0
+      },
+      "settings_plain": {
+        "bad": [],
+        "doneMs": 0
+      },
+      "performance_plain": {
+        "bad": [],
+        "doneMs": 0
+      },
+      "accounts_click": {
+        "bad": [],
+        "doneMs": 0
+      },
+      "settings_key": {
+        "bad": [],
+        "doneMs": 0
+      }
+    },
+    "home_return_calm_960": {
+      "accounts_plain": {
+        "bad": [],
+        "doneMs": 0
+      },
+      "settings_plain": {
+        "bad": [],
+        "doneMs": 0
+      },
+      "performance_plain": {
+        "bad": [],
+        "doneMs": 0
+      },
+      "accounts_click": {
+        "bad": [],
+        "doneMs": 0
+      },
+      "settings_key": {
+        "bad": [],
+        "doneMs": 0
+      }
+    }
+  }
+}

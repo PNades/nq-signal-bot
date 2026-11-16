@@ -1,0 +1,343 @@
+{
+  "stage": "3u",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "banners_full_accounts_1440": {
+      "arrive_1": {
+        "bad": [],
+        "total": 49,
+        "frames": 15,
+        "biggest": 8,
+        "banners": 1
+      },
+      "leave_1": {
+        "bad": [],
+        "total": -49,
+        "frames": 14,
+        "biggest": 9.3
+      },
+      "arrive_3": {
+        "bad": [],
+        "total": 147,
+        "frames": 33,
+        "biggest": 7.3,
+        "banners": 3
+      },
+      "leave_3": {
+        "bad": [],
+        "total": -132,
+        "frames": 34,
+        "biggest": 9.1
+      }
+    },
+    "banners_full_settings_1440": {
+      "arrive_1": {
+        "bad": [],
+        "total": 49,
+        "frames": 15,
+        "biggest": 4.8,
+        "banners": 1
+      },
+      "leave_1": {
+        "bad": [],
+        "total": -49,
+        "frames": 14,
+        "biggest": 9.1
+      },
+      "arrive_3": {
+        "bad": [],
+        "total": 147,
+        "frames": 35,
+        "biggest": 7.1,
+        "banners": 3
+      },
+      "leave_3": {
+        "bad": [],
+        "total": -132,
+        "frames": 34,
+        "biggest": 9.1
+      }
+    },
+    "banners_full_performance_1440": {
+      "arrive_1": {
+        "bad": [],
+        "total": 49,
+        "frames": 16,
+        "biggest": 4.7,
+        "banners": 1
+      },
+      "leave_1": {
+        "bad": [],
+        "total": -49,
+        "frames": 14,
+        "biggest": 8.3
+      },
+      "arrive_3": {
+        "bad": [],
+        "total": 147,
+        "frames": 34,
+        "biggest": 6.5,
+        "banners": 3
+      },
+      "leave_3": {
+        "bad": [],
+        "total": -132,
+        "frames": 33,
+        "biggest": 9.3
+      }
+    },
+    "banners_full_accounts_960": {
+      "arrive_1": {
+        "bad": [],
+        "total": 61,
+        "frames": 15,
+        "biggest": 10,
+        "banners": 1
+      },
+      "leave_1": {
+        "bad": [],
+        "total": -61,
+        "frames": 15,
+        "biggest": 12.5
+      },
+      "arrive_3": {
+        "bad": [],
+        "total": 183,
+        "frames": 33,
+        "biggest": 9.3,
+        "banners": 3
+      },
+      "leave_3": {
+        "bad": [],
+        "total": -154,
+        "frames": 32,
+        "biggest": 12.2
+      }
+    },
+    "banners_full_settings_960": {
+      "arrive_1": {
+        "bad": [],
+        "total": 61,
+        "frames": 15,
+        "biggest": 5.7,
+        "banners": 1
+      },
+      "leave_1": {
+        "bad": [],
+        "total": -61,
+        "frames": 14,
+        "biggest": 10.8
+      },
+      "arrive_3": {
+        "bad": [],
+        "total": 183,
+        "frames": 33,
+        "biggest": 10,
+        "banners": 3
+      },
+      "leave_3": {
+        "bad": [],
+        "total": -159,
+        "frames": 34,
+        "biggest": 11.6
+      }
+    },
+    "banners_full_performance_960": {
+      "arrive_1": {
+        "bad": [],
+        "total": 61,
+        "frames": 16,
+        "biggest": 5.6,
+        "banners": 1
+      },
+      "leave_1": {
+        "bad": [],
+        "total": -61,
+        "frames": 14,
+        "biggest": 11.6
+      },
+      "arrive_3": {
+        "bad": [],
+        "total": 183,
+        "frames": 33,
+        "biggest": 10.2,
+        "banners": 3
+      },
+      "leave_3": {
+        "bad": [],
+        "total": -172,
+        "frames": 35,
+        "biggest": 11.4
+      }
+    },
+    "banners_calm_accounts_1440": {
+      "arrive_1": {
+        "bad": [],
+        "total": 49,
+        "frames": 1,
+        "biggest": 49,
+        "banners": 1
+      },
+      "leave_1": {
+        "bad": [],
+        "total": -49,
+        "frames": 1,
+        "biggest": 49
+      },
+      "arrive_3": {
+        "bad": [],
+        "total": 147,
+        "frames": 3,
+        "biggest": 49,
+        "banners": 3
+      },
+      "leave_3": {
+        "bad": [],
+        "total": -147,
+        "frames": 3,
+        "biggest": 49
+      }
+    },
+    "banners_calm_settings_1440": {
+      "arrive_1": {
+        "bad": [],
+        "total": 49,
+        "frames": 1,
+        "biggest": 49,
+        "banners": 1
+      },
+      "leave_1": {
+        "bad": [],
+        "total": -49,
+        "frames": 1,
+        "biggest": 49
+      },
+      "arrive_3": {
+        "bad": [],
+        "total": 147,
+        "frames": 3,
+        "biggest": 49,
+        "banners": 3
+      },
+      "leave_3": {
+        "bad": [],
+        "total": -147,
+        "frames": 3,
+        "biggest": 49
+      }
+    },
+    "banners_calm_performance_1440": {
+      "arrive_1": {
+        "bad": [],
+        "total": 49,
+        "frames": 1,
+        "biggest": 49,
+        "banners": 1
+      },
+      "leave_1": {
+        "bad": [],
+        "total": -49,
+        "frames": 1,
+        "biggest": 49
+      },
+      "arrive_3": {
+        "bad": [],
+        "total": 147,
+        "frames": 3,
+        "biggest": 49,
+        "banners": 3
+      },
+      "leave_3": {
+        "bad": [],
+        "total": -147,
+        "frames": 3,
+        "biggest": 49
+      }
+    },
+    "banners_calm_accounts_960": {
+      "arrive_1": {
+        "bad": [],
+        "total": 61,
+        "frames": 1,
+        "biggest": 61,
+        "banners": 1
+      },
+      "leave_1": {
+        "bad": [],
+        "total": -61,
+        "frames": 1,
+        "biggest": 61
+      },
+      "arrive_3": {
+        "bad": [],
+        "total": 183,
+        "frames": 3,
+        "biggest": 61,
+        "banners": 3
+      },
+      "leave_3": {
+        "bad": [],
+        "total": -183,
+        "frames": 3,
+        "biggest": 61
+      }
+    },
+    "banners_calm_settings_960": {
+      "arrive_1": {
+        "bad": [],
+        "total": 61,
+        "frames": 1,
+        "biggest": 61,
+        "banners": 1
+      },
+      "leave_1": {
+        "bad": [],
+        "total": -61,
+        "frames": 1,
+        "biggest": 61
+      },
+      "arrive_3": {
+        "bad": [],
+        "total": 183,
+        "frames": 3,
+        "biggest": 61,
+        "banners": 3
+      },
+      "leave_3": {
+        "bad": [],
+        "total": -183,
+        "frames": 3,
+        "biggest": 61
+      }
+    },
+    "banners_calm_performance_960": {
+      "arrive_1": {
+        "bad": [],
+        "total": 61,
+        "frames": 1,
+        "biggest": 61,
+        "banners": 1
+      },
+      "leave_1": {
+        "bad": [],
+        "total": -61,
+        "frames": 1,
+        "biggest": 61
+      },
+      "arrive_3": {
+        "bad": [],
+        "total": 183,
+        "frames": 3,
+        "biggest": 61,
+        "banners": 3
+      },
+      "leave_3": {
+        "bad": [],
+        "total": -183,
+        "frames": 3,
+        "biggest": 61
+      }
+    }
+  }
+}

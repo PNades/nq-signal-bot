@@ -41,8 +41,11 @@
    node towards the word as the node arrives (600 ms, 80 ms after it). All six take ≈ 1.7 s. (Owner 2026-11-15.)
 3. Idle: a mild loop (ripple / flow / glow) and cursor reaction; the flowing dashes on the lines fade in.
 - Full intro on the **first open of a session** only (a session flag in `sessionStorage`, so a reload in the same tab
-  counts too; if storage is blocked, the page load still remembers); later visits show the formed scene with a
-  200-ms fade.
+  counts too; if storage is blocked, the page load still remembers); later visits (owner 2026-11-16) play a short
+  return entrance instead of a plain fade: the wordmark fades in from 0.98 scale (300 ms), the six nodes fade in 40 ms
+  apart in their arrival order, each line drawing out to the word (220 ms) as its node arrives; about 360-450 ms in all,
+  driven frame by frame (a late frame slows it rather than bunching the nodes); a click or key finishes it at once; the
+  skip hint is shown for the first-open intro only. Calm: the formed scene in the first frame.
 - **Messages (owner 2026-11-15):** every toast and the key hint ("click or press any key to skip", then "1–6 open a
   page · Ctrl K search") sit in one row in the bottom-right corner, 14 px from the bottom edge, below the bottom-right
   node at every size checked (960 × 1000 to 1920 × 1080, 1024 × 768, 1440 × 760); never bottom-centre behind

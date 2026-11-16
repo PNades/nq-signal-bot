@@ -1,7 +1,7 @@
 // Shared page parts (pages/shell.md): the page header (eyebrow, two-line title with the second line in cream italic,
 // subtitle), the empty state (Dot Matrix Text, a one-line message, the next action; never urgent information) and
 // skeletons shaped like the content.
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useInsertionEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { DotMatrixText } from "@/components/ui/dot-text";
 import HalftoneWordmarkFooter from "@/components/ui/halftone-wordmark-footer";
@@ -72,11 +72,24 @@ export function GlideOnKey({ k, children }: { k: string; children: ReactNode }) 
   // the glide in progress: from, to, progress (ms) and length (ms); driven frame by frame, each frame counting at most
   // GLIDE_STEP_MS, so a frame that comes late (a heavy page painting) never carries most of the move
   const run = useRef<{ from: number; to: number; t: number; ms: number; raf: number } | null>(null);
+  // the page that leaves keeps its scroll (owner 2026-11-16): the next page is moved down by the scroll so it opens at
+  // the top of the window; when the glide ends (the leaving page is gone by then) the move and the scroll go back to 0
+  // together, so nothing moves on screen
+  const shift = useRef<{ el: HTMLElement; s: number } | null>(null);
+  const unshift = () => {
+    const sh = shift.current;
+    shift.current = null;
+    if (!sh) return;
+    sh.el.style.transform = "";
+    const main = document.getElementById("cf-main");
+    if (main) main.scrollTop = Math.max(0, main.scrollTop - sh.s);
+  };
   const stop = () => {
     const b = box.current;
     if (run.current) cancelAnimationFrame(run.current.raf);
     run.current = null;
     if (b) { b.style.height = ""; b.style.overflow = ""; }
+    unshift();
     last.current = inner.current?.offsetHeight ?? last.current;
   };
   const start = (b: HTMLDivElement, from: number, to: number, ms: number) => {
@@ -105,20 +118,45 @@ export function GlideOnKey({ k, children }: { k: string; children: ReactNode }) 
     const ro = new ResizeObserver(() => {
       const r = run.current, b = box.current;
       if (!r || !b) { last.current = el.offsetHeight; return; }
-      const to = el.offsetHeight;
+      const to = el.offsetHeight + (shift.current?.s ?? 0);
       if (Math.abs(to - r.to) < 1) return;
       r.from = b.getBoundingClientRect().height; r.to = to; r.ms = Math.max(80, r.ms - r.t); r.t = 0;
     });
     ro.observe(el);
     return () => { ro.disconnect(); if (run.current) cancelAnimationFrame(run.current.raf); };
   }, []);
+  // the same hold, earlier: insertion effects run before every layout effect (the next page's own may read the layout)
+  const heldFor = useRef(k);
+  useInsertionEffect(() => {
+    if (heldFor.current === k) return;
+    heldFor.current = k;
+    const b = box.current;
+    if (b && !run.current && last.current !== null) b.style.height = `${last.current}px`;
+  }, [k]);
   useLayoutEffect(() => {
     if (prevK.current === k) return;
     prevK.current = k;
     const b = box.current, el = inner.current;
     if (!b || !el) return;
-    const from = run.current ? b.getBoundingClientRect().height : last.current, to = el.offsetHeight;
-    if (!animated || from === null || Math.abs(to - from) < 8) { stop(); return; }
+    // hold the old height before anything reads the layout: with the leaving page taken out of the flow the content is
+    // shorter, and the browser would clamp the scroll of the page that's leaving at the first layout
+    if (!run.current && last.current !== null) b.style.height = `${last.current}px`;
+    const main = document.getElementById("cf-main");
+    const views = [...el.querySelectorAll<HTMLElement>(":scope > [data-view]")];
+    if (!animated) {
+      // Calm: an instant swap: the leaving page is hidden in this very frame and the next one is at its top
+      for (const v of views) if (v.getAttribute("data-view") !== k) v.style.visibility = "hidden";
+      stop();
+      if (main) main.scrollTop = 0;
+      return;
+    }
+    const s = main?.scrollTop ?? 0;
+    const fresh = views.find((v) => v.getAttribute("data-view") === k)?.querySelector<HTMLElement>(":scope > [data-shift]") ?? null;
+    // a change during a change: the page that was coming in is now the one leaving (it keeps its move until it's gone)
+    shift.current = null;
+    if (fresh && s > 0) { fresh.style.transform = `translateY(${s}px)`; shift.current = { el: fresh, s }; }
+    const from = run.current ? b.getBoundingClientRect().height : last.current, to = el.offsetHeight + (shift.current ? s : 0);
+    if (from === null || (Math.abs(to - from) < 8 && !shift.current)) { stop(); return; }
     start(b, from, to, FOLD_S * 1000);
   }, [k, animated]); // eslint-disable-line react-hooks/exhaustive-deps
   return <div ref={box} className="relative" data-glide-box><div ref={inner} className="flow-root">{children}</div></div>;

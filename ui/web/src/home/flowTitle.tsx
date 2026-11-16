@@ -15,7 +15,10 @@ const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t 
 const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
 
 export function useFontsReady() {
-  const [ready, setReady] = useState(false);
+  // already loaded (any visit after the first): ready in the very first frame (owner 2026-11-16: Home complete at once)
+  const [ready, setReady] = useState(() => {
+    try { return document.fonts.check('400 120px "Instrument Serif"', "CreamFlow") && document.fonts.check('italic 400 120px "Instrument Serif"', "Flow"); } catch { return false; }
+  });
   useEffect(() => {
     let live = true;
     Promise.all([

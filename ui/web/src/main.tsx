@@ -2,9 +2,11 @@
 // every page path with this app), the Effects setting, the server status stream, banners, the command palette, the
 // shortcut sheet, toasts, the splash and page transitions (design-system/pages/shell.md).
 // Page changes (owner 2026-11-16): the current page stays until the next page's data is loaded (lib/nav.ts), then the
-// next page crossfades in filled; the scrolling pages share one footer that glides with the height; a load slower than
-// ~300 ms shows a thin progress line; hovering a dock icon or a link to a page preloads it. Calm: an instant swap.
-import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+// next page crossfades in with its data and plays its entrance; the page that leaves fades out where it is (its scroll
+// never moves) and the next one opens at its own top; the scrolling pages share one footer that glides with the height;
+// a load slower than ~300 ms shows a thin progress line; hovering a dock icon or a link to a page preloads it.
+// Calm: an instant swap, no entrance.
+import { StrictMode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { setNonce } from "get-nonce";
@@ -54,6 +56,10 @@ setInput("pointer");
 const EFFECTS_KEY = "creamflow.effects";
 // a page change's crossfade (the height glide under it is the tab switch's, 0.25 s)
 const PAGE_FADE_S = 0.24;
+// the page that leaves fades out where it is (owner 2026-11-16), quicker than the page that comes in rises (the
+// pre-change entrance: 320 ms, an 8-px rise), so it is gone before the shared footer's 250-ms glide ends
+const PAGE_OUT_S = 0.2, PAGE_IN_S = 0.32, PAGE_RISE_PX = 8;
+const PAGE_IN_EASE = [0.2, 0, 0, 1] as const;
 function readEffects(): EffectsSetting {
   try { const v = localStorage.getItem(EFFECTS_KEY); if (v === "full" || v === "calm" || v === "auto") return v; } catch { /* storage blocked */ }
   return "auto";
@@ -113,7 +119,9 @@ function App() {
       if (location.pathname !== path) history.pushState(state, "", path);
       else history.replaceState(state, "", path);
       const next = pageFromPath(path);
-      setView((v) => { if (v !== next) document.getElementById("cf-main")?.scrollTo({ top: 0 }); return next; });
+      // the scroll isn't touched here: the page that leaves fades out where it is and the next one opens at its own top
+      // (PagesFrame's GlideOnKey between scrolling pages, the effect below for Home)
+      setView(next);
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
   }, []);
@@ -166,6 +174,28 @@ function App() {
     for (const k of activeAlerts.current) if (!ids.has(k)) condition(`srv-${k}`, false, { kind: "info", title: "", text: "" });
     activeAlerts.current = ids;
   }, [status]);
+
+  // to Home from a scrolled page: Home opens at the top of the window (shifted by the scroll) while the page fades out
+  // where it is; once that page is gone the shift and the scroll go back to 0 together (nothing moves on screen)
+  const homeShift = useRef<HTMLDivElement>(null);
+  const prevView = useRef(view);
+  useLayoutEffect(() => {
+    const prev = prevView.current;
+    prevView.current = view;
+    if (prev === view) return;
+    const main = document.getElementById("cf-main");
+    if (!main) return;
+    if (view !== "home") { if (prev === "home") main.scrollTop = 0; return; }
+    if (!animated) { (document.querySelector("[data-pages]") as HTMLElement | null)?.style.setProperty("visibility", "hidden"); main.scrollTop = 0; return; }
+    if (main.scrollTop > 0 && homeShift.current) homeShift.current.style.transform = `translateY(${main.scrollTop}px)`;
+  }, [view, animated]);
+  const homeSwapDone = () => {
+    const el = homeShift.current;
+    if (!el || !el.style.transform) return;
+    el.style.transform = "";
+    const main = document.getElementById("cf-main");
+    if (main) main.scrollTop = 0;
+  };
 
   const page = pageById(view);
   document.title = `CreamFlow · ${page.name}`;
@@ -242,23 +272,35 @@ function App() {
         {/* the pages crossfade (both on screen at once, never a blank gap); Home fills the whole content area (its bottom
             row shares the date block's line, owner 2026-11-15); the scrolling pages share one frame and footer */}
         {ready && (
-        <AnimatePresence initial={false}>
+        <AnimatePresence initial={false} onExitComplete={homeSwapDone}>
           {view === "home" ? (
             <motion.div key="home" className="absolute inset-0" data-view="home"
-              initial={animated ? { opacity: 0 } : false} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: animated ? PAGE_FADE_S : 0, ease: "easeOut" }}>
-              <HomeScene calm={!animated} onOpenPage={navigate} blocked={paletteOpen || shortcutsOpen || killOpen} />
+              initial={animated ? { opacity: 0 } : false} animate={{ opacity: 1 }}
+              exit={{ opacity: 0, transition: { duration: animated ? PAGE_OUT_S : 0, ease: "easeOut" } }} transition={{ duration: animated ? PAGE_FADE_S : 0, ease: "easeOut" }}>
+              <div ref={homeShift} className="absolute inset-0" data-shift>
+                <HomeScene calm={!animated} onOpenPage={navigate} blocked={paletteOpen || shortcutsOpen || killOpen} />
+              </div>
             </motion.div>
           ) : (
             <motion.div key="pages" className="min-h-full" data-pages
-              initial={animated ? { opacity: 0 } : false} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: animated ? PAGE_FADE_S : 0, ease: "easeOut" }}>
+              initial={animated ? { opacity: 0 } : false} animate={{ opacity: 1 }}
+              exit={{ opacity: 0, transition: { duration: animated ? PAGE_OUT_S : 0, ease: "easeOut" } }} transition={{ duration: animated ? PAGE_FADE_S : 0, ease: "easeOut" }}>
               <PagesFrame k={view}>
-                <AnimatePresence initial={false} mode="popLayout">
+                {/* each page plays its entrance when it is revealed (owner 2026-11-16: the data is already in place): it rises
+                    in, and its own entrance (Performance's numbers rolling in, its staggered cards) runs as it mounts */}
+                <AnimatePresence initial={animated} mode="popLayout">
                   <motion.div key={view} data-view={view}
-                    initial={animated ? { opacity: 0 } : false} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: animated ? PAGE_FADE_S : 0, ease: "easeOut" }}>
-                    {view === "accounts" ? <AccountsPage />
-                      : view === "settings" ? <SettingsPage onEffects={changeEffects} />
-                      : view === "performance" ? <PerformancePage />
-                      : <PlaceholderPage id={view} />}
+                    // from Home the frame itself fades in, so the page only rises (a second fade would dim it twice)
+                    initial={animated ? (prevView.current === "home" ? { y: PAGE_RISE_PX } : { opacity: 0, y: PAGE_RISE_PX }) : false} animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, transition: { duration: animated ? PAGE_OUT_S : 0, ease: "easeOut" } }}
+                    transition={{ duration: animated ? PAGE_IN_S : 0, ease: PAGE_IN_EASE }}>
+                    {/* GlideOnKey moves this (not the page) to keep a leaving page's scroll and open the next at its top */}
+                    <div data-shift>
+                      {view === "accounts" ? <AccountsPage />
+                        : view === "settings" ? <SettingsPage onEffects={changeEffects} />
+                        : view === "performance" ? <PerformancePage />
+                        : <PlaceholderPage id={view} />}
+                    </div>
                   </motion.div>
                 </AnimatePresence>
               </PagesFrame>

@@ -1110,10 +1110,20 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   fields, else its preset's. Saving an evaluation as passed asks "add its funded account?": Add opens a new account
   filled from the same plan's funded preset (its own name, §6.7: a passed evaluation becomes a new funded account);
   Not now closes. A passed evaluation opened later shows the same offer in its editor.
+- **Q-home-return, Q-banners (owner 2026-11-16; built):** returning to Home after the session's first-open intro plays
+  a short return entrance (about 360-450 ms): the wordmark fades in with a slight scale-up (0.98 to 1, 300 ms), the six
+  nodes fade in 40 ms apart in their arrival order and each line draws out to the word (220 ms) as its node arrives;
+  the previous page fades out where it is; a click or a key finishes it at once; Calm: Home complete in its first
+  frame. Off Home, a banner arriving unfolds its height on the same 270-ms curve as on Home and as a banner leaving,
+  so the page below glides down with it, stacked banners included (critical banners still appear at once, MASTER
+  §7); Calm: one step per banner.
 - **Q-pages (owner 2026-11-16; built):** one rule for every page change (Home, Accounts, Settings, Performance, the
   account editor): the current page stays on screen until the next page's data is loaded, then the next page
-  crossfades in already filled (no placeholder, no card filling in, no number rolling up or line drawing in on
-  arrival), and the scrolling pages share one footer that glides into place with the tab switch's height glide (driven
+  crossfades in already filled (no placeholder, no card filling in) and plays its entrance as it is revealed, every time
+  it opens (it rises in; Performance's numbers roll in, its cards stagger in and its equity curve draws in; a switch
+  inside a page only glides its numbers; owner 2026-11-16, second round); the page that leaves fades out exactly where
+  it is (its scroll never moves; the next page opens at its own top, placed there while hidden; no scroll anchoring),
+  and the scrolling pages share one footer that glides into place with the tab switch's height glide (driven
   frame by frame, so a late frame never carries most of the move). Hovering or focusing a dock icon, a Home node or a
   link to a page loads its data ahead, so most changes are immediate. Edit in Performance's breakdown goes straight to
   the filled account editor (never through the accounts list); the editor's back returns to Performance on the phase it

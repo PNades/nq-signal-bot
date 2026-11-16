@@ -477,3 +477,43 @@ The code does both. The page uses (a) until you decide.
   frame. With the pointer resting on the icon first (as a person does), the click to the next page's first frame took
   19–109 ms (median 55 ms) in the page; a deliberately slow page (900 ms) kept the old page fully on screen, showed the
   line at 378 ms and switched in one step.
+
+### Page changes, second round: entrances back, the leaving page never moves (owner 2026-11-16)
+- **Entrances:** each page plays its entrance when it is revealed, with its data already in place, every time it opens:
+  the page rises in (8 px, 320 ms, as before the first round), Performance's KPI numbers roll in and its sparklines and
+  equity curve draw in, and its cards stagger in. A switch inside a page (account, phase, plan) only glides the numbers:
+  the KPI tiles stay, and the equity curve draws in only with the page's entrance (`drawIn`). Calm: none.
+- **Scroll:** the page that leaves fades out exactly where it is. The next page is moved down by the current scroll so it
+  opens at its own top while it fades in, and once the leaving page is gone the move and the scroll return to 0 together
+  (`GlideOnKey`; Home the same way in `main.tsx`). Two causes of a moving leaving page are removed: the switch used to
+  scroll to the top at once, and with the leaving page taken out of the flow the browser clamped the scroll (420 → 255 px
+  on Performance → Accounts) and scroll anchoring could shift it; the content now holds its old height from before any
+  layout read (an insertion effect) and the content area has no scroll anchoring. Calm: the leaving page is hidden and
+  the next one is at its top in the same frame.
+- **Evidence:** [`build/stage3s/`](build/stage3s/) re-shot (all passed): the same twelve page changes and Edit → editor →
+  back, at 1440 and 960 px, Full and Calm, each leaving page scrolled down first (420 px where it can be; Edit from the
+  breakdown at its row): in every frame the leaving page stays where it was, the next page is at its own top (only its
+  8-px rise), no placeholder, cards filled from their first frame (a number may roll in), the footer gliding as seen;
+  Performance's entrance runs after the reveal in Full (its numbers take several values, its cards fade in) and not at
+  all in Calm. [`build/stage3q/`](build/stage3q/) re-run (all passed): an account switch still only glides. Video
+  `docs/design/video/stage3s/page_changes.webm` re-recorded.
+
+### Return to Home; banners unfolding on every page (owner 2026-11-16)
+- **Return to Home** (after the session's first-open intro): the wordmark fades in from 0.98 scale (300 ms), the six
+  nodes fade in 40 ms apart in their arrival order, each line draws out to the word (220 ms) as its node arrives, driven
+  frame by frame from Home's first painted frame; a click or a key finishes it at once (the nodes and lines restart at
+  their end); the skip hint is for the first-open intro only. Calm: Home is complete in its first frame (the fonts check
+  and the scene's measurement now happen before the first paint, Calm lines are plain paths). The previous page fades
+  out where it is (the second-round rule).
+- **Banners off Home** unfold their height on the same 270-ms curve as on Home (and as leaving), so the page below
+  glides down in step, stacked banners included; critical banners still appear at once (MASTER §7).
+- **Evidence:** [`build/stage3t/`](build/stage3t/) (all passed, run twice): back to Home from Accounts, Settings and
+  Performance (each scrolled 420 px), plus one return finished by a click and one by a key, at 1440 and 960 px, Full and
+  Calm, every frame: the leaving page never moves, Home at its top, no blank frame; in Full the wordmark starts faint
+  at 0.98 and grows without going back, the nodes arrive in order over ~170 ms, no line before its node, all done in
+  360-372 ms; a click or key: done in the same frame; Calm: complete in the first frame. Video
+  `docs/design/video/stage3t/home_return.webm`. [`build/stage3u/`](build/stage3u/) (all passed): Accounts, Settings and
+  Performance at 1440 and 960 px, one banner and three (clicked 110 ms apart), arriving and leaving: the content edge
+  moves one way only, at most 4.5-12.5 px in any frame (Full), one step per banner in Calm. Video
+  `docs/design/video/stage3u/banners_unfold.webm`. [`build/stage3s/`](build/stage3s/) and
+  [`build/stage3q/`](build/stage3q/) re-run on the final build (all passed).

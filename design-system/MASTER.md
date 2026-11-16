@@ -244,7 +244,7 @@ risk-related animates in (kill/flat, account danger states, critical alerts appe
 | Canvas/WebGL backgrounds, grain, spotlight, border beams, tilt | on | off |
 | Number tickers | tween 400 ms | snap |
 | Flip-disk matrix | flips (0.6 s) | snaps at once; values keep updating |
-| Page transitions | the next page's data loaded first, then a 240 ms crossfade, filled; the shared footer glides 250 ms (owner 2026-11-16) | instant |
+| Page transitions | the next page's data loaded first; the leaving page fades out 200 ms where it is, the next rises in 320 ms (8 px) at its own top, filled, and plays its entrance; the shared footer glides 250 ms (owner 2026-11-16) | instant, no entrance |
 | GEX radial | 5–10 updates/s, nodes glide | 1 update/s, no motion |
 | Main chart | live updates (always) | live updates (always) |
 | Celebrations | confetti / sparkles | a static badge |

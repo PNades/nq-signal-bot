@@ -48,7 +48,7 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 80,
+          "frames": 79,
           "footMoves": 15,
           "footFrom": 1195,
           "footTo": 1669,
@@ -59,11 +59,11 @@
           "to": "mffub1",
           "bad": [],
           "frames": 81,
-          "footMoves": 15,
+          "footMoves": 16,
           "footFrom": 1669,
           "footTo": 1195,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         }
       ],
       "Drawdown": [
@@ -80,18 +80,18 @@
         {
           "to": "mffurf92",
           "bad": [],
-          "frames": 78,
+          "frames": 80,
           "footMoves": 0,
           "footFrom": 1410,
           "footTo": 1410,
           "hint": false,
-          "kpiTexts": 37
+          "kpiTexts": 38
         },
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 80,
-          "footMoves": 16,
+          "frames": 79,
+          "footMoves": 15,
           "footFrom": 1410,
           "footTo": 1926,
           "hint": false,
@@ -101,9 +101,9 @@
           "to": "mffur1",
           "bad": [],
           "frames": 81,
-          "footMoves": 15,
+          "footMoves": 16,
           "footFrom": 1926,
-          "footTo": 1440,
+          "footTo": 1410,
           "hint": false,
           "kpiTexts": 39
         },
@@ -112,7 +112,7 @@
           "bad": [],
           "frames": 80,
           "footMoves": 16,
-          "footFrom": 1440,
+          "footFrom": 1410,
           "footTo": 1926,
           "hint": false,
           "kpiTexts": 39
@@ -120,10 +120,10 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 16,
           "footFrom": 1926,
-          "footTo": 1440,
+          "footTo": 1410,
           "hint": false,
           "kpiTexts": 39
         }
@@ -142,7 +142,7 @@
         {
           "to": "mffurf92",
           "bad": [],
-          "frames": 79,
+          "frames": 80,
           "footMoves": 12,
           "footFrom": 1593,
           "footTo": 1621,
@@ -152,10 +152,10 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 80,
-          "footMoves": 16,
+          "frames": 79,
+          "footMoves": 15,
           "footFrom": 1621,
-          "footTo": 2137,
+          "footTo": 2099,
           "hint": false,
           "kpiTexts": 38
         },
@@ -164,18 +164,18 @@
           "bad": [],
           "frames": 81,
           "footMoves": 16,
-          "footFrom": 2137,
+          "footFrom": 2099,
           "footTo": 1593,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         },
         {
           "to": "All accounts",
           "bad": [],
           "frames": 79,
-          "footMoves": 16,
+          "footMoves": 15,
           "footFrom": 1593,
-          "footTo": 2109,
+          "footTo": 2108,
           "hint": false,
           "kpiTexts": 38
         },
@@ -183,11 +183,11 @@
           "to": "mffub1",
           "bad": [],
           "frames": 81,
-          "footMoves": 16,
-          "footFrom": 2109,
+          "footMoves": 15,
+          "footFrom": 2108,
           "footTo": 1593,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         }
       ],
       "Calendar": [
@@ -225,11 +225,11 @@
           "to": "mffur1",
           "bad": [],
           "frames": 81,
-          "footMoves": 16,
+          "footMoves": 15,
           "footFrom": 1913,
           "footTo": 1439,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         },
         {
           "to": "All accounts",
@@ -245,11 +245,11 @@
           "to": "mffub1",
           "bad": [],
           "frames": 81,
-          "footMoves": 16,
+          "footMoves": 15,
           "footFrom": 1913,
           "footTo": 1439,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         }
       ],
       "Trades": [
@@ -266,12 +266,12 @@
         {
           "to": "mffurf92",
           "bad": [],
-          "frames": 80,
+          "frames": 79,
           "footMoves": 15,
           "footFrom": 1053,
           "footTo": 1299,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         },
         {
           "to": "All accounts",
@@ -286,7 +286,7 @@
         {
           "to": "mffur1",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 17,
           "footFrom": 1773,
           "footTo": 929,
@@ -307,25 +307,25 @@
           "to": "mffub1",
           "bad": [],
           "frames": 81,
-          "footMoves": 17,
+          "footMoves": 16,
           "footFrom": 1773,
           "footTo": 1053,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         }
       ],
       "slow": [
         {
           "to": "All accounts",
           "bad": [],
-          "hintAt": 397,
-          "movedAt": 1130
+          "hintAt": 414,
+          "movedAt": 1132
         },
         {
           "to": "mffub1",
           "bad": [],
-          "hintAt": 373,
-          "movedAt": 1090
+          "hintAt": 387,
+          "movedAt": 1110
         }
       ],
       "quickWithHint": 0
@@ -370,7 +370,7 @@
           "footFrom": 2127,
           "footTo": 1653,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         },
         {
           "to": "All accounts",
@@ -397,7 +397,7 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 0,
           "footFrom": 1985,
           "footTo": 1985,
@@ -417,12 +417,12 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 80,
-          "footMoves": 16,
+          "frames": 79,
+          "footMoves": 15,
           "footFrom": 1985,
           "footTo": 2521,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         },
         {
           "to": "mffur1",
@@ -430,27 +430,27 @@
           "frames": 80,
           "footMoves": 15,
           "footFrom": 2521,
-          "footTo": 1998,
+          "footTo": 1993,
           "hint": false,
           "kpiTexts": 38
         },
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 80,
+          "frames": 79,
           "footMoves": 15,
-          "footFrom": 1998,
+          "footFrom": 1993,
           "footTo": 2521,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         },
         {
           "to": "mffub1",
           "bad": [],
           "frames": 80,
-          "footMoves": 16,
+          "footMoves": 15,
           "footFrom": 2521,
-          "footTo": 2028,
+          "footTo": 2031,
           "hint": false,
           "kpiTexts": 39
         }
@@ -470,21 +470,21 @@
           "to": "mffurf92",
           "bad": [],
           "frames": 80,
-          "footMoves": 12,
+          "footMoves": 13,
           "footFrom": 2195,
           "footTo": 2223,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         },
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 79,
+          "frames": 80,
           "footMoves": 16,
           "footFrom": 2223,
           "footTo": 2759,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 37
         },
         {
           "to": "mffur1",
@@ -504,17 +504,17 @@
           "footFrom": 2195,
           "footTo": 2731,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         },
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 79,
+          "frames": 80,
           "footMoves": 16,
           "footFrom": 2731,
           "footTo": 2195,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         }
       ],
       "Calendar": [
@@ -536,7 +536,7 @@
           "footFrom": 2001,
           "footTo": 1999,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         },
         {
           "to": "All accounts",
@@ -552,11 +552,11 @@
           "to": "mffur1",
           "bad": [],
           "frames": 80,
-          "footMoves": 15,
+          "footMoves": 16,
           "footFrom": 2475,
           "footTo": 2001,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         },
         {
           "to": "All accounts",
@@ -566,7 +566,7 @@
           "footFrom": 2001,
           "footTo": 2475,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         },
         {
           "to": "mffub1",
@@ -598,12 +598,12 @@
           "footFrom": 1581,
           "footTo": 1757,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         },
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 79,
+          "frames": 80,
           "footMoves": 15,
           "footFrom": 1757,
           "footTo": 2231,
@@ -614,21 +614,21 @@
           "to": "mffur1",
           "bad": [],
           "frames": 80,
-          "footMoves": 16,
+          "footMoves": 17,
           "footFrom": 2231,
           "footTo": 1417,
           "hint": false,
-          "kpiTexts": 38
+          "kpiTexts": 39
         },
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 79,
-          "footMoves": 17,
+          "frames": 80,
+          "footMoves": 18,
           "footFrom": 1417,
           "footTo": 2231,
           "hint": false,
-          "kpiTexts": 37
+          "kpiTexts": 38
         },
         {
           "to": "mffub1",
@@ -638,7 +638,7 @@
           "footFrom": 2231,
           "footTo": 1581,
           "hint": false,
-          "kpiTexts": 39
+          "kpiTexts": 38
         }
       ],
       "quickWithHint": 0
@@ -668,7 +668,7 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 1,
           "footFrom": 1195,
           "footTo": 1669,
@@ -698,7 +698,7 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 1669,
           "footTo": 1195,
@@ -710,7 +710,7 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 0,
           "footFrom": 1410,
           "footTo": 1410,
@@ -750,7 +750,7 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 1410,
           "footTo": 1926,
@@ -760,7 +760,7 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 1,
           "footFrom": 1926,
           "footTo": 1410,
@@ -792,7 +792,7 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 1621,
           "footTo": 2137,
@@ -802,7 +802,7 @@
         {
           "to": "mffur1",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 2137,
           "footTo": 1593,
@@ -854,7 +854,7 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 1437,
           "footTo": 1913,
@@ -864,7 +864,7 @@
         {
           "to": "mffur1",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 1,
           "footFrom": 1913,
           "footTo": 1439,
@@ -874,7 +874,7 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 1439,
           "footTo": 1913,
@@ -896,7 +896,7 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 0,
           "footFrom": 1053,
           "footTo": 1053,
@@ -936,7 +936,7 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 929,
           "footTo": 1773,
@@ -958,14 +958,14 @@
         {
           "to": "All accounts",
           "bad": [],
-          "hintAt": 349,
-          "movedAt": 1182
+          "hintAt": 354,
+          "movedAt": 1121
         },
         {
           "to": "mffub1",
           "bad": [],
-          "hintAt": 357,
-          "movedAt": 1094
+          "hintAt": 369,
+          "movedAt": 1087
         }
       ],
       "quickWithHint": 0
@@ -975,7 +975,7 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 0,
           "footFrom": 1653,
           "footTo": 1653,
@@ -985,7 +985,7 @@
         {
           "to": "mffurf92",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 0,
           "footFrom": 1653,
           "footTo": 1653,
@@ -1005,7 +1005,7 @@
         {
           "to": "mffur1",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 1,
           "footFrom": 2127,
           "footTo": 1653,
@@ -1025,7 +1025,7 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 2127,
           "footTo": 1653,
@@ -1047,7 +1047,7 @@
         {
           "to": "mffurf92",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 0,
           "footFrom": 1985,
           "footTo": 1985,
@@ -1067,7 +1067,7 @@
         {
           "to": "mffur1",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 2521,
           "footTo": 1985,
@@ -1087,7 +1087,7 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 2521,
           "footTo": 1985,
@@ -1099,7 +1099,7 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 0,
           "footFrom": 2195,
           "footTo": 2195,
@@ -1109,7 +1109,7 @@
         {
           "to": "mffurf92",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 2195,
           "footTo": 2223,
@@ -1191,7 +1191,7 @@
         {
           "to": "mffur1",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 2475,
           "footTo": 2001,
@@ -1201,7 +1201,7 @@
         {
           "to": "All accounts",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 1,
           "footFrom": 2001,
           "footTo": 2475,
@@ -1211,7 +1211,7 @@
         {
           "to": "mffub1",
           "bad": [],
-          "frames": 81,
+          "frames": 80,
           "footMoves": 1,
           "footFrom": 2475,
           "footTo": 2001,
@@ -1233,7 +1233,7 @@
         {
           "to": "mffurf92",
           "bad": [],
-          "frames": 80,
+          "frames": 81,
           "footMoves": 1,
           "footFrom": 1581,
           "footTo": 1757,

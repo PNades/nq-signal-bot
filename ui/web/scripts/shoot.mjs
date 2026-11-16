@@ -2972,40 +2972,61 @@ S["3r"] = async () => {
 // line only past ~300 ms; Calm: an instant swap. Frame by frame, every page switch, 1440 and 960, Full and Calm.
 S["3s"] = async () => {
   const { menuPick } = helpers3f;
+  // owner 2026-11-16 (second round): the leaving page never moves (it fades out where it is, its scroll untouched), the
+  // next page opens at its own top; each page's entrance plays when it is revealed (Performance's numbers roll in, its
+  // cards stagger), never on a switch inside the page; Calm: no entrance
   const sample = (page, ms) => page.evaluate((ms) => new Promise((done) => {
     const out = []; const t0 = performance.now();
-    const op = (el) => { let o = 1; for (let e = el; e && e !== document.body; e = e.parentElement) o *= parseFloat(getComputedStyle(e).opacity || "1"); return Math.round(o * 100) / 100; };
+    // what is seen: the opacities down the tree, 0 for anything hidden
+    const op = (el) => { if (getComputedStyle(el).visibility === "hidden") return 0; let o = 1; for (let e = el; e && e !== document.body; e = e.parentElement) o *= parseFloat(getComputedStyle(e).opacity || "1"); return Math.round(o * 100) / 100; };
     const main = document.getElementById("cf-main");
     const step = () => {
-      const views = [...document.querySelectorAll("[data-view]")].map((v) => ({ id: v.getAttribute("data-view"), o: op(v) }));
+      const mainTop = main.getBoundingClientRect().top;
+      const views = [...document.querySelectorAll("[data-view]")].map((v) => {
+        const sh = v.querySelector(":scope > [data-shift]") ?? v;
+        return { id: v.getAttribute("data-view"), o: op(v), top: Math.round((sh.getBoundingClientRect().top - mainTop) * 10) / 10 };
+      });
       const holes = [...document.querySelectorAll(".cf-skeleton, .animate-pulse")].filter((e) => { const r = e.getBoundingClientRect(); return r.height > 20 && r.bottom > 0 && r.top < innerHeight && op(e) > 0.05; }).length;
       const cards = {};
       for (const el of document.querySelectorAll("[data-view] [data-kpi], [data-view] [data-account-card], [data-view] [data-breakdown], [data-view] section[id^='set-'], [data-view] form, [data-view] [data-field]")) {
         const v = el.closest("[data-view]")?.getAttribute("data-view") ?? "home";
-        const key = `${v}|${el.getAttribute("data-kpi") ?? el.getAttribute("data-account-card") ?? el.getAttribute("data-home-card") ?? el.getAttribute("data-field") ?? el.id ?? el.tagName}`;
+        const key = `${v}|${el.getAttribute("data-kpi") ?? el.getAttribute("data-account-card") ?? el.getAttribute("data-field") ?? el.id ?? el.tagName}`;
         const vals = [...el.querySelectorAll("input")].map((i) => i.value).join("|");
         cards[key] = (el.textContent ?? "").replace(/\s+/g, " ").slice(0, 300) + "#" + vals;
       }
       const foot = document.querySelector("[data-page-footer]");
-      out.push({ t: Math.round(performance.now() - t0), views, holes, cards, path: location.pathname,
-        foot: foot ? { y: Math.round(foot.getBoundingClientRect().top + (main?.scrollTop ?? 0)), o: op(foot), kept: foot.__cfTag === "kept" } : null,
+      const kpi = document.querySelector("[data-view='performance'] [data-kpi='Net P&L']");
+      out.push({ t: Math.round(performance.now() - t0), views, holes, cards, path: location.pathname, scroll: Math.round(main.scrollTop),
+        foot: foot ? { y: Math.round(foot.getBoundingClientRect().top), o: op(foot), kept: foot.__cfTag === "kept" } : null,
+        kpi: kpi ? { text: (kpi.textContent ?? "").replace(/\s+/g, " ").slice(0, 60), o: op(kpi) } : null,
         list: !!document.querySelector("[data-view] [data-account-card]"), hint: !!document.querySelector("[data-nav-loading][data-busy='true']") });
       if (performance.now() - t0 < ms) requestAnimationFrame(step); else done(out);
     };
     step();
   }), ms);
+  // a card's text with its digits (and thousands commas) taken out: a number rolling in keeps it, a card going from
+  // empty or "—" to its content does not
+  const shape = (t) => t.replace(/[0-9,.+\-−]/g, "");
   const judge = (s, from, to, calm) => {
     const bad = [];
     if (s.some((f) => f.holes)) bad.push(`placeholder on screen (${s.filter((f) => f.holes).length} frames)`);
     // no blank frame: the old page and the new one together are always fully there
     const low = s.filter((f) => f.views.reduce((a, v) => a + v.o, 0) < 0.6);
     if (low.length) bad.push(`blank frames ${low.length}`);
-    // every card of the arriving page shows its final content from its first frame
+    // every card of the arriving page is filled from its first frame (numbers may roll in)
     const fin = s[s.length - 1].cards;
     const late = new Set();
-    for (const f of s) for (const [k, v] of Object.entries(f.cards)) if (k.startsWith(`${to}|`) && fin[k] !== undefined && v !== fin[k]) late.add(k.split("|")[1]);
+    for (const f of s) for (const [k, v] of Object.entries(f.cards)) if (k.startsWith(`${to}|`) && fin[k] !== undefined && shape(v) !== shape(fin[k])) late.add(k.split("|")[1]);
     if (late.size) bad.push(`cards filling in: ${[...late].slice(0, 4).join(", ")}`);
-    // the footer: between scrolling pages the same one glides (never fades, never jumps); to or from Home it fades
+    // the leaving page never moves on screen while it is there
+    const leaving = s.map((f) => f.views.find((v) => v.id === from)).filter((v) => v && v.o > 0.02);
+    const moved = leaving.filter((v) => Math.abs(v.top - leaving[0].top) > 1);
+    if (moved.length) bad.push(`the leaving page moved (${leaving[0].top} → ${moved[0].top})`);
+    // the next page opens at its own top (only its 8-px rise in Full)
+    const coming = s.map((f) => f.views.find((v) => v.id === to)).filter(Boolean);
+    const off = coming.filter((v) => v.top < -1 || v.top > (calm ? 1 : 9));
+    if (off.length) bad.push(`the next page not at its top (${off[0].top})`);
+    // the footer as seen: between scrolling pages the same one glides (never back, never most of a move at once)
     const fs = s.map((f) => f.foot);
     if (from !== "home" && to !== "home") {
       if (fs.some((f) => !f || !f.kept || f.o < 0.95)) bad.push("footer replaced or faded");
@@ -3016,11 +3037,17 @@ S["3s"] = async () => {
       if (!calm && Math.abs(total) > 40 && Math.max(...steps.map(Math.abs)) > Math.max(24, 0.45 * Math.abs(total))) bad.push(`footer jumps ${Math.max(...steps.map(Math.abs))} of ${total}`);
       if (calm && steps.length > 1) bad.push(`footer moves over ${steps.length} frames in Calm`);
     } else if (!calm) {
-      // the footer fades with its page (frames come slowly on a loaded PC, so the fade must show in-between frames
-      // rather than one small step each)
       const os = fs.map((f) => (f ? f.o : 0));
       const mid = os.filter((o) => o > 0.08 && o < 0.92).length;
       if (os[0] !== os[os.length - 1] && mid < 2) bad.push(`footer pops (${mid} in-between frames)`);
+    }
+    // the entrance: Performance's numbers roll in and its cards fade in after the reveal (Full); nothing in Calm
+    if (to === "performance") {
+      const ks = s.map((f) => f.kpi).filter(Boolean);
+      const texts = new Set(ks.map((k) => k.text));
+      const faded = ks.some((k) => k.o < 0.5);
+      if (!calm && (texts.size < 3 || !faded)) bad.push(`no entrance (${texts.size} values, faded ${faded})`);
+      if (calm && (texts.size > 1 || ks.some((k) => k.o < 0.99))) bad.push(`an entrance in Calm (${texts.size} values)`);
     }
     return bad;
   };
@@ -3036,10 +3063,14 @@ S["3s"] = async () => {
       const name = `pages_${label}_${w}`;
       const { ctx, page } = await open(name, w, h, "/", { reducedMotion: reduced });
       await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "all"));
-      await page.reload(); await page.waitForTimeout(2600);
+      // the session's first-open intro (Full): skipped with a key, so the nodes are there to click
+      await page.reload(); await page.waitForTimeout(900); await page.keyboard.press("x"); await page.waitForTimeout(800);
       const c = (checks[name] = { switches: [] });
       for (const [from, to] of ROUTE) {
         await page.mouse.move(5, 300); await page.waitForTimeout(150);
+        // the leaving page is scrolled down first (where it can be): it must fade out exactly there
+        await page.evaluate(() => { const m = document.getElementById("cf-main"); m.scrollTop = Math.min(420, m.scrollHeight - m.clientHeight); });
+        await page.waitForTimeout(200);
         await page.evaluate(() => { const f = document.querySelector("[data-page-footer]"); if (f) f.__cfTag = "kept"; });
         const run = sample(page, 2000);
         const t0 = Date.now();
@@ -3112,7 +3143,7 @@ S["3s"] = async () => {
   const vp = await vctx.newPage();
   await vp.goto(BASE + "/");
   await vp.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); localStorage.setItem("creamflow.focusAccount", "all"); } catch {} });
-  await vp.reload(); await vp.waitForTimeout(2400);
+  await vp.reload(); await vp.waitForTimeout(900); await vp.keyboard.press("x"); await vp.waitForTimeout(900);
   // hover first (as a person does): the page's data is loading while the pointer rests on the icon, so the switch is quick
   const hovered = [];
   for (const [from, to] of ROUTE.slice(0, 9)) {
@@ -3142,6 +3173,231 @@ S["3s"] = async () => {
   const video = vp.video();
   await vctx.close();
   fs.renameSync(await video.path(), path.join(VID, "page_changes.webm"));
+};
+
+// owner 2026-11-16: returning to Home (after the session's first-open intro) plays a short return entrance (~450 ms): the
+// wordmark fades in from 0.98 scale, the nodes fade in 40 ms apart, each line draws out as its node arrives; the leaving
+// page fades out where it is; a click or a key finishes it at once; Calm: instant.
+S["3t"] = async () => {
+  const ORDER = ["live", "review", "performance", "settings", "accounts", "gameplan"];
+  const sample = (page, ms) => page.evaluate((ms) => new Promise((done) => {
+    const out = []; const t0 = performance.now();
+    window.__sampleT0 = t0; window.__skipAt = null;
+    const mark = () => { if (window.__skipAt === null) window.__skipAt = performance.now(); };
+    window.__markSkip = mark;
+    const op = (el) => { if (!el || getComputedStyle(el).visibility === "hidden") return 0; let o = 1; for (let e = el; e && e !== document.body; e = e.parentElement) o *= parseFloat(getComputedStyle(e).opacity || "1"); return Math.round(o * 1000) / 1000; };
+    const main = document.getElementById("cf-main");
+    const step = () => {
+      const mainTop = main.getBoundingClientRect().top;
+      const views = [...document.querySelectorAll("[data-view]")].map((v) => {
+        const sh = v.querySelector(":scope > [data-shift]") ?? v;
+        return { id: v.getAttribute("data-view"), o: op(v), top: Math.round((sh.getBoundingClientRect().top - mainTop) * 10) / 10 };
+      });
+      const word = document.querySelector("[data-home-word]");
+      const wordScale = word ? new DOMMatrix(getComputedStyle(word).transform === "none" ? undefined : getComputedStyle(word).transform).a : null;
+      const nodes = {}, lines = {};
+      for (const n of document.querySelectorAll("[data-home-node]")) { const b = n.querySelector("button"); nodes[n.getAttribute("data-home-node")] = b ? Math.round(parseFloat(getComputedStyle(b).opacity) * 100) / 100 : 0; }
+      for (const g of document.querySelectorAll("[data-line]")) {
+        const pth = g.querySelector("path");
+        const dash = pth ? (pth.getAttribute("stroke-dasharray") ?? getComputedStyle(pth).strokeDasharray ?? "") : "";
+        const drawn = /^\s*([\d.]+)/.exec(dash.replace(/px/g, ""));
+        lines[g.getAttribute("data-line")] = pth && parseFloat(getComputedStyle(pth).opacity) > 0.01 ? (drawn ? Math.round(parseFloat(drawn[1]) * 100) / 100 : 1) : 0;
+      }
+      out.push({ t: Math.round(performance.now() - t0), views, word: word ? { o: Math.round(parseFloat(getComputedStyle(word).opacity) * 1000) / 1000, s: Math.round(wordScale * 1000) / 1000 } : null, nodes, lines });
+      if (performance.now() - t0 < ms) requestAnimationFrame(step); else done(out);
+    };
+    step();
+  }), ms);
+  // the return entrance from the frame Home is first there
+  const judge = (s, from, calm, skipAt = null) => {
+    const bad = [];
+    const low = s.filter((f) => f.views.reduce((a, v) => a + v.o, 0) < 0.6);
+    if (low.length) bad.push(`blank frames ${low.length}`);
+    const leaving = s.map((f) => f.views.find((v) => v.id === from)).filter((v) => v && v.o > 0.02);
+    if (leaving.some((v) => Math.abs(v.top - leaving[0].top) > 1)) bad.push("the leaving page moved");
+    const i0 = s.findIndex((f) => f.views.some((v) => v.id === "home") && f.word);
+    if (i0 < 0) return [...bad, "Home never came"];
+    const hs = s.slice(i0), t0 = hs[0].t;
+    if (hs.some((f) => Math.abs(f.views.find((v) => v.id === "home")?.top ?? 0) > 1)) bad.push("Home not at its top");
+    const done = (f) => f.word.o >= 0.99 && f.word.s >= 0.995 && ORDER.every((n) => f.nodes[n] >= 0.99 && f.lines[n] >= 0.99);
+    const di = hs.findIndex(done);
+    const res = { doneMs: di < 0 ? null : hs[di].t - t0 };
+    if (calm) {
+      if (di !== 0) {
+        const f = hs[0];
+        const miss = [f.word.o < 0.99 || f.word.s < 0.995 ? "wordmark" : null, ...ORDER.filter((n) => f.nodes[n] < 0.99).map((n) => `node ${n}`), ...ORDER.filter((n) => f.lines[n] < 0.99).map((n) => `line ${n}`)].filter(Boolean);
+        bad.push(`Calm not instant (done at frame ${di}; first frame missing ${miss.join(", ")})`);
+      }
+      return { bad, res };
+    }
+    if (skipAt !== null) {
+      const after = hs.filter((f) => f.t >= skipAt);
+      const k = after.findIndex(done);
+      res.afterSkipFrames = k;
+      if (k < 0 || k > 2) bad.push(`a click or key didn't finish it (${k} frames)`);
+      return { bad, res };
+    }
+    if (di < 0) bad.push("never finished");
+    else if (res.doneMs > 650) bad.push(`took ${res.doneMs} ms`);
+    // the wordmark: faint and slightly small at first, growing to 1 without going back
+    const w0 = hs[0].word;
+    if (!(w0.o < 0.5 && w0.s < 0.995 && w0.s >= 0.975)) bad.push(`wordmark start ${JSON.stringify(w0)}`);
+    const ws = hs.map((f) => f.word.s), wo = hs.map((f) => f.word.o);
+    if (ws.some((v, i) => i && v < ws[i - 1] - 0.0005) || wo.some((v, i) => i && v < wo[i - 1] - 0.005)) bad.push("wordmark goes back");
+    // the nodes in order, ~40 ms apart; each line starts drawing only once its node shows
+    const at = Object.fromEntries(ORDER.map((n) => [n, hs.find((f) => f.nodes[n] > 0.05)?.t ?? null]));
+    const lineAt = Object.fromEntries(ORDER.map((n) => [n, hs.find((f) => f.lines[n] > 0.05)?.t ?? null]));
+    res.nodeAt = Object.fromEntries(ORDER.map((n) => [n, at[n] === null ? null : at[n] - t0]));
+    res.lineAt = Object.fromEntries(ORDER.map((n) => [n, lineAt[n] === null ? null : lineAt[n] - t0]));
+    if (ORDER.some((n, i) => at[n] === null || (i && at[n] < at[ORDER[i - 1]]))) bad.push(`nodes out of order ${JSON.stringify(res.nodeAt)}`);
+    const spread = at[ORDER[5]] - at[ORDER[0]];
+    if (!(spread >= 120 && spread <= 420)) bad.push(`stagger spread ${spread} ms`);
+    if (ORDER.some((n) => lineAt[n] === null || lineAt[n] < at[n] - 20)) bad.push(`a line before its node ${JSON.stringify(res.lineAt)}`);
+    return { bad, res };
+  };
+  for (const [label, reduced] of [["full", "no-preference"], ["calm", "reduce"]]) {
+    for (const [w, h] of [[1440, 900], [960, 800]]) {
+      const name = `home_return_${label}_${w}`;
+      const { ctx, page } = await open(name, w, h, "/", { reducedMotion: reduced });
+      await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "all"));
+      // the session's first-open intro (Full): skipped with a key, so the nodes are there to click
+      await page.reload(); await page.waitForTimeout(900); await page.keyboard.press("x"); await page.waitForTimeout(700);
+      const c = (checks[name] = {});
+      for (const [from, how] of [["accounts", "plain"], ["settings", "plain"], ["performance", "plain"], ["accounts", "click"], ["settings", "key"]]) {
+        await page.locator(`[data-home-node='${from}'] button`).first().click(); await page.waitForTimeout(1600);
+        await page.mouse.move(5, 300);
+        await page.evaluate(() => { const m = document.getElementById("cf-main"); m.scrollTop = Math.min(420, m.scrollHeight - m.clientHeight); });
+        await page.waitForTimeout(250);
+        const run = sample(page, 1100);
+        const tClick = await page.evaluate(() => performance.now());
+        await page.locator("[data-dock-item='home']").first().click();
+        if (how !== "plain" && label === "full") {
+          await page.waitForFunction(() => !!document.querySelector("[data-home-word]"));
+          await page.waitForTimeout(90);
+          // the moment the click or key reaches the page (capture phase, before the panel's own handlers)
+          await page.evaluate(() => { addEventListener("pointerdown", () => window.__markSkip(), { capture: true, once: true }); addEventListener("keydown", () => window.__markSkip(), { capture: true, once: true }); });
+          if (how === "click") await page.mouse.click(Math.round(w * 0.3), Math.round(h * 0.55));
+          else await page.keyboard.press("x");
+        }
+        const s = await run;
+        const skipRel = await page.evaluate(() => (window.__skipAt === null ? null : window.__skipAt - window.__sampleT0));
+        void tClick;
+        const { bad, res } = judge(s, from, label === "calm", how !== "plain" && label === "full" ? skipRel : null);
+        c[`${from}_${how}`] = { bad, ...res };
+        if (bad.length) problems.push(`${name} ${from} → home (${how}): ${bad.join("; ")}`);
+        if (w === 1440 && label === "full" && how === "plain" && from === "performance") {
+          // mid-entrance and settled frames for the record
+          await page.locator(`[data-home-node='settings'] button`).first().click(); await page.waitForTimeout(1600);
+          await page.locator("[data-dock-item='home']").first().click();
+          await page.waitForFunction(() => !!document.querySelector("[data-home-word]")); await page.waitForTimeout(150);
+          await page.screenshot({ path: path.join(OUT, `home_return_mid_${w}.png`) });
+          await page.waitForTimeout(900);
+          await page.screenshot({ path: path.join(OUT, `home_return_settled_${w}.png`) });
+        }
+        await page.waitForTimeout(500);
+      }
+      await ctx.close();
+    }
+  }
+  // the video: back to Home from three pages (each scrolled), at 1440 (Full)
+  const VID = path.resolve(here, "../../../docs/design/video/stage3t");
+  fs.mkdirSync(VID, { recursive: true });
+  const vctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", recordVideo: { dir: VID, size: { width: 1440, height: 900 } } });
+  const vp = await vctx.newPage();
+  await vp.goto(BASE + "/");
+  await vp.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); localStorage.setItem("creamflow.focusAccount", "all"); } catch {} });
+  await vp.reload(); await vp.waitForTimeout(3400);
+  for (const from of ["accounts", "settings", "performance"]) {
+    await vp.locator(`[data-home-node='${from}'] button`).first().click(); await vp.waitForTimeout(1400);
+    await vp.evaluate(() => { const m = document.getElementById("cf-main"); m.scrollTo({ top: Math.min(420, m.scrollHeight - m.clientHeight), behavior: "smooth" }); });
+    await vp.waitForTimeout(900);
+    await vp.locator("[data-dock-item='home']").first().hover(); await vp.waitForTimeout(300);
+    await vp.locator("[data-dock-item='home']").first().click(); await vp.mouse.move(1300, 880); await vp.waitForTimeout(1500);
+  }
+  const video = vp.video();
+  await vctx.close();
+  fs.renameSync(await video.path(), path.join(VID, "home_return.webm"));
+};
+
+// owner 2026-11-16: a banner arriving off Home unfolds its height on the 270-ms curve (like Home and like leaving), so
+// the page below glides down in step, stacked banners included; frame by frame on Accounts, Settings and Performance,
+// arriving and leaving, one and three: no frame where the page jumps. Calm: one step.
+S["3u"] = async () => {
+  // where the page's content is on screen (the content area's top edge moves with the banners above it)
+  const sample = (page, ms) => page.evaluate((ms) => new Promise((done) => {
+    const out = []; const t0 = performance.now();
+    const step = () => {
+      const m = document.getElementById("cf-main");
+      out.push({ t: Math.round(performance.now() - t0), y: Math.round(m.getBoundingClientRect().top * 10) / 10, n: document.querySelectorAll("[data-banner]").length });
+      if (performance.now() - t0 < ms) requestAnimationFrame(step); else done(out);
+    };
+    step();
+  }), ms);
+  // Calm: each banner in one step (three banners clicked apart are three steps)
+  const judge = (s, calm, n = 1) => {
+    const ys = s.map((f) => f.y);
+    const steps = ys.slice(1).map((y, i) => y - ys[i]).filter((d) => Math.abs(d) > 0.5);
+    const total = ys[ys.length - 1] - ys[0];
+    const big = Math.max(0, ...steps.map(Math.abs));
+    const bad = [];
+    if (Math.abs(total) < 20) bad.push(`the page didn't move (${total})`);
+    if (steps.some((d) => Math.sign(d) !== Math.sign(total))) bad.push(`goes back (${steps.join(",")})`);
+    if (calm) { if (steps.length > n) bad.push(`Calm over ${steps.length} frames for ${n} banner(s)`); }
+    else if (big > Math.max(24, 0.45 * Math.abs(total))) bad.push(`jumps ${big} of ${total}`);
+    return { bad, total: Math.round(total), frames: steps.length, biggest: Math.round(big * 10) / 10 };
+  };
+  const gotIt = (page) => page.locator("[data-banner] button", { hasText: /^Got it$/ });
+  for (const [label, reduced] of [["full", "no-preference"], ["calm", "reduce"]]) {
+    for (const [w, h] of [[1440, 900], [960, 800]]) {
+      for (const pg of ["accounts", "settings", "performance"]) {
+        const name = `banners_${label}_${pg}_${w}`;
+        const { ctx, page } = await open(name, w, h, `/${pg}`, { reducedMotion: reduced });
+        await page.reload(); await page.waitForTimeout(2200);
+        const c = (checks[name] = {});
+        for (const n of [1, 3]) {
+          // arriving: n banners (FLAT ALL with no engine: "nothing was sent"), the next while the last still unfolds
+          const run = sample(page, n === 1 ? 700 : 1100);
+          for (let i = 0; i < n; i++) { await page.locator("[data-flat-all]").click(); if (i < n - 1) await page.waitForTimeout(110); }
+          const a = judge(await run, label === "calm", n);
+          a.banners = await page.locator("[data-banner]").count();
+          if (a.banners < n) a.bad.push(`only ${a.banners} banners`);
+          c[`arrive_${n}`] = a;
+          if (a.bad.length) problems.push(`${name} ${n} arriving: ${a.bad.join("; ")}`);
+          if (w === 1440 && label === "full" && n === 3) await page.screenshot({ path: path.join(OUT, `${pg}_three_banners_${w}.png`), clip: { x: 0, y: 0, width: w, height: 420 } });
+          await page.waitForTimeout(300);
+          // leaving: Got it on each, the next while the last still folds
+          // each banner by its id (a leaving banner stays in place while it folds, so "first" would be the same one)
+          const ids = (await page.locator("[data-banner-id]").evaluateAll((els) => els.map((e) => e.getAttribute("data-banner-id")))).slice(0, n);
+          const run2 = sample(page, n === 1 ? 900 : 1300);
+          for (let i = 0; i < n; i++) { await page.locator(`[data-banner-id="${ids[i]}"] button`, { hasText: /^Got it$/ }).click(); if (i < n - 1) await page.waitForTimeout(110); }
+          const l = judge(await run2, label === "calm", n);
+          c[`leave_${n}`] = l;
+          if (l.bad.length) problems.push(`${name} ${n} leaving: ${l.bad.join("; ")}`);
+          await page.waitForTimeout(400);
+        }
+        await ctx.close();
+      }
+    }
+  }
+  // the video: Performance, one banner then three, arriving and leaving, at 1440 (Full)
+  const VID = path.resolve(here, "../../../docs/design/video/stage3u");
+  fs.mkdirSync(VID, { recursive: true });
+  const vctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", recordVideo: { dir: VID, size: { width: 1440, height: 900 } } });
+  const vp = await vctx.newPage();
+  await vp.route("**/*", (r) => r.continue());
+  await vp.goto(BASE + "/performance");
+  await vp.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); } catch {} });
+  await vp.reload(); await vp.waitForTimeout(2200);
+  for (const n of [1, 3]) {
+    for (let i = 0; i < n; i++) { await vp.locator("[data-flat-all]").click(); await vp.waitForTimeout(n === 1 ? 0 : 140); }
+    await vp.mouse.move(700, 600); await vp.waitForTimeout(1200);
+    const vids = (await vp.locator("[data-banner-id]").evaluateAll((els) => els.map((e) => e.getAttribute("data-banner-id")))).slice(0, n);
+    for (const id of vids) { await vp.locator(`[data-banner-id="${id}"] button`, { hasText: /^Got it$/ }).click(); await vp.waitForTimeout(n === 1 ? 0 : 160); }
+    await vp.mouse.move(700, 600); await vp.waitForTimeout(1200);
+  }
+  const video = vp.video();
+  await vctx.close();
+  fs.renameSync(await video.path(), path.join(VID, "banners_unfold.webm"));
 };
 
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();

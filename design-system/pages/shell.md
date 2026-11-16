@@ -41,7 +41,9 @@
 - **Ticker tape** (28 px, under the top bar): the day's key levels and their state, marquee in Full, a static
   scrollable row in Calm; paused on hover.
 - **Critical banner** slot under the ticker: crit alerts stay until acknowledged, stacked, newest first.
-- **Banners (owner 2026-11-15):** info banners slide down with a short fade (220 ms) and fade out after ~5 s, the
+- **Banners (owner 2026-11-15; arrival changed 2026-11-16):** info and warning banners unfold their height on the
+  270-ms glide curve with a short fade (on every page, as on Home and as when they leave), so the page below glides down
+  with them, stacked banners included; info banners fade out after ~5 s, the
   countdown paused while the pointer is over them, "Got it" closes at once; warnings and critical alerts never fade by
   themselves; critical ones appear at once without motion (MASTER §7). Calm: no motion.
 - **Bell (owner 2026-11-15):** in the top bar before KILL; the history of every banner and toast shown in this tab
@@ -71,8 +73,10 @@ kill/flat actions are listed but still ask their normal confirm), `F` full-scree
 ## Page transitions
 Owner 2026-11-16 (SPEC §13 Q-pages; replaces the fade-out-then-rise): the current page stays until the next page's data
 is loaded (`lib/nav.ts` preloads it, also on hovering a dock icon, a Home node or a link marked `data-preload`), then the
-two crossfade (240 ms, both on screen, never a blank gap) and the next page arrives filled: no placeholders, no
-roll-up or draw-in on arrival. The scrolling pages share one footer (`PagesFrame`), whose position glides with the page
+two crossfade (the leaving page fades out in 200 ms exactly where it is, its scroll untouched; the next page opens at
+its own top and rises in over 320 ms, never a blank gap) and the next page arrives filled, no placeholders, then plays
+its entrance as it is revealed (Performance: numbers roll in, cards stagger, the equity curve draws in); a switch inside
+a page doesn't replay it. The scrolling pages share one footer (`PagesFrame`), whose position glides with the page
 height (the tab switch's 250-ms glide, frame-driven). A change slower than ~300 ms shows a thin progress line under the
 top bar (`BusyBar`). Calm: an instant swap. The top bar, dock and kill/flat control never take part in a transition.
 
