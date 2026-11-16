@@ -1,0 +1,107 @@
+{
+  "stage": "3r",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "accounts_1440": {
+      "layout": {
+        "toggle": false,
+        "cards": [
+          "mffur1",
+          "mffub1",
+          "mffur2"
+        ],
+        "gap": 25,
+        "addInHeader": true,
+        "addRight": 0,
+        "count": "Each account's firm rules, caps and risk, saved on the SSD."
+      }
+    },
+    "accounts_960": {
+      "layout": {
+        "toggle": false,
+        "cards": [
+          "mffur1",
+          "mffub1",
+          "mffur2"
+        ],
+        "gap": 25,
+        "addInHeader": true,
+        "addRight": 0,
+        "count": "Each account's firm rules, caps and risk, saved on the SSD."
+      }
+    },
+    "breakdown_edit_1440": {
+      "edit": [
+        "mffub1",
+        "mffur1",
+        "mffur2"
+      ],
+      "noEdit": [
+        "mffur91",
+        "mffur92",
+        "lucid91",
+        "lucidf91",
+        "mffurf92",
+        "mffub91"
+      ],
+      "overflow": false,
+      "editVisible": true,
+      "url": "/accounts/mffur1",
+      "back": "Performance",
+      "backUrl": "/performance"
+    },
+    "breakdown_edit_960": {
+      "edit": [
+        "mffub1",
+        "mffur1",
+        "mffur2"
+      ],
+      "noEdit": [
+        "mffur91",
+        "mffur92",
+        "lucid91",
+        "lucidf91",
+        "mffurf92",
+        "mffub91"
+      ],
+      "overflow": true,
+      "editVisible": true
+    },
+    "unarchive_1440": {
+      "edit": [
+        "mffur91",
+        "mffur92",
+        "lucid91",
+        "lucidf91",
+        "mffurf92",
+        "mffub91",
+        "mffur3",
+        "mffub1",
+        "mffur4",
+        "mffur6",
+        "mffur5",
+        "mffur1"
+      ],
+      "url": "/accounts/mffur91",
+      "statusBefore": "Failed",
+      "afterSave": "/performance",
+      "layout": {
+        "toggle": false,
+        "cards": [
+          "mffur1",
+          "mffub1",
+          "mffur91",
+          "mffur3",
+          "mffur4",
+          "mffur5",
+          "mffur6"
+        ],
+        "gap": 25,
+        "addInHeader": true,
+        "addRight": 1078,
+        "count": "Each account's firm rules, caps and risk, saved on the SSD."
+      }
+    }
+  }
+}

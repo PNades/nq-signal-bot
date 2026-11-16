@@ -437,3 +437,19 @@ The code does both. The page uses (a) until you decide.
   place), Calm in exactly one frame. Each tab's first step is a no-op (mffub1 is already shown).
   With answers held 900 ms on purpose, the old page stays, the line shows at 355–413 ms and the page changes in one step
   at ~1.1–1.2 s; quick switches showed it once in 120 (the PC is loaded by 13c).
+
+### Accounts page: active accounts only; past accounts from Performance (owner 2026-11-16)
+- The "Show archived" toggle is gone: the Accounts page lists active accounts only, the cards right under the title block
+  (the page's 24 px gap, as before the toggle) and Add account to its right; the count line says how many are archived
+  and where they are ("on Performance, All accounts").
+- Each row of the "All accounts" breakdown ends with a small Edit action (pinned to the right edge, so it stays in view
+  when the table scrolls sideways at 960 px) that opens the account in the editor, archived ones included; the editor's
+  back button reads "Performance" and returns there, also after a save. Setting the status back to Active brings an
+  account archived by mistake back onto the Accounts page. The synthetic stand-ins (not in the accounts file) show
+  "synthetic" instead of Edit (`editable` in the account briefs).
+- **Evidence:** [`build/stage3r/`](build/stage3r/) ([`checks.json`](build/stage3r/checks.json), all passed): the Accounts
+  page at 1440 and 960 px (no toggle, 24 px from the title block to the cards, Add account inside the title block's row
+  at its right edge), the breakdown's Edit column at both widths, Edit → the editor → back to Performance; on the
+  scratch panel (127.0.0.1:8734, its own accounts file with the finished accounts; removed after) Edit on mffur91
+  (failed) → status Active → Save → back on Performance, and the Accounts page lists mffur91 again.
+- The editor's separate "Active" switch (whether an account trades) is unchanged: un-archiving sets the status only.

@@ -14,7 +14,7 @@ export interface Run {
   locked_at: number | null; breach_at: number | null; closest_at: number | null;
 }
 export interface Monthly { month: string; net_usd: number; net_r: number; trades: number; r_per_trade: number | null; win_rate: number | null; profit_factor: number | null; max_dd_usd: number }
-export interface AccountBrief { name: string; kind: string | null; phase: string | null; demo: boolean; draft: boolean; rule: string | null; status?: string; archived?: boolean }
+export interface AccountBrief { name: string; kind: string | null; phase: string | null; demo: boolean; draft: boolean; rule: string | null; status?: string; archived?: boolean; editable?: boolean }
 // "All accounts" in a real-trades phase (owner 2026-11-16; src/nqbot/performance/view.py breakdown)
 export interface BreakdownRow {
   account: string; firm: string | null; plan: string | null; stage: string | null; status: string; archived: boolean; demo: boolean;

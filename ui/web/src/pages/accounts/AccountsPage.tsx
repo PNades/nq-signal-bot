@@ -9,7 +9,6 @@ import { getJson, ApiError } from "@/lib/api";
 import { FooterPage, PageHeader, Skeleton } from "@/shell/page";
 import { pageById } from "@/shell/pages";
 import { btn } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/form-controls";
 import { AccountCard } from "./AccountCard";
 import { AccountForm } from "./AccountForm";
 import type { AccountsData } from "./types";
@@ -44,8 +43,6 @@ function Swap({ k, dir, children }: { k: string; dir: number; children: ReactNod
 
 export function AccountsPage() {
   const [data, setData] = useState<AccountsData | null>(null);
-  // finished accounts (passed, failed, closed) are archived: hidden here unless asked for (owner 2026-11-16)
-  const [showArchived, setShowArchived] = useState(false);
   // "Add its funded account" from a passed evaluation: the new account starts from the plan's funded preset
   const [newPreset, setNewPreset] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +58,13 @@ export function AccountsPage() {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { const on = () => setSub(subPath()); window.addEventListener("popstate", on); return () => window.removeEventListener("popstate", on); }, []);
   const go = (next: string | null) => { history.pushState({}, "", next ? `/accounts/${encodeURIComponent(next)}` : "/accounts"); setSub(next); document.getElementById("cf-main")?.scrollTo({ top: 0 }); };
+  // an editor opened from Performance's breakdown (Edit) goes back there when it closes (owner 2026-11-16)
+  const back = (history.state as { back?: string } | null)?.back ?? null;
+  const close = () => {
+    if (!back) { go(null); return; }
+    history.pushState({}, "", back);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  };
 
   if (error) {
     return (
@@ -85,14 +89,15 @@ export function AccountsPage() {
     );
   }
   if (sub) {
-    return <Swap k={`edit-${sub}`} dir={dir.current}><FooterPage><AccountForm key={sub} data={data} name={sub === "new" ? null : sub} onClose={() => go(null)} reload={load}
+    return <Swap k={`edit-${sub}`} dir={dir.current}><FooterPage><AccountForm key={sub} data={data} name={sub === "new" ? null : sub} onClose={sub === "new" ? () => go(null) : close} backLabel={back && sub !== "new" ? "Performance" : "All accounts"} reload={load}
       initialPreset={sub === "new" ? newPreset : null} onAddFunded={(id) => { setNewPreset(id); go("new"); }} /></FooterPage></Swap>;
   }
   const drafts = data.accounts.filter((r) => r.account.draft).length;
-  // a finished account (passed, failed, closed) is archived (owner 2026-11-16)
+  // a finished account (passed, failed, closed) is archived: this page lists active accounts only; past ones are reached
+  // from Performance → All accounts → Edit (owner 2026-11-16)
   const isArchived = (r: { account: Record<string, unknown> }) => r.account.status === "passed" || r.account.status === "failed" || r.account.status === "closed";
   const archived = data.accounts.filter(isArchived).length;
-  const shown = data.accounts.filter((r) => showArchived || !isArchived(r));
+  const shown = data.accounts.filter((r) => !isArchived(r));
   return (
     <Swap k="list" dir={dir.current}>
     <FooterPage>
@@ -100,13 +105,10 @@ export function AccountsPage() {
         <PageHeader page={pageById("accounts")} right={
           <button type="button" className={btn.primary} onClick={() => { setNewPreset(null); go("new"); }}><Plus className="size-4" aria-hidden="true" />Add account</button>
         }>
-          <p className="m-0 mt-2 font-mono text-[12px] text-text-3">{data.accounts.length - archived} account{data.accounts.length - archived === 1 ? "" : "s"}{archived ? ` · ${archived} archived` : ""}{drafts ? ` · ${drafts} draft${drafts === 1 ? "" : "s"} to check` : ""} · {data.folder}</p>
+          <p className="m-0 mt-2 font-mono text-[12px] text-text-3">{data.accounts.length - archived} account{data.accounts.length - archived === 1 ? "" : "s"}{archived ? ` · ${archived} archived (on Performance, All accounts)` : ""}{drafts ? ` · ${drafts} draft${drafts === 1 ? "" : "s"} to check` : ""} · {data.folder}</p>
         </PageHeader>
-        <label className="-mt-2 flex items-center gap-2.5 self-end text-[13px] text-text-2" data-show-archived>
-          <Switch checked={showArchived} onChange={setShowArchived} label="Show archived accounts" />Show archived{archived ? ` (${archived})` : ""}
-        </label>
-        {data.accounts.length === 0 ? (
-          <div className="rounded-md border border-line-strong/60 bg-bg-1 p-8 text-center text-[14px] text-text-2">No accounts yet. Add one from a preset.</div>
+        {shown.length === 0 ? (
+          <div className="rounded-md border border-line-strong/60 bg-bg-1 p-8 text-center text-[14px] text-text-2">{archived ? "No active accounts. Add one from a preset; past accounts are on Performance (All accounts)." : "No accounts yet. Add one from a preset."}</div>
         ) : (
           <div className="grid grid-cols-1 gap-3 min-[1000px]:grid-cols-2 min-[1400px]:grid-cols-3">
             {shown.map((r) => <AccountCard key={String(r.account.name)} row={r} presets={data.presets} onOpen={() => go(String(r.account.name))} />)}

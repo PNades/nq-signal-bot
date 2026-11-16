@@ -2879,6 +2879,94 @@ S["3q"] = async () => {
   fs.renameSync(await video.path(), path.join(VID, "account_switch_no_jump.webm"));
 };
 
+// owner 2026-11-16: the Accounts page lists active accounts only (no "Show archived" toggle, no gap: the cards right
+// under the title block, Add account to its right); past accounts open from Performance → All accounts → a row's Edit
+// (archived ones too), where the status can be set back; the editor's back button returns to Performance.
+S["3r"] = async () => {
+  const { menuPick } = helpers3f;
+  const SCRATCH = process.env.CF_SCRATCH ?? "http://127.0.0.1:8734";
+  const layout = (page) => page.evaluate(() => {
+    const head = document.querySelector("header:not([data-topbar])");
+    const add = [...document.querySelectorAll("button")].find((b) => /Add account/.test(b.textContent ?? ""));
+    const card = document.querySelector("[data-account-card]");
+    const r = (el) => (el ? el.getBoundingClientRect() : null);
+    const h = r(head), a = r(add), c = r(card);
+    return { toggle: !!document.querySelector("[data-show-archived]"), cards: [...document.querySelectorAll("[data-account-card]")].map((e) => e.getAttribute("data-account-card")),
+      gap: h && c ? Math.round(c.top - h.bottom) : null, addInHeader: !!(h && a && a.top >= h.top - 1 && a.bottom <= h.bottom + 1),
+      addRight: h && a ? Math.round(h.right - a.right) : null, count: document.querySelector("header:not([data-topbar]) p")?.textContent ?? "" };
+  });
+  // 1. the owner's panel: the Accounts page and the breakdown's Edit
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `accounts_${w}`;
+    const { ctx, page } = await open(name, w, h, "/accounts");
+    await page.reload(); await page.waitForTimeout(1800);
+    const c = (checks[name] = {});
+    c.layout = await layout(page);
+    await page.screenshot({ path: path.join(OUT, `accounts_active_only_${w}.png`) });
+    const L = c.layout;
+    if (L.toggle || L.gap === null || L.gap > 26 || !L.addInHeader || L.addRight > 1) problems.push(`${name}: ${JSON.stringify(L)}`);
+    await ctx.close();
+  }
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `breakdown_edit_${w}`;
+    const { ctx, page } = await open(name, w, h, "/performance");
+    await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "all"));
+    await page.reload(); await page.waitForTimeout(2200);
+    await menuPick(page, "Phase", "Prop"); await page.waitForTimeout(800);
+    const c = (checks[name] = {});
+    await page.locator("[data-breakdown]").scrollIntoViewIfNeeded(); await page.waitForTimeout(400);
+    c.edit = await page.locator("[data-breakdown-edit]").evaluateAll((els) => els.map((e) => e.getAttribute("data-breakdown-edit")));
+    c.noEdit = await page.locator("[data-breakdown-noedit]").evaluateAll((els) => els.map((e) => e.getAttribute("data-breakdown-noedit")));
+    c.overflow = await page.locator("[data-breakdown] .overflow-x-auto").evaluate((el) => el.scrollWidth > el.clientWidth + 1);
+    // the Edit column stays in view when the table scrolls sideways
+    c.editVisible = await page.evaluate(() => { const b = document.querySelector("[data-breakdown-edit='mffur1']"), box = document.querySelector("[data-breakdown]"); if (!b || !box) return false; const r = b.getBoundingClientRect(), o = box.getBoundingClientRect(); return r.left >= o.left && r.right <= o.right + 1; });
+    await page.locator("[data-breakdown]").screenshot({ path: path.join(OUT, `breakdown_edit_column_${w}.png`) });
+    if (w === 1440) {
+      await page.locator("[data-breakdown-edit='mffur1']").click(); await page.waitForTimeout(1600);
+      c.url = new URL(page.url()).pathname;
+      c.back = await page.getByRole("button", { name: /Performance/ }).first().innerText().catch(() => null);
+      await page.screenshot({ path: path.join(OUT, `editor_from_performance_${w}.png`) });
+      await page.getByRole("button", { name: /Performance/ }).first().click(); await page.waitForTimeout(1600);
+      c.backUrl = new URL(page.url()).pathname;
+    }
+    const ok = c.edit.includes("mffur1") && c.editVisible && c.noEdit.length > 0 && (w !== 1440 || (c.url === "/accounts/mffur1" && /Performance/.test(c.back ?? "") && c.backUrl === "/performance"));
+    if (!ok) problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+  // 2. the scratch panel (its accounts file holds the finished accounts): Edit an archived account, set it back to
+  // active, save: it returns to Performance and the Accounts page lists it again
+  {
+    const name = "unarchive_1440";
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark" });
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => problems.push(`${name}: page error ${e.message}`));
+    page.on("console", (m) => { if (m.type() === "error") problems.push(`${name}: console ${m.text()}`); });
+    await page.goto(SCRATCH + "/performance");
+    await page.evaluate(() => { sessionStorage.setItem("creamflow.splashShown", "1"); localStorage.setItem("creamflow.focusAccount", "all"); });
+    await page.reload(); await page.waitForTimeout(2200);
+    await menuPick(page, "Phase", "Prop"); await page.waitForTimeout(800);
+    const c = (checks[name] = {});
+    c.edit = await page.locator("[data-breakdown-edit]").evaluateAll((els) => els.map((e) => e.getAttribute("data-breakdown-edit")));
+    await page.locator("[data-breakdown-edit='mffur91']").scrollIntoViewIfNeeded();
+    await page.locator("[data-breakdown]").screenshot({ path: path.join(OUT, `breakdown_archived_editable_1440.png`) });
+    await page.locator("[data-breakdown-edit='mffur91']").click(); await page.waitForTimeout(1600);
+    c.url = new URL(page.url()).pathname;
+    await page.getByRole("radiogroup", { name: "Status" }).scrollIntoViewIfNeeded();
+    c.statusBefore = await page.getByRole("radiogroup", { name: "Status" }).locator("[aria-checked=true]").innerText();
+    await page.screenshot({ path: path.join(OUT, `editor_archived_account_1440.png`) });
+    await page.getByRole("radiogroup", { name: "Status" }).getByRole("radio", { name: "Active" }).click(); await page.waitForTimeout(500);
+    await page.screenshot({ path: path.join(OUT, `editor_status_back_to_active_1440.png`) });
+    await page.getByRole("button", { name: /^Save as checked$|^Save$/ }).first().click(); await page.waitForTimeout(1800);
+    c.afterSave = new URL(page.url()).pathname;
+    await page.goto(SCRATCH + "/accounts"); await page.waitForTimeout(1800);
+    c.layout = await layout(page);
+    await page.screenshot({ path: path.join(OUT, `accounts_after_unarchive_1440.png`) });
+    const ok = c.edit.includes("mffur91") && c.url === "/accounts/mffur91" && /Failed/.test(c.statusBefore) && c.afterSave === "/performance" && c.layout.cards.includes("mffur91") && !c.layout.toggle;
+    if (!ok) problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+};
+
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();
 await browser.close();
 fs.writeFileSync(path.join(OUT, "checks.json"), JSON.stringify({ stage, base: BASE, problems, checks }, null, 2));

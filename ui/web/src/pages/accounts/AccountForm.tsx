@@ -128,8 +128,10 @@ function StopRow({ label, v, note }: { label: string; v: Record<string, number |
   );
 }
 
-export function AccountForm({ data, name, onClose, reload, initialPreset = null, onAddFunded }: {
+export function AccountForm({ data, name, onClose, reload, initialPreset = null, onAddFunded, backLabel = "All accounts" }: {
   data: AccountsData; name: string | null; onClose: () => void; reload: () => Promise<AccountsData | null>;
+  /** where the back button goes: the accounts list, or Performance when opened from its breakdown */
+  backLabel?: string;
   /** a new account's preset (from "Add its funded account") */ initialPreset?: string | null;
   /** a passed evaluation offers its funded account (owner 2026-11-16) */ onAddFunded?: (presetId: string) => void;
 }) {
@@ -255,7 +257,7 @@ export function AccountForm({ data, name, onClose, reload, initialPreset = null,
   return (
     <div className="mx-auto flex max-w-[1280px] flex-col gap-6 px-6 pt-7 min-[1440px]:px-8" data-account-form>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <button type="button" onClick={onClose} className={cn(btn.ghost, "-ml-3")}><ArrowLeft className="size-4" aria-hidden="true" />All accounts</button>
+        <button type="button" onClick={onClose} className={cn(btn.ghost, "-ml-3")}><ArrowLeft className="size-4" aria-hidden="true" />{backLabel}</button>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" className={btn.secondary} onClick={() => { setPresetForm({ label: "", firm: String(acc.firm ?? ""), stage: acc.phase === "funded" ? "funded" : "evaluation" }); setPresetOpen(true); }}>
             <BookmarkPlus className="size-4" aria-hidden="true" />Save as preset
@@ -318,7 +320,7 @@ export function AccountForm({ data, name, onClose, reload, initialPreset = null,
           {original && (data.accounts.find((r) => r.account.name === original.name)?.trades ?? 0) > 0 && (
             <section className="rounded-md border border-line-strong/70 bg-bg-1 p-5" data-archive-instead>
               <h2 className="m-0 text-[16px] font-semibold text-text-1">This account has trades</h2>
-              <p className="m-0 mt-1 text-[13px] text-text-2">An account with trades is never deleted: its history stays in All accounts and its totals. When it passes, fails or is closed, set its status above; it is archived (hidden from the active list, shown with Show archived).</p>
+              <p className="m-0 mt-1 text-[13px] text-text-2">An account with trades is never deleted: its history stays in All accounts and its totals. When it passes, fails or is closed, set its status above; it is archived (off the Accounts page; on Performance under All accounts, where Edit opens it again).</p>
             </section>
           )}
           {original && !((data.accounts.find((r) => r.account.name === original.name)?.trades ?? 0) > 0) && (

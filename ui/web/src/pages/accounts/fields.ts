@@ -29,7 +29,7 @@ export const GROUPS: Group[] = [
       { key: "phase", label: "Phase", kind: "seg", options: [{ value: "evaluation", label: "Evaluation" }, { value: "funded", label: "Funded" }] },
       { key: "active", label: "Active", kind: "bool", help: "only active accounts trade and get lives and caps" },
       { key: "status", label: "Status", kind: "seg", options: [{ value: "active", label: "Active" }, { value: "passed", label: "Passed" }, { value: "failed", label: "Failed" }, { value: "closed", label: "Closed" }],
-        help: "passed, failed or closed archives the account: hidden from the active list, always in All accounts and its totals" },
+        help: "passed, failed or closed archives the account: off the Accounts page (Performance → All accounts → Edit opens it again; set Active to bring it back), always in All accounts and its totals" },
       { key: "started", label: "Started", kind: "date", help: "empty = its first trade's day" },
       { key: "ended", label: "Ended", kind: "date", when: (a) => !!a.status && a.status !== "active", help: "empty = its last trade's day" },
       { key: "demo", label: "Demo account", kind: "bool", help: "Tradovate demo (steps 21–25); outside the direction lock" },

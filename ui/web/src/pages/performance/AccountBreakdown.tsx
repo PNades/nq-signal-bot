@@ -3,9 +3,12 @@
 // across every account ever. Sortable by any column; a row click focuses that account.
 // From 21st.dev (searched "sortable data table dark with totals footer row status badges"): the frame, status badges
 // and totals footer after "Card Frame Table" (cnippet-dev v-table-3, id 22188) and "Invoice History Table" (v-table-12,
-// id 22187); the sorting and row rhythm of our Trades table (Data Table 28327 pattern). Not copied: our own markup.
+// id 22187); the sorting and row rhythm of our Trades table // sorting and row rhythm of our Trades table (Data Table 28327 pattern). Not copied: our own markup.
+// Owner 2026-11-16: each row ends with a small Edit action that opens the account in the editor (archived ones too: the
+// only way to past accounts, the Accounts page lists active ones); the row-actions column after 21st.dev "Table Row
+// Actions" 23696 (one action here, so a ghost button instead of its menu; not copied).
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, Pencil } from "lucide-react";
 import { money, money0, pnlClass } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Breakdown, BreakdownRow } from "./types";
@@ -20,9 +23,15 @@ const COLS: { key: Key; label: string; num?: boolean; hint?: string }[] = [
 ];
 const TONE: Record<string, string> = { active: "border-ok/40 text-ok", passed: "border-gold/40 text-gold", failed: "border-crit/50 text-crit", closed: "border-line-strong text-text-2" };
 const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+// the Edit column stays in view when the table scrolls sideways (960 px)
+const STICK = "sticky right-0 z-[1] shadow-[-8px_0_12px_-8px_rgba(0,0,0,.6)]";
 const day = (d: string | null) => (d ? DAY.format(new Date(d + "T12:00:00Z")) : "—");
 
-export function AccountBreakdown({ data, focus, onPick }: { data: Breakdown; focus: string | null; onPick: (name: string) => void }) {
+export function AccountBreakdown({ data, focus, onPick, onEdit, editable }: {
+  data: Breakdown; focus: string | null; onPick: (name: string) => void;
+  /** open the account in the editor; `editable` says which accounts are in the accounts file (not the synthetic stand-ins) */
+  onEdit: (name: string) => void; editable: (name: string) => boolean;
+}) {
   const [sort, setSort] = useState<{ key: Key; asc: boolean }>({ key: "start", asc: true });
   const rows = useMemo(() => {
     const v = (r: BreakdownRow) => r[sort.key] ?? (COLS.find((c) => c.key === sort.key)?.num ? Number.NEGATIVE_INFINITY : "");
@@ -34,7 +43,7 @@ export function AccountBreakdown({ data, focus, onPick }: { data: Breakdown; foc
     <div className="mt-3 overflow-hidden rounded-md border border-line-strong/70 bg-bg-2" data-breakdown>
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line-strong/50 px-4 py-2.5">
         <span className="eyebrow">Every account · {t.accounts} account{t.accounts === 1 ? "" : "s"}{t.archived ? ` · ${t.archived} archived` : ""}</span>
-        <span className="font-mono text-[11px] text-text-3">click a row to focus that account</span>
+        <span className="font-mono text-[11px] text-text-3">click a row to focus that account · Edit opens it in the editor</span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-[12.5px]">
@@ -51,12 +60,13 @@ export function AccountBreakdown({ data, focus, onPick }: { data: Breakdown; foc
                   </th>
                 );
               })}
+              <th className={cn(th, STICK, "w-px bg-bg-2 text-right")}><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody className="font-mono">
             {rows.map((r) => (
               <tr key={r.account} onClick={() => onPick(r.account)} data-breakdown-row={r.account} aria-selected={focus === r.account}
-                className={cn("cursor-pointer border-b border-line-strong/30 transition-colors hover:bg-white/[.035]", r.archived && "text-text-2", focus === r.account && "bg-gold/[.07]")}>
+                className={cn("group cursor-pointer border-b border-line-strong/30 transition-colors hover:bg-white/[.035]", r.archived && "text-text-2", focus === r.account && "bg-gold/[.07]")}>
                 <td className="whitespace-nowrap px-3 py-2 text-text-1">{r.account}</td>
                 <td className="whitespace-nowrap px-3 py-2 font-sans text-text-2">{r.firm ?? "—"}</td>
                 <td className="whitespace-nowrap px-3 py-2 font-sans">{r.plan ?? "—"}</td>
@@ -72,6 +82,15 @@ export function AccountBreakdown({ data, focus, onPick }: { data: Breakdown; foc
                 <td className="whitespace-nowrap px-3 py-2 text-right">{r.payouts ? money0(r.payouts) : "—"}{r.payouts_n ? <span className="text-text-3"> · {r.payouts_n}</span> : null}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-right text-text-2">{r.fees === null ? "—" : money(r.fees, false)}</td>
                 <td className={cn("whitespace-nowrap px-3 py-2 text-right", r.net_cash === null ? "" : pnlClass(r.net_cash))}>{r.net_cash === null ? "—" : money(r.net_cash)}</td>
+                <td className={cn(STICK, "whitespace-nowrap bg-bg-2 px-2 py-1 text-right group-hover:[background-image:linear-gradient(rgba(255,255,255,.035),rgba(255,255,255,.035))]")}>
+                  {editable(r.account) ? (
+                    <button type="button" onClick={(e) => { e.stopPropagation(); onEdit(r.account); }} aria-label={`Edit ${r.account}`} data-breakdown-edit={r.account}
+                      className="inline-flex h-7 items-center gap-1.5 rounded-sm border border-transparent px-2 font-sans text-[12px] text-text-2 transition-colors hover:border-line-strong hover:bg-white/[.04] hover:text-text-1 focus-visible:border-line-strong focus-visible:text-text-1">
+                      <Pencil className="size-3.5" aria-hidden="true" />Edit</button>
+                  ) : (
+                    <span className="inline-flex h-7 items-center px-2 font-sans text-[11.5px] text-text-3" data-hint="Synthetic account: not in your accounts file, so there is nothing to edit" data-breakdown-noedit={r.account}>synthetic</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -83,6 +102,7 @@ export function AccountBreakdown({ data, focus, onPick }: { data: Breakdown; foc
               <td className="whitespace-nowrap px-3 py-2.5 text-right text-text-1">{money0(t.payouts)}</td>
               <td className="whitespace-nowrap px-3 py-2.5 text-right text-text-1" data-hint={t.fees_unknown ? `${t.fees_unknown} account(s) without a known fee` : undefined}>{money(t.fees, false)}{t.fees_unknown ? "*" : ""}</td>
               <td className={cn("whitespace-nowrap px-3 py-2.5 text-right font-medium", pnlClass(t.net_cash))}>{money(t.net_cash)}</td>
+              <td className={cn(STICK, "bg-bg-1")} />
             </tr>
           </tfoot>
         </table>

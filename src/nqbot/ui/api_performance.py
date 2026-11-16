@@ -70,13 +70,15 @@ def build(store: PanelStore, paths_fn: Callable[[], Paths | None], settings: dic
             if "history" not in cache:
                 labels = {p.id: p.label for p in builtin_presets(store.config_dir)}
                 cache["history"] = [{**a, "kind": account_kind(a, labels)} for a in synthetic_ledger.history_accounts(settings)]
-            base = accs if accs else synthetic_ledger.DEFAULT_ACCOUNTS
+            # the synthetic stand-ins (history, the default accounts, the demo account) aren't in the accounts file: no
+            # Edit action for them (owner 2026-11-16)
+            base = accs if accs else [{**a, "synthetic_only": True} for a in synthetic_ledger.DEFAULT_ACCOUNTS]
             have = {a.get("name") for a in base}
-            shown = base + [h for h in cache["history"] if h["name"] not in have]
+            shown = base + [{**h, "synthetic_only": True} for h in cache["history"] if h["name"] not in have]
             status = {"backtest": "synthetic", "demo": "synthetic", "prop": "synthetic",
                       "live": "no live trades yet (synthetic ledger)"}
             return cache["synth"], status, \
-                [a for a in shown if a["name"] in names] + [{"name": synthetic_ledger.DEMO_ACCOUNT, "kind": "Demo", "demo": True}]
+                [a for a in shown if a["name"] in names] + [{"name": synthetic_ledger.DEMO_ACCOUNT, "kind": "Demo", "demo": True, "synthetic_only": True}]
         paths = paths_fn()
         got = ledger.load(paths.data_dir if paths else None, paths.live_dir if paths else None)
         return got.trades, got.status, accs
@@ -89,7 +91,9 @@ def build(store: PanelStore, paths_fn: Callable[[], Paths | None], settings: dic
         status = str(a.get("status") or "active")
         return {"name": a["name"], "kind": a.get("kind"), "phase": a.get("phase"), "demo": bool(a.get("demo")),
                 "status": status, "archived": status in ARCHIVED,
-                "draft": bool(a.get("draft")), "rule": rule}
+                "draft": bool(a.get("draft")), "rule": rule,
+                # in the panel's accounts file, so the editor can open it (the breakdown's Edit, owner 2026-11-16)
+                "editable": not a.get("synthetic_only")}
 
     def params(request: Request) -> dict[str, Any]:
         q = request.query_params

@@ -210,3 +210,13 @@ def test_top_bar_all_accounts_summary(synth, real):
     r = real.get("/api/status").json()
     assert r["accounts_all"] == {"net_cash_usd": 0, "fees_unknown": 0}                  # no trades before step 15
     assert all(not a["archived"] for a in r["accounts"])
+
+
+def test_only_accounts_in_the_accounts_file_can_be_edited(synth):
+    # owner 2026-11-16: the breakdown's Edit opens an account in the editor, so it is offered only for accounts in the
+    # panel's accounts file; the synthetic stand-ins (finished history, the demo account) are not editable
+    r = synth.get("/api/performance?phase=prop&account=all").json()
+    acc = {a["name"]: a for a in r["accounts"]}
+    assert acc["mffur1"]["editable"] is True and acc["mffub1"]["editable"] is True
+    assert acc["mffurf92"]["editable"] is False and acc["mffurf92"]["archived"] is True
+    assert {row["account"] for row in r["breakdown"]["rows"]} <= set(acc)    # every row has its brief

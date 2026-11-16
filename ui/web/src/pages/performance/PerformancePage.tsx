@@ -164,6 +164,11 @@ export function PerformancePage() {
   // the account filter and the top-bar focus are one selection (real-trades phases have no "All accounts")
   useEffect(() => { if (focus) setAccount(focus); }, [focus]);
   const pickAccount = (name: string) => { setAccount(name); setFocus(name); };
+  // the breakdown's Edit (owner 2026-11-16): the account's editor, whose back button returns here
+  const editAccount = (name: string) => {
+    history.pushState({ back: "/performance" }, "", `/accounts/${encodeURIComponent(name)}`);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  };
   // the last single account selected (the page's filter, the top bar or a breakdown row): what Drawdown and Monte Carlo
   // show under "All accounts" (owner 2026-11-16); kept per browser
   const [lastSingle, setLastSingle] = useState<string | null>(() => { try { return localStorage.getItem(LAST_KEY); } catch { return null; } });
@@ -370,7 +375,8 @@ export function PerformancePage() {
             </motion.div>
             <motion.div variants={item}><Reveal show={!!S && S.trades > 0}>{S && <StatsBox variant={variant} s={S} unitR={unit === "r"} animated={animated} />}</Reveal></motion.div>
             {/* "All accounts": the per-account table opens and closes with the height glide (owner 2026-11-16) */}
-            <motion.div variants={item}><Reveal show={!!data.breakdown} data-breakdown-reveal="">{data.breakdown && <AccountBreakdown data={data.breakdown} focus={null} onPick={pickAccount} />}</Reveal></motion.div>
+            <motion.div variants={item}><Reveal show={!!data.breakdown} data-breakdown-reveal="">{data.breakdown && <AccountBreakdown data={data.breakdown} focus={null} onPick={pickAccount}
+              editable={(n) => !!data.accounts.find((a) => a.name === n)?.editable} onEdit={editAccount} />}</Reveal></motion.div>
             {Object.keys(data.per_phase).length > 1 && (
               <motion.div variants={item} className="mt-3 flex flex-wrap gap-2 font-mono text-[11.5px] text-text-2" data-per-phase>
                 {Object.entries(data.per_phase).map(([ph, st]) => (

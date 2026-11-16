@@ -1100,8 +1100,12 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   account) with totals across every account ever. Drawdown and Monte Carlo stay per account, with a note: the last
   single account selected (the page's filter, the top bar or a breakdown row; kept per browser), else the most recently
   active one (latest trade). **Accounts are never deleted once they have trades:** a new account field `status` (active,
-  passed, failed, closed; with `started` / `ended`); every finished account (passed, failed or closed) = archived: hidden from the Accounts page ("Show archived") and
-  the top-bar list, always in "All accounts" and its totals; deleting is refused while the ledger holds trades for it.
+  passed, failed, closed; with `started` / `ended`); every finished account (passed, failed or closed) = archived: off the Accounts page, which lists active accounts only
+  (owner 2026-11-16: no "Show archived" toggle; a past account is reached from Performance only: each row of the "All
+  accounts" breakdown has a small Edit action that opens it in the editor, archived ones included, where its status can
+  be set back to active if it was archived by mistake; the editor's back button then returns to Performance; the
+  synthetic stand-ins, not in the accounts file, have no Edit), listed under "Archived" in the top bar (Q-perf-lists),
+  always in "All accounts" and its totals; deleting is refused while the ledger holds trades for it.
   Finished accounts no longer count toward a firm's account limit (§6.7). Fees per account: the account's own fee
   fields, else its preset's. Saving an evaluation as passed asks "add its funded account?": Add opens a new account
   filled from the same plan's funded preset (its own name, §6.7: a passed evaluation becomes a new funded account);
