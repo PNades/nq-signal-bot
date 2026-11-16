@@ -2,7 +2,7 @@
 // subtitle), the empty state (Dot Matrix Text, a one-line message, the next action; never urgent information) and
 // skeletons shaped like the content.
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { DotMatrixText } from "@/components/ui/dot-text";
 import HalftoneWordmarkFooter from "@/components/ui/halftone-wordmark-footer";
 import { useAnimated } from "@/effects";
@@ -112,11 +112,34 @@ export function AutoHeight({ children, className }: { children: ReactNode; class
     return () => ro.disconnect();
   }, [animated]);
   return (
+    // Calm: no set height at all, so a new size shows in the same frame as the new content
     <motion.div className={className} data-auto-height data-moving={moving ? "1" : "0"}
-      initial={false} animate={h === null ? undefined : { height: h }} transition={{ duration: animated ? FOLD_S : 0, ease: FOLD_EASE }}
+      initial={false} animate={h === null || !animated ? undefined : { height: h }} transition={{ duration: animated ? FOLD_S : 0, ease: FOLD_EASE }}
       onAnimationStart={() => setMoving(true)} onAnimationComplete={() => setMoving(false)}
-      style={{ overflow: moving ? "hidden" : "visible" }}>
+      style={{ overflow: moving && animated ? "hidden" : "visible", height: animated ? undefined : "auto" }}>
       <div ref={inner} className="flow-root">{children}</div>
     </motion.div>
+  );
+}
+
+/**
+ * A section that comes and goes with the same height glide as AutoHeight (owner 2026-11-16: the Performance page's
+ * "All accounts" breakdown on an account switch): it opens from no height while it fades in, and closes the same way, so
+ * what is below moves smoothly instead of jumping. Calm: at once.
+ */
+export function Reveal({ show, children, ...rest }: { show: boolean; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
+  const animated = useAnimated();
+  const t = { duration: FOLD_S, ease: FOLD_EASE };
+  // Calm: the section is simply there or not, in the same frame as the rest
+  if (!animated) return show ? <div {...rest}><div className="flow-root">{children}</div></div> : null;
+  return (
+    <AnimatePresence initial={false}>
+      {show && (
+        <motion.div key="reveal" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+          transition={t} style={{ overflow: "hidden" }} {...rest}>
+          <div className="flow-root">{children}</div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

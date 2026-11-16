@@ -7,7 +7,7 @@
 // (KPIs, stats, Equity, Drawdown, Monte Carlo, Calendar, Trades) follows the plan's dollars; R doesn't change by plan.
 // Real-trades phases (demo, prop, live): the account filter and the top-bar account switcher are one selection, in
 // sync both ways. All phases shows both (the plan prices the backtest part, the account filters the real trades).
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, type Variants } from "motion/react";
 import { CalendarRange, Download, Info, Layers, Route, Wallet, X } from "lucide-react";
 import KpiTile from "@/components/ui/kpi-tile";
@@ -17,17 +17,19 @@ import { BorderBeamPanel } from "@/components/ui/border-beam-panel";
 import { toast } from "@/components/ui/toast";
 import { useAnimated } from "@/effects";
 import { ApiError, getJson } from "@/lib/api";
+import { load } from "@/lib/prefetch";
+import { BusyBar } from "@/components/ui/busy-bar";
 import { useFocusAccount } from "@/lib/focus";
 import { money, pnlClass, rr } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { AutoHeight, EmptyState, FooterPage, Skeleton } from "@/shell/page";
+import { AutoHeight, EmptyState, FooterPage, Reveal, Skeleton } from "@/shell/page";
 import { EquityChart, LiveVsExpected } from "./charts";
-import { PnlCalendar } from "./PnlCalendar";
+import { PnlCalendar, loadCalendar } from "./PnlCalendar";
 import { Menu } from "./Menu";
-import { RiskTab } from "./RiskTabs";
+import { RiskTab, riskUrl } from "./RiskTabs";
 import { AccountBreakdown } from "./AccountBreakdown";
 import { StatsBox, readVariant } from "./summaries";
-import { TradesTable } from "./TradesTable";
+import { TradesTable, tradesUrl } from "./TradesTable";
 import type { AccountBrief, Notice, PerfPage, Unit } from "./types";
 
 const TABS = [
@@ -47,6 +49,27 @@ const REAL = new Set(["demo", "prop", "live"]);
 // the account menu shows at most this many accounts (plus "All accounts") before it scrolls; past it, a search field (owner 2026-11-16)
 const ACCOUNT_MENU_ROWS = 10;
 const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+// a load slower than this shows the thin progress line (owner 2026-11-16); a quicker one shows nothing
+const BUSY_AFTER_MS = 300;
+
+/** The account Drawdown and Monte Carlo show: the selected one, or under "All accounts" the last single account selected,
+ * else the most recently active one (its latest trade) (owner 2026-11-16). */
+function pickRealAccount(d: PerfPage | null, account: string, lastSingle: string | null): { name: string | null; why: "picked" | "last" | "recent" | null } {
+  if (account !== "all") return { name: account, why: "picked" };
+  const ruled: AccountBrief[] = (d?.accounts ?? []).filter((a) => a.rule);
+  if (lastSingle && ruled.some((a) => a.name === lastSingle)) return { name: lastSingle, why: "last" };
+  const recent = [...(d?.breakdown?.rows ?? [])].filter((r) => ruled.some((a) => a.name === r.account))
+    .sort((x, y) => (x.last_trade < y.last_trade ? 1 : x.last_trade > y.last_trade ? -1 : 0))[0]?.account ?? null;
+  const name = recent ?? ruled[0]?.name ?? null;
+  return { name, why: name ? "recent" : null };
+}
+/** "start=…&end=…" of a query (the Drawdown and Monte Carlo date filter) */
+const rangeOf = (q: URLSearchParams) => {
+  const r = new URLSearchParams();
+  if (q.get("start")) r.set("start", q.get("start")!);
+  if (q.get("end")) r.set("end", q.get("end")!);
+  return r.toString();
+};
 
 function Scramble({ text, animated }: { text: string; animated: boolean }) {
   // text scramble on load (after 21st.dev 16620): letters settle left to right in ~0.6 s; Calm shows the text at once
@@ -156,46 +179,70 @@ export function PerformancePage() {
     if (range.end) q.set("end", range.end);
     return q.toString();
   }, [account, phase, range, planId, realMode, backtestMode]);
+  const [horizon, setHorizon] = useState(60);
+  // the Monte Carlo plan comparison and the calendar's month live here, so a switch can load the open tab ahead
+  const [compare, setCompare] = useState(false);
+  const [calMonth, setCalMonth] = useState<{ phase: string; ym: string | null }>({ phase: "", ym: null });
+  const [loading, setLoading] = useState(false);
+  // the account Drawdown and Monte Carlo show, decided with the data it goes with (so picking an account never changes
+  // them before the rest of the page follows)
+  const [riskPick, setRiskPick] = useState<ReturnType<typeof pickRealAccount>>({ name: null, why: null });
+  // A switch (account, phase, plan, dates) keeps the current page on screen until everything it needs has arrived: the
+  // page's data and the open tab's own data. Then all of it shows in one step: the KPI numbers roll, the tab's content
+  // crossfades, sections that come or go (the breakdown) open or close with the height glide (owner 2026-11-16). No
+  // placeholder in between; a load slower than BUSY_AFTER_MS shows a thin progress line.
   useEffect(() => {
     const ctl = new AbortController();
-    getJson<PerfPage>(`/api/performance?${query}`, ctl.signal)
-      .then((d) => { setData(d); setDataQuery(query); setRefused(null); if (!planId && d.plans.length) setPlanId(d.plans[0].id); })
-      .catch((e) => {
-        if (ctl.signal.aborted) return;
-        if (e instanceof ApiError && e.status === 403) setRefused({ reason: e.message, gate: (e.body as { gate?: string } | undefined)?.gate ?? null });
-      });
+    setLoading(true);
+    (async () => {
+      // the open tab's data loads alongside the page's (the query says which account and phase); only Drawdown and Monte
+      // Carlo under "All accounts" wait for the page's answer, which says which account they show
+      const qp = new URLSearchParams(query);
+      const ph = qp.get("phase") ?? phase, isReal = REAL.has(ph), acct = qp.get("account") ?? "all", dPlan = qp.get("plan");
+      const risk = tab === "drawdown" || tab === "montecarlo" ? tab : null;
+      const riskFor = (name: string | null) => (risk ? riskUrl({ tab: risk, realMode: isReal, account: isReal ? name : null, range: rangeOf(qp), planId: dPlan, horizon, compare }) : null);
+      const ahead: Promise<unknown>[] = [];
+      // never left unhandled (a switch away aborts them)
+      const add = (x: Promise<unknown>) => { ahead.push(x.catch(() => null)); };
+      const early = riskFor(acct);
+      if (risk && early && !(isReal && acct === "all")) add(load(early, ctl.signal));
+      if (tab === "calendar") add(loadCalendar({ account: isReal ? acct : "all", unit, phase: ph, month: calMonth.phase === ph ? calMonth.ym : null, plan: isReal ? null : dPlan }, ctl.signal));
+      if (tab === "trades") add(load(tradesUrl(query), ctl.signal));
+      const d = await getJson<PerfPage>(`/api/performance?${query}`, ctl.signal);
+      if (risk && isReal && acct === "all") { const u = riskFor(pickRealAccount(d, "all", lastSingle).name); if (u) add(load(u, ctl.signal)); }
+      // a tab whose own load fails doesn't hold the page back (the tab then shows its own message)
+      await Promise.allSettled(ahead);
+      if (ctl.signal.aborted) return;
+      setData(d); setDataQuery(query); setRefused(null); setLoading(false); setRiskPick(pickRealAccount(d, d.selection.account, lastSingle));
+      if (!planId && d.plans.length) setPlanId(d.plans[0].id);
+    })().catch((e) => {
+      if (ctl.signal.aborted) return;
+      setLoading(false);
+      if (e instanceof ApiError && e.status === 403) setRefused({ reason: e.message, gate: (e.body as { gate?: string } | undefined)?.gate ?? null });
+    });
     return () => ctl.abort();
-  }, [query]);
+  }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // the account the shown data is for (the menus change at once; the page follows when its data arrives)
+  // what the shown data is for (the menus change at once; the page body follows when its data has arrived)
   const viewAccount = data?.selection.account ?? account;
-  // an account switch in a real-trades phase crossfades the whole page body (KPIs, stats, breakdown, tabs) and its height
-  // glides (owner 2026-11-16); a phase switch keeps the body (its numbers roll)
-  const viewKey = useRef("acct:all");
-  if (data && REAL.has(data.selection.phase)) viewKey.current = `acct:${data.selection.account}`;
-  // the entry stagger runs once, when the page first fills; after it, a remounted body only crossfades
+  const viewPhase = data?.selection.phase ?? phase;
+  const viewReal = REAL.has(viewPhase);
+  const viewQuery = useMemo(() => new URLSearchParams(dataQuery ?? query), [dataQuery, query]);
+  const viewPlan = viewQuery.get("plan") ?? planId;
+  const viewRange = rangeOf(viewQuery);
+  // the entry stagger runs once, when the page first fills
   const settled = useRef(false);
   useEffect(() => { if (data) settled.current = true; }, [data]);
   // the Drawdown and Monte Carlo tabs (owner 2026-11-15): real-trades phases (demo, prop, live) show the account in the
-  // filter (= the top-bar focus); every other phase runs the strategy's backtest days on the plan in the header
-  const ruled: AccountBrief[] = (data?.accounts ?? []).filter((a) => a.rule);
-  // under "All accounts" Drawdown and Monte Carlo stay per account: the last single account selected, else the most
-  // recently active one (its latest trade), with a note
-  const recent = [...(data?.breakdown?.rows ?? [])].filter((r) => ruled.some((a) => a.name === r.account))
-    .sort((x, y) => (x.last_trade < y.last_trade ? 1 : x.last_trade > y.last_trade ? -1 : 0))[0]?.account ?? null;
-  const lastOk = lastSingle && ruled.some((a) => a.name === lastSingle) ? lastSingle : null;
-  const realAccount = viewAccount !== "all" ? viewAccount : (lastOk ?? recent ?? ruled[0]?.name ?? null);
-  const realNote = realMode && viewAccount === "all" && realAccount
-    ? `All accounts: Drawdown and Monte Carlo show one account at a time · showing ${realAccount} (${lastOk ? "the last account you selected" : "the most recently active account"}) · pick another in the account menu or the table`
+  // filter (= the top-bar focus); every other phase runs the strategy's backtest days on the plan in the header; under
+  // "All accounts" they stay per account (the last single account selected, else the most recently active one), with a note
+  const real = riskPick;
+  const realAccount = real.name;
+  const realNote = viewReal && viewAccount === "all" && realAccount
+    ? `All accounts: Drawdown and Monte Carlo show one account at a time · showing ${realAccount} (${real.why === "last" ? "the last account you selected" : "the most recently active account"}) · pick another in the account menu or the table`
     : null;
-  const [horizon, setHorizon] = useState(60);
   const plan = data?.plans.find((x) => x.id === planId) ?? null;
-  const rangeQuery = useMemo(() => {
-    const q = new URLSearchParams();
-    if (range.start) q.set("start", range.start);
-    if (range.end) q.set("end", range.end);
-    return q.toString();
-  }, [range]);
+  const calMonthShown = calMonth.phase === viewPhase ? calMonth.ym : null;
 
   const exportCsv = async () => {
     const res = await fetch(`/api/performance/export.csv?${query}`, { headers: { accept: "text/csv" } });
@@ -290,11 +337,11 @@ export function PerformancePage() {
 
         {!data && !refused && <motion.div variants={item} className="mt-6 grid grid-cols-2 gap-3 min-[1400px]:grid-cols-6">{[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-[132px]" />)}</motion.div>}
 
+        {/* a load slower than BUSY_AFTER_MS: a thin line between the header and the page (it never moves the layout) */}
+        {data && <div className="relative h-0"><BusyBar busy={loading} delay={BUSY_AFTER_MS} animated={animated} label="Loading the selection" className="top-2.5" data-perf-loading /></div>}
+
         {data && !refused && (
-          <AutoHeight className="relative">
-          <AnimatePresence initial={false} mode="popLayout">
-          <motion.div key={viewKey.current} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            transition={{ duration: animated ? 0.2 : 0, ease: "easeOut" }} data-page-body={viewKey.current}>
+          <div className="relative" data-page-body={`acct:${viewAccount}`} aria-busy={loading}>
             <motion.div variants={item}><Notices notices={data.notices} /></motion.div>
             {noData && (
               <motion.div variants={item} className="mt-5">
@@ -321,10 +368,9 @@ export function PerformancePage() {
                 </Spotlight>
               ))}
             </motion.div>
-            {S && S.trades > 0 && <motion.div variants={item}><StatsBox variant={variant} s={S} unitR={unit === "r"} animated={animated} /></motion.div>}
-            {data.breakdown && (
-              <motion.div variants={item}><AccountBreakdown data={data.breakdown} focus={null} onPick={pickAccount} /></motion.div>
-            )}
+            <motion.div variants={item}><Reveal show={!!S && S.trades > 0}>{S && <StatsBox variant={variant} s={S} unitR={unit === "r"} animated={animated} />}</Reveal></motion.div>
+            {/* "All accounts": the per-account table opens and closes with the height glide (owner 2026-11-16) */}
+            <motion.div variants={item}><Reveal show={!!data.breakdown} data-breakdown-reveal="">{data.breakdown && <AccountBreakdown data={data.breakdown} focus={null} onPick={pickAccount} />}</Reveal></motion.div>
             {Object.keys(data.per_phase).length > 1 && (
               <motion.div variants={item} className="mt-3 flex flex-wrap gap-2 font-mono text-[11.5px] text-text-2" data-per-phase>
                 {Object.entries(data.per_phase).map(([ph, st]) => (
@@ -337,8 +383,8 @@ export function PerformancePage() {
               <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                 <AnimatedTabs variant="underline" layoutId="perf-tabs" animated={animated} activeTab={tab} onChange={setTab} tabs={TABS} ariaLabel="Performance views" />
                 <div className="flex items-center gap-2 font-mono text-[11px] text-text-3 max-[1199px]:w-full" data-scope-chips>
-                  <span className="whitespace-nowrap rounded-xs border border-line-strong px-2 py-0.5" data-scope-chip>NQ · {realMode ? viewAccount : (plan?.label ?? "strategy")}</span>
-                  <span className="whitespace-nowrap rounded-xs border border-line-strong px-2 py-0.5">{realMode ? "real trades" : "strategy backtest"}</span>
+                  <span className="whitespace-nowrap rounded-xs border border-line-strong px-2 py-0.5" data-scope-chip>NQ · {viewReal ? viewAccount : (plan?.label ?? "strategy")}</span>
+                  <span className="whitespace-nowrap rounded-xs border border-line-strong px-2 py-0.5">{viewReal ? "real trades" : "strategy backtest"}</span>
                   <span className="whitespace-nowrap rounded-xs border border-line-strong px-2 py-0.5">Eastern time</span>
                   <span className="whitespace-nowrap rounded-xs border border-line-strong px-2 py-0.5">read only</span>
                 </div>
@@ -347,7 +393,7 @@ export function PerformancePage() {
                 {/* the tab area's height follows its content smoothly, so the footer glides instead of snapping */}
                 <AutoHeight>
                 <AnimatePresence initial={false} mode="popLayout">
-                <motion.div key={tab === "drawdown" || tab === "montecarlo" ? tab : `${tab}:${data.selection.phase}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                <motion.div key={tab === "drawdown" || tab === "montecarlo" ? tab : `${tab}:${viewPhase}:${viewReal ? viewAccount : ""}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                   transition={{ duration: animated ? 0.2 : 0, ease: "easeOut" }} data-panel-content>
                 {tab === "equity" && (
                   <div className="relative">
@@ -370,20 +416,19 @@ export function PerformancePage() {
                 )}
                 {(tab === "drawdown" || tab === "montecarlo") && (
                   <div className="min-h-[440px]">
-                    <RiskTab tab={tab} realMode={realMode} account={realAccount} note={realNote} range={rangeQuery}
-                      planId={planId} onPlan={setPlanId} horizon={horizon} onHorizon={setHorizon} animated={animated} variant={variant} />
+                    <RiskTab tab={tab} realMode={viewReal} account={realAccount} note={realNote} range={viewRange}
+                      planId={viewPlan} onPlan={setPlanId} horizon={horizon} onHorizon={setHorizon} compare={compare} onCompare={setCompare} animated={animated} variant={variant} />
                   </div>
                 )}
-                {tab === "calendar" && <PnlCalendar account={backtestMode ? "all" : viewAccount} phase={phase} plan={realMode ? null : planId} unit={unit} animated={animated} label={ledgerLabel} />}
+                {tab === "calendar" && <PnlCalendar account={viewReal ? viewAccount : "all"} phase={viewPhase} plan={viewReal ? null : viewPlan} unit={unit} animated={animated} label={ledgerLabel}
+                  month={calMonthShown} onMonth={(ym) => setCalMonth({ phase: viewPhase, ym })} />}
                 {tab === "trades" && <TradesTable query={dataQuery ?? query} label={data.synthetic ? "synthetic" : "backtest and live"} />}
                 </motion.div>
                 </AnimatePresence>
                 </AutoHeight>
               </BorderBeamPanel>
             </motion.div>
-          </motion.div>
-          </AnimatePresence>
-          </AutoHeight>
+          </div>
         )}
       </motion.div>
     </FooterPage>

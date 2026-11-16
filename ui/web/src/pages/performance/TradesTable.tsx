@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Columns3, Search } from "lucide-react";
 import { money, pnlClass, rr } from "@/lib/format";
-import { getJson } from "@/lib/api";
+import { load, peek } from "@/lib/prefetch";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/shell/page";
 import type { TradeRow } from "./types";
@@ -20,21 +20,30 @@ const COLS: { key: Key; label: string; num?: boolean; off?: boolean }[] = [
 const px = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const ROW_H = 31, WINDOW_FROM = 200, OVERSCAN = 20;
 
+/** The table's data address (the Performance page loads it before an account switch shows, owner 2026-11-16). */
+export const tradesUrl = (query: string) => `/api/performance/trades?${query}`;
+// the sort, the search and the columns carry over when the table is drawn again for another account (this browser tab)
+const prefs: { sort: { key: Key; asc: boolean }; q: string; shown: Set<Key> } = { sort: { key: "date", asc: false }, q: "", shown: new Set(COLS.filter((c) => !c.off).map((c) => c.key)) };
+
 export function TradesTable({ query, label }: { query: string; label: string }) {
-  const [rows, setRows] = useState<TradeRow[] | null>(null);
+  const url = tradesUrl(query);
+  const [got, setGot] = useState<TradeRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [sort, setSort] = useState<{ key: Key; asc: boolean }>({ key: "date", asc: false });
-  const [q, setQ] = useState("");
-  const [shown, setShown] = useState<Set<Key>>(() => new Set(COLS.filter((c) => !c.off).map((c) => c.key)));
+  const [sort, setSort] = useState(prefs.sort);
+  const [q, setQ] = useState(prefs.q);
+  const [shown, setShown] = useState<Set<Key>>(prefs.shown);
+  useEffect(() => { prefs.sort = sort; prefs.q = q; prefs.shown = shown; }, [sort, q, shown]);
   const [pick, setPick] = useState(false);
   const [scroll, setScroll] = useState(0);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const ctl = new AbortController();
-    setRows(null); setErr(null);
-    getJson<{ trades: TradeRow[] }>(`/api/performance/trades?${query}`, ctl.signal).then((d) => setRows(d.trades)).catch((e) => { if (!ctl.signal.aborted) setErr(String(e?.message ?? e)); });
+    setErr(null);
+    load<{ trades: TradeRow[] }>(url, ctl.signal).then((d) => setGot(d.trades)).catch((e) => { if (!ctl.signal.aborted) setErr(String(e?.message ?? e)); });
     return () => ctl.abort();
-  }, [query]);
+  }, [url]);
+  // an answer already loaded shows in the same render (no placeholder); otherwise the old rows stay until it arrives
+  const rows = peek<{ trades: TradeRow[] }>(url)?.trades ?? got;
   const list = useMemo(() => {
     const f = q.trim().toLowerCase();
     const l = (rows ?? []).filter((t) => !f || `${t.date} ${t.account} ${t.direction} ${t.style} ${t.phase}`.toLowerCase().includes(f));

@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { X } from "lucide-react";
 import { arrow, money, pnlClass, rr } from "@/lib/format";
 import { getJson } from "@/lib/api";
+import { load, peek, prime } from "@/lib/prefetch";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/shell/page";
 import { MonthPicker } from "./MonthPicker";
@@ -18,20 +19,34 @@ const LONG = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short"
 const d12 = (iso: string) => new Date(iso + "T12:00:00Z");
 const ymAdd = (ym: string, n: number) => { const [y, m] = ym.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`; };
 
-export function PnlCalendar({ account, phase = "all", plan = null, unit, animated, label }: { account: string; phase?: string; plan?: string | null; unit: Unit; animated: boolean; label: string }) {
-  const [ym, setYm] = useState<string | null>(null);
+/** The calendar's data address; `month` null = the selection's latest month (the page loads it before an account switch
+ * shows, owner 2026-11-16). */
+export function calendarUrl({ account, unit, phase, month, plan }: { account: string; unit: Unit; phase: string; month: string | null; plan: string | null }) {
+  return `/api/performance/calendar?${new URLSearchParams({ account, unit, phase, ...(month ? { month } : {}), ...(plan ? { plan } : {}) })}`;
+}
+
+/** Load a calendar month and keep the latest-month answer under its own month's address too. */
+export function loadCalendar(args: Parameters<typeof calendarUrl>[0], signal?: AbortSignal) {
+  return load<CalMonth>(calendarUrl(args), signal).then((d) => { if (!args.month) prime(calendarUrl({ ...args, month: d.month }), d); return d; });
+}
+
+// the month shown is the page's (`month`, `onMonth`), so an account switch keeps it and the page can load it ahead
+export function PnlCalendar({ account, phase = "all", plan = null, unit, animated, label, month, onMonth }: {
+  account: string; phase?: string; plan?: string | null; unit: Unit; animated: boolean; label: string; month: string | null; onMonth: (ym: string) => void;
+}) {
+  const setYm = onMonth;
   const [dir, setDir] = useState(1);
-  const [data, setData] = useState<CalMonth | null>(null);
+  const [got, setGot] = useState<CalMonth | null>(null);
   const [open, setOpen] = useState<{ date: string; trades: DayTrade[] | null } | null>(null);
   const [hover, setHover] = useState<{ cell: CalCell; x: number; y: number } | null>(null);
   useEffect(() => {
     const ctl = new AbortController();
-    const q = new URLSearchParams({ account, unit, phase, ...(ym ? { month: ym } : {}), ...(plan ? { plan } : {}) });
-    getJson<CalMonth>(`/api/performance/calendar?${q}`, ctl.signal).then((d) => { setData(d); if (!ym) setYm(d.month); }).catch(() => {});
+    loadCalendar({ account, unit, phase, month, plan }, ctl.signal).then((d) => { setGot(d); if (!month) setYm(d.month); }).catch(() => {});
     return () => ctl.abort();
-  }, [account, unit, ym, plan, phase]);
-  // a new phase opens on its own latest month
-  useEffect(() => { setYm(null); }, [phase]);
+  }, [account, unit, month, plan, phase]); // eslint-disable-line react-hooks/exhaustive-deps
+  // an answer already loaded shows in the same render (no placeholder); otherwise the old month stays until it arrives
+  const data = peek<CalMonth>(calendarUrl({ account, unit, phase, month, plan })) ?? got;
+  const ym = month ?? data?.month ?? null;
   useEffect(() => { setOpen(null); }, [account, ym]);
   const openDay = (date: string) => {
     setOpen({ date, trades: null });

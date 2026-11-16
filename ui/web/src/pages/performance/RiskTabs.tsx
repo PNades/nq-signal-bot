@@ -14,7 +14,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Table2 } from "lucide-react";
 import AnimatedTabs from "@/components/ui/animated-tabs";
-import { getJson } from "@/lib/api";
+import { load, peek } from "@/lib/prefetch";
 import { money, money0, pct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/shell/page";
@@ -63,40 +63,49 @@ function Horizon({ value, options, onChange, animated, id }: { value: number; op
 
 type Data = McPlans | McAccount | DdPlans | DdAccount;
 
-export function RiskTab({ tab, realMode, account, note = null, range, planId, horizon, onHorizon, onPlan, animated, variant }: {
+/** The tab's data address (the Performance page loads it before an account switch shows, owner 2026-11-16). */
+export function riskUrl({ tab, realMode, account, range, planId, horizon, compare }: {
+  tab: "drawdown" | "montecarlo"; realMode: boolean; account: string | null; range: string; planId: string | null; horizon: number; compare: boolean;
+}): string | null {
+  if (realMode) return account ? `/api/performance/${tab}?mode=account&account=${encodeURIComponent(account)}&horizon=${horizon}` : null;
+  return `/api/performance/${tab}?mode=plans${planId ? `&plan=${encodeURIComponent(planId)}` : ""}&horizon=${horizon}${tab === "montecarlo" && compare ? "&compare=1" : ""}${range ? `&${range}` : ""}`;
+}
+
+export function RiskTab({ tab, realMode, account, note = null, range, planId, horizon, onHorizon, onPlan, compare, onCompare, animated, variant }: {
   tab: "drawdown" | "montecarlo"; realMode: boolean; account: string | null; note?: string | null;
-  range: string; planId: string | null; horizon: number; onHorizon: (h: number) => void; onPlan: (id: string) => void; animated: boolean; variant: Variant;
+  range: string; planId: string | null; horizon: number; onHorizon: (h: number) => void; onPlan: (id: string) => void;
+  compare: boolean; onCompare: (f: (v: boolean) => boolean) => void; animated: boolean; variant: Variant;
 }) {
-  const [data, setData] = useState<Data | null>(null);
+  const [got, setGot] = useState<Data | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [compare, setCompare] = useState(false);
-  const url = realMode
-    ? `/api/performance/${tab}?mode=account&account=${encodeURIComponent(account ?? "")}&horizon=${horizon}`
-    : `/api/performance/${tab}?mode=plans${planId ? `&plan=${encodeURIComponent(planId)}` : ""}&horizon=${horizon}${tab === "montecarlo" && compare ? "&compare=1" : ""}${range ? `&${range}` : ""}`;
+  const url = riskUrl({ tab, realMode, account, range, planId, horizon, compare });
   useEffect(() => {
     const ctl = new AbortController();
-    if (realMode && !account) { setErr("No account with a drawdown rule to show."); return; }
-    getJson<Data>(url, ctl.signal).then((d) => { setData(d); setErr(null); })
+    if (!url) { setErr("No account with a drawdown rule to show."); return; }
+    load<Data>(url, ctl.signal).then((d) => { setGot(d); setErr(null); })
       .catch((e) => { if (!ctl.signal.aborted) setErr(String(e?.message ?? e)); });
     return () => ctl.abort();
-  }, [url]); // eslint-disable-line react-hooks/exhaustive-deps
-  // the old view stays until the new data has arrived; a response of the other tab's shape is never drawn
+  }, [url]);
+  // an answer already loaded (the page loads it with an account switch) shows in the same render; otherwise the old view
+  // stays until the new data has arrived; a response of the other tab's shape is never drawn
+  const data = peek<Data>(url) ?? got;
   const fits = !!data && (tab === "drawdown" ? "replay" in data || "run" in data : "fan" in data || "state" in data);
   let key = "loading", body: ReactNode = <Skeleton className="h-[560px]" />;
-  if (err) { key = `err:${err}`; body = <p className="grid h-[560px] place-items-center text-center text-[13.5px] text-text-2">{err}</p>; }
+  if (err && !(url && peek(url))) { key = `err:${err}`; body = <p className="grid h-[560px] place-items-center text-center text-[13.5px] text-text-2">{err}</p>; }
   else if (data && fits) {
     key = data.mode === "plans" ? `plans:${tab}:${data.selected}` : `account:${tab}:${data.account.name}`;
     body = data.mode === "plans"
       ? (tab === "drawdown" ? <PlanDrawdown d={data as DdPlans} onHorizon={onHorizon} animated={animated} />
-        : <PlanMonteCarlo m={data as McPlans} onHorizon={onHorizon} onPlan={onPlan} animated={animated} variant={variant} compare={compare} setCompare={setCompare} />)
+        : <PlanMonteCarlo m={data as McPlans} onHorizon={onHorizon} onPlan={onPlan} animated={animated} variant={variant} compare={compare} setCompare={onCompare} />)
       : (tab === "drawdown" ? <AccountDrawdown d={data as DdAccount} onHorizon={onHorizon} animated={animated} />
         : <AccountMonteCarlo m={data as McAccount} onHorizon={onHorizon} animated={animated} variant={variant} />);
   }
   return (
     <div className="relative min-h-[560px]" data-risk-tab={tab}>
-      {note && <p className="mb-2 rounded-sm border border-info/30 bg-info/[.07] px-3 py-1.5 font-mono text-[11.5px] text-text-2" data-account-note>{note}</p>}
       <AnimatePresence initial={false} mode="popLayout">
-        <motion.div key={key} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: animated ? 0.2 : 0, ease: "easeOut" }}>
+        <motion.div key={`${key}:${note ? 1 : 0}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: animated ? 0.2 : 0, ease: "easeOut" }}>
+          {/* the "All accounts" note crossfades with the view it belongs to (owner 2026-11-16) */}
+          {note && <p className="mb-2 rounded-sm border border-info/30 bg-info/[.07] px-3 py-1.5 font-mono text-[11.5px] text-text-2" data-account-note>{note}</p>}
           {body}
         </motion.div>
       </AnimatePresence>

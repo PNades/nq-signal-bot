@@ -2759,6 +2759,126 @@ S["3p"] = async () => {
   fs.renameSync(src, path.join(VID, "account_switch_both_ways.webm"));
 };
 
+// owner 2026-11-16: an account switch on Performance never jumps: the current page stays until the new account's data
+// (the page and the open tab's own data) is ready, then one crossfade with the height glide; numbers roll; a subtle
+// progress hint only past ~300 ms; Calm: instant. Frame by frame on every tab, three accounts and "All accounts".
+S["3q"] = async () => {
+  const { menuPick } = helpers3f;
+  const ROUTE = ["mffub1", "mffurf92", "All accounts", "mffur1", "All accounts", "mffub1"];
+  const TABS3 = ["Equity", "Drawdown", "Monte Carlo", "Calendar", "Trades"];
+  const sample = (page, ms) => page.evaluate((ms) => new Promise((done) => {
+    const out = []; const t0 = performance.now();
+    const y = (sel) => { const el = document.querySelector(sel); return el ? Math.round(el.getBoundingClientRect().top + window.scrollY) : null; };
+    const step = () => {
+      const pulse = [...document.querySelectorAll("[data-page='performance'] .animate-pulse")].filter((e) => { const r = e.getBoundingClientRect(); return r.height > 20 && getComputedStyle(e).opacity !== "0"; }).length;
+      const hint = document.querySelector("[data-perf-loading][data-busy='true']");
+      out.push({ t: Math.round(performance.now() - t0), foot: y("[data-page-footer]"), tabs: y("[role=tablist][aria-label='Performance views']"),
+        kpis: y("[data-kpis]"), pulse, hint: !!hint && getComputedStyle(hint).opacity !== "0",
+        panels: document.querySelectorAll("[data-panel-content]").length, kpiSame: document.querySelector("[data-kpi]")?.__cfTag === "kept",
+        kpiText: document.querySelector("[data-kpi='Net P&L']")?.textContent ?? "",
+        body: document.querySelector("[data-page-body]")?.getAttribute("data-page-body") ?? "",
+        panelText: (document.querySelector("[data-panel-content] [data-account-note]")?.textContent ?? "") + "|" + ([...document.querySelectorAll("[data-panel-content]")].pop()?.getAttribute("class") ?? "") + "|" + (document.querySelector("[data-panel-content] h3, [data-panel-content] [data-risk-mode]")?.textContent ?? "").slice(0, 80) });
+      if (performance.now() - t0 < ms) requestAnimationFrame(step); else done(out);
+    };
+    step();
+  }), ms);
+  // a jump: a skeleton on screen, a position going back the way it came, or one frame carrying most of a large move
+  const judge = (s, calm) => {
+    const bad = [];
+    if (s.some((f) => f.pulse)) bad.push("placeholder shown");
+    // one step: until the page body takes the new account, nothing in the tab panel changes either
+    const before = s.filter((f) => f.body === s[0].body);
+    if (before.some((f) => f.panelText !== s[0].panelText)) bad.push("the tab panel changed before the rest of the page");
+    for (const k of ["foot", "tabs"]) {
+      const v = s.map((f) => f[k]).filter((x) => x !== null);
+      const steps = v.slice(1).map((x, i) => x - v[i]).filter((d) => Math.abs(d) > 1);
+      const total = v[v.length - 1] - v[0];
+      if (steps.some((d) => Math.sign(d) !== Math.sign(steps[0]))) bad.push(`${k} reverses (${steps.join(",")})`);
+      const big = Math.max(0, ...steps.map(Math.abs));
+      if (calm) { if (steps.length > 1) bad.push(`${k} moves over ${steps.length} frames in Calm`); }
+      else if (Math.abs(total) > 40 && big > Math.max(24, 0.45 * Math.abs(total))) bad.push(`${k} jumps ${big}px in one frame of ${total}`);
+    }
+    return bad;
+  };
+  for (const [label, reduced] of [["full", "no-preference"], ["calm", "reduce"]]) {
+    for (const [w, h] of [[1440, 900], [960, 800]]) {
+      const name = `jump_${label}_${w}`;
+      const { ctx, page } = await open(name, w, h, "/performance", { reducedMotion: reduced });
+      await page.evaluate(() => { localStorage.setItem("creamflow.focusAccount", "mffur1"); localStorage.removeItem("creamflow.lastAccount"); });
+      await page.reload(); await page.waitForTimeout(2400);
+      await menuPick(page, "Phase", "Prop"); await page.waitForTimeout(600);
+      const c = (checks[name] = {});
+      for (const t of TABS3) {
+        await page.getByRole("tab", { name: t, exact: true }).first().click(); await page.waitForTimeout(1400);
+        c[t] = [];
+        for (const to of ROUTE) {
+          await page.evaluate(() => window.scrollTo(0, 0));
+          await page.getByRole("button", { name: /^Account:/ }).click(); await page.waitForTimeout(250);
+          await page.evaluate(() => { const k = document.querySelector("[data-kpi]"); if (k) k.__cfTag = "kept"; });
+          const run = sample(page, 1300);
+          await page.locator("[data-menu-list]").getByRole("option", { name: new RegExp(`^${to}`) }).click();
+          const s = await run;
+          const bad = judge(s, label === "calm");
+          const moves = s.map((f) => f.foot).filter((v, i, a) => i === 0 || v !== a[i - 1]);
+          // the KPI tiles stay (their numbers roll to the new values), never drawn again from nothing
+          if (!s.every((f) => f.kpiSame)) bad.push("KPI tiles redrawn");
+          const texts = [...new Set(s.map((f) => f.kpiText))];
+          c[t].push({ to, bad, frames: s.length, footMoves: moves.length - 1, footFrom: moves[0], footTo: moves[moves.length - 1], hint: s.some((f) => f.hint), kpiTexts: texts.length });
+          if (bad.length) problems.push(`${name} ${t} → ${to}: ${bad.join("; ")}`);
+          if (t === "Calendar" && to === "All accounts" && w === 1440) await page.screenshot({ path: path.join(OUT, `${label}_calendar_all_${w}.png`) });
+          await page.waitForTimeout(500);
+        }
+      }
+      // a slow answer (held 900 ms on purpose): the old page stays, the thin progress line shows after ~300 ms, then the
+      // switch happens in one step; a quick one never shows the line
+      if (w === 1440) {
+        await page.getByRole("tab", { name: "Calendar", exact: true }).first().click(); await page.waitForTimeout(1200);
+        await page.route(/\/api\/performance(\/calendar)?\?/, async (r) => { await new Promise((ok) => setTimeout(ok, 900)); await r.continue(); });
+        const slow = [];
+        for (const to of ["All accounts", "mffub1"]) {
+          await page.getByRole("button", { name: /^Account:/ }).click(); await page.waitForTimeout(250);
+          await page.evaluate(() => { const k = document.querySelector("[data-kpi]"); if (k) k.__cfTag = "kept"; });
+          const run = sample(page, 3200);
+          await page.locator("[data-menu-list]").getByRole("option", { name: new RegExp(`^${to}`) }).click();
+          if (to === "All accounts") { await page.waitForTimeout(600); await page.screenshot({ path: path.join(OUT, `${label}_slow_load_hint_${w}.png`), clip: { x: 0, y: 0, width: w, height: 420 } }); }
+          const s = await run;
+          const first = s.find((f) => f.hint);
+          const bad = judge(s, label === "calm");
+          const moved = s.find((f, i) => i && f.foot !== s[0].foot);
+          slow.push({ to, bad, hintAt: first ? first.t : null, movedAt: moved ? moved.t : null });
+          await page.waitForTimeout(400);
+          if (bad.length || !first || first.t < 250 || !moved || moved.t < first.t) problems.push(`${name} slow → ${to}: ${JSON.stringify(slow[slow.length - 1])}`);
+        }
+        await page.unroute(/\/api\/performance(\/calendar)?\?/);
+        c.slow = slow;
+      }
+      const quick = TABS3.flatMap((t) => c[t]).filter((x) => x.hint).length;
+      c.quickWithHint = quick;
+      await ctx.close();
+    }
+  }
+  // the video: three accounts and All accounts, both ways, on Equity then Calendar, at 1440 (Full)
+  const VID = path.resolve(here, "../../../docs/design/video/stage3q");
+  fs.mkdirSync(VID, { recursive: true });
+  const vctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", recordVideo: { dir: VID, size: { width: 1440, height: 900 } } });
+  const vp = await vctx.newPage();
+  await vp.goto(BASE + "/performance");
+  await vp.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); localStorage.setItem("creamflow.focusAccount", "mffur1"); } catch {} });
+  await vp.reload(); await vp.waitForTimeout(2000);
+  await menuPick(vp, "Phase", "Prop"); await vp.waitForTimeout(800);
+  for (const t of ["Equity", "Calendar"]) {
+    await vp.getByRole("tab", { name: t, exact: true }).first().click(); await vp.waitForTimeout(1200);
+    for (const to of ["mffub1", "mffurf92", "All accounts", "mffur1"]) {
+      await vp.getByRole("button", { name: /^Account:/ }).click(); await vp.waitForTimeout(500);
+      await vp.locator("[data-menu-list]").getByRole("option", { name: new RegExp(`^${to}`) }).click();
+      await vp.mouse.move(1300, 860); await vp.waitForTimeout(1500);
+    }
+  }
+  const video = vp.video();
+  await vctx.close();
+  fs.renameSync(await video.path(), path.join(VID, "account_switch_no_jump.webm"));
+};
+
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();
 await browser.close();
 fs.writeFileSync(path.join(OUT, "checks.json"), JSON.stringify({ stage, base: BASE, problems, checks }, null, 2));

@@ -416,3 +416,24 @@ The code does both. The page uses (a) until you decide.
    glides over 16 frames, Calm switches in one frame. A phase switch keeps the body (its numbers roll), as before.
 - The page menu's "All accounts" counts the synthetic demo stand-in ("4 active") where the top bar has the panel's
   three; a real demo account would be in both.
+
+### No jump on a switch (owner 2026-11-16)
+- **Cause:** the tabs with their own data (Drawdown, Monte Carlo, Calendar, Trades) were drawn again after the switch and
+  showed a tall loading placeholder until their data came, so the page dropped and came back; the "All accounts"
+  breakdown also pushed the tabs down 454 px in one frame. Measured before the fix: 104 problems over the same route.
+- **Fix:** the page loads its data and the open tab's data together (alongside each other; only Drawdown and Monte Carlo
+  under "All accounts" wait for the page's answer, which names their account) and shows them in one step from a short
+  in-memory cache (`lib/prefetch.ts`); the KPI tiles stay and roll; the tab content crossfades; the breakdown and the
+  stats box open and close with the height glide (`Reveal` in `shell/page.tsx`); the calendar's month and the Monte
+  Carlo comparison moved up to the page so they can be loaded ahead; the trades table keeps its sort, search and
+  columns; Drawdown and Monte Carlo under "All accounts" take their account with the data it goes with (picking an
+  account changed them ~90 ms early). A load over 300 ms shows a thin gold line (Busy 37649 pattern). Calm: one frame
+  (AutoHeight and Reveal set no height in Calm).
+- **Evidence:** [`build/stage3q/`](build/stage3q/) ([`checks.json`](build/stage3q/checks.json), all passed) and the video
+  `docs/design/video/stage3q/account_switch_no_jump.webm` (git-ignored). Each of the five tabs, Full and Calm, 1440 and
+  960 px: mffub1 → mffurf92 → All accounts → mffur1 → All accounts → mffub1 (120 switches), every animation frame:
+  no placeholder, no position going back the way it came, no single frame carrying most of a large move (Full glides over
+  2–18 frames), nothing in the tab panel changing before the rest, the KPI tiles never redrawn (their numbers change in
+  place), Calm in exactly one frame. Each tab's first step is a no-op (mffub1 is already shown).
+  With answers held 900 ms on purpose, the old page stays, the line shows at 355–413 ms and the page changes in one step
+  at ~1.1–1.2 s; quick switches showed it once in 120 (the PC is loaded by 13c).

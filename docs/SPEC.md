@@ -1106,6 +1106,13 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   fields, else its preset's. Saving an evaluation as passed asks "add its funded account?": Add opens a new account
   filled from the same plan's funded preset (its own name, §6.7: a passed evaluation becomes a new funded account);
   Not now closes. A passed evaluation opened later shows the same offer in its editor.
+- **Q-perf-switch (owner 2026-11-16; built):** a switch on the Performance page (account, and so phase, plan and dates
+  too) never jumps: the current page stays on screen until everything the new selection needs has arrived (the page's
+  data and the open tab's own data: Drawdown / Monte Carlo, the calendar month, the trades), with no loading
+  placeholder; then it shows in one step: the KPI numbers roll to their new values, the tab's content crossfades, and a
+  section that comes or goes (the "All accounts" breakdown, the stats box) opens or closes with the tab switch's height
+  glide (0.25 s). A load slower than 300 ms shows a thin progress line between the header and the page (21st.dev Busy
+  37649 pattern). Calm: the swap happens in one frame. Replaces Q-perf-lists' whole-body crossfade on an account switch.
 - **Q-perf-lists (owner 2026-11-16; built):** the top bar's "All accounts" row shows its whole description (wrapped)
   and a summary like an account row's: "n active · m archived", today's combined P&L (from the engine, "—" before step
   22) and the all-time net cash (payouts - fees across every account ever, real-trades phases, each account once; the
