@@ -2406,6 +2406,69 @@ S["3l"] = async () => {
   }
 };
 
+// The tab area's height follows its content (owner 2026-11-16): switching Equity -> Trades -> Equity on mffur1 (Prop),
+// the footer glides into place with a slight fade instead of snapping; Calm: at once. `--synthetic` on 8733.
+S["3m"] = async () => {
+  const { tab, menuPick } = helpers3f;
+  const VID = path.resolve(here, "../../../docs/design/video/stage3m");
+  fs.mkdirSync(VID, { recursive: true });
+  // per-frame samples while switching: the footer's top and opacity, the tab area's height, the chart's own height
+  const sampleSwitch = async (page, to) => {
+    await page.evaluate(() => {
+      window.__f = [];
+      const t0 = performance.now();
+      const f = () => {
+        const foot = document.querySelector("[data-page-footer]"), area = document.querySelector("[data-auto-height]");
+        const chart = document.querySelector("[data-equity-chart]");
+        window.__f.push({ t: Math.round(performance.now() - t0), top: Math.round(foot.getBoundingClientRect().top), op: Number(getComputedStyle(foot).opacity).toFixed(2),
+          area: Math.round(area.getBoundingClientRect().height), chart: chart ? Math.round(chart.getBoundingClientRect().height) : null });
+        if (performance.now() - t0 < 900) requestAnimationFrame(f);
+      };
+      requestAnimationFrame(f);
+    });
+    await tab(page, to); await page.waitForTimeout(1100);
+    const s = await page.evaluate(() => window.__f);
+    const tops = s.map((x) => x.top);
+    const moves = s.filter((x, i) => i && x.top !== s[i - 1].top);
+    return { frames: s.length, from: tops[0], to: tops[tops.length - 1], movingFrames: moves.length,
+      span: moves.length ? moves[moves.length - 1].t - moves[0].t : 0, minOpacity: Math.min(...s.map((x) => Number(x.op))),
+      chartHeights: [...new Set(s.map((x) => x.chart).filter((x) => x !== null))] };
+  };
+  for (const [mode, rm] of [["full", "no-preference"], ["calm", "reduce"]]) {
+    const name = `tab_height_${mode}`;
+    const { ctx, page } = await open(name, 1440, 900, "/performance", { reducedMotion: rm });
+    await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "mffur1"));
+    await page.reload(); await page.waitForTimeout(2400);
+    await menuPick(page, "Phase", "Prop"); await page.waitForTimeout(800);
+    await page.locator("#cf-main").evaluate((m) => m.scrollTo({ top: m.scrollHeight })); await page.waitForTimeout(500);
+    const c = (checks[name] = {});
+    c.toTrades = await sampleSwitch(page, "Trades");
+    await page.screenshot({ path: path.join(OUT, `trades_${mode}_1440.png`) });
+    c.toEquity = await sampleSwitch(page, "Equity");
+    const glides = (x) => x.movingFrames >= 6 && x.span >= 150 && x.span <= 420;
+    if (mode === "full" && !(glides(c.toTrades) && glides(c.toEquity) && c.toTrades.minOpacity < 0.8 && c.toEquity.chartHeights.length <= 1))
+      problems.push(`${name}: ${JSON.stringify(c)}`);
+    if (mode === "calm" && (c.toTrades.movingFrames > 2 || c.toEquity.movingFrames > 2)) problems.push(`${name}: Calm isn't instant ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+  // the video: Equity -> Trades -> Equity on mffur1, scrolled to the footer
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", recordVideo: { dir: VID, size: { width: 1440, height: 900 } } });
+    const page = await ctx.newPage();
+    await page.goto(BASE + "/performance");
+    await page.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); localStorage.setItem("creamflow.focusAccount", "mffur1"); } catch {} });
+    await page.reload(); await page.waitForTimeout(2200);
+    await menuPick(page, "Phase", "Prop"); await page.waitForTimeout(800);
+    await page.locator("#cf-main").evaluate((m) => m.scrollTo({ top: m.scrollHeight, behavior: "smooth" })); await page.waitForTimeout(1200);
+    for (const t of ["Trades", "Equity", "Trades", "Equity"]) { await tab(page, t); await page.waitForTimeout(1500); }
+    const v = page.video();
+    await ctx.close();
+    const dst = path.join(VID, "tab_height_equity_trades_1440.webm");
+    fs.renameSync(await v.path(), dst);
+    (checks.videos ??= []).push(dst);
+  }
+};
+
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();
 await browser.close();
 fs.writeFileSync(path.join(OUT, "checks.json"), JSON.stringify({ stage, base: BASE, problems, checks }, null, 2));

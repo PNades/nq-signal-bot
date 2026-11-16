@@ -1,0 +1,58 @@
+{
+  "stage": "3m",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "tab_height_full": {
+      "toTrades": {
+        "frames": 51,
+        "from": 560,
+        "to": 725,
+        "movingFrames": 13,
+        "span": 333,
+        "minOpacity": 0.49,
+        "chartHeights": [
+          356
+        ]
+      },
+      "toEquity": {
+        "frames": 55,
+        "from": 725,
+        "to": 991,
+        "movingFrames": 15,
+        "span": 234,
+        "minOpacity": 0.35,
+        "chartHeights": [
+          356
+        ]
+      }
+    },
+    "tab_height_calm": {
+      "toTrades": {
+        "frames": 55,
+        "from": 560,
+        "to": 725,
+        "movingFrames": 2,
+        "span": 83,
+        "minOpacity": 1,
+        "chartHeights": [
+          356
+        ]
+      },
+      "toEquity": {
+        "frames": 55,
+        "from": 725,
+        "to": 991,
+        "movingFrames": 1,
+        "span": 0,
+        "minOpacity": 1,
+        "chartHeights": [
+          356
+        ]
+      }
+    },
+    "videos": [
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage3m\\tab_height_equity_trades_1440.webm"
+    ]
+  }
+}

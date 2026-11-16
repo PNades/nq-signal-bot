@@ -20,7 +20,7 @@ import { ApiError, getJson } from "@/lib/api";
 import { useFocusAccount } from "@/lib/focus";
 import { money, pnlClass, rr } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { EmptyState, FooterPage, Skeleton } from "@/shell/page";
+import { AutoHeight, EmptyState, FooterPage, Skeleton } from "@/shell/page";
 import { EquityChart, LiveVsExpected } from "./charts";
 import { PnlCalendar } from "./PnlCalendar";
 import { Menu } from "./Menu";
@@ -300,6 +300,8 @@ export function PerformancePage() {
                 </div>
               </div>
               <BorderBeamPanel reducedMotion={!animated} glow={false} className="mt-4 p-4" radius={8}>
+                {/* the tab area's height follows its content smoothly, so the footer glides instead of snapping */}
+                <AutoHeight>
                 <AnimatePresence initial={false} mode="popLayout">
                 <motion.div key={tab === "drawdown" || tab === "montecarlo" ? tab : `${tab}:${data.selection.phase}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                   transition={{ duration: animated ? 0.2 : 0, ease: "easeOut" }} data-panel-content>
@@ -332,6 +334,7 @@ export function PerformancePage() {
                 {tab === "trades" && <TradesTable query={query} label={data.synthetic ? "synthetic" : "backtest and live"} />}
                 </motion.div>
                 </AnimatePresence>
+                </AutoHeight>
               </BorderBeamPanel>
             </motion.div>
           </>

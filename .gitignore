@@ -25,3 +25,4 @@ node_modules/
 /docs/design/mock/dist/
 # The panel's built app: each machine builds its own with `nqbot ui build` (SPEC §9b, Q-step14a (2))
 /ui/web/dist/
+/ui/web/tsconfig.tsbuildinfo

@@ -1,7 +1,7 @@
 // Shared page parts (pages/shell.md): the page header (eyebrow, two-line title with the second line in cream italic,
 // subtitle), the empty state (Dot Matrix Text, a one-line message, the next action; never urgent information) and
 // skeletons shaped like the content.
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "motion/react";
 import { DotMatrixText } from "@/components/ui/dot-text";
 import HalftoneWordmarkFooter from "@/components/ui/halftone-wordmark-footer";
@@ -74,5 +74,49 @@ export function FooterPage({ children, ready = true }: { children: ReactNode; re
         </motion.div>
       )}
     </div>
+  );
+}
+
+// The fold's motion (shell/Banners.tsx): ~250 ms, ease-out
+const FOLD_S = 0.25;
+const FOLD_EASE = [0, 0, 0.2, 1] as const;
+
+/**
+ * A block whose height follows its content smoothly (owner 2026-11-16): when what is inside gets shorter or taller
+ * (a Performance tab switch), the height animates from the old size to the new one, so what is below (the footer)
+ * glides into place with a slight fade instead of snapping. Only this block's height changes (its content keeps its own
+ * size, so charts never resize); overflow is clipped only while it moves. Calm: at once.
+ */
+export function AutoHeight({ children, className }: { children: ReactNode; className?: string }) {
+  const animated = useAnimated();
+  const inner = useRef<HTMLDivElement>(null);
+  const [h, setH] = useState<number | null>(null);
+  const [moving, setMoving] = useState(false);
+  const last = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const el = inner.current;
+    if (!el) return;
+    const measure = () => {
+      const next = el.offsetHeight;
+      const prev = last.current;
+      last.current = next;
+      setH(next);
+      if (prev === null || !animated || Math.abs(next - prev) < 8) return;
+      // the footer fades a little while it glides: in when it comes up into view, out when it goes down
+      const foot = document.querySelector("[data-page-footer]") as HTMLElement | null;
+      foot?.animate({ opacity: next < prev ? [0.35, 1] : [1, 0.35, 1] }, { duration: FOLD_S * 1000, easing: "cubic-bezier(0, 0, 0.2, 1)" });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [animated]);
+  return (
+    <motion.div className={className} data-auto-height data-moving={moving ? "1" : "0"}
+      initial={false} animate={h === null ? undefined : { height: h }} transition={{ duration: animated ? FOLD_S : 0, ease: FOLD_EASE }}
+      onAnimationStart={() => setMoving(true)} onAnimationComplete={() => setMoving(false)}
+      style={{ overflow: moving ? "hidden" : "visible" }}>
+      <div ref={inner} className="flow-root">{children}</div>
+    </motion.div>
   );
 }
