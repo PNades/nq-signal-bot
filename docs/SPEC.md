@@ -1115,8 +1115,10 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   nodes fade in 40 ms apart in their arrival order and each line draws out to the word (220 ms) as its node arrives;
   the previous page fades out where it is; a click or a key finishes it at once; Calm: Home complete in its first
   frame. Off Home, a banner arriving unfolds its height on the same 270-ms curve as on Home and as a banner leaving,
-  so the page below glides down with it, stacked banners included (critical banners still appear at once, MASTER
-  §7); Calm: one step per banner.
+  so the page below glides down with it, stacked banners included; Calm: one step per banner. A critical banner
+  (owner 2026-11-16) is fully visible from its first frame (MASTER §7: it never animates in): it is drawn over the
+  content at full height, and the page glides down beneath it on the same 270-ms curve to make room, so nothing is
+  covered once the glide ends (on Home the scene's own banner glide already does this).
 - **Q-pages (owner 2026-11-16; built):** one rule for every page change (Home, Accounts, Settings, Performance, the
   account editor): the current page stays on screen until the next page's data is loaded, then the next page
   crossfades in already filled (no placeholder, no card filling in) and plays its entrance as it is revealed, every time

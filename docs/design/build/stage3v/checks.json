@@ -1,0 +1,487 @@
+{
+  "stage": "3v",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "crit_full_accounts_1440": {
+      "alone_arrive": {
+        "bad": [],
+        "total": 49,
+        "frames": 15,
+        "biggest": 8.3,
+        "firstFrame": {
+          "top": 80,
+          "h": 49,
+          "bottom": 129,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "alone_leave": {
+        "bad": [],
+        "total": -49,
+        "frames": 14,
+        "biggest": 8.7
+      },
+      "over_two_info_arrive": {
+        "bad": [],
+        "total": 49,
+        "frames": 15,
+        "biggest": 4.5,
+        "firstFrame": {
+          "top": 80,
+          "h": 49,
+          "bottom": 129,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "over_two_info_leave": {
+        "bad": [],
+        "total": -49,
+        "frames": 14,
+        "biggest": 9.3
+      }
+    },
+    "crit_full_settings_1440": {
+      "alone_arrive": {
+        "bad": [],
+        "total": 49,
+        "frames": 15,
+        "biggest": 4.6,
+        "firstFrame": {
+          "top": 80,
+          "h": 49,
+          "bottom": 129,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "alone_leave": {
+        "bad": [],
+        "total": -49,
+        "frames": 14,
+        "biggest": 9.1
+      },
+      "over_two_info_arrive": {
+        "bad": [],
+        "total": 49,
+        "frames": 14,
+        "biggest": 4.8,
+        "firstFrame": {
+          "top": 80,
+          "h": 49,
+          "bottom": 129,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "over_two_info_leave": {
+        "bad": [],
+        "total": -49,
+        "frames": 14,
+        "biggest": 8.4
+      }
+    },
+    "crit_full_performance_1440": {
+      "alone_arrive": {
+        "bad": [],
+        "total": 49,
+        "frames": 15,
+        "biggest": 6.7,
+        "firstFrame": {
+          "top": 80,
+          "h": 49,
+          "bottom": 129,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "alone_leave": {
+        "bad": [],
+        "total": -49,
+        "frames": 14,
+        "biggest": 9.3
+      },
+      "over_two_info_arrive": {
+        "bad": [],
+        "total": 49,
+        "frames": 15,
+        "biggest": 4.5,
+        "firstFrame": {
+          "top": 80,
+          "h": 49,
+          "bottom": 129,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "over_two_info_leave": {
+        "bad": [],
+        "total": -49,
+        "frames": 14,
+        "biggest": 9.6
+      }
+    },
+    "crit_full_accounts_960": {
+      "alone_arrive": {
+        "bad": [],
+        "total": 61,
+        "frames": 15,
+        "biggest": 10,
+        "firstFrame": {
+          "top": 80,
+          "h": 61,
+          "bottom": 141,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "alone_leave": {
+        "bad": [],
+        "total": -61,
+        "frames": 14,
+        "biggest": 10.2
+      },
+      "over_two_info_arrive": {
+        "bad": [],
+        "total": 61,
+        "frames": 15,
+        "biggest": 5.6,
+        "firstFrame": {
+          "top": 80,
+          "h": 61,
+          "bottom": 141,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "over_two_info_leave": {
+        "bad": [],
+        "total": -61,
+        "frames": 14,
+        "biggest": 11.1
+      }
+    },
+    "crit_full_settings_960": {
+      "alone_arrive": {
+        "bad": [],
+        "total": 61,
+        "frames": 15,
+        "biggest": 5.7,
+        "firstFrame": {
+          "top": 80,
+          "h": 61,
+          "bottom": 141,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "alone_leave": {
+        "bad": [],
+        "total": -61,
+        "frames": 14,
+        "biggest": 11.9
+      },
+      "over_two_info_arrive": {
+        "bad": [],
+        "total": 61,
+        "frames": 14,
+        "biggest": 5.6,
+        "firstFrame": {
+          "top": 80,
+          "h": 61,
+          "bottom": 141,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "over_two_info_leave": {
+        "bad": [],
+        "total": -61,
+        "frames": 14,
+        "biggest": 10.8
+      }
+    },
+    "crit_full_performance_960": {
+      "alone_arrive": {
+        "bad": [],
+        "total": 61,
+        "frames": 15,
+        "biggest": 11.4,
+        "firstFrame": {
+          "top": 80,
+          "h": 61,
+          "bottom": 141,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "alone_leave": {
+        "bad": [],
+        "total": -61,
+        "frames": 14,
+        "biggest": 11.9
+      },
+      "over_two_info_arrive": {
+        "bad": [],
+        "total": 61,
+        "frames": 15,
+        "biggest": 5.6,
+        "firstFrame": {
+          "top": 80,
+          "h": 61,
+          "bottom": 141,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "over_two_info_leave": {
+        "bad": [],
+        "total": -61,
+        "frames": 14,
+        "biggest": 11.4
+      }
+    },
+    "crit_calm_accounts_1440": {
+      "alone_arrive": {
+        "bad": [],
+        "total": 49,
+        "frames": 1,
+        "biggest": 49,
+        "firstFrame": {
+          "top": 80,
+          "h": 49,
+          "bottom": 129,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "alone_leave": {
+        "bad": [],
+        "total": -49,
+        "frames": 1,
+        "biggest": 49
+      },
+      "over_two_info_arrive": {
+        "bad": [],
+        "total": 49,
+        "frames": 1,
+        "biggest": 49,
+        "firstFrame": {
+          "top": 80,
+          "h": 49,
+          "bottom": 129,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "over_two_info_leave": {
+        "bad": [],
+        "total": -49,
+        "frames": 1,
+        "biggest": 49
+      }
+    },
+    "crit_calm_settings_1440": {
+      "alone_arrive": {
+        "bad": [],
+        "total": 49,
+        "frames": 1,
+        "biggest": 49,
+        "firstFrame": {
+          "top": 80,
+          "h": 49,
+          "bottom": 129,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "alone_leave": {
+        "bad": [],
+        "total": -49,
+        "frames": 1,
+        "biggest": 49
+      },
+      "over_two_info_arrive": {
+        "bad": [],
+        "total": 49,
+        "frames": 1,
+        "biggest": 49,
+        "firstFrame": {
+          "top": 80,
+          "h": 49,
+          "bottom": 129,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "over_two_info_leave": {
+        "bad": [],
+        "total": -49,
+        "frames": 1,
+        "biggest": 49
+      }
+    },
+    "crit_calm_performance_1440": {
+      "alone_arrive": {
+        "bad": [],
+        "total": 49,
+        "frames": 1,
+        "biggest": 49,
+        "firstFrame": {
+          "top": 80,
+          "h": 49,
+          "bottom": 129,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "alone_leave": {
+        "bad": [],
+        "total": -49,
+        "frames": 1,
+        "biggest": 49
+      },
+      "over_two_info_arrive": {
+        "bad": [],
+        "total": 49,
+        "frames": 1,
+        "biggest": 49,
+        "firstFrame": {
+          "top": 80,
+          "h": 49,
+          "bottom": 129,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "over_two_info_leave": {
+        "bad": [],
+        "total": -49,
+        "frames": 1,
+        "biggest": 49
+      }
+    },
+    "crit_calm_accounts_960": {
+      "alone_arrive": {
+        "bad": [],
+        "total": 61,
+        "frames": 1,
+        "biggest": 61,
+        "firstFrame": {
+          "top": 80,
+          "h": 61,
+          "bottom": 141,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "alone_leave": {
+        "bad": [],
+        "total": -61,
+        "frames": 1,
+        "biggest": 61
+      },
+      "over_two_info_arrive": {
+        "bad": [],
+        "total": 61,
+        "frames": 1,
+        "biggest": 61,
+        "firstFrame": {
+          "top": 80,
+          "h": 61,
+          "bottom": 141,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "over_two_info_leave": {
+        "bad": [],
+        "total": -61,
+        "frames": 1,
+        "biggest": 61
+      }
+    },
+    "crit_calm_settings_960": {
+      "alone_arrive": {
+        "bad": [],
+        "total": 61,
+        "frames": 1,
+        "biggest": 61,
+        "firstFrame": {
+          "top": 80,
+          "h": 61,
+          "bottom": 141,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "alone_leave": {
+        "bad": [],
+        "total": -61,
+        "frames": 1,
+        "biggest": 61
+      },
+      "over_two_info_arrive": {
+        "bad": [],
+        "total": 61,
+        "frames": 1,
+        "biggest": 61,
+        "firstFrame": {
+          "top": 80,
+          "h": 61,
+          "bottom": 141,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "over_two_info_leave": {
+        "bad": [],
+        "total": -61,
+        "frames": 1,
+        "biggest": 61
+      }
+    },
+    "crit_calm_performance_960": {
+      "alone_arrive": {
+        "bad": [],
+        "total": 61,
+        "frames": 1,
+        "biggest": 61,
+        "firstFrame": {
+          "top": 80,
+          "h": 61,
+          "bottom": 141,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "alone_leave": {
+        "bad": [],
+        "total": -61,
+        "frames": 1,
+        "biggest": 61
+      },
+      "over_two_info_arrive": {
+        "bad": [],
+        "total": 61,
+        "frames": 1,
+        "biggest": 61,
+        "firstFrame": {
+          "top": 80,
+          "h": 61,
+          "bottom": 141,
+          "o": 1,
+          "onTop": true
+        }
+      },
+      "over_two_info_leave": {
+        "bad": [],
+        "total": -61,
+        "frames": 1,
+        "biggest": 61
+      }
+    }
+  }
+}

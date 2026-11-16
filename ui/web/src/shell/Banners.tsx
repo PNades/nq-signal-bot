@@ -3,6 +3,8 @@
 //   themselves after BANNER_INFO_MS; the countdown pauses while the pointer is over the banner; "Got it" closes it at once.
 // - Warning banners come in the same way but never fade by themselves: they stay until dismissed.
 // - Critical banners appear at once with no motion (MASTER §7: risk alerts never animate in) and stay until dismissed.
+//   Off Home (owner 2026-11-16) a critical banner is drawn over the content at full height from its first frame, and the
+//   page then glides down beneath it on the 270-ms curve to make room (nothing is covered once the glide ends).
 // Leaving, any banner fades, then its height folds (260 ms, ease-out) so what is below glides up; Calm: at once.
 // Everything stays in the bell's history after it has gone (lib/notify.ts).
 import { useEffect, useRef, useState, useLayoutEffect } from "react";
@@ -33,10 +35,19 @@ function BannerRow({ n, animated, fold }: { n: Note; animated: boolean; fold: bo
   // the page below glides down in step, banners stacking included, instead of being pushed down in one step) and folds
   // away after fading
   const home = !fold;
+  // a critical banner off Home: drawn over the content first while the row's own height grows from 0 beneath it (the
+  // page glides down), then part of the flow; the same row and banner throughout (nothing is drawn again)
+  const [overlay, setOverlay] = useState(() => animated && !home && n.kind === "crit");
+  const inner = useRef<HTMLDivElement>(null);
+  const [h, setH] = useState<number | null>(null);
+  useLayoutEffect(() => { if (overlay && inner.current) setH(inner.current.offsetHeight); }, [overlay]);
   return (
-    <motion.div className="overflow-hidden" data-banner-id={n.id}
-      initial={moves ? { opacity: 0, height: 0 } : false}
-      animate={home
+    <motion.div className={overlay ? "relative" : "overflow-hidden"} data-banner-id={n.id} data-banner-overlay={overlay ? "" : undefined}
+      initial={overlay ? { height: 0 } : moves ? { opacity: 0, height: 0 } : false}
+      // only the glide to the banner's full height ends the overlay (not the hold at 0 before it was measured)
+      onAnimationComplete={overlay ? (def) => { if (h !== null && (def as { height?: unknown }).height === h) setOverlay(false); } : undefined}
+      animate={overlay ? (h === null ? { height: 0 } : { height: h, transition: { duration: GLIDE_S, ease: glideEase } })
+        : home
         ? { opacity: 1, height: "auto", transition: { duration: moves ? GLIDE_S : 0, ease: glideEase } }
         : { opacity: 1, height: "auto", transition: { height: { duration: moves ? GLIDE_S : 0, ease: glideEase }, opacity: { duration: moves ? 0.22 : 0, ease: [0, 0, 0.2, 1] } } }}
       // leaving (faded out after ~5 s, Got it, Acknowledge): it fades first, then its height folds away so the banners
@@ -50,6 +61,7 @@ function BannerRow({ n, animated, fold }: { n: Note; animated: boolean; fold: bo
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} onFocus={() => setHover(true)} onBlur={() => setHover(false)}
       data-banner={n.kind}>
       {n.kind === "info" && <InfoTimer id={n.id} paused={hover} />}
+      <div ref={inner} className={overlay ? "absolute inset-x-0 top-0" : undefined}>
       <Banner kind={n.kind} title={n.title}
         actions={
           <>
@@ -62,6 +74,7 @@ function BannerRow({ n, animated, fold }: { n: Note; animated: boolean; fold: bo
         }>
         {n.text}
       </Banner>
+      </div>
     </motion.div>
   );
 }
@@ -100,7 +113,7 @@ export function Banners({ animated, fold = true }: { animated: boolean; fold?: b
     if (px !== target) { target = px; listeners.forEach((fn) => fn(px)); }
   }, [ids]);
   return (
-    <div ref={box} className="relative z-[70] shrink-0 overflow-hidden" aria-live="polite" data-banners>
+    <div ref={box} className="relative z-[70] shrink-0" aria-live="polite" data-banners>
       {/* two hidden banners (one line, two lines), only measured */}
       <div ref={probe} aria-hidden="true" className="pointer-events-none invisible absolute inset-x-0 top-0" data-banner-probe>
         {[false, true].map((two) => (

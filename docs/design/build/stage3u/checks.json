@@ -8,27 +8,27 @@
         "bad": [],
         "total": 49,
         "frames": 15,
-        "biggest": 8,
+        "biggest": 7.7,
         "banners": 1
       },
       "leave_1": {
         "bad": [],
         "total": -49,
         "frames": 14,
-        "biggest": 9.3
+        "biggest": 9.7
       },
       "arrive_3": {
         "bad": [],
         "total": 147,
         "frames": 33,
-        "biggest": 7.3,
+        "biggest": 6.9,
         "banners": 3
       },
       "leave_3": {
         "bad": [],
-        "total": -132,
-        "frames": 34,
-        "biggest": 9.1
+        "total": -124,
+        "frames": 32,
+        "biggest": 9.5
       }
     },
     "banners_full_settings_1440": {
@@ -36,34 +36,6 @@
         "bad": [],
         "total": 49,
         "frames": 15,
-        "biggest": 4.8,
-        "banners": 1
-      },
-      "leave_1": {
-        "bad": [],
-        "total": -49,
-        "frames": 14,
-        "biggest": 9.1
-      },
-      "arrive_3": {
-        "bad": [],
-        "total": 147,
-        "frames": 35,
-        "biggest": 7.1,
-        "banners": 3
-      },
-      "leave_3": {
-        "bad": [],
-        "total": -132,
-        "frames": 34,
-        "biggest": 9.1
-      }
-    },
-    "banners_full_performance_1440": {
-      "arrive_1": {
-        "bad": [],
-        "total": 49,
-        "frames": 16,
         "biggest": 4.7,
         "banners": 1
       },
@@ -71,13 +43,13 @@
         "bad": [],
         "total": -49,
         "frames": 14,
-        "biggest": 8.3
+        "biggest": 9.1
       },
       "arrive_3": {
         "bad": [],
         "total": 147,
-        "frames": 34,
-        "biggest": 6.5,
+        "frames": 33,
+        "biggest": 7.1,
         "banners": 3
       },
       "leave_3": {
@@ -87,39 +59,67 @@
         "biggest": 9.3
       }
     },
+    "banners_full_performance_1440": {
+      "arrive_1": {
+        "bad": [],
+        "total": 49,
+        "frames": 15,
+        "biggest": 4.6,
+        "banners": 1
+      },
+      "leave_1": {
+        "bad": [],
+        "total": -49,
+        "frames": 14,
+        "biggest": 8.8
+      },
+      "arrive_3": {
+        "bad": [],
+        "total": 147,
+        "frames": 34,
+        "biggest": 6.7,
+        "banners": 3
+      },
+      "leave_3": {
+        "bad": [],
+        "total": -138,
+        "frames": 35,
+        "biggest": 9.1
+      }
+    },
     "banners_full_accounts_960": {
       "arrive_1": {
         "bad": [],
         "total": 61,
         "frames": 15,
-        "biggest": 10,
+        "biggest": 8.3,
         "banners": 1
       },
       "leave_1": {
         "bad": [],
         "total": -61,
-        "frames": 15,
-        "biggest": 12.5
+        "frames": 14,
+        "biggest": 11.4
       },
       "arrive_3": {
         "bad": [],
         "total": 183,
         "frames": 33,
-        "biggest": 9.3,
+        "biggest": 9.1,
         "banners": 3
       },
       "leave_3": {
         "bad": [],
-        "total": -154,
-        "frames": 32,
-        "biggest": 12.2
+        "total": -165,
+        "frames": 35,
+        "biggest": 12.5
       }
     },
     "banners_full_settings_960": {
       "arrive_1": {
         "bad": [],
         "total": 61,
-        "frames": 15,
+        "frames": 16,
         "biggest": 5.7,
         "banners": 1
       },
@@ -127,19 +127,19 @@
         "bad": [],
         "total": -61,
         "frames": 14,
-        "biggest": 10.8
+        "biggest": 12.2
       },
       "arrive_3": {
         "bad": [],
         "total": 183,
         "frames": 33,
-        "biggest": 10,
+        "biggest": 9,
         "banners": 3
       },
       "leave_3": {
         "bad": [],
-        "total": -159,
-        "frames": 34,
+        "total": -164,
+        "frames": 35,
         "biggest": 11.6
       }
     },
@@ -148,27 +148,27 @@
         "bad": [],
         "total": 61,
         "frames": 16,
-        "biggest": 5.6,
+        "biggest": 5.7,
         "banners": 1
       },
       "leave_1": {
         "bad": [],
         "total": -61,
         "frames": 14,
-        "biggest": 11.6
+        "biggest": 12.2
       },
       "arrive_3": {
         "bad": [],
         "total": 183,
-        "frames": 33,
-        "biggest": 10.2,
+        "frames": 34,
+        "biggest": 8.9,
         "banners": 3
       },
       "leave_3": {
         "bad": [],
-        "total": -172,
-        "frames": 35,
-        "biggest": 11.4
+        "total": -169,
+        "frames": 34,
+        "biggest": 11.6
       }
     },
     "banners_calm_accounts_1440": {

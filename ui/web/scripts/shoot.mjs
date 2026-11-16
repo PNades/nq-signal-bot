@@ -3400,6 +3400,137 @@ S["3u"] = async () => {
   fs.renameSync(await video.path(), path.join(VID, "banners_unfold.webm"));
 };
 
+// owner 2026-11-16: a critical banner off Home is fully visible from its first frame (over the content), then the page
+// glides down beneath it on the 270-ms curve so nothing stays covered; frame by frame on Accounts, Settings and
+// Performance, alone and on top of two info banners, then leaving (Acknowledge). Calm: the banner and one step.
+S["3v"] = async () => {
+  const sample = (page, ms) => page.evaluate((ms) => new Promise((done) => {
+    const out = []; const t0 = performance.now();
+    const op = (el) => { let o = 1; for (let e = el; e && e !== document.body; e = e.parentElement) o *= parseFloat(getComputedStyle(e).opacity || "1"); return Math.round(o * 1000) / 1000; };
+    const step = () => {
+      const m = document.getElementById("cf-main");
+      const b = document.querySelector('[data-banner="crit"] [data-kind="crit"]');
+      let crit = null;
+      if (b) {
+        const r = b.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        crit = { top: Math.round(r.top * 10) / 10, h: Math.round(r.height * 10) / 10, bottom: Math.round(r.bottom * 10) / 10, o: op(b), onTop: !!hit && b.contains(hit) };
+      }
+      const strip = document.querySelector("[data-synthetic]");
+      out.push({ t: Math.round(performance.now() - t0), y: Math.round(m.getBoundingClientRect().top * 10) / 10, below: strip ? Math.round(strip.getBoundingClientRect().top * 10) / 10 : null, crit });
+      if (performance.now() - t0 < ms) requestAnimationFrame(step); else done(out);
+    };
+    step();
+  }), ms);
+  const judge = (s, calm, arriving) => {
+    const bad = [];
+    const ys = s.map((f) => f.y);
+    const steps = ys.slice(1).map((y, i) => y - ys[i]).filter((d) => Math.abs(d) > 0.5);
+    const total = ys[ys.length - 1] - ys[0];
+    const big = Math.max(0, ...steps.map(Math.abs));
+    if (Math.abs(total) < 20) bad.push(`the page didn't move (${total})`);
+    if (steps.some((d) => Math.sign(d) !== Math.sign(total))) bad.push(`goes back (${steps.join(",")})`);
+    if (calm) { if (steps.length > 1) bad.push(`Calm over ${steps.length} frames`); }
+    else if (big > Math.max(24, 0.45 * Math.abs(total))) bad.push(`jumps ${big} of ${total}`);
+    const res = { total: Math.round(total), frames: steps.length, biggest: Math.round(big * 10) / 10 };
+    if (arriving) {
+      const cs = s.map((f) => f.crit).filter(Boolean);
+      const fin = cs[cs.length - 1];
+      const first = cs[0];
+      res.firstFrame = first;
+      // fully readable in its first frame: opaque, at its full height, on top of whatever it overlaps
+      if (!first || first.o < 0.999 || Math.abs(first.h - fin.h) > 0.5 || !first.onTop) bad.push(`first frame not fully readable ${JSON.stringify(first)}`);
+      if (cs.some((c) => c.o < 0.999 || !c.onTop || Math.abs(c.h - fin.h) > 0.5)) bad.push("not fully readable in some frame");
+      // nothing covered once the glide ends: what follows the banners starts at or below the banner's bottom
+      const last = s[s.length - 1];
+      if (last.below !== null && last.below < fin.bottom - 0.5) bad.push(`covers the content at the end (${last.below} < ${fin.bottom})`);
+    }
+    return { bad, res };
+  };
+  const newCtx = async (name, w, h, reduced) => {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: "dark", reducedMotion: reduced });
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => problems.push(`${name}: page error ${e.message}`));
+    return { ctx, page };
+  };
+  for (const [label, reduced] of [["full", "no-preference"], ["calm", "reduce"]]) {
+    for (const [w, h] of [[1440, 900], [960, 800]]) {
+      for (const pg of ["accounts", "settings", "performance"]) {
+        const name = `crit_${label}_${pg}_${w}`;
+        const { ctx, page } = await newCtx(name, w, h, reduced);
+        await page.goto(`${BASE}/${pg}`);
+        await page.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); } catch {} });
+        await page.reload(); await page.waitForTimeout(2200);
+        const c = (checks[name] = {});
+        for (const withInfo of [false, true]) {
+          const key = withInfo ? "over_two_info" : "alone";
+          if (withInfo) {
+            for (let i = 0; i < 2; i++) { await page.locator("[data-flat-all]").click(); await page.waitForTimeout(150); }
+            await page.waitForTimeout(500);
+          }
+          // a critical banner: the flat request can't reach the server
+          await page.route("**/api/actions/flat", (r) => r.abort());
+          const run = sample(page, 800);
+          await page.locator("[data-flat-all]").click();
+          const a = judge(await run, label === "calm", true);
+          await page.unroute("**/api/actions/flat");
+          c[`${key}_arrive`] = { bad: a.bad, ...a.res };
+          if (a.bad.length) problems.push(`${name} ${key} arriving: ${a.bad.join("; ")}`);
+          await page.waitForTimeout(300);
+          if (w === 1440 && label === "full" && pg === "performance") await page.screenshot({ path: path.join(OUT, `crit_${key}_settled_${w}.png`), clip: { x: 0, y: 0, width: w, height: 400 } });
+          // leaving: Acknowledge (then the info banners, if any, by id)
+          const run2 = sample(page, 900);
+          await page.locator('[data-banner="crit"] button', { hasText: /^Acknowledge$/ }).click();
+          const l = judge(await run2, label === "calm", false);
+          c[`${key}_leave`] = { bad: l.bad, ...l.res };
+          if (l.bad.length) problems.push(`${name} ${key} leaving: ${l.bad.join("; ")}`);
+          await page.waitForTimeout(300);
+          for (const id of await page.locator("[data-banner-id]").evaluateAll((els) => els.map((e) => e.getAttribute("data-banner-id")))) {
+            await page.locator(`[data-banner-id="${id}"] button`).last().click().catch(() => {});
+          }
+          await page.waitForTimeout(600);
+        }
+        await ctx.close();
+      }
+    }
+  }
+  // a frame from the very start of the glide (the banner over the content), Performance at 1440
+  {
+    const { ctx, page } = await newCtx("crit_first_frame", 1440, 900, "no-preference");
+    await page.goto(`${BASE}/performance`);
+    await page.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); } catch {} });
+    await page.reload(); await page.waitForTimeout(2200);
+    await page.route("**/api/actions/flat", (r) => r.abort());
+    await page.locator("[data-flat-all]").click();
+    await page.waitForFunction(() => !!document.querySelector('[data-banner="crit"]'));
+    await page.waitForTimeout(40);
+    await page.screenshot({ path: path.join(OUT, "crit_first_frames_over_content_1440.png"), clip: { x: 0, y: 0, width: 1440, height: 400 } });
+    await ctx.close();
+  }
+  // the video: Performance, a critical banner alone and over two info banners, arriving and leaving (Full, 1440)
+  const VID = path.resolve(here, "../../../docs/design/video/stage3v");
+  fs.mkdirSync(VID, { recursive: true });
+  const vctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", recordVideo: { dir: VID, size: { width: 1440, height: 900 } } });
+  const vp = await vctx.newPage();
+  await vp.goto(BASE + "/performance");
+  await vp.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); } catch {} });
+  await vp.reload(); await vp.waitForTimeout(2200);
+  for (const withInfo of [false, true]) {
+    if (withInfo) { for (let i = 0; i < 2; i++) { await vp.locator("[data-flat-all]").click(); await vp.waitForTimeout(500); } await vp.waitForTimeout(600); }
+    await vp.route("**/api/actions/flat", (r) => r.abort());
+    await vp.locator("[data-flat-all]").click(); await vp.mouse.move(700, 650); await vp.waitForTimeout(1500);
+    await vp.unroute("**/api/actions/flat");
+    await vp.locator('[data-banner="crit"] button', { hasText: /^Acknowledge$/ }).click(); await vp.mouse.move(700, 650); await vp.waitForTimeout(1200);
+    for (const id of await vp.locator("[data-banner-id]").evaluateAll((els) => els.map((e) => e.getAttribute("data-banner-id")))) {
+      await vp.locator(`[data-banner-id="${id}"] button`).last().click().catch(() => {}); await vp.waitForTimeout(250);
+    }
+    await vp.mouse.move(700, 650); await vp.waitForTimeout(1000);
+  }
+  const video = vp.video();
+  await vctx.close();
+  fs.renameSync(await video.path(), path.join(VID, "critical_banner.webm"));
+};
+
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();
 await browser.close();
 fs.writeFileSync(path.join(OUT, "checks.json"), JSON.stringify({ stage, base: BASE, problems, checks }, null, 2));

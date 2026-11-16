@@ -517,3 +517,15 @@ The code does both. The page uses (a) until you decide.
   moves one way only, at most 4.5-12.5 px in any frame (Full), one step per banner in Calm. Video
   `docs/design/video/stage3u/banners_unfold.webm`. [`build/stage3s/`](build/stage3s/) and
   [`build/stage3q/`](build/stage3q/) re-run on the final build (all passed).
+
+### Critical banners: readable at once, the page glides beneath (owner 2026-11-16)
+- Off Home a critical banner is drawn over the content at full height from its first frame (its row's height grows from
+  0 beneath it on the 270-ms curve, so the page glides down to make room), then sits in the flow like the others: the
+  same row and banner throughout, nothing drawn twice. The banner stack no longer clips (the rows clip themselves while
+  they fold). Leaving is unchanged (fade, then fold). Calm: at once.
+- **Evidence:** [`build/stage3v/`](build/stage3v/) (all passed): Accounts, Settings and Performance at 1440 and 960 px,
+  Full and Calm, a critical banner alone and on top of two info banners, arriving and leaving (Acknowledge), every
+  frame: fully opaque, at its full height and on top of what it overlaps from its first frame (the element at its centre
+  is the banner), the content edge moving one way only, at most 4.5-11.4 px in any frame (Full), one step in Calm,
+  nothing covered once the glide ends. Video `docs/design/video/stage3v/critical_banner.webm`.
+  [`build/stage3u/`](build/stage3u/) re-run (all passed).

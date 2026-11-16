@@ -45,7 +45,9 @@
   270-ms glide curve with a short fade (on every page, as on Home and as when they leave), so the page below glides down
   with them, stacked banners included; info banners fade out after ~5 s, the
   countdown paused while the pointer is over them, "Got it" closes at once; warnings and critical alerts never fade by
-  themselves; critical ones appear at once without motion (MASTER §7). Calm: no motion.
+  themselves; critical ones appear at once without motion (MASTER §7): off Home (owner 2026-11-16) a critical banner
+  is drawn over the content at full height from its first frame while the page glides down beneath it (270 ms) to make
+  room, then sits in the flow like the others. Calm: no motion.
 - **Bell (owner 2026-11-15):** in the top bar before KILL; the history of every banner and toast shown in this tab
   (sessionStorage, last 100), tabs All / Alerts / Info, unread badge (crit-red while a critical one is unread); its
   panel opens below the banner stack, never over a banner.
