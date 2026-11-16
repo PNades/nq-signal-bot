@@ -55,6 +55,11 @@ common:
   max_losses_per_day: null
   max_trades_per_day: null
   custom_risk_usd: null
+  # plan fees (owner 2026-11-16, SPEC §6.7): the evaluation's price, paid once per evaluation started; no monthly billing; no
+  # activation fee. The plan lifecycle (src/nqbot/performance/lifecycle.py) charges them; nothing in trading reads them.
+  evaluation_fee_usd: null
+  evaluation_fee_billing: null
+  activation_fee_usd: null
 
 presets:
   # ── MyFundedFutures Rapid EOD 25k ───────────────────────────────────────────────────────────────────────────────
@@ -65,6 +70,9 @@ presets:
     fields: &mffu_25k
       firm: MyFundedFutures
       phase: evaluation
+      evaluation_fee_usd: 97.20      # what the owner pays (discounted), owner 2026-11-16
+      evaluation_fee_billing: one_time
+      activation_fee_usd: 0
       start_balance_usd: 25000
       drawdown_usd: 1000
       drawdown_type: eod_trailing
@@ -87,6 +95,7 @@ presets:
     fields: &rapid_funded
       firm: MyFundedFutures
       phase: funded
+      activation_fee_usd: 0          # no activation fee (owner 2026-11-16)
       start_balance_usd: 25000
       drawdown_usd: 1000
       drawdown_type: eod_trailing
@@ -119,6 +128,9 @@ presets:
     fields:
       firm: MyFundedFutures
       phase: evaluation
+      evaluation_fee_usd: 63.00      # what the owner pays (discounted), owner 2026-11-16
+      evaluation_fee_billing: one_time
+      activation_fee_usd: 0
       start_balance_usd: 25000
       drawdown_usd: 1000
       drawdown_type: eod_trailing
@@ -141,6 +153,7 @@ presets:
     fields: &builder_funded
       firm: MyFundedFutures
       phase: funded
+      activation_fee_usd: 0          # no activation fee (owner 2026-11-16)
       start_balance_usd: 25000
       drawdown_usd: 1000
       drawdown_type: eod_trailing
@@ -184,6 +197,9 @@ presets:
     fields:
       firm: MyFundedFutures
       phase: evaluation
+      evaluation_fee_usd: 159.00      # what the owner pays (discounted), owner 2026-11-16
+      evaluation_fee_billing: one_time
+      activation_fee_usd: 0
       start_balance_usd: 50000
       drawdown_usd: 2000
       drawdown_type: eod_trailing
@@ -206,6 +222,7 @@ presets:
     fields:
       firm: MyFundedFutures
       phase: funded
+      activation_fee_usd: 0          # no activation fee (owner 2026-11-16)
       start_balance_usd: 50000
       drawdown_usd: 2000
       drawdown_type: eod_trailing
@@ -236,6 +253,9 @@ presets:
     fields:
       firm: Lucid
       phase: evaluation
+      evaluation_fee_usd: 50.40      # what the owner pays (discounted), owner 2026-11-16
+      evaluation_fee_billing: one_time
+      activation_fee_usd: 0
       start_balance_usd: 25000
       drawdown_usd: 1000
       drawdown_type: eod_trailing
@@ -262,6 +282,7 @@ presets:
     fields:
       firm: Lucid
       phase: funded
+      activation_fee_usd: 0          # no activation fee (owner 2026-11-16)
       start_balance_usd: 25000
       drawdown_usd: 1000
       drawdown_type: eod_trailing

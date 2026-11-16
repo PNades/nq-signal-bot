@@ -268,7 +268,7 @@ export function PlanPanels({ n, luck, horizon, variant, animated, feesChip }: { 
       <div className="mt-3">
         <RangeBar r={cash ?? { median: null, lo: null, hi: null }} max={Math.max(1, (cash?.hi ?? 0) * 1.05)} min={Math.min(0, cash?.lo ?? 0)} tone="ok" />
         <div className="mt-1.5 flex flex-wrap justify-between gap-x-3 font-mono text-[11px] text-text-3">
-          <span>{rangeText(cash, money0)}</span>{luck?.payouts_share && <span>order luck {money0(luck.payouts_share.median ?? 0)}</span>}
+          <span>{rangeText(cash, money0)}</span>{(luck?.net_cash ?? luck?.payouts_share) && <span>order luck {money0((luck?.net_cash ?? luck?.payouts_share)?.median ?? 0)}</span>}
         </div>
       </div>
       </div>

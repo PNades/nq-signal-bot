@@ -74,8 +74,9 @@ def test_monte_carlo_and_drawdown_by_plan(synth):
     n = r["fan"]["numbers"]
     assert 0 <= n["pass_rate"]["value"] <= 1 and n["days_to_pass"]["median"] is not None
     assert n["evaluations"]["median"] >= 1 and n["payouts_n"] is not None and r["fan"]["order_luck"]["pass_rate"] is not None
-    # no preset states its fees yet: listed, never guessed
-    assert n["fees_missing"] == ["evaluation fee", "activation fee"] and n["net_cash"] is None
+    # the plans' fees (owner 2026-11-16): MFFU Rapid EOD $97.20 per evaluation started, no activation fee; net cash shown
+    assert n["fees_missing"] == [] and n["fees"]["median"] == pytest.approx(n["evaluations"]["median"] * 97.20)
+    assert n["net_cash"] is not None and n["net_cash"]["median"] <= n["payouts_share"]["median"]
     assert len(r["compare"]) == len(r["plans"])
     assert synth.get("/api/performance/montecarlo?mode=plans").json()["compare"] is None     # not by default
     assert synth.get("/api/performance/montecarlo?mode=plans&horizon=45").status_code == 400

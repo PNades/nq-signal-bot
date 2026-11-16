@@ -107,6 +107,11 @@ class Account(BaseModel):
     payouts_taken: int = Field(default=0, ge=0)
     payouts: list[Payout] = Field(default_factory=list)
     first_funded_trade_date: date | None = None
+    # plan fees (owner 2026-11-16, §6.7): the evaluation's price, paid once per evaluation started (one-time billing only),
+    # and the activation fee on a pass; reports and the plan lifecycle only, never a trading input
+    evaluation_fee_usd: float | None = Field(default=None, ge=0)
+    evaluation_fee_billing: Literal["one_time"] | None = None
+    activation_fee_usd: float | None = Field(default=None, ge=0)
     # the last payout's date (owner 2026-11-16): the funded payout cycle starts there until the engine records payouts
     # (step 22); empty = the "from today" Monte Carlo assumes the cycle starts today once a payout was taken
     last_payout_date: date | None = None
