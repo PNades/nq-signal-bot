@@ -136,7 +136,7 @@ grayscale and for red-green colour blindness.
 | `--orb-king` | its own sign colour (Pika gold / Barney orchid) at full brightness + an extra glow ring (`#FFF1DC` at 70%, 2 px, soft outer halo) | the King (owner 2026-11-14): the brightest, largest orb with the extra ring; the same on the main chart and the radial; not orange | ring + size + label "King" |
 | `--level-ceiling` | `#FF7B6E` @ 70% | ceiling role line / band | role chip "C" |
 | `--level-floor` | `#5FD39B` @ 70% | floor role line / band | role chip "F" |
-| `--level-neutral` | `#B3ADA3` @ 60% | VWAP, POC, value-area lines | label at the right edge |
+| `--level-neutral` | `#B3ADA3` @ 60% | a level before it has a role (every level line, VWAP / POC / value-area lines included, takes the ceiling / floor colour of its current role, SPEC §9b item 3; owner 2026-11-16) | label at the right edge |
 | `--zone-fill` | role colour @ 10% | a zone = shaded band between its edges; hatched while provisional | hatch pattern |
 | `--marker-held` / `--marker-broke` / `--marker-timeout` | ok / crit / text-2 | event outcome markers | shapes ● / ✕ / ◌ |
 | `--marker-king-switch` | cream | King-switch marker | `Crown` glyph |

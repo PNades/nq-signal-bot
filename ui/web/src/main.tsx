@@ -27,6 +27,7 @@ import { ShortcutsDialog, type ShortcutGroup } from "./components/ui/keyboard-sh
 import { Toaster } from "./components/ui/toast";
 import { HintLayer } from "@/components/ui/hint-layer";
 import { PlaceholderPage } from "./pages/Placeholder";
+import { ReviewPage } from "./pages/review/ReviewPage";
 import { PerformancePage } from "./pages/performance/PerformancePage";
 import { HomeScene } from "./home/HomeScene";
 import { AccountsPage } from "./pages/accounts/AccountsPage";
@@ -299,6 +300,7 @@ function App() {
                       {view === "accounts" ? <AccountsPage />
                         : view === "settings" ? <SettingsPage onEffects={changeEffects} />
                         : view === "performance" ? <PerformancePage />
+                        : view === "review" ? <ReviewPage />
                         : <PlaceholderPage id={view} />}
                     </div>
                   </motion.div>

@@ -3531,6 +3531,119 @@ S["3v"] = async () => {
   fs.renameSync(await video.path(), path.join(VID, "critical_banner.webm"));
 };
 
+// ── stage 4: the main chart, the GEX radial and the Review page (docs/design/build_stage_4.md) ─────────────────
+// "4": against a panel on the real preview round (read-only: nothing is answered); "4s": against a --synthetic panel
+// (answers stay in memory), for the answer bar, the result card and the reveal.
+async function reviewChecks(name, page) {
+  const r = await page.evaluate(() => {
+    const q = (s) => document.querySelector(s);
+    const box = (s) => { const e = q(s); if (!e) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) }; };
+    return { chart: box("[data-plot] canvas"), radial: box("[data-radial] canvas"), facts: box("[data-facts]"), bar: box("[data-answer-bar]") ?? box("[data-result]"),
+      clock: q("[data-clock]")?.textContent ?? null, hOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+      titles: document.querySelectorAll("[title]").length, titled: [...document.querySelectorAll("[title]")].map((e) => e.tagName + ":" + e.getAttribute("title")).slice(0, 3) };
+  });
+  checks[name] = { ...(checks[name] ?? {}), ...r };
+  if (!r.chart || r.chart.w < 300 || r.chart.h < 250) problems.push(`${name}: the main chart is missing or too small (${JSON.stringify(r.chart)})`);
+  if (!r.radial) problems.push(`${name}: the GEX radial is missing`);
+  if (r.hOverflow) problems.push(`${name}: the page scrolls sideways`);
+  if (r.titles) problems.push(`${name}: ${r.titles} native title attribute(s): ${r.titled.join(", ")}`);
+  // the replay bar (and the chart card) stay clear of the open dock at load
+  const clash = await page.evaluate(() => { const d = document.querySelector("[data-dock]") ?? document.querySelector("nav[aria-label*=ock]"); const rb = document.querySelector("[data-replay]");
+    if (!d || !rb) return null; const a = d.getBoundingClientRect(), b = rb.getBoundingClientRect(); return a.top < b.bottom && b.top < a.bottom && a.left < b.right && b.left < a.right ? { dockTop: Math.round(a.top), replayBottom: Math.round(b.bottom) } : false; });
+  checks[name].replay_vs_dock = clash;
+  if (clash && name.startsWith("review_")) problems.push(`${name}: the replay bar is under the dock (${JSON.stringify(clash)})`);
+}
+async function rshot(name, w, h, url, act, opts = {}) {
+  return shot(name, w, h, url, async (p) => { await p.waitForSelector("[data-plot] canvas", { timeout: 15000 }); await p.waitForTimeout(700); if (act) await act(p); await reviewChecks(name, p); }, opts);
+}
+S["4"] = async () => {
+  for (const [w, h] of [[1440, 900], [1280, 800], [960, 800]]) await rshot(`review_${w}`, w, h, "/review");
+};
+S["4s"] = async () => {
+  for (const [w, h] of [[1440, 900], [960, 800]]) await rshot(`review_synthetic_${w}`, w, h, "/review");
+  // §8: the card as sent before an answer holds nothing after the decision time and no outcome
+  {
+    const { ctx, page } = await open("cut_check", 1440, 900, "/review");
+    for (const id of ["c01", "c02", "c03", "c04", "c05"]) {
+      const c = await (await page.request.get(BASE + `/api/review/card?round=synthetic&card=${id}`)).json();
+      const late = [...c.pre.bars.NQ, ...c.pre.bars.ES].filter((b) => b[0] > c.t.decision).length
+        + c.pre.levels.NQ.flatMap((l) => l.segs).filter((g) => g[0] > c.t.decision).length
+        + Object.values(c.pre.maps).flat().filter((m) => m.t > c.t.decision).length;
+      const own = c.pre.events.filter((e) => e.own && e.label != null).length;
+      checks[`cut_${id}`] = { post: "post" in c, outcome: "outcome" in c, stratum: "stratum" in c, late, own_label: own };
+      if ("post" in c || "outcome" in c || "stratum" in c || late || own) problems.push(`cut_${id}: the card before its answer shows later data (${JSON.stringify(checks[`cut_${id}`])})`);
+    }
+    await ctx.close();
+  }
+  // replay: Restart (Home), three minutes on (→), the radial following the clock
+  await rshot("replay_restart_1440", 1440, 900, "/review", async (p) => {
+    await p.locator("[data-plot]").click({ position: { x: 5, y: 5 } }).catch(() => {});
+    await p.keyboard.press("Home"); await p.waitForTimeout(500);
+    for (let i = 0; i < 3; i++) { await p.keyboard.press("ArrowRight"); await p.waitForTimeout(120); }
+    await p.waitForTimeout(700);
+    checks.replay_restart_1440 = { clock: await p.locator("[data-clock]").textContent() };
+  });
+  // a level's role timeline in the crosshair tooltip; an orb's tooltip
+  await rshot("level_tooltip_1440", 1440, 900, "/review", async (p) => {
+    const ok = await p.evaluate(() => { const o = window.__cfOverlay; const h = o.hits.find((x) => o.s.focusUids.has(x.uid)) ?? o.hits[0]; return h ? { x: (h.x0 + h.x1) / 2, y: h.y } : null; });
+    if (!ok) { problems.push("level_tooltip_1440: no level line to hover"); return; }
+    const box = await p.locator("[data-plot]").boundingBox();
+    await p.mouse.move(box.x + Math.min(ok.x, box.width - 140), box.y + ok.y); await p.waitForTimeout(400);
+    const tip = await p.locator("[data-tip]").textContent().catch(() => null);
+    checks.level_tooltip_1440 = { tip };
+    if (!tip || !/from|crossed|flipped|reclaimed/.test(tip)) problems.push(`level_tooltip_1440: no role timeline in the tooltip (${tip})`);
+  });
+  await rshot("orb_tooltip_1440", 1440, 900, "/review", async (p) => {
+    const o = await p.evaluate(() => { const k = window.__cfOverlay.orbHits; const best = [...k].sort((a, b) => Number(b.king) - Number(a.king))[0]; return best ? { x: best.x, y: best.y, king: best.king } : null; });
+    if (!o) { problems.push("orb_tooltip_1440: no orb on the chart"); return; }
+    const box = await p.locator("[data-plot]").boundingBox();
+    await p.mouse.move(box.x + o.x, box.y + o.y); await p.waitForTimeout(400);
+    checks.orb_tooltip_1440 = { king: o.king, tip: await p.locator("[data-tip]").textContent().catch(() => null) };
+  });
+  await rshot("radial_tooltip_1440", 1440, 900, "/review", async (p) => {
+    await p.locator("[data-radial]").scrollIntoViewIfNeeded(); await p.waitForTimeout(500);
+    const cv = await p.locator("[data-radial] canvas").boundingBox();
+    // sweep the canvas for an orb
+    for (let y = 30; y < cv.height - 30 && !(await p.locator("[data-radial-tip]").count()); y += 9)
+      for (let x = 30; x < cv.width - 30; x += 9) { await p.mouse.move(cv.x + x, cv.y + y); if (await p.locator("[data-radial-tip]").count()) break; }
+    checks.radial_tooltip_1440 = { tip: await p.locator("[data-radial-tip]").textContent().catch(() => null) };
+  });
+  await rshot("es_1440", 1440, 900, "/review", async (p) => { await p.getByRole("radio", { name: "ES" }).click(); await p.waitForTimeout(500); });
+  await rshot("table_1440", 1440, 900, "/review", async (p) => { await p.getByRole("button", { name: "Table" }).click(); await p.waitForTimeout(300); });
+  await rshot("focus_off_1440", 1440, 900, "/review", async (p) => { await p.locator("[data-focus-toggle]").click(); await p.waitForTimeout(300); });
+  // answering: Take (T), the reason, the optional fields; then Ctrl+Enter, the reveal and the result card
+  for (const [w, h, calm] of [[1440, 900, false], [960, 800, false], [1440, 900, true]]) {
+    const tag = `${w}${calm ? "_calm" : ""}`;
+    await rshot(`answer_filled_${tag}`, w, h, "/review?x=" + tag, async (p) => {
+      await p.keyboard.press("t"); await p.waitForTimeout(150);
+      await p.locator("[data-reason]").click();
+      await p.keyboard.type("Second test of the ON high with the King right above; sellers held it at 10:05.");
+      const focused = await p.evaluate(() => document.activeElement?.hasAttribute("data-reason"));
+      checks[`answer_keys_${tag}`] = { verdict_take: await p.getByRole("radio", { name: /^Take/ }).getAttribute("aria-checked"), reason_focused: focused };
+      await p.getByRole("button", { name: /Optional/ }).click(); await p.waitForTimeout(300);
+      await p.getByRole("button", { name: "Audit" }).click();
+      await p.getByRole("radiogroup", { name: "Confidence 1 to 5" }).getByRole("radio", { name: "4", exact: true }).click();
+      await p.locator("[data-answer]").scrollIntoViewIfNeeded();
+    }, { reducedMotion: calm ? "reduce" : "no-preference" });
+  }
+  for (const [w, h, calm] of [[1440, 900, false], [960, 800, false], [1440, 900, true]]) {
+    const tag = `${w}${calm ? "_calm" : ""}`;
+    await rshot(`result_${tag}`, w, h, "/review", async (p) => {
+      await p.locator("[data-card]").getAttribute("data-card");
+      // a card not answered yet in this panel's memory
+      for (let k = 0; k < 5 && await p.locator("[data-result]").count(); k++) { await p.keyboard.press("n"); await p.waitForTimeout(600); }
+      await p.keyboard.press("s"); await p.waitForTimeout(150); await p.locator("[data-reason]").click();
+      await p.keyboard.type("Lunch chop under VWAP; I'd wait for the reclaim.");
+      const t0 = Date.now();
+      await p.keyboard.press("Control+Enter");
+      await p.waitForSelector("[data-result]"); const shown = Date.now() - t0;
+      await p.waitForTimeout(calm ? 300 : 4500);
+      checks[`result_${tag}`] = { shown_ms: shown, clock: await p.locator("[data-clock]").textContent(), net: await p.locator("[data-net-r]").textContent() };
+      await p.locator("[data-result]").scrollIntoViewIfNeeded();
+    }, { reducedMotion: calm ? "reduce" : "no-preference" });
+  }
+};
+
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();
 await browser.close();
 fs.writeFileSync(path.join(OUT, "checks.json"), JSON.stringify({ stage, base: BASE, problems, checks }, null, 2));

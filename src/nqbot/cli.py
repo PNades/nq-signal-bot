@@ -194,6 +194,7 @@ def _main(argv: list[str] | None = None) -> int:
     _add_databento(sub)
     _add_gameplan(sub)
     _add_ui(sub)
+    _add_review(sub)
     args, extra = parser.parse_known_args(argv)
     if extra and args.command != "test":  # only `nqbot test` passes unknown arguments on (to pytest)
         parser.error(f"unrecognized arguments: {' '.join(extra)}")
@@ -335,6 +336,8 @@ def _main(argv: list[str] | None = None) -> int:
         return _run_features(args, settings, paths, log)
     if args.command == "step13":
         return _run_step13(args, settings, paths, log)
+    if args.command == "review":
+        return _run_review(args, settings, paths, log)
     if args.command == "build-pin":
         from nqbot import build_pin
 
@@ -990,6 +993,46 @@ def _add_step11(sub: argparse._SubParsersAction) -> None:
                                          "development day, twice from the same state (report only)")
     p.add_argument("date", type=_date, help="a development-month session (YYYY-MM-DD)")
     p.add_argument("--full-warmup", action="store_true", help="build the warm-up sessions fully, as the job does")
+
+
+def _add_review(sub) -> None:
+    rv = sub.add_parser("review", help="the setup-card review rounds (SPEC §8, step 14): draw a round from a stored "
+                                       "build (development months only, read-only), list the rounds")
+    rv_sub = rv.add_subparsers(dest="action", required=True)
+    new = rv_sub.add_parser("round-new", help="sample a round of cards (§8 step-14 spread, losers, never-take) from "
+                                              "a build and its labels and write it to <data_dir>/reviews/rounds/")
+    new.add_argument("--build-key", required=True)
+    new.add_argument("--labels-key", required=True)
+    new.add_argument("--n", type=int, default=60, help="cards in the round (§8: 50-100; default 60)")
+    new.add_argument("--seed", type=int, default=1)
+    new.add_argument("--id", help="the round's id (default r<date>-<build>-s<seed>, p... for a preview)")
+    new.add_argument("--preview", action="store_true",
+                     help="a preview round (kept apart, answers marked preview); every touch its cards show is left "
+                          "out of the real rounds drawn afterwards")
+    rv_sub.add_parser("rounds", help="list the rounds and how many cards are answered")
+
+
+def _run_review(args: argparse.Namespace, settings, paths, log) -> int:
+    from nqbot import calendar as cal_mod
+    from nqbot.checks.step8b import Env
+    from nqbot.config import load_features
+    from nqbot.months import NotDevelopmentMonth
+    from nqbot.review import store as rs
+
+    if args.action == "rounds":
+        for m in rs.list_rounds(paths):
+            s = rs.summary(paths, m["id"])
+            print(f"{m['id']}{' (preview)' if m.get('preview') else ''}: build {m.get('build_key')} labels "
+                  f"{m.get('labels_key')}, {s['answered']}/{s['n']} answered, created {m.get('created')}")
+        return 0
+    env = Env(settings=settings, features=load_features(), paths=paths, log=log, cal=cal_mod.load())
+    try:
+        rd = rs.draw_round(env, args.build_key, args.labels_key, args.n, args.seed, args.id, preview=args.preview)
+    except (rs.ReviewRefused, NotDevelopmentMonth) as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return EXIT_REFUSED
+    print(f"round written: {rd}")
+    return 0
 
 
 def _run_step11(args: argparse.Namespace, settings, paths, log) -> int:

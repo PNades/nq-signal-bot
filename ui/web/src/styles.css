@@ -113,6 +113,8 @@ body {
 .cf-skeleton { background: var(--color-bg-3); border-radius: var(--radius-sm); animation: cf-skeleton 1.6s ease-in-out infinite; }
 [data-effects="calm"] .cf-skeleton { animation: none; opacity: .7; }
 .cf-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.cf-noscrollbar { scrollbar-width: none; }
+.cf-noscrollbar::-webkit-scrollbar { display: none; }
 /* the static splash from boot.css hides once the app has mounted */
 .cf-skip { position: absolute; left: 8px; top: -60px; z-index: 90; }
 .cf-skip:focus { top: 8px; }

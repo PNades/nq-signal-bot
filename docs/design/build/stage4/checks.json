@@ -1,0 +1,103 @@
+{
+  "stage": "4",
+  "base": "http://127.0.0.1:8734",
+  "problems": [],
+  "checks": {
+    "review_1440": {
+      "chart": {
+        "x": 48,
+        "y": 318,
+        "w": 888,
+        "h": 396
+      },
+      "radial": {
+        "x": 64,
+        "y": 1076,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 266,
+        "w": 360,
+        "h": 408
+      },
+      "bar": null,
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "review_1280": {
+      "chart": {
+        "x": 40,
+        "y": 318,
+        "w": 744,
+        "h": 296
+      },
+      "radial": {
+        "x": 56,
+        "y": 1076,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 881,
+        "y": 266,
+        "w": 360,
+        "h": 408
+      },
+      "bar": null,
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1260,
+      "flatFits": true,
+      "barW": 1280,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "review_960": {
+      "chart": {
+        "x": 40,
+        "y": 318,
+        "w": 800,
+        "h": 296
+      },
+      "radial": {
+        "x": 290,
+        "y": 1477,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 721,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    }
+  }
+}
