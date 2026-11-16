@@ -26,7 +26,9 @@ async function open(name, w, h, url, { js = true, reducedMotion = "no-preference
   const aborts = ["banner_timing", "bell_960"].includes(name);
   // the raising-risk dialog comes from the server's 428 answer (the save is refused before it writes): expected
   const expected428 = name.startsWith("raise_risk");
-  page.on("console", (m) => { if ((m.type() === "error" || m.type() === "warning") && !(aborts && m.text().includes("net::ERR_FAILED")) && !(expected428 && m.text().includes("428"))) problems.push(`${name}: console ${m.type()}: ${m.text()}`); });
+  // the Performance shots ask for walk-forward months on purpose: the ledger guard answers 403
+  const expected403 = name.startsWith("perf_");
+  page.on("console", (m) => { if ((m.type() === "error" || m.type() === "warning") && !(aborts && m.text().includes("net::ERR_FAILED")) && !(expected428 && m.text().includes("428")) && !(expected403 && m.text().includes("403"))) problems.push(`${name}: console ${m.type()}: ${m.text()}`); });
   page.on("pageerror", (e) => problems.push(`${name}: page error ${e.message}`));
   const resp = await page.goto(BASE + url, { waitUntil: "load" });
   const csp = resp?.headers()["content-security-policy"] ?? "";
@@ -1401,6 +1403,1007 @@ S["2i"] = async () => {
     if (v) { const dst = path.join(VID, `page_switches_${w}.webm`); fs.renameSync(await v.path(), dst); (checks.videos ??= []).push(dst); }
   }
   await real.close();
+};
+
+// Stage 3: Performance (SPEC §9b item 6). Run against `nqbot ui --synthetic` (stage "3"), and against the plain
+// `nqbot ui` for the empty state (stage "3e").
+S["3"] = async () => {
+  const tab = (p, name) => p.getByRole("tab", { name, exact: true }).first().click();
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `perf_${w}`;
+    const { ctx, page } = await open(name, w, h, "/performance");
+    await page.evaluate(() => localStorage.removeItem("creamflow.focusAccount"));
+    await page.reload(); await page.waitForTimeout(2200);
+    const c = (checks[name] = {});
+    c.syntheticChip = (await page.locator("[data-synthetic-chip]").count()) === 1;
+    c.notices = await page.locator("[data-notice]").evaluateAll((els) => els.map((e) => e.getAttribute("data-notice")));
+    c.kpis = await page.locator("[data-kpis] > *").count();
+    await page.screenshot({ path: path.join(OUT, `performance_equity_${w}.png`) });
+    await page.screenshot({ path: path.join(OUT, `performance_full_${w}.png`), fullPage: false });
+    // live vs expected sits inside the Equity panel
+    await page.getByRole("tab", { name: "Live vs expected", exact: true }).first().click(); await page.waitForTimeout(800);
+    await page.locator("[data-page=performance] .mk-beam").first().scrollIntoViewIfNeeded(); await page.waitForTimeout(300);
+    c.liveVsExpected = (await page.locator("[data-live-vs-expected]").count()) === 1;
+    await page.screenshot({ path: path.join(OUT, `performance_live_${w}.png`) });
+    await page.getByRole("tab", { name: "Equity curve", exact: true }).first().click(); await page.waitForTimeout(300);
+    for (const [t, file] of [["Drawdown", "drawdown"], ["Monte Carlo", "montecarlo"], ["Calendar", "calendar"], ["Trades", "trades"]]) {
+      await tab(page, t); await page.waitForTimeout(t === "Monte Carlo" ? 1800 : 1000);
+      // scroll the panel into view
+      await page.locator("[data-page=performance] .mk-beam").first().scrollIntoViewIfNeeded();
+      await page.waitForTimeout(300);
+      if (t === "Monte Carlo") c.pBreach = await page.locator("[data-p-breach]").textContent();
+      if (t === "Calendar") {
+        c.calendarDays = await page.locator("[data-day][data-sign]:not([data-sign=none])").count();
+        await page.screenshot({ path: path.join(OUT, `performance_${file}_${w}.png`) });
+        const day = page.locator("[data-day][data-sign='1']").first();
+        if (await day.count()) { await day.click(); await page.waitForTimeout(700); c.dayPanelRows = await page.locator("[data-day-panel] tbody tr").count(); await page.screenshot({ path: path.join(OUT, `performance_calendar_day_${w}.png`) }); await page.keyboard.press("Escape"); await page.getByRole("button", { name: "Close" }).click(); }
+        // a walk-forward month says why it is empty
+        const months = await page.locator("select[aria-label=Month] option").evaluateAll((o) => o.map((x) => x.value));
+        c.calendarMonths = months;
+        continue;
+      }
+      if (t === "Trades") c.tradeRows = await page.locator("[data-trades-table] tbody tr").count();
+      await page.screenshot({ path: path.join(OUT, `performance_${file}_${w}.png`) });
+    }
+    // the guard: picking Walk-forward 7-9 is refused with the missing gate
+    await page.locator("#cf-main").evaluate((m) => m.scrollTo({ top: 0 }));
+    await page.getByRole("button", { name: /^Phase:/ }).click(); await page.waitForTimeout(250);
+    await page.getByRole("option", { name: /Walk-forward/ }).click(); await page.waitForTimeout(900);
+    c.refused = (await page.locator("[data-refused]").count()) === 1;
+    await page.screenshot({ path: path.join(OUT, `performance_refused_${w}.png`) });
+    await page.getByRole("button", { name: "All phases" }).click(); await page.waitForTimeout(800);
+    // CSV export downloads, and holds back walk-forward / sealed
+    if (w === 1440) {
+      const [dl] = await Promise.all([page.waitForEvent("download"), page.locator("[data-export-csv]").click()]);
+      const file = path.join(OUT, "export_sample.csv");
+      await dl.saveAs(file);
+      const lines = fs.readFileSync(file, "utf8").trim().split("\n");
+      c.csvRows = lines.length - 1;
+      fs.unlinkSync(file);
+    }
+    for (const [k, v] of Object.entries(c)) if (v === false || v === 0) problems.push(`${name}: ${k} = ${JSON.stringify(v)}`);
+    if (!c.notices.includes("walk_forward") || !c.notices.includes("sealed")) problems.push(`${name}: guard notices ${c.notices}`);
+    await ctx.close();
+  }
+};
+S["3e"] = async () => {
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `perf_empty_${w}`;
+    const { ctx, page } = await open(name, w, h, "/performance");
+    await page.reload(); await page.waitForTimeout(2200);
+    checks[name] = { empty: (await page.locator("[data-empty-state]").count()) === 1, synthetic: await page.locator("[data-synthetic-chip]").count() };
+    await page.screenshot({ path: path.join(OUT, `performance_empty_${w}.png`) });
+    if (!checks[name].empty || checks[name].synthetic) problems.push(`${name}: ${JSON.stringify(checks[name])}`);
+    await ctx.close();
+  }
+};
+
+// Stage 3 changes (owner 2026-11-15): Monte Carlo and Drawdown by account type (backtest phases) or one account (real
+// trades), the draw-out, Net $ per trade, and no footer flash. Against `nqbot ui --synthetic`.
+S["3b"] = async () => {
+  const VID = path.resolve(here, "../../../docs/design/video/stage3b");
+  fs.mkdirSync(VID, { recursive: true });
+  const tab = (p, name) => p.getByRole("tab", { name, exact: true }).first().click();
+  const phase = async (p, label) => { await p.getByRole("button", { name: /^Phase:/ }).click(); await p.waitForTimeout(200); await p.getByRole("option", { name: label }).click(); await p.waitForTimeout(900); };
+  const toPanel = async (p) => { await p.locator("[data-page=performance] .mk-beam").first().scrollIntoViewIfNeeded(); await p.waitForTimeout(250); };
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `perf_${w}`;
+    const { ctx, page } = await open(name, w, h, "/performance");
+    await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "mffur1"));
+    await page.reload(); await page.waitForTimeout(2000);
+    const c = (checks[`modes_${w}`] = {});
+    // KPI label follows the unit
+    c.kpiUsd = (await page.locator("[data-kpis]").innerText()).includes("Net $ per trade".toUpperCase()) || (await page.locator("[data-kpis]").innerText()).toLowerCase().includes("net $ per trade");
+    await page.getByRole("tab", { name: "R", exact: true }).first().click(); await page.waitForTimeout(400);
+    c.kpiR = (await page.locator("[data-kpis]").innerText()).toLowerCase().includes("net r per trade");
+    await page.getByRole("tab", { name: "$", exact: true }).first().click(); await page.waitForTimeout(300);
+    // the account filter: All accounts (the focus is mffur1)
+    await page.getByRole("button", { name: /^Account:/ }).click(); await page.waitForTimeout(200);
+    await page.getByRole("option", { name: /All accounts/ }).click(); await page.waitForTimeout(900);
+    // Monte Carlo, backtest phase: by account type; numbers at once while the fan draws
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(350);
+    c.mcTypesMode = await page.locator("[data-risk-mode]").getAttribute("data-risk-mode");
+    c.numbersWhileDrawing = await page.evaluate(() => ({ drawn: document.querySelector("[data-montecarlo]")?.getAttribute("data-drawn"), p: document.querySelector("[data-p-breach]")?.textContent }));
+    c.stripRows = await page.locator("[data-type-row]").count();
+    await toPanel(page);
+    await page.screenshot({ path: path.join(OUT, `montecarlo_types_drawing_${w}.png`) });
+    await page.waitForTimeout(1500);
+    c.drawnAfter = await page.locator("[data-montecarlo]").getAttribute("data-drawn");
+    await page.screenshot({ path: path.join(OUT, `montecarlo_types_${w}.png`) });
+    // switching type redraws; a key skips to the end
+    await page.locator("[data-type-row='lucid_flex_25k_funded']").click(); await page.waitForTimeout(400);
+    c.redrawOnSwitch = await page.locator("[data-montecarlo]").getAttribute("data-drawn");
+    await page.keyboard.press("Shift"); await page.waitForTimeout(80);
+    c.keySkips = await page.locator("[data-montecarlo]").getAttribute("data-drawn");
+    await page.screenshot({ path: path.join(OUT, `montecarlo_types_lucid_${w}.png`) });
+    // Drawdown, backtest phase: by account type
+    await tab(page, "Drawdown"); await page.waitForTimeout(900); await toPanel(page);
+    c.ddTypesMode = await page.locator("[data-risk-mode]").getAttribute("data-risk-mode");
+    await page.screenshot({ path: path.join(OUT, `drawdown_types_${w}.png`) });
+    // real trades: phase Prop -> one actual account (the focused one, with the note)
+    await page.locator("#cf-main").evaluate((m) => m.scrollTo({ top: 0 }));
+    await phase(page, "Prop");
+    await toPanel(page);
+    c.ddAccountMode = await page.locator("[data-risk-mode]").getAttribute("data-risk-mode");
+    c.ddNote = await page.locator("[data-account-note]").first().textContent().catch(() => null);
+    await page.screenshot({ path: path.join(OUT, `drawdown_account_${w}.png`) });
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(1700); await toPanel(page);
+    c.mcAccountMode = await page.locator("[data-risk-mode]").getAttribute("data-risk-mode");
+    c.mcStateLine = await page.locator("[data-state-line]").textContent().catch(() => null);
+    c.mcNote = await page.locator("[data-account-note]").first().textContent().catch(() => null);
+    await page.screenshot({ path: path.join(OUT, `montecarlo_account_${w}.png`) });
+    const ok = c.kpiUsd && c.kpiR && c.mcTypesMode === "types" && c.numbersWhileDrawing.drawn === "0" && c.numbersWhileDrawing.p && c.stripRows >= 10 &&
+      c.drawnAfter === "1" && c.redrawOnSwitch === "0" && c.keySkips === "1" && c.ddTypesMode === "types" && c.ddAccountMode === "account" &&
+      c.mcAccountMode === "account" && /SYNTHETIC/.test(c.mcStateLine ?? "") && /showing mffur1/.test(c.mcNote ?? "");
+    if (!ok) problems.push(`modes_${w}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+  // Calm: drawn at once
+  {
+    const name = "mc_calm";
+    const { ctx, page } = await open(name, 1440, 900, "/performance", { reducedMotion: "reduce" });
+    await page.reload(); await page.waitForTimeout(1800);
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(300);
+    checks[name] = { drawn: await page.locator("[data-montecarlo]").getAttribute("data-drawn") };
+    if (checks[name].drawn !== "1") problems.push(`${name}: not drawn at once in Calm`);
+    await ctx.close();
+  }
+  // the footer never shows before the content: every painted frame of Home -> page (keys 6, 3, 4) and back
+  const footerCheck = async (page, key, content, ms = 1600) => {
+    const pending = page.evaluate(([content, ms]) => new Promise((res) => {
+      const out = []; const t0 = performance.now();
+      const visible = (el) => {
+        if (!el) return false;
+        const r = el.getBoundingClientRect();
+        if (r.top >= innerHeight || r.bottom <= 0 || r.height === 0) return false;
+        let o = 1; for (let e = el; e; e = e.parentElement) o *= +getComputedStyle(e).opacity;
+        return o > 0.02;
+      };
+      const ch = new MessageChannel(); const after = () => ch.port2.postMessage(0);
+      ch.port1.onmessage = () => {
+        const f = document.querySelector("[data-page-footer]") ?? document.querySelector(".hwf-root, [data-halftone-footer]");
+        out.push({ t: Math.round(performance.now() - t0), footer: visible(f), content: !!document.querySelector(content) });
+        if (performance.now() - t0 < ms) requestAnimationFrame(after); else res(out);
+      };
+      requestAnimationFrame(after);
+    }), [content, ms]);
+    await page.keyboard.press(key);
+    const f = await pending;
+    const bad = f.filter((x) => x.footer && !x.content);
+    return { frames: f.length, footerBeforeContent: bad.length, firstContentMs: f.find((x) => x.content)?.t ?? null, firstFooterMs: f.find((x) => x.footer)?.t ?? null };
+  };
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: "dark", ...(w === 1440 ? { recordVideo: { dir: VID, size: { width: w, height: h } } } : {}) });
+    const page = await ctx.newPage();
+    await page.goto(BASE + "/");
+    await page.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); } catch {} });
+    await page.reload(); await page.waitForTimeout(4500); await page.mouse.move(5, 300);
+    const r = {};
+    for (const [label, key, content] of [["performance", "6", "[data-kpis]"], ["accounts", "3", "[data-account-card]"], ["settings", "4", "#set-profile"]]) {
+      r[label] = await footerCheck(page, key, content);
+      await page.waitForTimeout(400);
+      await page.keyboard.press("1"); await page.waitForTimeout(2600); await page.mouse.move(5, 300);
+    }
+    checks[`footer_${w}`] = r;
+    for (const [k, v] of Object.entries(r)) if (v.footerBeforeContent) problems.push(`footer_${w} ${k}: the footer showed in ${v.footerBeforeContent} frames before the content`);
+    const v = page.video();
+    await ctx.close();
+    if (v) { const dst = path.join(VID, "footer_check_1440.webm"); fs.renameSync(await v.path(), dst); (checks.videos ??= []).push(dst); }
+  }
+  // the draw-out video: open the Monte Carlo, switch types twice, skip one with a key
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", recordVideo: { dir: VID, size: { width: 1440, height: 900 } } });
+    const page = await ctx.newPage();
+    await page.goto(BASE + "/performance");
+    await page.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); } catch {} });
+    await page.reload(); await page.waitForTimeout(2200);
+    await page.locator("[data-page=performance] .mk-beam").first().scrollIntoViewIfNeeded();
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(500);
+    await page.locator("[data-type-strip]").scrollIntoViewIfNeeded(); await page.waitForTimeout(1800);
+    await page.locator("[data-type-row='mffu_builder_25k_funded']").click(); await page.waitForTimeout(2000);
+    await page.locator("[data-type-row='lucid_flex_25k_evaluation']").click(); await page.waitForTimeout(450);
+    await page.keyboard.press("Shift"); await page.waitForTimeout(1500);
+    const v = page.video();
+    await ctx.close();
+    const dst = path.join(VID, "montecarlo_drawout_1440.webm");
+    fs.renameSync(await v.path(), dst);
+    (checks.videos ??= []).push(dst);
+  }
+};
+
+// Plans and their lifecycle (owner 2026-11-15): the strategy view per plan, and my-account mode. `--synthetic`.
+S["3c"] = async () => {
+  const VID = path.resolve(here, "../../../docs/design/video/stage3c");
+  fs.mkdirSync(VID, { recursive: true });
+  const tab = (p, name) => p.getByRole("tab", { name, exact: true }).first().click();
+  const toPanel = async (p) => { await p.locator("[data-page=performance] .mk-beam").first().scrollIntoViewIfNeeded(); await p.waitForTimeout(250); };
+  const pickPlan = async (p, label) => {
+    await p.getByRole("button", { name: /^Plan:/ }).click(); await p.waitForTimeout(250);
+    await p.locator("[data-menu-list]").getByRole("option", { name: new RegExp(`^${label}`) }).click(); await p.waitForTimeout(1300);
+  };
+  const plans = ["MFFU Rapid EOD 25k", "MFFU Builder 25k", "MFFU Pro 50k", "Lucid Flex 25k"];
+  for (const [w, h, shown] of [[1440, 900, plans], [960, 800, ["MFFU Rapid EOD 25k", "MFFU Pro 50k"]]]) {
+    const name = `plans_${w}`;
+    const { ctx, page } = await open(name, w, h, "/performance");
+    await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "mffur1"));
+    await page.reload(); await page.waitForTimeout(2000);
+    const c = (checks[name] = { plans: {} });
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(1700); await toPanel(page);
+    c.modeTitle = await page.locator("[data-mode-title]").innerText();
+    c.strategyNote = await page.locator("[data-strategy-note]").count();
+    c.compareByDefault = await page.locator("[data-compare]").count();
+    // the plan menu: 5 at a time (only 4 plans now: no scrolling needed), opened for the shot
+    await page.getByRole("button", { name: /^Plan:/ }).click(); await page.waitForTimeout(300);
+    c.menuMaxHeight = await page.locator("[data-menu-list]").evaluate((e) => getComputedStyle(e).maxHeight);
+    await page.screenshot({ path: path.join(OUT, `plan_menu_${w}.png`) });
+    await page.keyboard.press("Escape"); await page.waitForTimeout(200);
+    for (const pl of shown) {
+      const slug = pl.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+      await tab(page, "Monte Carlo"); await page.waitForTimeout(400);
+      await pickPlan(page, pl);
+      await page.keyboard.press("Shift"); await page.waitForTimeout(150);       // skip the draw-out for the still
+      await toPanel(page);
+      const nums = await page.locator("[data-plan-numbers]").innerText();
+      await page.screenshot({ path: path.join(OUT, `montecarlo_${slug}_${w}.png`) });
+      await tab(page, "Drawdown"); await page.waitForTimeout(1300); await toPanel(page);
+      const evals = await page.locator("[data-evaluations]").textContent();
+      await page.screenshot({ path: path.join(OUT, `drawdown_${slug}_${w}.png`) });
+      c.plans[pl] = { numbers: nums.replace(/\s+/g, " ").slice(0, 200), evaluations: evals };
+    }
+    // horizon switch and Compare plans
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(600);
+    await page.getByRole("tab", { name: "120 days", exact: true }).click(); await page.waitForTimeout(1200);
+    await page.keyboard.press("Shift"); await page.waitForTimeout(150);
+    c.horizon120 = (await page.locator("[data-plan-numbers]").innerText()).includes("day 120");
+    await page.locator("[data-compare-toggle]").click(); await page.waitForTimeout(1500);
+    c.compareRows = await page.locator("[data-compare-row]").count();
+    await toPanel(page);
+    await page.screenshot({ path: path.join(OUT, `montecarlo_compare_120_${w}.png`) });
+    // my account (real trades): phase Prop
+    await page.locator("#cf-main").evaluate((m) => m.scrollTo({ top: 0 }));
+    await page.getByRole("button", { name: /^Phase:/ }).click(); await page.waitForTimeout(200);
+    await page.getByRole("option", { name: "Prop" }).click(); await page.waitForTimeout(1800);
+    await toPanel(page);
+    c.accountTitle = await page.locator("[data-mode-title]").innerText();
+    await page.screenshot({ path: path.join(OUT, `montecarlo_my_account_${w}.png`) });
+    const ok = /Strategy/.test(c.modeTitle) && c.strategyNote === 1 && c.compareByDefault === 0 && c.horizon120 && c.compareRows === 4 &&
+      /My account/.test(c.accountTitle) && Object.values(c.plans).every((x) => /Pass rate/.test(x.numbers) && Number(x.evaluations) >= 1);
+    if (!ok) problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+  // the draw-out video: open the Monte Carlo, switch plans, switch to 120 days, skip one with a key
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", recordVideo: { dir: VID, size: { width: 1440, height: 900 } } });
+    const page = await ctx.newPage();
+    await page.goto(BASE + "/performance");
+    await page.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); } catch {} });
+    await page.reload(); await page.waitForTimeout(2200);
+    await toPanel(page);
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(400);
+    await page.locator("[data-mode-title]").scrollIntoViewIfNeeded(); await page.waitForTimeout(1800);
+    await pickPlan(page, "Lucid Flex 25k"); await page.waitForTimeout(1200);
+    await page.getByRole("tab", { name: "120 days", exact: true }).click(); await page.waitForTimeout(500);
+    await page.keyboard.press("Shift"); await page.waitForTimeout(1200);
+    await pickPlan(page, "MFFU Pro 50k"); await page.waitForTimeout(1600);
+    const v = page.video();
+    await ctx.close();
+    const dst = path.join(VID, "plans_drawout_1440.webm");
+    fs.renameSync(await v.path(), dst);
+    (checks.videos ??= []).push(dst);
+  }
+};
+
+// The strategy view by plan with payouts (owner 2026-11-15, rework 3): the plan selector in backtest phases, every
+// number by plan, the lifecycle with payouts, stage markers kept inside the chart, the design variants, the real-phase
+// account sync. `--synthetic`.
+S["3d"] = async () => {
+  const VID = path.resolve(here, "../../../docs/design/video/stage3d");
+  fs.mkdirSync(VID, { recursive: true });
+  const tab = (p, name) => p.getByRole("tab", { name, exact: true }).first().click();
+  const toPanel = async (p) => { await p.locator("[data-page=performance] .mk-beam").first().scrollIntoViewIfNeeded(); await p.waitForTimeout(250); };
+  const top = (p) => p.locator("#cf-main").evaluate((m) => m.scrollTo({ top: 0 }));
+  const menuPick = async (p, label, option) => {
+    await p.getByRole("button", { name: new RegExp(`^${label}:`) }).click(); await p.waitForTimeout(250);
+    await p.locator("[data-menu-list]").getByRole("option", { name: new RegExp(`^${option}`) }).click(); await p.waitForTimeout(1300);
+  };
+  // every marker inside the chart's plot area; a hovered marker's tooltip inside the chart
+  const markerCheck = async (p) => p.evaluate(() => {
+    const out = [];
+    for (const ch of document.querySelectorAll("[data-lifecycle-chart]")) {
+      const r = ch.getBoundingClientRect();
+      for (const m of ch.querySelectorAll("[data-marker]")) {
+        const b = m.getBoundingClientRect();
+        if (b.left < r.left || b.right > r.right - 78 + 1 || b.top < r.top || b.bottom > r.bottom - 20 + 1) out.push({ kind: m.dataset.marker, b: [b.left, b.top, b.right, b.bottom], r: [r.left, r.top, r.right, r.bottom] });
+      }
+    }
+    return out;
+  });
+  const tipInside = async (p, sel) => {
+    const m = p.locator(`[data-lifecycle-chart] ${sel}`);
+    if (!(await m.count())) return null;
+    await m.hover(); await p.waitForTimeout(250);
+    return p.evaluate(() => {
+      const ch = document.querySelector("[data-lifecycle-chart]").getBoundingClientRect();
+      const t = document.querySelector("[data-chart-tip]");
+      if (!t) return false;
+      const b = t.getBoundingClientRect();
+      return b.left >= ch.left - 0.5 && b.right <= ch.right + 0.5 && b.top >= ch.top - 0.5 && b.bottom <= ch.bottom + 0.5;
+    });
+  };
+  const plans = ["MFFU Rapid EOD 25k", "MFFU Builder 25k", "MFFU Pro 50k", "Lucid Flex 25k"];
+  const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/_$/, "");
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `strategy_${w}`;
+    const { ctx, page } = await open(name, w, h, "/performance");
+    await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "mffur1"));
+    await page.reload(); await page.waitForTimeout(2000);
+    const c = (checks[name] = { plans: {} });
+    await menuPick(page, "Phase", "Development");
+    c.planMenu = await page.getByRole("button", { name: /^Plan:/ }).count();
+    c.accountMenuInBacktest = await page.getByRole("button", { name: /^Account:/ }).count();
+    // the plan menu, open
+    await page.getByRole("button", { name: /^Plan:/ }).click(); await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(OUT, `plan_menu_${w}.png`) });
+    await page.keyboard.press("Escape"); await page.waitForTimeout(200);
+    for (const pl of plans) {
+      await top(page);
+      await menuPick(page, "Plan", pl);
+      await page.waitForTimeout(900);
+      c.plans[pl] = { kpiNet: await page.locator("[data-kpis] article").first().locator(".sr-only").first().textContent() };
+      if (w === 1440 && pl === plans[0]) await page.screenshot({ path: path.join(OUT, `kpis_stats_a_${w}.png`) });
+      await tab(page, "Monte Carlo"); await page.waitForTimeout(1500);
+      await page.keyboard.press("Shift"); await page.waitForTimeout(150);      // skip the draw-out for the still
+      await toPanel(page);
+      c.plans[pl].mc = (await page.locator("[data-plan-numbers]").innerText()).replace(/\s+/g, " ").slice(0, 260);
+      c.plans[pl].mcMarkersOutside = await markerCheck(page);
+      await page.screenshot({ path: path.join(OUT, `montecarlo_${slug(pl)}_${w}.png`) });
+      await tab(page, "Drawdown"); await page.waitForTimeout(1300); await toPanel(page);
+      c.plans[pl].replay = (await page.locator("[data-replay-summary]").innerText()).replace(/\s+/g, " ");
+      c.plans[pl].ddMarkersOutside = await markerCheck(page);
+      c.plans[pl].markers = await page.locator("[data-lifecycle-chart] [data-marker]").count();
+      await page.screenshot({ path: path.join(OUT, `drawdown_${slug(pl)}_${w}.png`) });
+      // the first and the last marker's tooltips stay inside the chart (the edges)
+      c.plans[pl].tipFirst = await tipInside(page, "[data-marker] >> nth=0");
+      if (pl === plans[0]) await page.screenshot({ path: path.join(OUT, `marker_tip_first_${w}.png`) });
+      c.plans[pl].tipLast = await tipInside(page, "[data-marker] >> nth=-1");
+      if (pl === plans[0]) await page.screenshot({ path: path.join(OUT, `marker_tip_last_${w}.png`) });
+      await page.mouse.move(5, 5);
+      await tab(page, "Equity"); await page.waitForTimeout(300);
+    }
+    // a payout marker's tooltip, and the crosshair tooltip
+    await top(page); await menuPick(page, "Plan", "Lucid Flex 25k");
+    await tab(page, "Drawdown"); await page.waitForTimeout(1300); await toPanel(page);
+    c.tipPayout = await tipInside(page, "[data-marker=payout] >> nth=2");
+    await page.screenshot({ path: path.join(OUT, `marker_tip_payout_${w}.png`) });
+    // the calendar and the trades by plan
+    await tab(page, "Calendar"); await page.waitForTimeout(1200); await toPanel(page);
+    await page.screenshot({ path: path.join(OUT, `calendar_lucid_${w}.png`) });
+    // Monte Carlo at 120 days with Compare plans
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(800);
+    await page.getByRole("tab", { name: "120 days", exact: true }).click(); await page.waitForTimeout(1200);
+    await page.keyboard.press("Shift"); await page.waitForTimeout(150);
+    await page.locator("[data-compare-toggle]").click(); await page.waitForTimeout(1800);
+    c.compareRows = await page.locator("[data-compare-row]").count();
+    await toPanel(page);
+    await page.screenshot({ path: path.join(OUT, `montecarlo_compare_120_${w}.png`) });
+    // real trades: the page's account filter and the top-bar switcher are one selection, both ways
+    await top(page);
+    await menuPick(page, "Phase", "Prop");
+    c.planMenuInReal = await page.getByRole("button", { name: /^Plan:/ }).count();
+    c.accountStart = await page.getByRole("button", { name: /^Account:/ }).getAttribute("aria-label");
+    c.allInReal = await (async () => { await page.getByRole("button", { name: /^Account:/ }).click(); await page.waitForTimeout(250);
+      const n = await page.locator("[data-menu-list]").getByRole("option", { name: /^All accounts/ }).count(); await page.keyboard.press("Escape"); return n; })();
+    await menuPick(page, "Account", "mffub1");
+    c.topbarAfterPage = await page.locator("[data-topbar] button[aria-label^='Account focus']").getAttribute("aria-label");
+    await page.locator("[data-topbar] button[aria-label^='Account focus']").click(); await page.waitForTimeout(350);
+    await page.locator("[data-switcher-row=mffur1]").click(); await page.waitForTimeout(1200);
+    c.pageAfterTopbar = await page.getByRole("button", { name: /^Account:/ }).getAttribute("aria-label");
+    await page.screenshot({ path: path.join(OUT, `real_sync_${w}.png`) });
+    const plansOk = Object.values(c.plans).every((x) => /Evaluations used/i.test(x.mc) && x.mcMarkersOutside.length === 0 && x.ddMarkersOutside.length === 0 && x.tipFirst !== false && x.tipLast !== false && x.markers > 0);
+    const differ = c.plans[plans[0]].kpiNet !== c.plans[plans[2]].kpiNet;
+    const ok = c.planMenu === 1 && c.accountMenuInBacktest === 0 && plansOk && differ && c.compareRows === 4 && c.tipPayout !== false &&
+      c.planMenuInReal === 0 && c.allInReal === 0 && /mffub1/.test(c.topbarAfterPage ?? "") && /mffur1/.test(c.pageAfterTopbar ?? "");
+    if (!ok) problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+  // variant B of the Monte Carlo summary and the stats box
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `variant_b_${w}`;
+    const { ctx, page } = await open(name, w, h, "/performance?variant=b");
+    await page.reload(); await page.waitForTimeout(2000);
+    await menuPick(page, "Phase", "Development");
+    checks[name] = { stats: await page.locator("[data-stats-panel]").getAttribute("data-variant") };
+    await page.screenshot({ path: path.join(OUT, `kpis_stats_b_${w}.png`) });
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(1500); await page.keyboard.press("Shift"); await page.waitForTimeout(150);
+    await toPanel(page);
+    checks[name].summary = await page.locator("[data-plan-numbers]").getAttribute("data-variant");
+    await page.screenshot({ path: path.join(OUT, `montecarlo_summary_b_${w}.png`) });
+    if (checks[name].stats !== "b" || checks[name].summary !== "b") problems.push(`${name}: variant B not shown`);
+    await ctx.close();
+  }
+  // stats box A at 960
+  await shot("kpis_stats_a_960", 960, 800, "/performance", async (p) => { await menuPick(p, "Phase", "Development"); });
+  // the draw-out video: Monte Carlo, switch plans, 120 days, skip one with a key, the replay with marker tooltips
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", recordVideo: { dir: VID, size: { width: 1440, height: 900 } } });
+    const page = await ctx.newPage();
+    await page.goto(BASE + "/performance");
+    await page.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); } catch {} });
+    await page.reload(); await page.waitForTimeout(2200);
+    await menuPick(page, "Phase", "Development");
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(300);
+    await toPanel(page); await page.waitForTimeout(1800);
+    await top(page); await menuPick(page, "Plan", "Lucid Flex 25k"); await toPanel(page); await page.waitForTimeout(1800);
+    await page.getByRole("tab", { name: "120 days", exact: true }).click(); await page.waitForTimeout(500);
+    await page.keyboard.press("Shift"); await page.waitForTimeout(1200);
+    await top(page); await menuPick(page, "Plan", "MFFU Pro 50k"); await toPanel(page); await page.waitForTimeout(1800);
+    await tab(page, "Drawdown"); await page.waitForTimeout(1200); await toPanel(page);
+    for (const sel of ["[data-marker] >> nth=0", "[data-marker=payout] >> nth=0", "[data-marker] >> nth=-1"]) {
+      const m = page.locator(`[data-lifecycle-chart] ${sel}`);
+      if (await m.count()) { await m.hover(); await page.waitForTimeout(900); }
+    }
+    const v = page.video();
+    await ctx.close();
+    const dst = path.join(VID, "strategy_drawout_1440.webm");
+    fs.renameSync(await v.path(), dst);
+    (checks.videos ??= []).push(dst);
+  }
+};
+
+// Rework 4 (owner 2026-11-15): one layout in every phase with a crossfade and gliding numbers, no "All phases", the
+// account's own-stage Monte Carlo, the floor and backtest-order legend tooltips, horizon + zoom on every chart, KPI
+// sparklines per trading day, profit factor ∞. `--synthetic` on 127.0.0.1:8733.
+const helpers3f = {
+  tab: (p, name) => p.getByRole("tab", { name, exact: true }).first().click(),
+  toPanel: async (p) => { await p.locator("[data-page=performance] .mk-beam").first().scrollIntoViewIfNeeded(); await p.waitForTimeout(250); },
+  top: (p) => p.locator("#cf-main").evaluate((m) => m.scrollTo({ top: 0 })),
+  menuPick: async (p, label, option) => {
+    await p.getByRole("button", { name: new RegExp(`^${label}:`) }).click(); await p.waitForTimeout(250);
+    await p.locator("[data-menu-list]").getByRole("option", { name: new RegExp(`^${option}`) }).click(); await p.waitForTimeout(1400);
+  },
+  rects: (p) => p.evaluate(() => {
+    const r = (sel) => { const e = document.querySelector(sel); if (!e) return null; const b = e.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.top + document.querySelector("#cf-main").scrollTop), Math.round(b.width), Math.round(b.height)]; };
+    return { kpis: r("[data-kpis]"), stats: r("[data-stats-panel]"), slot: r("[data-filter-slot]"), header: r("[data-chart-header]"), chart: r("[data-lifecycle-chart]"), legend: r("[data-legend]") };
+  }),
+  // markers and the floor label inside the plot area
+  inside: (p) => p.evaluate(() => {
+    const out = [];
+    for (const ch of document.querySelectorAll("[data-lifecycle-chart]")) {
+      const r = ch.getBoundingClientRect();
+      for (const m of ch.querySelectorAll("[data-marker], [data-floor-label]")) {
+        if (getComputedStyle(m).opacity === "0") continue;
+        const b = m.getBoundingClientRect();
+        if (b.left < r.left - 0.5 || b.right > r.right - 78 + 0.5 || b.top < r.top - 0.5 || b.bottom > r.bottom - 20 + 0.5) out.push(m.dataset.marker ?? "floor-label");
+      }
+    }
+    return out;
+  }),
+  // per-frame samples during a switch: how many views the crossfade holds, the Net P&L tile's text
+  startSampler: (p) => p.evaluate(() => {
+    window.__s = [];
+    const t0 = performance.now();
+    const f = () => {
+      const tile = document.querySelector("[data-kpi='Net P&L'] [data-slot=kpi-tile] p + div span");
+      window.__s.push({ t: Math.round(performance.now() - t0), views: document.querySelectorAll("[data-risk-tab] > div").length,
+        net: tile ? tile.textContent : null });
+      if (performance.now() - t0 < 2500) requestAnimationFrame(f);
+    };
+    requestAnimationFrame(f);
+  }),
+};
+
+S["3f"] = async () => {
+  const { tab, toPanel, top, menuPick, rects, inside, startSampler } = helpers3f;
+  const VID = path.resolve(here, "../../../docs/design/video/stage3f");
+  fs.mkdirSync(VID, { recursive: true });
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `phases_${w}`;
+    const { ctx, page } = await open(name, w, h, "/performance");
+    await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "mffur1"));
+    await page.reload(); await page.waitForTimeout(2200);
+    const c = (checks[name] = {});
+    c.phaseButton = await page.getByRole("button", { name: /^Phase:/ }).getAttribute("aria-label");
+    await page.getByRole("button", { name: /^Phase:/ }).click(); await page.waitForTimeout(250);
+    c.phaseOptions = await page.locator("[data-menu-list] [role=option]").allInnerTexts();
+    await page.keyboard.press("Escape"); await page.waitForTimeout(200);
+    // the same layout in Development and Prop, on every tab
+    c.layout = {};
+    for (const t of ["Equity", "Drawdown", "Monte Carlo"]) {
+      await top(page); await tab(page, t); await page.waitForTimeout(1500); await page.keyboard.press("Shift");
+      const dev = await rects(page);
+      await page.screenshot({ path: path.join(OUT, `dev_${t.toLowerCase().replace(" ", "")}_${w}.png`), fullPage: false });
+      await menuPick(page, "Phase", "Prop"); await page.waitForTimeout(800); await page.keyboard.press("Shift");
+      const prop = await rects(page);
+      await toPanel(page);
+      await page.screenshot({ path: path.join(OUT, `prop_${t.toLowerCase().replace(" ", "")}_${w}.png`) });
+      const same = (a, b, keys) => keys.every((k) => (a[k] === null && b[k] === null) || (a[k] && b[k] && a[k].every((v, i) => Math.abs(v - b[k][i]) <= 1)));
+      c.layout[t] = { same: same(dev, prop, ["kpis", "stats", "slot", "header"]) && (t === "Equity" || same(dev, prop, ["chart"])), dev, prop };
+      await top(page); await menuPick(page, "Phase", "Development");
+    }
+    // the KPI row and the stats box in Prop (the account's own days; profit factor ∞ if it has no losing trade)
+    await menuPick(page, "Phase", "Prop"); await top(page); await page.waitForTimeout(600);
+    c.pfTile = (await page.locator("[data-kpi='Profit factor']").innerText()).replace(/\s+/g, " ");
+    c.badge = (await page.locator("[data-kpi='Net P&L']").innerText()).replace(/\s+/g, " ");
+    await page.screenshot({ path: path.join(OUT, `prop_kpis_${w}.png`) });
+    // the account's own-stage Monte Carlo (mffur1, an evaluation) and Drawdown
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(1700); await page.keyboard.press("Shift"); await toPanel(page);
+    c.accountMc = (await page.locator("[data-account-numbers]").innerText()).replace(/\s+/g, " ");
+    c.noOldHeadline = !(await page.locator("body").innerText()).includes("P(reaching the floor");
+    c.horizonMcAccount = await page.getByRole("tab", { name: "120 days", exact: true }).count();
+    await page.screenshot({ path: path.join(OUT, `account_mc_evaluation_${w}.png`) });
+    await tab(page, "Drawdown"); await page.waitForTimeout(1300); await toPanel(page);
+    c.horizonDdAccount = await page.getByRole("tab", { name: "120 days", exact: true }).count();
+    await page.screenshot({ path: path.join(OUT, `account_drawdown_${w}.png`) });
+    // back to Development: legend tooltips, horizon and zoom on the plan views
+    await top(page); await menuPick(page, "Phase", "Development");
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(1600); await page.keyboard.press("Shift"); await toPanel(page);
+    c.horizonMcPlans = await page.getByRole("tab", { name: "120 days", exact: true }).count();
+    for (const k of ["floor-base", "base"]) {
+      await page.locator(`[data-legend-item=${k}]`).hover(); await page.waitForTimeout(900);
+      c[`hint_${k}`] = await page.locator("[data-hint-tip]").innerText().catch(() => null);
+      await page.screenshot({ path: path.join(OUT, `legend_hint_${k}_${w}.png`) });
+      await page.mouse.move(2, 2); await page.waitForTimeout(300);
+    }
+    await tab(page, "Drawdown"); await page.waitForTimeout(1300); await toPanel(page);
+    c.horizonDdPlans = await page.getByRole("tab", { name: "120 days", exact: true }).count();
+    const chart = page.locator("[data-lifecycle-chart]");
+    const b = await chart.boundingBox();
+    await page.mouse.move(b.x + b.width * 0.35, b.y + b.height * 0.5);
+    for (let i = 0; i < 8; i++) { await page.mouse.wheel(0, -240); await page.waitForTimeout(60); }
+    await page.waitForTimeout(300);
+    c.zoomed = await chart.getAttribute("data-zoomed");
+    c.zoomOutside = await inside(page);
+    c.floorLabelZoomed = await page.locator("[data-floor-label]").count();
+    await page.screenshot({ path: path.join(OUT, `zoomed_${w}.png`) });
+    await page.mouse.move(b.x + b.width * 0.5, b.y + b.height * 0.5); await page.mouse.down();
+    await page.mouse.move(b.x + b.width * 0.2, b.y + b.height * 0.5, { steps: 12 }); await page.mouse.up(); await page.waitForTimeout(300);
+    c.panOutside = await inside(page);
+    await page.screenshot({ path: path.join(OUT, `zoomed_panned_${w}.png`) });
+    await chart.dblclick({ position: { x: b.width * 0.5, y: b.height * 0.5 } }); await page.waitForTimeout(300);
+    c.reset = await chart.getAttribute("data-zoomed");
+    const ok = !c.phaseOptions.some((o) => /All phases/.test(o)) && /Development/.test(c.phaseButton) &&
+      Object.values(c.layout).every((x) => x.same) && /Pass before failing/i.test(c.accountMc) && c.noOldHeadline &&
+      [c.horizonMcAccount, c.horizonDdAccount, c.horizonMcPlans, c.horizonDdPlans].every((n) => n >= 1) &&
+      /own trailing floor/.test(c.hint_floor_base ?? c["hint_floor-base"] ?? "") && /original order/.test(c.hint_base ?? "") &&
+      c.zoomed === "1" && c.zoomOutside.length === 0 && c.panOutside.length === 0 && c.floorLabelZoomed === 1 && c.reset === "0";
+    if (!ok) problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+  // the switch itself, frame by frame: Full (crossfade, numbers glide) and Calm (instant)
+  for (const [mode, rm] of [["full", "no-preference"], ["calm", "reduce"]]) {
+    const name = `switch_${mode}`;
+    const { ctx, page } = await open(name, 1440, 900, "/performance", { reducedMotion: rm });
+    await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "mffur1"));
+    await page.reload(); await page.waitForTimeout(2200);
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(1600); await page.keyboard.press("Shift");
+    await page.getByRole("button", { name: /^Phase:/ }).click(); await page.waitForTimeout(250);
+    await startSampler(page);
+    await page.locator("[data-menu-list]").getByRole("option", { name: /^Prop/ }).click();
+    await page.waitForTimeout(2700);
+    const s = await page.evaluate(() => window.__s);
+    const nets = [...new Set(s.map((x) => x.net).filter(Boolean))];
+    const both = s.filter((x) => x.views > 1).length;
+    checks[name] = { frames: s.length, distinctNet: nets.length, netsSample: nets.slice(0, 6), crossfadeFrames: both };
+    if (mode === "full" && (nets.length < 4 || both < 3)) problems.push(`${name}: no glide or no crossfade ${JSON.stringify(checks[name])}`);
+    if (mode === "calm" && (nets.length > 2 || both > 1)) problems.push(`${name}: Calm isn't instant ${JSON.stringify(checks[name])}`);
+    await ctx.close();
+  }
+  // videos: a phase switch, and zooming
+  const record = async (file, act) => {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", recordVideo: { dir: VID, size: { width: 1440, height: 900 } } });
+    const page = await ctx.newPage();
+    await page.goto(BASE + "/performance");
+    await page.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); localStorage.setItem("creamflow.focusAccount", "mffur1"); } catch {} });
+    await page.reload(); await page.waitForTimeout(2200);
+    await act(page);
+    const v = page.video();
+    await ctx.close();
+    const dst = path.join(VID, file);
+    fs.renameSync(await v.path(), dst);
+    (checks.videos ??= []).push(dst);
+  };
+  await record("phase_switch_1440.webm", async (page) => {
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(2000);
+    for (const ph of ["Prop", "Development", "Prop"]) {
+      await top(page); await page.waitForTimeout(300);
+      await menuPick(page, "Phase", ph); await page.waitForTimeout(600);
+      await page.locator("[data-page=performance] [data-risk-tab]").scrollIntoViewIfNeeded(); await page.waitForTimeout(1600);
+    }
+    await top(page); await tab(page, "Equity"); await page.waitForTimeout(800);
+    await menuPick(page, "Phase", "Development"); await page.waitForTimeout(1500);
+  });
+  await record("zoom_1440.webm", async (page) => {
+    await tab(page, "Drawdown"); await page.waitForTimeout(1200);
+    await page.locator("[data-lifecycle-chart]").scrollIntoViewIfNeeded(); await page.waitForTimeout(600);
+    const b = await page.locator("[data-lifecycle-chart]").boundingBox();
+    await page.mouse.move(b.x + b.width * 0.3, b.y + b.height * 0.5);
+    for (let i = 0; i < 10; i++) { await page.mouse.wheel(0, -200); await page.waitForTimeout(120); }
+    await page.waitForTimeout(600);
+    await page.mouse.down(); await page.mouse.move(b.x + b.width * 0.05, b.y + b.height * 0.5, { steps: 30 }); await page.mouse.up(); await page.waitForTimeout(500);
+    const m = page.locator("[data-lifecycle-chart] [data-marker]").first();
+    if (await m.count()) { await m.hover(); await page.waitForTimeout(1200); }
+    await page.mouse.move(b.x + b.width * 0.6, b.y + b.height * 0.5);
+    for (let i = 0; i < 6; i++) { await page.mouse.wheel(0, 240); await page.waitForTimeout(120); }
+    await page.waitForTimeout(500);
+    await page.mouse.dblclick(b.x + b.width * 0.5, b.y + b.height * 0.5); await page.waitForTimeout(1200);
+    await page.locator("#cf-main").evaluate((m) => m.scrollTo({ top: 0 }));
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(2200);
+    await page.locator("[data-lifecycle-chart]").scrollIntoViewIfNeeded(); await page.waitForTimeout(400);
+    const c = await page.locator("[data-lifecycle-chart]").boundingBox();
+    await page.mouse.move(c.x + c.width * 0.5, c.y + c.height * 0.5);
+    for (let i = 0; i < 10; i++) { await page.mouse.wheel(0, -200); await page.waitForTimeout(120); }
+    await page.waitForTimeout(1500);
+  });
+};
+
+// the funded account's own-stage views, on the scratch panel (CF_BASE=http://127.0.0.1:8734; a funded Lucid demo
+// account beside the two draft evaluations) and a single-day KPI row
+S["3g"] = async () => {
+  const { tab, toPanel, top, menuPick, inside } = helpers3f;
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `funded_${w}`;
+    const { ctx, page } = await open(name, w, h, "/performance");
+    await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "lucid1"));
+    await page.reload(); await page.waitForTimeout(2200);
+    await menuPick(page, "Phase", "Prop");
+    const c = (checks[name] = {});
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(1800); await page.keyboard.press("Shift"); await toPanel(page);
+    c.numbers = (await page.locator("[data-account-numbers]").innerText()).replace(/\s+/g, " ");
+    c.outside = await inside(page);
+    await page.screenshot({ path: path.join(OUT, `account_mc_funded_${w}.png`) });
+    await tab(page, "Drawdown"); await page.waitForTimeout(1300); await toPanel(page);
+    await page.screenshot({ path: path.join(OUT, `account_drawdown_funded_${w}.png`) });
+    // one trading day on mffur1: a single dot, no badge
+    await top(page); await menuPick(page, "Account", "mffur1"); await page.waitForTimeout(800);
+    c.singleDots = await page.locator("[data-kpis] [data-single-dot]").count();
+    c.badges = await page.locator("[data-kpis] [data-direction]").count();
+    await page.screenshot({ path: path.join(OUT, `kpis_one_day_${w}.png`) });
+    if (!/Next payout before the floor/i.test(c.numbers) || c.outside.length || c.singleDots < 1 || c.badges !== 0) problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+};
+
+// Stage 3 changes (owner 2026-11-16): the equity curve from $0 (one point per trade in real-trade phases), the KPI
+// dashed line for < 2 points and more room under the number, chips sized to their text, the stats grid's hover, the
+// Accounts editor's last payout date. `--synthetic` on 127.0.0.1:8733.
+S["3h"] = async () => {
+  const { tab, toPanel, top, menuPick } = helpers3f;
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `stage3_${w}`;
+    const { ctx, page } = await open(name, w, h, "/performance");
+    await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "mffur1"));
+    await page.reload(); await page.waitForTimeout(2400);
+    const c = (checks[name] = {});
+    // the chips: each sized to its text (even padding: width - text width = 2 x 8 px padding + 2 px border)
+    const chips = async () => page.evaluate(() => [...document.querySelectorAll("[data-scope-chips] > span")].map((s) => {
+      const r = document.createRange(); r.selectNodeContents(s);
+      return { text: s.textContent, extra: Math.round(s.getBoundingClientRect().width - r.getBoundingClientRect().width) };
+    }));
+    c.chipsDev = await chips();
+    // the KPI number and its badge: the gap between them
+    c.badgeGap = await page.evaluate(() => {
+      const t = document.querySelector("[data-kpi='Net P&L'] [data-slot=kpi-tile]");
+      const v = t.querySelector("p + div > span"), b = t.querySelector("[data-direction]");
+      if (!v || !b) return null;
+      const vr = v.getBoundingClientRect(), br = b.getBoundingClientRect();
+      // below the number (narrow tiles) or beside it (wide tiles)
+      return br.top >= vr.bottom - 1 ? Math.round(br.top - vr.bottom) : Math.round(br.left - vr.right);
+    });
+    await page.screenshot({ path: path.join(OUT, `dev_top_${w}.png`) });
+    // the stats grid: a cell hovered lights up like the KPI tiles
+    const cell = page.locator("[data-stats-panel] [data-stat-cell]").nth(2);
+    await cell.scrollIntoViewIfNeeded(); await page.waitForTimeout(250);
+    const cb = await cell.boundingBox();
+    await page.mouse.move(cb.x + cb.width * 0.3, cb.y + cb.height * 0.5); await page.waitForTimeout(450);
+    c.cellLit = await cell.evaluate((e) => getComputedStyle(e.querySelector("span[aria-hidden]")).opacity);
+    await page.screenshot({ path: path.join(OUT, `stats_hover_${w}.png`), clip: { x: 0, y: Math.max(0, cb.y - 220), width: w, height: 360 } });
+    await page.mouse.move(2, 2);
+    // the equity curve from $0 (Development: one point per day)
+    await tab(page, "Equity"); await page.waitForTimeout(1600); await toPanel(page);
+    await page.screenshot({ path: path.join(OUT, `equity_dev_${w}.png`) });
+    // Prop: one trade so far: the curve from $0 to it, the KPI tiles' dashed line, profit factor ∞ (no note)
+    await top(page); await menuPick(page, "Phase", "Prop"); await page.waitForTimeout(900);
+    c.chipsProp = await chips();
+    c.pf = (await page.locator("[data-kpi='Profit factor']").innerText()).replace(/\s+/g, " ");
+    c.dashed = await page.locator("[data-kpis] path[stroke-dasharray], [data-kpis] path.stroke-current").count();
+    await page.screenshot({ path: path.join(OUT, `prop_top_${w}.png`) });
+    await toPanel(page); await page.waitForTimeout(600);
+    await page.screenshot({ path: path.join(OUT, `equity_prop_${w}.png`) });
+    // the R view too
+    await top(page); await page.getByRole("tab", { name: "R", exact: true }).first().click(); await page.waitForTimeout(900); await toPanel(page);
+    await page.screenshot({ path: path.join(OUT, `equity_prop_r_${w}.png`) });
+    const evenChips = (xs) => xs.length === 4 && xs.every((x) => x.extra >= 16 && x.extra <= 20);
+    const ok = evenChips(c.chipsDev) && evenChips(c.chipsProp) && (c.badgeGap === null || c.badgeGap >= 8) && Number(c.cellLit) > 0.5 &&
+      /—/.test(c.pf) && !/∞|no losing trades yet/.test(c.pf);   // owner 2026-11-16: "—" again
+    if (!ok) problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+};
+
+// More stage 3 changes (owner 2026-11-16): profit factor "—" again, the calendar's month picker, the account's Drawdown
+// per trade, the redesigned Monte Carlo summaries (variant A gauge, B bars). `--synthetic` on 127.0.0.1:8733.
+S["3i"] = async () => {
+  const { tab, toPanel, top, menuPick } = helpers3f;
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    for (const variant of ["a", "b"]) {
+      const name = `summaries_${variant}_${w}`;
+      const { ctx, page } = await open(name, w, h, `/performance${variant === "b" ? "?variant=b" : ""}`);
+      await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "mffur1"));
+      await page.reload(); await page.waitForTimeout(2400);
+      const c = (checks[name] = {});
+      // frame the whole summary: the chart header at the top of the view
+      const frame = (p) => p.locator("[data-risk-tab]").evaluate((e) => { e.scrollIntoView({ block: "start" }); document.querySelector("#cf-main").scrollBy({ top: -12 }); });
+      await tab(page, "Monte Carlo"); await page.waitForTimeout(2600); await page.keyboard.press("Shift");
+      await frame(page); await page.waitForTimeout(400);
+      c.plan = await page.locator("[data-plan-numbers]").getAttribute("data-variant");
+      await page.screenshot({ path: path.join(OUT, `mc_plan_${variant}_${w}.png`) });
+      await top(page); await menuPick(page, "Phase", "Prop"); await page.waitForTimeout(2600);
+      await frame(page); await page.waitForTimeout(400);
+      c.account = await page.locator("[data-account-numbers]").getAttribute("data-variant");
+      c.position = await page.locator("[data-account-numbers] [data-position]").count();
+      c.rangeBars = await page.locator("[data-account-numbers] [data-range-bar]").count();
+      await page.screenshot({ path: path.join(OUT, `mc_account_${variant}_${w}.png`) });
+      if (c.plan !== variant || c.account !== variant || c.position !== 1 || c.rangeBars < 2) problems.push(`${name}: ${JSON.stringify(c)}`);
+      await ctx.close();
+    }
+    const name = `stage3i_${w}`;
+    const { ctx, page } = await open(name, w, h, "/performance");
+    await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "mffur1"));
+    await page.reload(); await page.waitForTimeout(2400);
+    const c = (checks[name] = {});
+    // profit factor: a number in Development; "—" with no losing trade (Prop, mffur1), no note, no tooltip
+    await menuPick(page, "Phase", "Prop"); await page.waitForTimeout(900);
+    c.pf = (await page.locator("[data-kpi='Profit factor']").innerText()).replace(/\s+/g, " ");
+    c.pfHint = await page.locator("[data-kpi='Profit factor']").getAttribute("data-hint");
+    // the account's Drawdown: one point per trade from the start
+    await tab(page, "Drawdown"); await page.waitForTimeout(1500); await toPanel(page);
+    c.ddKicker = await page.locator("[data-chart-header]").innerText();
+    await page.screenshot({ path: path.join(OUT, `drawdown_prop_per_trade_${w}.png`) });
+    // the calendar's month picker (Development: many months)
+    await top(page); await menuPick(page, "Phase", "Development"); await page.waitForTimeout(600);
+    await tab(page, "Calendar"); await page.waitForTimeout(1400); await toPanel(page);
+    c.nativeSelect = await page.locator("[data-cal] select").count();
+    const trigger = page.getByRole("button", { name: /^Month:/ });
+    c.before = await trigger.getAttribute("aria-label");
+    await trigger.click(); await page.waitForTimeout(300);
+    c.months = await page.locator("[data-month-list] [role=option]").allInnerTexts();
+    c.listHeight = await page.locator("[data-month-list]").evaluate((e) => e.clientHeight);
+    await page.locator("[data-month-list] [role=option]").nth(2).hover(); await page.waitForTimeout(150);
+    await page.screenshot({ path: path.join(OUT, `month_picker_open_${w}.png`) });
+    // keys: ↓ then Enter picks the next older month
+    await page.keyboard.press("ArrowDown"); await page.keyboard.press("Enter"); await page.waitForTimeout(900);
+    c.afterKeys = await trigger.getAttribute("aria-label");
+    await page.getByRole("button", { name: "Next month" }).click(); await page.waitForTimeout(900);
+    c.afterNext = await trigger.getAttribute("aria-label");
+    await page.screenshot({ path: path.join(OUT, `calendar_${w}.png`) });
+    const newestFirst = c.months.length > 1 && new Date(c.months[0]) > new Date(c.months[1]);
+    const ok = /—/.test(c.pf) && !/∞|no losing/.test(c.pf) && !c.pfHint && /one point per trade/i.test(c.ddKicker) &&
+      c.nativeSelect === 0 && newestFirst && c.listHeight <= 6 * 34 + 10 && c.afterKeys === `Month: ${c.months[3]}` && c.afterNext === `Month: ${c.months[2]}` &&
+      !c.months.some((m) => /2026/.test(m) && /(October|November)/.test(m));
+    if (!ok) problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+};
+
+// Stage 3 polish (owner 2026-11-16): the tighter summary and calmer ring, the hover rule on every list, the Drawdown
+// stats row's hover, the Settings section list, one footer gap on every scrolling page. `--synthetic`, 127.0.0.1:8733.
+S["3j"] = async () => {
+  const { tab, top, menuPick } = helpers3f;
+  const frame = (p) => p.locator("[data-risk-tab]").evaluate((e) => { e.scrollIntoView({ block: "start" }); document.querySelector("#cf-main").scrollBy({ top: -12 }); });
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `polish_${w}`;
+    const { ctx, page } = await open(name, w, h, "/performance");
+    await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "mffur1"));
+    await page.reload(); await page.waitForTimeout(2400);
+    const c = (checks[name] = {});
+    // the summaries (plan, then account) with the ring: its number sits inside the ring with clear space around it
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(2600); await page.keyboard.press("Shift");
+    await frame(page); await page.waitForTimeout(500);
+    const ringFit = () => page.evaluate(() => {
+      const ring = document.querySelector("[data-ring]"), v = ring?.querySelector("[data-ring-value]");
+      if (!ring || !v) return null;
+      const rr = ring.getBoundingClientRect(), vr = v.getBoundingClientRect();
+      const inner = rr.width - 2 * 7;                        // the stroke
+      return { inner: Math.round(inner), value: Math.round(vr.width), clear: Math.round((inner - vr.width) / 2) };
+    });
+    c.ringPlan = await ringFit();
+    c.kicker = await page.locator("[data-chart-header] .eyebrow").first().innerText();
+    c.labelSpacing = await page.locator("[data-plan-numbers] .eyebrow").first().evaluate((e) => getComputedStyle(e).letterSpacing);
+    c.legendGap = await page.locator("[data-plan-numbers] [data-legend-row]").first().evaluate((r) => {
+      const [, lab, val] = r.children; return Math.round(val.getBoundingClientRect().left - lab.getBoundingClientRect().right);
+    });
+    await page.screenshot({ path: path.join(OUT, `mc_plan_${w}.png`) });
+    await page.locator("[data-ring]").screenshot({ path: path.join(OUT, `ring_plan_${w}.png`) });
+    // the Drawdown stats row lights up on hover
+    await tab(page, "Drawdown"); await page.waitForTimeout(1400); await frame(page); await page.waitForTimeout(300);
+    const cell = page.locator("[data-replay-summary] [data-stat-cell]").nth(1);
+    const cb = await cell.boundingBox();
+    await page.mouse.move(cb.x + cb.width * 0.4, cb.y + cb.height * 0.5); await page.waitForTimeout(450);
+    c.ddCellLit = await cell.evaluate((e) => getComputedStyle(e.querySelector("span[aria-hidden]")).opacity);
+    await page.screenshot({ path: path.join(OUT, `drawdown_stats_hover_${w}.png`) });
+    await page.mouse.move(2, 2);
+    // the account's summary
+    await top(page); await menuPick(page, "Phase", "Prop"); await tab(page, "Monte Carlo"); await page.waitForTimeout(2600);
+    await frame(page); await page.waitForTimeout(500);
+    c.ringAccount = await ringFit();
+    c.days = await page.locator("[data-account-numbers] [data-metric='Days to pass']").innerText();
+    await page.screenshot({ path: path.join(OUT, `mc_account_${w}.png`) });
+    await page.locator("[data-ring]").screenshot({ path: path.join(OUT, `ring_account_${w}.png`) });
+    // the hover rule on the month picker: the pointer leaves the list -> no row stays highlighted; the keys still do
+    await top(page); await menuPick(page, "Phase", "Development"); await tab(page, "Calendar"); await page.waitForTimeout(1400);
+    await page.getByRole("button", { name: /^Month:/ }).click(); await page.waitForTimeout(300);
+    const lit = () => page.locator("[data-month-list] [role=option].bg-white\\/\\[\\.06\\]").count();
+    c.monthOnOpen = await lit();
+    await page.locator("[data-month-list] [role=option]").nth(2).hover(); await page.waitForTimeout(150);
+    c.monthOnHover = await lit();
+    const lb = await page.locator("[data-month-list]").boundingBox();
+    await page.mouse.move(lb.x - 60, lb.y + lb.height + 60); await page.waitForTimeout(200);
+    c.monthAfterLeave = await lit();
+    await page.screenshot({ path: path.join(OUT, `month_picker_after_leave_${w}.png`) });
+    await page.keyboard.press("ArrowDown"); await page.waitForTimeout(150);
+    c.monthAfterKey = await lit();
+    await page.keyboard.press("Escape");
+    // the same on the account switcher (top bar) and the command palette
+    await page.locator("[data-account-switcher]").click(); await page.waitForTimeout(350);
+    await page.locator("[data-switcher-row]").first().hover(); await page.waitForTimeout(150);
+    const swb = await page.locator("[data-switcher-panel]").boundingBox();
+    await page.mouse.move(swb.x + swb.width + 80, swb.y + swb.height + 80); await page.waitForTimeout(200);
+    c.switcherAfterLeave = await page.locator("[data-switcher-row][data-lit]").count();
+    await page.keyboard.press("Escape"); await page.waitForTimeout(200);
+    const ok = c.ringPlan && c.ringPlan.clear >= 14 && c.ringAccount && c.ringAccount.clear >= 14 && !/synthetic|backtest,/i.test(c.kicker) &&
+      parseFloat(c.labelSpacing) <= 0.06 * 10.5 + 0.01 && c.legendGap <= 12 && /days/.test(c.days) && Number(c.ddCellLit) > 0.5 &&
+      c.monthOnOpen === 0 && c.monthOnHover === 1 && c.monthAfterLeave === 0 && c.monthAfterKey === 1 && c.switcherAfterLeave === 0;
+    if (!ok) problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+  // Settings: the section list (click -> active at once and while scrolling; at the bottom the last section on screen)
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `settings_toc_${w}`;
+    const { ctx, page } = await open(name, w, h, "/settings");
+    await page.reload(); await page.waitForTimeout(2000);
+    const c = (checks[name] = {});
+    const current = () => page.locator("[data-toc][aria-current=true]").getAttribute("data-toc");
+    const toc = (await page.locator("[data-toc]").count()) && (await page.locator("[data-toc]").first().isVisible());
+    if (toc) {
+      const ids = await page.locator("[data-toc]").evaluateAll((els) => els.map((e) => e.getAttribute("data-toc")));
+      const last = ids[ids.length - 1];
+      await page.locator(`[data-toc='${last}']`).click();
+      c.atClick = await current(); await page.waitForTimeout(250);
+      c.whileScrolling = await current(); await page.waitForTimeout(1500);
+      c.afterScroll = await current();
+      await page.screenshot({ path: path.join(OUT, `settings_toc_danger_${w}.png`) });
+      await page.locator("#cf-main").evaluate((m) => m.scrollTo({ top: 0 })); await page.waitForTimeout(600);
+      c.atTop = await current();
+      await page.locator("#cf-main").evaluate((m) => m.scrollTo({ top: m.scrollHeight })); await page.waitForTimeout(600);
+      c.atBottom = await current();
+      c.last = last;
+      if (!(c.atClick === last && c.whileScrolling === last && c.afterScroll === last && c.atTop === ids[0] && c.atBottom === last)) problems.push(`${name}: ${JSON.stringify(c)}`);
+    } else c.toc = "not shown at this width";
+    await ctx.close();
+  }
+  // one gap from the content to the footer's label on every scrolling page
+  {
+    const name = "footer_gaps";
+    const { ctx, page } = await open(name, 1440, 900, "/performance");
+    const gaps = {};
+    for (const url of ["/performance", "/accounts", "/settings", "/accounts/mffur1"]) {
+      await page.goto(BASE + url); await page.waitForTimeout(2600);
+      await page.locator("#cf-main").evaluate((m) => m.scrollTo({ top: m.scrollHeight })); await page.waitForTimeout(900);
+      gaps[url] = await page.evaluate(() => {
+        const content = document.querySelector("[data-footer-page]").firstElementChild;
+        let bottom = 0;
+        for (const e of content.querySelectorAll("*")) {
+          const cs = getComputedStyle(e), r = e.getBoundingClientRect();
+          if (!r.height || !r.width || cs.visibility === "hidden" || cs.position === "fixed" || cs.position === "absolute") continue;
+          const drawn = parseFloat(cs.borderBottomWidth) > 0 || cs.backgroundColor !== "rgba(0, 0, 0, 0)" || (e.childElementCount === 0 && (e.textContent || "").trim());
+          if (drawn) bottom = Math.max(bottom, r.bottom);
+        }
+        const foot = document.querySelector("[data-page-footer]");
+        const label = [...foot.querySelectorAll("*")].find((e) => e.childElementCount === 0 && /CreamFlow · NQ/i.test(e.textContent || ""));
+        return Math.round(label.getBoundingClientRect().top - bottom);
+      });
+      if (url === "/performance") await page.screenshot({ path: path.join(OUT, "footer_gap_performance_1440.png") });
+    }
+    checks[name] = gaps;
+    const v = Object.values(gaps);
+    if (Math.max(...v) - Math.min(...v) > 1 || Math.abs(v[0] - 80) > 2) problems.push(`${name}: ${JSON.stringify(gaps)}`);
+    await ctx.close();
+  }
+};
+
+// Monte Carlo summary refinements (owner 2026-11-16): the pass card with its ring on the right, "Where it stands"
+// centred, one structure for every stat card (values, visuals and footnotes level; each value centred on its visual),
+// the pips and the risk meter, one inner padding for every card. `--synthetic` on 127.0.0.1:8733.
+S["3k"] = async () => {
+  const { tab, top, menuPick } = helpers3f;
+  const frame = (p) => p.locator("[data-risk-tab]").evaluate((e) => { e.scrollIntoView({ block: "start" }); document.querySelector("#cf-main").scrollBy({ top: -12 }); });
+  const measure = (p, root) => p.evaluate((root) => {
+    const R = (e) => e.getBoundingClientRect();
+    const box = document.querySelector(root);
+    const head = box.querySelector("[data-head-card]"), main = box.querySelector("[data-main-card]");
+    const label = head.querySelector(".eyebrow"), ring = head.querySelector("[data-ring]");
+    const mainLabel = main.querySelector(".eyebrow"), body = main.querySelector("[data-main-body]");
+    const cs = getComputedStyle(main);
+    const below = R(main).bottom - parseFloat(cs.paddingBottom) - R(body.lastElementChild).bottom, above = R(body.firstElementChild).top - R(mainLabel).bottom;
+    const cards = [...box.querySelectorAll("[data-metric]")].filter((c) => c.querySelector("[data-stat-row]"));
+    const mid = (e) => (R(e).top + R(e).bottom) / 2;
+    const visualMid = (c) => { const v = c.querySelector("[data-stat-visual]"); const inner = v.querySelector("[data-range-bar], [data-pips], [data-meter]") || v.firstElementChild; return mid(inner); };
+    const rows = cards.map((c) => ({ value: Math.round(R(c.querySelector("[data-stat-value]")).top), visual: Math.round(visualMid(c)),
+      foot: Math.round(R(c.querySelector("[data-stat-foot]")).top), offset: Math.round(Math.abs(mid(c.querySelector("[data-stat-value]")) - visualMid(c)) * 10) / 10 }));
+    const pads = [...box.querySelectorAll("[data-summary-card]")].map((c) => { const s = getComputedStyle(c); return [s.paddingTop, s.paddingRight, s.paddingBottom, s.paddingLeft].join(" "); });
+    return { ringRight: Math.round(R(ring).left - R(label).right), heights: [Math.round(R(head).height), Math.round(R(main).height)],
+      above: Math.round(above), below: Math.round(below), rows, pads: [...new Set(pads)], pips: box.querySelectorAll("[data-pips]").length, meter: box.querySelectorAll("[data-meter]").length };
+  }, root);
+  // within each row of cards (four in a row at 1440, two rows of two at 960)
+  const level = (rows) => {
+    const groups = {};
+    for (const r of rows) (groups[Math.round(r.value / 40)] ??= []).push(r);
+    return Object.values(groups).every((g) => ["value", "visual", "foot"].every((k) => Math.max(...g.map((r) => r[k])) - Math.min(...g.map((r) => r[k])) <= 1)) && rows.every((r) => r.offset <= 1.5);
+  };
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    const name = `summary_${w}`;
+    const { ctx, page } = await open(name, w, h, "/performance");
+    await page.evaluate(() => localStorage.setItem("creamflow.focusAccount", "mffur1"));
+    await page.reload(); await page.waitForTimeout(2400);
+    const c = (checks[name] = {});
+    await tab(page, "Monte Carlo"); await page.waitForTimeout(2600); await page.keyboard.press("Shift"); await frame(page); await page.waitForTimeout(600);
+    c.plan = await measure(page, "[data-plan-numbers]");
+    await page.screenshot({ path: path.join(OUT, `mc_plan_${w}.png`) });
+    await page.locator("[data-plan-numbers]").screenshot({ path: path.join(OUT, `summary_plan_${w}.png`) });
+    await top(page); await menuPick(page, "Phase", "Prop"); await tab(page, "Monte Carlo"); await page.waitForTimeout(2600); await frame(page); await page.waitForTimeout(600);
+    c.account = await measure(page, "[data-account-numbers]");
+    await page.screenshot({ path: path.join(OUT, `mc_account_${w}.png`) });
+    await page.locator("[data-account-numbers]").screenshot({ path: path.join(OUT, `summary_account_${w}.png`) });
+    const good = (m) => m.ringRight > 0 && m.heights[0] === m.heights[1] && Math.abs(m.above - m.below) <= 4 && level(m.rows) && m.pads.length === 1 && m.pads[0] === "16px 16px 16px 16px";
+    const ok = good(c.plan) && good(c.account) && c.account.pips === 1 && c.account.meter === 1;
+    if (!ok) problems.push(`${name}: ${JSON.stringify(c)}`);
+    await ctx.close();
+  }
+};
+
+// The real account's Drawdown summary row (owner 2026-11-16): every cell a value and a sub-line, lined up; the room
+// out of the drawdown with its bar; "Floor locked" from the account's own plan rules. Your panel (8733: mffur1, an
+// evaluation, no lock) and the scratch panel (CF_SCRATCH, 8734: funded accounts with a lock).
+S["3l"] = async () => {
+  const { tab, top, menuPick } = helpers3f;
+  const SCRATCH = process.env.CF_SCRATCH ?? "http://127.0.0.1:8734";
+  const cases = [
+    { base: BASE, account: "mffur1", expect: /No lock/, slug: "evaluation_no_lock" },
+    { base: SCRATCH, account: "lucid1", expect: /to go/, slug: "funded_lucid_to_go" },
+    { base: SCRATCH, account: "mffurf1", expect: /Locked/, slug: "funded_rapid_locked" },
+    { base: SCRATCH, account: "mffupf1", expect: /At 1st payout/, slug: "funded_pro_first_payout" },
+  ];
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    for (const cs of cases) {
+      const name = `dd_row_${cs.slug}_${w}`;
+      const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: "dark" });
+      const page = await ctx.newPage();
+      page.on("pageerror", (e) => problems.push(`${name}: page error ${e.message}`));
+      await page.goto(cs.base + "/performance");
+      await page.evaluate((a) => { sessionStorage.setItem("creamflow.splashShown", "1"); localStorage.setItem("creamflow.focusAccount", a); }, cs.account);
+      await page.reload(); await page.waitForTimeout(2400);
+      await menuPick(page, "Phase", "Prop"); await tab(page, "Drawdown"); await page.waitForTimeout(1600);
+      await page.locator("[data-risk-tab]").evaluate((e) => { e.scrollIntoView({ block: "start" }); document.querySelector("#cf-main").scrollBy({ top: -12 }); });
+      await page.waitForTimeout(500);
+      const c = (checks[name] = await page.evaluate(() => {
+        const R = (e) => e.getBoundingClientRect();
+        const cells = [...document.querySelectorAll("[data-account-numbers] [data-stat-cell]")];
+        const rows = cells.map((x) => { const [, v, sub] = x.querySelectorAll(":scope > div"); return { key: x.dataset.metric, value: Math.round(R(v).top), sub: Math.round(R(sub).top),
+          subText: sub.textContent.trim(), valueText: v.textContent.trim(), bar: !!x.querySelector("[data-cell-bar]") }; });
+        return { rows };
+      }));
+      const groups = {};
+      for (const r of c.rows) (groups[Math.round(r.value / 40)] ??= []).push(r);
+      const level = Object.values(groups).every((g) => ["value", "sub"].every((k) => Math.max(...g.map((r) => r[k])) - Math.min(...g.map((r) => r[k])) <= 1));
+      const room = c.rows.find((r) => r.key === "room"), lock = c.rows.find((r) => r.key === "locked");
+      const ok = c.rows.length === 5 && c.rows.every((r) => r.subText.length > 1) && level && /% of the \$1,000 drawdown|% of the \$2,000 drawdown/.test(room.subText) && room.bar &&
+        cs.expect.test(lock.valueText);
+      if (!ok) problems.push(`${name}: ${JSON.stringify(c)}`);
+      await page.screenshot({ path: path.join(OUT, `drawdown_${cs.slug}_${w}.png`) });
+      await page.locator("[data-account-numbers]").screenshot({ path: path.join(OUT, `row_${cs.slug}_${w}.png`) });
+      await ctx.close();
+    }
+  }
 };
 
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();

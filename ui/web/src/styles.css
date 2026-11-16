@@ -174,3 +174,12 @@ button { transition: color var(--d-fast) var(--ease-standard), background-color 
   .hwf-col a, .hwf-up { transition: none; }
 }
 
+
+/* Border Beam Panel (21st.dev 23408): its CSS, moved out of an inline <style> (CSP); fed by variables on .mk-beam */
+.mk-beam .mk-beam-ring, .mk-beam .mk-beam-glow { position: absolute; inset: -1px; border-radius: var(--mk-beam-radius, 8px); pointer-events: none; background: var(--mk-beam-bg); }
+.mk-beam .mk-beam-ring { padding: var(--mk-beam-pad, 1.5px); -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); mask-composite: exclude; }
+.mk-beam .mk-beam-glow { filter: blur(14px); opacity: .28; z-index: -1; }
+
+/* Performance (owner 2026-11-16): calmer uppercase labels, smaller and lighter than the numbers */
+[data-page="performance"] .eyebrow { letter-spacing: 0.05em; font-size: 10.5px; font-weight: 400; }
+[data-page="performance"] .uppercase { letter-spacing: 0.05em; }

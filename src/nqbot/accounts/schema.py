@@ -107,6 +107,9 @@ class Account(BaseModel):
     payouts_taken: int = Field(default=0, ge=0)
     payouts: list[Payout] = Field(default_factory=list)
     first_funded_trade_date: date | None = None
+    # the last payout's date (owner 2026-11-16): the funded payout cycle starts there until the engine records payouts
+    # (step 22); empty = the "from today" Monte Carlo assumes the cycle starts today once a payout was taken
+    last_payout_date: date | None = None
     after_first_payout: CapStage | None = None
     payout_wait_calendar_days: int | None = Field(default=None, ge=1)
     payout_clock_hold: Literal["off", "pause", "protect"] = "off"

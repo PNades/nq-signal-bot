@@ -22,6 +22,7 @@ import { ShortcutsDialog, type ShortcutGroup } from "./components/ui/keyboard-sh
 import { Toaster } from "./components/ui/toast";
 import { HintLayer } from "@/components/ui/hint-layer";
 import { PlaceholderPage } from "./pages/Placeholder";
+import { PerformancePage } from "./pages/performance/PerformancePage";
 import { HomeScene } from "./home/HomeScene";
 import { AccountsPage } from "./pages/accounts/AccountsPage";
 import { SettingsPage } from "./pages/settings/SettingsPage";
@@ -201,6 +202,7 @@ function App() {
               ? <HomeScene calm={!animated} onOpenPage={navigate} blocked={paletteOpen || shortcutsOpen || killOpen} />
               : view === "accounts" ? <AccountsPage />
               : view === "settings" ? <SettingsPage onEffects={changeEffects} />
+              : view === "performance" ? <PerformancePage />
               : <PlaceholderPage id={view} />}
           </motion.div>
         </AnimatePresence>

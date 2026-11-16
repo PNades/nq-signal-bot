@@ -53,9 +53,17 @@ def script_hash(text: str) -> str:
     return "'sha256-" + base64.b64encode(hashlib.sha256(text.encode("utf-8")).digest()).decode("ascii") + "'"
 
 
+# TradingView Lightweight Charts (npm 5.2.1, self-hosted) appends one fixed <style> element for its attribution logo,
+# which its licence requires: allowed by the hash of exactly that text (build stage 3), never by 'unsafe-inline'. A new
+# library version with different text shows up as a CSP violation in the build-stage screenshot checks.
+LWC_ATTRIBUTION_CSS = ("a#tv-attr-logo{--fill:#131722;--stroke:#fff;position:absolute;left:10px;bottom:10px;height:19px;"
+                       "width:35px;margin:0;padding:0;border:0;z-index:3;}a#tv-attr-logo[data-dark]{--fill:#D1D4DC;"
+                       "--stroke:#131722;}")
+
+
 def csp(script_hashes: list[str] | tuple[str, ...] = (), style_nonce: str | None = None) -> str:
     scripts = " ".join(["'self'", *script_hashes])
-    styles = "'self'" + (f" 'nonce-{style_nonce}'" if style_nonce else "")
+    styles = "'self'" + (f" 'nonce-{style_nonce}'" if style_nonce else "") + " " + script_hash(LWC_ATTRIBUTION_CSS)
     return (
         "default-src 'self'; "
         f"script-src {scripts}; "

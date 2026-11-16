@@ -1,0 +1,56 @@
+{
+  "stage": "3",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "perf_1440": {
+      "syntheticChip": true,
+      "notices": [
+        "sealed",
+        "walk_forward"
+      ],
+      "kpis": 6,
+      "liveVsExpected": true,
+      "pBreach": "28.0%",
+      "calendarDays": 1,
+      "dayPanelRows": 2,
+      "calendarMonths": [
+        "2025-10",
+        "2025-11",
+        "2025-12",
+        "2026-01",
+        "2026-02",
+        "2026-03",
+        "2026-10",
+        "2026-11"
+      ],
+      "tradeRows": 163,
+      "refused": true,
+      "csvRows": 163
+    },
+    "perf_960": {
+      "syntheticChip": true,
+      "notices": [
+        "sealed",
+        "walk_forward"
+      ],
+      "kpis": 6,
+      "liveVsExpected": true,
+      "pBreach": "28.0%",
+      "calendarDays": 1,
+      "dayPanelRows": 2,
+      "calendarMonths": [
+        "2025-10",
+        "2025-11",
+        "2025-12",
+        "2026-01",
+        "2026-02",
+        "2026-03",
+        "2026-10",
+        "2026-11"
+      ],
+      "tradeRows": 163,
+      "refused": true
+    }
+  }
+}

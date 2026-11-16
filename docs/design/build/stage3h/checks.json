@@ -1,0 +1,91 @@
+{
+  "stage": "3h",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "stage3_1440": {
+      "chipsDev": [
+        {
+          "text": "NQ · MFFU Rapid EOD 25k",
+          "extra": 18
+        },
+        {
+          "text": "strategy backtest",
+          "extra": 18
+        },
+        {
+          "text": "Eastern time",
+          "extra": 18
+        },
+        {
+          "text": "read only",
+          "extra": 18
+        }
+      ],
+      "badgeGap": 10,
+      "cellLit": "1",
+      "chipsProp": [
+        {
+          "text": "NQ · mffur1",
+          "extra": 18
+        },
+        {
+          "text": "real trades",
+          "extra": 18
+        },
+        {
+          "text": "Eastern time",
+          "extra": 18
+        },
+        {
+          "text": "read only",
+          "extra": 18
+        }
+      ],
+      "pf": "PROFIT FACTOR — —",
+      "dashed": 6
+    },
+    "stage3_960": {
+      "chipsDev": [
+        {
+          "text": "NQ · MFFU Rapid EOD 25k",
+          "extra": 18
+        },
+        {
+          "text": "strategy backtest",
+          "extra": 18
+        },
+        {
+          "text": "Eastern time",
+          "extra": 18
+        },
+        {
+          "text": "read only",
+          "extra": 18
+        }
+      ],
+      "badgeGap": 10,
+      "cellLit": "1",
+      "chipsProp": [
+        {
+          "text": "NQ · mffur1",
+          "extra": 18
+        },
+        {
+          "text": "real trades",
+          "extra": 18
+        },
+        {
+          "text": "Eastern time",
+          "extra": 18
+        },
+        {
+          "text": "read only",
+          "extra": 18
+        }
+      ],
+      "pf": "PROFIT FACTOR — —",
+      "dashed": 6
+    }
+  }
+}

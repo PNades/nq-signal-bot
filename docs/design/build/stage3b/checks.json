@@ -1,0 +1,92 @@
+{
+  "stage": "3b",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "modes_1440": {
+      "kpiUsd": true,
+      "kpiR": true,
+      "mcTypesMode": "types",
+      "numbersWhileDrawing": {
+        "drawn": "0",
+        "p": "28.0%"
+      },
+      "stripRows": 10,
+      "drawnAfter": "1",
+      "redrawOnSwitch": "0",
+      "keySkips": "1",
+      "ddTypesMode": "types",
+      "ddAccountMode": "account",
+      "ddNote": "showing mffur1 · change it in the account menu",
+      "mcAccountMode": "account",
+      "mcStateLine": "from today: balance $28,663.48 · floor $27,663.48 · high $28,663.48 (SYNTHETIC: the synthetic prop trades, as of 2026-10-30)",
+      "mcNote": "showing mffur1 · change it in the account menu"
+    },
+    "modes_960": {
+      "kpiUsd": true,
+      "kpiR": true,
+      "mcTypesMode": "types",
+      "numbersWhileDrawing": {
+        "drawn": "0",
+        "p": "28.0%"
+      },
+      "stripRows": 10,
+      "drawnAfter": "1",
+      "redrawOnSwitch": "0",
+      "keySkips": "1",
+      "ddTypesMode": "types",
+      "ddAccountMode": "account",
+      "ddNote": "showing mffur1 · change it in the account menu",
+      "mcAccountMode": "account",
+      "mcStateLine": "from today: balance $28,663.48 · floor $27,663.48 · high $28,663.48 (SYNTHETIC: the synthetic prop trades, as of 2026-10-30)",
+      "mcNote": "showing mffur1 · change it in the account menu"
+    },
+    "mc_calm": {
+      "drawn": "1"
+    },
+    "footer_1440": {
+      "performance": {
+        "frames": 95,
+        "footerBeforeContent": 0,
+        "firstContentMs": 294,
+        "firstFooterMs": null
+      },
+      "accounts": {
+        "frames": 97,
+        "footerBeforeContent": 0,
+        "firstContentMs": 224,
+        "firstFooterMs": 224
+      },
+      "settings": {
+        "frames": 96,
+        "footerBeforeContent": 0,
+        "firstContentMs": 230,
+        "firstFooterMs": null
+      }
+    },
+    "videos": [
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage3b\\footer_check_1440.webm",
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage3b\\montecarlo_drawout_1440.webm"
+    ],
+    "footer_960": {
+      "performance": {
+        "frames": 96,
+        "footerBeforeContent": 0,
+        "firstContentMs": 294,
+        "firstFooterMs": null
+      },
+      "accounts": {
+        "frames": 97,
+        "footerBeforeContent": 0,
+        "firstContentMs": 219,
+        "firstFooterMs": null
+      },
+      "settings": {
+        "frames": 96,
+        "footerBeforeContent": 0,
+        "firstContentMs": 229,
+        "firstFooterMs": null
+      }
+    }
+  }
+}

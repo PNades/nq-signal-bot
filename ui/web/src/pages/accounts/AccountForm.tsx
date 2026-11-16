@@ -19,7 +19,7 @@ import { toast } from "@/components/ui/toast";
 import { GROUPS, type Acc, type FieldDef } from "./fields";
 import type { AccountsData, Preset, Report, RiskEffect } from "./types";
 
-const ACCOUNT_OWN = new Set(["name", "active", "draft", "demo", "traderspost_webhook_env", "copied_accounts", "payouts", "first_funded_trade_date", "pending_risk", "preset"]);
+const ACCOUNT_OWN = new Set(["name", "active", "draft", "demo", "traderspost_webhook_env", "copied_accounts", "payouts", "first_funded_trade_date", "last_payout_date", "pending_risk", "preset"]);
 const eq = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 function useDebounced<T>(value: T, ms: number) {

@@ -1,0 +1,132 @@
+{
+  "stage": "3d",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "strategy_1440": {
+      "plans": {
+        "MFFU Rapid EOD 25k": {
+          "kpiNet": "+$26,329.11",
+          "mc": "PAYOUTS TO YOU · MEDIAN fees missing $10,997 10–90% $4,490 – $18,760 order luck $11,415 EVALUATIONS USED 4 2 – 6 PASS RATE 69.8% 50.0% – 100.0% DAYS TO PASS 5 4 – 8 PAYOUTS TAKEN 11 5 – 19 PAYOUT TOTAL $10,997 $4,490 – $18,760 FEES PAID — not entered",
+          "mcMarkersOutside": [],
+          "replay": "EVALUATIONS USED 4 3 passed · 0 failed FUNDED ACCOUNTS LOST 3 ends in an evaluation PAYOUTS 16 $16,248 gross PAYOUTS TO YOU $16,248 fees missing",
+          "ddMarkersOutside": [],
+          "markers": 22,
+          "tipFirst": true,
+          "tipLast": true
+        },
+        "MFFU Builder 25k": {
+          "kpiNet": "+$26,329.11",
+          "mc": "PAYOUTS TO YOU · MEDIAN fees missing $5,000 10–90% $2,000 – $7,000 order luck $5,000 EVALUATIONS USED 2 1 – 4 PASS RATE 71.0% 50.0% – 100.0% DAYS TO PASS 4 2 – 8 PAYOUTS TAKEN 5 2 – 7 PAYOUT TOTAL $5,000 $2,000 – $7,000 FEES PAID — not entered",
+          "mcMarkersOutside": [],
+          "replay": "EVALUATIONS USED 1 1 passed · 0 failed FUNDED ACCOUNTS LOST 0 ends funded PAYOUTS 8 $8,000 gross PAYOUTS TO YOU $8,000 fees missing",
+          "ddMarkersOutside": [],
+          "markers": 9,
+          "tipFirst": true,
+          "tipLast": true
+        },
+        "MFFU Pro 50k": {
+          "kpiNet": "+$53,931.48",
+          "mc": "YOUR 80% OF PAYOUTS · MEDIAN fees missing $18,377 10–90% $4,751 – $30,712 order luck $19,098 EVALUATIONS USED 3 1 – 6 PASS RATE 73.0% 50.0% – 100.0% DAYS TO PASS 4 2 – 8 PAYOUTS TAKEN 4 1 – 5 PAYOUT TOTAL $22,971 $5,938 – $38,390 FEES PAID — not entered",
+          "mcMarkersOutside": [],
+          "replay": "EVALUATIONS USED 4 3 passed · 0 failed FUNDED ACCOUNTS LOST 3 ends in an evaluation PAYOUTS 7 $35,332 gross · your 80%: $28,266 PAYOUTS TO YOU $28,266 fees missing",
+          "ddMarkersOutside": [],
+          "markers": 13,
+          "tipFirst": true,
+          "tipLast": true
+        },
+        "Lucid Flex 25k": {
+          "kpiNet": "+$26,696.87",
+          "mc": "YOUR 90% OF PAYOUTS · MEDIAN fees missing $4,500 10–90% $2,700 – $5,400 order luck $4,500 EVALUATIONS USED 1 1 – 4 PASS RATE 72.7% 50.0% – 100.0% DAYS TO PASS 3 2 – 7 PAYOUTS TAKEN 5 3 – 6 PAYOUT TOTAL $5,000 $3,000 – $6,000 FEES PAID — not entered",
+          "mcMarkersOutside": [],
+          "replay": "EVALUATIONS USED 1 1 passed · 0 failed FUNDED ACCOUNTS LOST 0 ends funded PAYOUTS 9 $9,000 gross · your 90%: $8,100 PAYOUTS TO YOU $8,100 fees missing",
+          "ddMarkersOutside": [],
+          "markers": 10,
+          "tipFirst": true,
+          "tipLast": true
+        }
+      },
+      "planMenu": 1,
+      "accountMenuInBacktest": 0,
+      "tipPayout": true,
+      "compareRows": 4,
+      "planMenuInReal": 0,
+      "accountStart": "Account: mffur1",
+      "allInReal": 0,
+      "topbarAfterPage": "Account focus: mffub1. Opens the account list.",
+      "pageAfterTopbar": "Account: mffur1"
+    },
+    "strategy_960": {
+      "plans": {
+        "MFFU Rapid EOD 25k": {
+          "kpiNet": "+$26,329.11",
+          "mc": "PAYOUTS TO YOU · MEDIAN fees missing $10,997 10–90% $4,490 – $18,760 order luck $11,415 EVALUATIONS USED 4 2 – 6 PASS RATE 69.8% 50.0% – 100.0% DAYS TO PASS 5 4 – 8 PAYOUTS TAKEN 11 5 – 19 PAYOUT TOTAL $10,997 $4,490 – $18,760 FEES PAID — not entered",
+          "mcMarkersOutside": [],
+          "replay": "EVALUATIONS USED 4 3 passed · 0 failed FUNDED ACCOUNTS LOST 3 ends in an evaluation PAYOUTS 16 $16,248 gross PAYOUTS TO YOU $16,248 fees missing",
+          "ddMarkersOutside": [],
+          "markers": 22,
+          "tipFirst": true,
+          "tipLast": true
+        },
+        "MFFU Builder 25k": {
+          "kpiNet": "+$26,329.11",
+          "mc": "PAYOUTS TO YOU · MEDIAN fees missing $5,000 10–90% $2,000 – $7,000 order luck $5,000 EVALUATIONS USED 2 1 – 4 PASS RATE 71.0% 50.0% – 100.0% DAYS TO PASS 4 2 – 8 PAYOUTS TAKEN 5 2 – 7 PAYOUT TOTAL $5,000 $2,000 – $7,000 FEES PAID — not entered",
+          "mcMarkersOutside": [],
+          "replay": "EVALUATIONS USED 1 1 passed · 0 failed FUNDED ACCOUNTS LOST 0 ends funded PAYOUTS 8 $8,000 gross PAYOUTS TO YOU $8,000 fees missing",
+          "ddMarkersOutside": [],
+          "markers": 9,
+          "tipFirst": true,
+          "tipLast": true
+        },
+        "MFFU Pro 50k": {
+          "kpiNet": "+$53,931.48",
+          "mc": "YOUR 80% OF PAYOUTS · MEDIAN fees missing $18,377 10–90% $4,751 – $30,712 order luck $19,098 EVALUATIONS USED 3 1 – 6 PASS RATE 73.0% 50.0% – 100.0% DAYS TO PASS 4 2 – 8 PAYOUTS TAKEN 4 1 – 5 PAYOUT TOTAL $22,971 $5,938 – $38,390 FEES PAID — not entered",
+          "mcMarkersOutside": [],
+          "replay": "EVALUATIONS USED 4 3 passed · 0 failed FUNDED ACCOUNTS LOST 3 ends in an evaluation PAYOUTS 7 $35,332 gross · your 80%: $28,266 PAYOUTS TO YOU $28,266 fees missing",
+          "ddMarkersOutside": [],
+          "markers": 13,
+          "tipFirst": true,
+          "tipLast": true
+        },
+        "Lucid Flex 25k": {
+          "kpiNet": "+$26,696.87",
+          "mc": "YOUR 90% OF PAYOUTS · MEDIAN fees missing $4,500 10–90% $2,700 – $5,400 order luck $4,500 EVALUATIONS USED 1 1 – 4 PASS RATE 72.7% 50.0% – 100.0% DAYS TO PASS 3 2 – 7 PAYOUTS TAKEN 5 3 – 6 PAYOUT TOTAL $5,000 $3,000 – $6,000 FEES PAID — not entered",
+          "mcMarkersOutside": [],
+          "replay": "EVALUATIONS USED 1 1 passed · 0 failed FUNDED ACCOUNTS LOST 0 ends funded PAYOUTS 9 $9,000 gross · your 90%: $8,100 PAYOUTS TO YOU $8,100 fees missing",
+          "ddMarkersOutside": [],
+          "markers": 10,
+          "tipFirst": true,
+          "tipLast": true
+        }
+      },
+      "planMenu": 1,
+      "accountMenuInBacktest": 0,
+      "tipPayout": true,
+      "compareRows": 4,
+      "planMenuInReal": 0,
+      "accountStart": "Account: mffur1",
+      "allInReal": 0,
+      "topbarAfterPage": "Account focus: mffub1. Opens the account list.",
+      "pageAfterTopbar": "Account: mffur1"
+    },
+    "variant_b_1440": {
+      "stats": "b",
+      "summary": "b"
+    },
+    "variant_b_960": {
+      "stats": "b",
+      "summary": "b"
+    },
+    "kpis_stats_a_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Performance"
+    },
+    "videos": [
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage3d\\strategy_drawout_1440.webm"
+    ]
+  }
+}

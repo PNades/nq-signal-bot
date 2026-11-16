@@ -1,0 +1,359 @@
+{
+  "stage": "3l",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "dd_row_evaluation_no_lock_1440": {
+      "rows": [
+        {
+          "key": "balance",
+          "value": 227,
+          "sub": 253,
+          "subText": "as of Oct 9 13:53",
+          "valueText": "$25,576",
+          "bar": false
+        },
+        {
+          "key": "floor",
+          "value": 227,
+          "sub": 253,
+          "subText": "set at the Oct 9 close",
+          "valueText": "$24,576",
+          "bar": false
+        },
+        {
+          "key": "room",
+          "value": 227,
+          "sub": 253,
+          "subText": "100% of the $1,000 drawdown",
+          "valueText": "$1,000",
+          "bar": true
+        },
+        {
+          "key": "closest",
+          "value": 227,
+          "sub": 253,
+          "subText": "Oct 9 13:53",
+          "valueText": "$1,000",
+          "bar": false
+        },
+        {
+          "key": "locked",
+          "value": 227,
+          "sub": 253,
+          "subText": "this plan's floor always trails",
+          "valueText": "No lock",
+          "bar": false
+        }
+      ]
+    },
+    "dd_row_funded_lucid_to_go_1440": {
+      "rows": [
+        {
+          "key": "balance",
+          "value": 227,
+          "sub": 253,
+          "subText": "as of Oct 29 10:23",
+          "valueText": "$25,302",
+          "bar": false
+        },
+        {
+          "key": "floor",
+          "value": 227,
+          "sub": 253,
+          "subText": "set at the Oct 29 close",
+          "valueText": "$24,989",
+          "bar": false
+        },
+        {
+          "key": "room",
+          "value": 227,
+          "sub": 253,
+          "subText": "31% of the $1,000 drawdown",
+          "valueText": "$313",
+          "bar": true
+        },
+        {
+          "key": "closest",
+          "value": 227,
+          "sub": 253,
+          "subText": "Oct 29 10:23",
+          "valueText": "$313",
+          "bar": false
+        },
+        {
+          "key": "locked",
+          "value": 227,
+          "sub": 253,
+          "subText": "locks at $25,100 or 1st payout",
+          "valueText": "$111 to go",
+          "bar": true
+        }
+      ]
+    },
+    "dd_row_funded_rapid_locked_1440": {
+      "rows": [
+        {
+          "key": "balance",
+          "value": 227,
+          "sub": 253,
+          "subText": "as of Oct 23 11:45",
+          "valueText": "$27,269",
+          "bar": false
+        },
+        {
+          "key": "floor",
+          "value": 227,
+          "sub": 253,
+          "subText": "set at the Oct 23 close",
+          "valueText": "$25,100",
+          "bar": false
+        },
+        {
+          "key": "room",
+          "value": 227,
+          "sub": 253,
+          "subText": "217% of the $1,000 drawdown",
+          "valueText": "$2,169",
+          "bar": true
+        },
+        {
+          "key": "closest",
+          "value": 227,
+          "sub": 253,
+          "subText": "Oct 9 10:15",
+          "valueText": "$1,000",
+          "bar": false
+        },
+        {
+          "key": "locked",
+          "value": 227,
+          "sub": 253,
+          "subText": "at $25,100 since Oct 13",
+          "valueText": "Locked",
+          "bar": true
+        }
+      ]
+    },
+    "dd_row_funded_pro_first_payout_1440": {
+      "rows": [
+        {
+          "key": "balance",
+          "value": 227,
+          "sub": 253,
+          "subText": "as of Oct 28 13:01",
+          "valueText": "$50,326",
+          "bar": false
+        },
+        {
+          "key": "floor",
+          "value": 227,
+          "sub": 253,
+          "subText": "set at the Oct 28 close",
+          "valueText": "$49,678",
+          "bar": false
+        },
+        {
+          "key": "room",
+          "value": 227,
+          "sub": 253,
+          "subText": "32% of the $2,000 drawdown",
+          "valueText": "$648",
+          "bar": true
+        },
+        {
+          "key": "closest",
+          "value": 227,
+          "sub": 253,
+          "subText": "Oct 28 13:01",
+          "valueText": "$648",
+          "bar": false
+        },
+        {
+          "key": "locked",
+          "value": 227,
+          "sub": 253,
+          "subText": "then locks at $50,100",
+          "valueText": "At 1st payout",
+          "bar": false
+        }
+      ]
+    },
+    "dd_row_evaluation_no_lock_960": {
+      "rows": [
+        {
+          "key": "balance",
+          "value": 227,
+          "sub": 253,
+          "subText": "as of Oct 9 13:53",
+          "valueText": "$25,576",
+          "bar": false
+        },
+        {
+          "key": "floor",
+          "value": 227,
+          "sub": 253,
+          "subText": "set at the Oct 9 close",
+          "valueText": "$24,576",
+          "bar": false
+        },
+        {
+          "key": "room",
+          "value": 227,
+          "sub": 253,
+          "subText": "100% of the $1,000 drawdown",
+          "valueText": "$1,000",
+          "bar": true
+        },
+        {
+          "key": "closest",
+          "value": 320,
+          "sub": 346,
+          "subText": "Oct 9 13:53",
+          "valueText": "$1,000",
+          "bar": false
+        },
+        {
+          "key": "locked",
+          "value": 320,
+          "sub": 346,
+          "subText": "this plan's floor always trails",
+          "valueText": "No lock",
+          "bar": false
+        }
+      ]
+    },
+    "dd_row_funded_lucid_to_go_960": {
+      "rows": [
+        {
+          "key": "balance",
+          "value": 227,
+          "sub": 253,
+          "subText": "as of Oct 29 10:23",
+          "valueText": "$25,302",
+          "bar": false
+        },
+        {
+          "key": "floor",
+          "value": 227,
+          "sub": 253,
+          "subText": "set at the Oct 29 close",
+          "valueText": "$24,989",
+          "bar": false
+        },
+        {
+          "key": "room",
+          "value": 227,
+          "sub": 253,
+          "subText": "31% of the $1,000 drawdown",
+          "valueText": "$313",
+          "bar": true
+        },
+        {
+          "key": "closest",
+          "value": 320,
+          "sub": 346,
+          "subText": "Oct 29 10:23",
+          "valueText": "$313",
+          "bar": false
+        },
+        {
+          "key": "locked",
+          "value": 320,
+          "sub": 346,
+          "subText": "locks at $25,100 or 1st payout",
+          "valueText": "$111 to go",
+          "bar": true
+        }
+      ]
+    },
+    "dd_row_funded_rapid_locked_960": {
+      "rows": [
+        {
+          "key": "balance",
+          "value": 227,
+          "sub": 253,
+          "subText": "as of Oct 23 11:45",
+          "valueText": "$27,269",
+          "bar": false
+        },
+        {
+          "key": "floor",
+          "value": 227,
+          "sub": 253,
+          "subText": "set at the Oct 23 close",
+          "valueText": "$25,100",
+          "bar": false
+        },
+        {
+          "key": "room",
+          "value": 227,
+          "sub": 253,
+          "subText": "217% of the $1,000 drawdown",
+          "valueText": "$2,169",
+          "bar": true
+        },
+        {
+          "key": "closest",
+          "value": 320,
+          "sub": 346,
+          "subText": "Oct 9 10:15",
+          "valueText": "$1,000",
+          "bar": false
+        },
+        {
+          "key": "locked",
+          "value": 320,
+          "sub": 346,
+          "subText": "at $25,100 since Oct 13",
+          "valueText": "Locked",
+          "bar": true
+        }
+      ]
+    },
+    "dd_row_funded_pro_first_payout_960": {
+      "rows": [
+        {
+          "key": "balance",
+          "value": 227,
+          "sub": 253,
+          "subText": "as of Oct 28 13:01",
+          "valueText": "$50,326",
+          "bar": false
+        },
+        {
+          "key": "floor",
+          "value": 227,
+          "sub": 253,
+          "subText": "set at the Oct 28 close",
+          "valueText": "$49,678",
+          "bar": false
+        },
+        {
+          "key": "room",
+          "value": 227,
+          "sub": 253,
+          "subText": "32% of the $2,000 drawdown",
+          "valueText": "$648",
+          "bar": true
+        },
+        {
+          "key": "closest",
+          "value": 320,
+          "sub": 346,
+          "subText": "Oct 28 13:01",
+          "valueText": "$648",
+          "bar": false
+        },
+        {
+          "key": "locked",
+          "value": 320,
+          "sub": 346,
+          "subText": "then locks at $50,100",
+          "valueText": "At 1st payout",
+          "bar": false
+        }
+      ]
+    }
+  }
+}

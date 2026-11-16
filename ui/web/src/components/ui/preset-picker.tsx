@@ -19,7 +19,7 @@ export function PresetPicker({ presets, value, onPick, onDelete, placeholder = "
   const [confirming, setConfirming] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [idx, setIdx] = useState(0);
+  const [idx, setIdx] = useState(-1);
   const box = useRef<HTMLDivElement>(null);
   const uid = useId();
   const filtered = useMemo(() => {
@@ -32,7 +32,7 @@ export function PresetPicker({ presets, value, onPick, onDelete, placeholder = "
     document.addEventListener("mousedown", away);
     return () => document.removeEventListener("mousedown", away);
   }, []);
-  useEffect(() => { if (open) { setQuery(""); setConfirming(null); setIdx(Math.max(0, presets.findIndex((p) => p.id === value))); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open) { setQuery(""); setConfirming(null); setIdx(-1); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const pick = (p: PresetOption) => { onPick(p.id); setOpen(false); (box.current?.querySelector("[data-trigger]") as HTMLElement | null)?.focus(); };
   const firms = Array.from(new Set(filtered.map((p) => p.firm)));
   return (
@@ -59,7 +59,7 @@ export function PresetPicker({ presets, value, onPick, onDelete, placeholder = "
               }}
               className="cf-bare-focus h-9 w-full bg-transparent text-[13px] text-text-1 outline-none placeholder:text-text-3" />
           </div>
-          <div id={`${uid}-list`} role="listbox" className="max-h-[300px] overflow-y-auto p-1">
+          <div id={`${uid}-list`} role="listbox" className="max-h-[300px] overflow-y-auto p-1" onMouseLeave={() => setIdx(-1)}>
             {filtered.length === 0 && <div className="p-3 text-center text-[12.5px] text-text-3">No preset matches</div>}
             {firms.map((firm) => (
               <div key={firm} role="group" aria-label={firm}>

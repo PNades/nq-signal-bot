@@ -49,6 +49,7 @@ export const GROUPS: Group[] = [
       { key: "payout_profit_day_min_usd", label: "…each with at least", kind: "money", unit: "$", when: funded },
       { key: "payout_wait_calendar_days", label: "Payout wait", kind: "int", unit: "days", when: funded, help: "calendar days before each payout, from the first funded trade, then from the previous payout" },
       { key: "first_funded_trade_date", label: "First funded trade", kind: "date", when: funded, help: "the payout clock starts here (editable)" },
+      { key: "last_payout_date", label: "Last payout date", kind: "date", when: funded, help: "the current payout cycle starts here (until the engine records payouts, step 22)" },
       { key: "payout_clock_hold", label: "While the payout clock runs", kind: "seg", when: funded, options: [{ value: "off", label: "Off" }, { value: "pause", label: "Pause" }, { value: "protect", label: "Protect" }] },
       { key: "profit_split_pct", label: "Profit split", kind: "pct", unit: "%", when: funded, help: "reports only" },
       { key: "payout_cap_group", label: "Payout cap group", kind: "text", mono: true, when: funded },

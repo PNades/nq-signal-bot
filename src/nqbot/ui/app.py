@@ -24,7 +24,8 @@ from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, R
 from starlette.routing import Route
 
 from nqbot.storage import Paths
-from nqbot.ui import actions, api_panel, emergency, spa
+from nqbot.accounts.presets import account_kind
+from nqbot.ui import actions, api_panel, api_performance, emergency, spa
 from nqbot.ui.panel_store import PanelStore, PanelUnavailable
 from nqbot.ui.security import TOKEN_FIELD, TOKEN_HEADER, GuardMiddleware, new_token, token_ok
 from nqbot.ui.status import build_status
@@ -65,12 +66,7 @@ def create_app(cfg: PanelConfig) -> Starlette:
         labels = {p.id: p.label for p in store.all_presets()}
 
         def kind(a: dict[str, Any]) -> str:
-            # the account's type in a word or two (Rapid, Builder, Pro, Lucid Flex, or the saved preset's name)
-            pid = str(a.get("preset") or "")
-            for key, word in (("rapid", "Rapid"), ("builder", "Builder"), ("pro_", "Pro"), ("lucid_flex", "Lucid Flex")):
-                if key in pid and not pid.startswith("own_"):
-                    return word
-            return labels.get(pid) or str(a.get("firm") or "")
+            return account_kind(a, labels)
 
         def target(a: dict[str, Any]) -> dict[str, Any]:
             if a.get("phase") == "funded":
@@ -195,6 +191,7 @@ def create_app(cfg: PanelConfig) -> Starlette:
         Route("/emergency.css", emergency_css, methods=["GET"]),
         Route("/emergency/action", emergency_action, methods=["POST"]),
         *(api_panel.routes(store, cfg.settings, cfg.features, require_token) if cfg.settings else []),
+        *(api_performance.routes(store, cfg.paths_fn, cfg.settings, synthetic=cfg.synthetic) if cfg.settings else []),
         Route("/api/{rest:path}", api_missing, methods=["GET", "POST"]),
         Route("/{rest:path}", static, methods=["GET", "HEAD"]),
     ]

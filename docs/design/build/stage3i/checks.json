@@ -1,0 +1,67 @@
+{
+  "stage": "3i",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "summaries_a_1440": {
+      "plan": "a",
+      "account": "a",
+      "position": 1,
+      "rangeBars": 2
+    },
+    "summaries_b_1440": {
+      "plan": "b",
+      "account": "b",
+      "position": 1,
+      "rangeBars": 2
+    },
+    "stage3i_1440": {
+      "pf": "PROFIT FACTOR — —",
+      "pfHint": null,
+      "ddKicker": "DRAWDOWN · REAL TRADES, ONE POINT PER TRADE · LAST 60 TRADING DAYS\nMy account · mffur1 · evaluation\n30 days\n60 days\n120 days",
+      "nativeSelect": 0,
+      "before": "Month: March 2026",
+      "months": [
+        "March 2026",
+        "February 2026",
+        "January 2026",
+        "December 2025",
+        "November 2025",
+        "October 2025"
+      ],
+      "listHeight": 210,
+      "afterKeys": "Month: December 2025",
+      "afterNext": "Month: January 2026"
+    },
+    "summaries_a_960": {
+      "plan": "a",
+      "account": "a",
+      "position": 1,
+      "rangeBars": 2
+    },
+    "summaries_b_960": {
+      "plan": "b",
+      "account": "b",
+      "position": 1,
+      "rangeBars": 2
+    },
+    "stage3i_960": {
+      "pf": "PROFIT FACTOR — —",
+      "pfHint": null,
+      "ddKicker": "DRAWDOWN · REAL TRADES, ONE POINT PER TRADE · LAST 60 TRADING DAYS\nMy account · mffur1 · evaluation\n30 days\n60 days\n120 days",
+      "nativeSelect": 0,
+      "before": "Month: March 2026",
+      "months": [
+        "March 2026",
+        "February 2026",
+        "January 2026",
+        "December 2025",
+        "November 2025",
+        "October 2025"
+      ],
+      "listHeight": 210,
+      "afterKeys": "Month: December 2025",
+      "afterNext": "Month: January 2026"
+    }
+  }
+}

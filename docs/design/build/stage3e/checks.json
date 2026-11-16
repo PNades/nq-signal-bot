@@ -1,0 +1,15 @@
+{
+  "stage": "3e",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "perf_empty_1440": {
+      "empty": true,
+      "synthetic": 0
+    },
+    "perf_empty_960": {
+      "empty": true,
+      "synthetic": 0
+    }
+  }
+}

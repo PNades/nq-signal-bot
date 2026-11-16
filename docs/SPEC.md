@@ -1038,6 +1038,88 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
       cubic-bezier(0.4, 0.55, 0.6, 1)). The nodes move and the lines morph point by point. The wordmark keeps its
       banner-free size while banners show. The layouts and lines of 0–3 stacked banners are prepared ahead of time in
       idle slices.
+- **Q-perf-mc (✅ decided by the owner 2026-11-15; step 14 build stage 3):** the Monte Carlo's headline is (a), whole
+  days drawn with replacement (the fan, the chance of reaching the floor, the median day). (b), the same days
+  reordered, is a secondary "order luck" line. Both draw days from the strategy's backtest or simulator ledger (the
+  guarded development days), never from one account's own few trades.
+  - **Backtest / simulator phases:** by account type (every preset), each type's rules applied: risk and cap, drawdown
+    type, size and lock, daily caps. A comparison strip shows one row per type.
+  - **Real-trades phases (demo, prop, live):** one actual account "from today": its current balance and floor (from
+    the engine's account state from step 22, else its trades in the ledger), picked by the page's account filter or,
+    with All accounts, the focused account.
+  - **Drawdown:** the same two modes.
+- **Q-perf-plans (✅ owner 2026-11-15; step 14 build stage 3):** the strategy view works by plan and its lifecycle,
+  replacing the per-stage account types.
+  - **Plans:** MFFU Rapid 25k, MFFU Builder 25k, MFFU Pro 50k, Lucid Flex 25k, plus saved presets, grouped by name.
+  - **Monte Carlo, one plan at a time:** every path starts as the plan's evaluation. On the profit target it continues
+    under the funded rules, with a marker. A floor ends it.
+    - X-axis: 30 / 60 / 120 trading days (default 60).
+    - Headline: pass rate, median days to pass, the chance the funded account survives to the last day, and the median
+      result at the end (the funded P&L; 0 if never passed).
+    - Order luck is kept, with "payouts not modelled".
+    - "Compare plans" shows one row per plan, off by default.
+  - **Drawdown:** the backtest replayed through the lifecycle, a fresh evaluation after every floor, with the count of
+    evaluations used.
+  - **My-account mode** is unchanged.
+  - **Rework 3 (owner 2026-11-15; built, waiting for the owner's OK):**
+    - **Plan selector:** backtest phases price every number by the plan (KPIs, stats, Equity, Drawdown, Monte Carlo,
+      Calendar, Trades, CSV; R unchanged); the synthetic backtest is one strategy ledger; real-trade phases tie the
+      account filter to the top-bar switcher both ways.
+    - **Lifecycle with payouts** (`performance/lifecycle.py`, the step 15-16 simulator's engine too): evaluation →
+      target (with `min_trading_days`) → funded → payouts at the maximum whenever the §6.7 payout rules allow → a floor
+      fails the account and a new evaluation starts, until 30 / 60 / 120 trading days. Fees: `evaluation_fee_usd`
+      (each evaluation started) and `activation_fee_usd` (each pass); none is in the presets yet (Q-perf-fees).
+    - **Numbers:** evaluations used, pass rate, days to pass, payouts taken and their total, fees, net cash (the
+      trader's share after `profit_split_pct` − fees), medians with 10-90% ranges; the fan is the balance.
+    - **Readings to confirm:** (1) payouts are taken at the maximum withdrawable as soon as every rule allows, so with
+      a capped payout (Builder, Lucid $1,000) the balance can climb above the payout line and the next payout comes
+      as soon as its cycle rules allow (Builder: 2 days and the 50% rule; Lucid: 5 days of $100+), not after another
+      $1,000 of new profit; (2) the 14-day clock in the Monte Carlo counts 5 sessions a week (the replay uses the real
+      dates); (3) a pass or floor on the horizon's last day doesn't start (or charge) a new account; (4) not modelled:
+      scaling tiers, the consistency dip rule, `payout_clock_hold`; the payout that reaches a cap group's cap closes
+      the account and ends the path.
+- **Q-perf-fees (open; step 14 build stage 3, 2026-11-15):** each plan's evaluation fee and activation fee (MFFU Rapid
+  EOD 25k, MFFU Builder 25k, MFFU Pro 50k (§6.7 says its activation fee is $0, "not modelled"), Lucid Flex 25k). The
+  presets have no fee fields; until the owner gives them, fees and net cash show "fees missing". Once given: new preset
+  fields `evaluation_fee_usd` (evaluation stage) and `activation_fee_usd` (funded stage), in the account schema too.
+- **Q-perf-eval (✅ owner 2026-11-16, rework 4; replaces the 2026-11-15 reading):** the my-account "from today" Monte
+  Carlo covers only the account's own stage, from where it stands today (a passed evaluation becomes a new funded
+  account with its own ID). Evaluation: each path runs to its profit target (passed, with the minimum trading days) or
+  its floor (failed) or the horizon; headline: the chance of passing before failing, the median days to each. Funded:
+  payouts as its rules allow (eligibility, minimum days, consistency, thresholds and maximum, the floor lock after a
+  payout) until its floor or the horizon; headline: the chance of the next payout before the floor, the median days
+  to it, the payouts over the horizon. "P(reaching the floor from here)" is removed everywhere. Built in
+  `performance/account_mc.py` on the lifecycle engine (`start=`, `restart=False`). Not known before step 22: where a
+  funded account's current payout cycle started after a payout (taken as today until the engine records it).
+- **Q-perf-ui7 (owner 2026-11-16; built, waiting for the owner's OK; variant A kept):** the Monte Carlo summary tightened
+  (smaller padding and gaps, legend values beside their labels, "3 days", the backtest details in the header's
+  tooltip), a calmer ring (124 px, 7 px stroke, a 19 px number); on the Performance page uppercase labels at 0.05 em,
+  smaller and lighter than the numbers; the Drawdown stats rows light up on hover. **Panel-wide rules:** (1) in every
+  list (dropdowns, menus, pickers, the command palette) nothing stays highlighted once the pointer leaves the list,
+  the arrow keys still highlight (`tests/test_ui_hover_rule.py`); (2) a table of contents (Settings now): a clicked
+  entry is active at once and stays so while the page scrolls to it, and at the bottom of the page the last section
+  on screen is the active one (`lib/scrollspy.ts`), with no padding added; (3) every scrolling page has the same 80 px
+  from the end of its content to the footer's "CREAMFLOW · NQ".
+- **Q-perf-ui6 (owner 2026-11-16; built, waiting for the owner's OK):** profit factor with no losing trade shows "—" again
+  (no ∞, no note, no tooltip); the calendar's month picker is our own dropdown (newest first, six visible, keys, prev /
+  next) and the calendar follows the page's phase; a real account's Drawdown has one point per trade at its exit time
+  from the account's start (the floor in force during each session; the summary's floor is the one set at the last
+  close); the Monte Carlo summaries (account and plan) are redesigned in two variants (A: ring + position bar, B:
+  partition bar + position bar), each with range-bar stat cards.
+- **Q-perf-ui5 (owner 2026-11-16; built, waiting for the owner's OK):** every equity curve starts at $0 / 0R at the start of the
+  period or the account (the price scale always includes it); real-trades phases plot one point per trade at its exit
+  time, the trading days labelled along the bottom; KPI tiles show the dashed line with fewer than 2 points, no note under
+  profit factor ∞. **Approved (owner 2026-11-16):** Drawdown's horizon = the first N days of the strategy replay and the
+  last N days of a real account; a funded account's payout cycle is assumed to start today (with a note) until the
+  engine records payouts at step 22. **New account field** `last_payout_date` (funded, optional, on the Accounts page):
+  when set (or when a payout is recorded in `payouts`), the current payout cycle starts there (its days, profit days,
+  calendar clock and starting balance); not a trading input.
+- **Q-perf-ui4 (owner 2026-11-16; built, waiting for the owner's OK):** the Performance page has no "All phases"
+  (Development by default); every phase uses one layout (the same KPI tiles, stats box, header and chart sizes) and the
+  switch crossfades (200 ms) with gliding numbers (Calm: instant); the 30 / 60 / 120-day switch and zoom / pan are on
+  every Monte Carlo and Drawdown chart; KPI sparklines are per trading day with the badge on the last 5 trading days
+  against the earlier ones (one day: a dot, no badge); profit factor with no losing trade shows ∞; the synthetic
+  accounts stay in states their rules allow.
 - **Q-ledger-after20 (open; owner 2026-11-09):** what the Performance page and the other day- and trade-level views may show of months 7–12 after the step-20 record is decided at step 20, together with the step-29 top-up rules; until then the Q-dryrun13 (16) limits apply.
 - **Q-step11c (step 11 part 1 review, 2026-10-31; an independent agent checked the step against CLAUDE.md and this SPEC):** fixed and tested (`tests/test_step11_review.py`): the IB high/low start as ceiling / floor at the 10:00 lock as F3.6 says (before, a level created near price got its role only from the first `rearm_dist` move, so an IB break from the lock was never recorded; the 10:30 replacement keeps the approach rule); a carried single print kept its `level_id` within a session but not into the next one (Q-step11b (3)); LVN smoothing returned a padded array on profiles narrower than the kernel, shifting LVN prices; LVN identity now rounds halves up; the provisional role ends at a confirmed cross back (F2.6 step 5; `provisional_role` reported false while broken back); today's ES ÷ NQ ratio applies from the later of the two first RTH trades, not 09:30:00.000 (F0.11); a contract change with no recorded roll spread is refused instead of left unshifted, and a spread off the tick grid is refused before anything moves; `rvol_today` / `vol_tod_w` stop at the early close; a level's machine stops at its own end; the global no-lookahead shift test now also covers the F5.18 approach features, `vol_tod_w` and the ES path (F5.18 and F9.10 require it). Nothing was built under the old code, so `features_version` stays 29. **Answered by the owner 2026-10-31 (`features_version` 30):** (1) approved: a high starts as a ceiling and a low as a floor whenever price is on the range side when the level appears (not beyond the band; the last trade at or before its creation, else the first trade after it), for the ON high/low, PDH/PDL, prior RTH and prior week highs/lows (NQ and the ES cross-market ON high/low and PDH/PDL), otherwise the approach rule; written into feature_spec F3.7 and F2.6 step 1, tested like the IB fix; (2) kept as built: a settled 5-minute bar can flip a level whose provisional role was broken back, without a resume; (3) ES levels get no volume-based cross features (`xb_vol_rel`, `xb_delta_rel` null; feature_spec F2.6b); ES volume baselines are a Q-v2 idea (feature freeze). The questions as asked: (1) the ON high/low (from 09:30) and PDH/PDL, prior RTH and prior week highs/lows (from 18:00) still take their role from the first `rearm_dist` move (F2.6 step 1), so a break that starts within `rearm_dist` of the band at creation isn't recorded as a cross; proposed: a high starts as a ceiling and a low as a floor when price is on the range side of the band at creation (the ON range always contains the 09:30 price; PDH/PDL and prior levels can be gapped through at 18:00, then the approach rule as now); built: only the IB (F3.6 states it). (2) A flip can come straight from the broken-back state (a settled 5-minute bar beyond on the crossed side while the provisional role is broken back, F2.6 step 3 "while crossed"), without a resume first; proposed: keep it (a settled 5-minute bar is a stronger confirmation than the resume's settled 1-minute bar). (3) ES cross-market levels get no `xb_vol_rel` / `xb_delta_rel` (F9.10's normals are NQ only); proposed: keep them null on ES (ES levels are cross-market features; the volume normals would need an ES baseline). (4) For the record, no change: the §3.2 damage count adds the long-gap minutes and the excess empty minutes, which can count the same empty minute twice, as the approved rule reads (Q-step11b (5); no session in the window is near the 30-minute line).
 - **Q-step11b (step 11 part 1, 2026-10-31; points 1–7 approved as built by the owner 2026-10-31, written into feature_spec F3.8, F0.11, F3.5, F3.3, F2.6b and §3.2; `features_version` 28; point 8 answered the same day, `features_version` 29):** (1) a retested extreme ends only by age (`retest_lookback_sessions` after its own session), crossed or not; (2) ES levels before 09:30 use the previous session's ES ÷ NQ open ratio, today's from 09:30; (3) a single-print sub-run keeps its creation `level_id` while it shrinks; (4) VAH/VAL zones between profile instants are the last instant's, a price beyond its high/low is outside; (5) §3.2 union over series = the long-gap minutes once plus the largest excess-empty count; (6) no separate overnight profile: only the ON high/low are emptied; (7) F2.6b "since the cross" counts from a settled-bar cross's close. **(8) answered by the owner 2026-10-31 (`features_version` 29):** a reclaim needs the cross back confirmed by the level's own rule first (chart levels: a settled 1-minute bar on the original side; highs/lows: the reverse sweep resolved, past the window or beyond `sweep_max_depth`), then the `rearm_dist` trade (in the confirming bar or window, known at its close, or later); resume by the same rule on the crossed side; GEX nodes and gameplan zones unchanged (their own rule is a trade). Written into §5.2 and feature_spec F2.6 steps 4–5, F3.9, F5.2; tests in `tests/test_level_state.py`. A reverse break beyond `sweep_max_depth` (15) is always at least `rearm_dist` (10) past the edge, so it reclaims at once.

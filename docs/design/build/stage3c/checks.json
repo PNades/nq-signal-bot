@@ -1,0 +1,56 @@
+{
+  "stage": "3c",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "plans_1440": {
+      "plans": {
+        "MFFU Rapid EOD 25k": {
+          "numbers": "Pass rate 72.5% Median days to pass 4 days Funded survives to day 60 53.5% · 73.8% of passes Median result at day 60 +$9,649.66 order luck (same days reordered): pass 76.8% · funded survives 57.2% · m",
+          "evaluations": "1"
+        },
+        "MFFU Builder 25k": {
+          "numbers": "Pass rate 70.7% Median days to pass 4 days Funded survives to day 60 51.4% · 72.7% of passes Median result at day 60 +$8,166.39 order luck (same days reordered): pass 75.7% · funded survives 56.0% · m",
+          "evaluations": "1"
+        },
+        "MFFU Pro 50k": {
+          "numbers": "Pass rate 73.9% Median days to pass 4 days Funded survives to day 60 3.1% · 4.2% of passes Median result at day 60 +$2,331.42 order luck (same days reordered): pass 77.9% · funded survives 0.6% · medi",
+          "evaluations": "6"
+        },
+        "Lucid Flex 25k": {
+          "numbers": "Pass rate 72.6% Median days to pass 3 days Funded survives to day 60 53.0% · 73.0% of passes Median result at day 60 +$9,336.74 order luck (same days reordered): pass 78.4% · funded survives 57.3% · m",
+          "evaluations": "1"
+        }
+      },
+      "modeTitle": "Strategy · backtest on MFFU Rapid EOD 25k\nthe top-bar account menu applies to real trades only",
+      "strategyNote": 1,
+      "compareByDefault": 0,
+      "menuMaxHeight": "248px",
+      "horizon120": true,
+      "compareRows": 4,
+      "accountTitle": "My account · mffur1"
+    },
+    "plans_960": {
+      "plans": {
+        "MFFU Rapid EOD 25k": {
+          "numbers": "Pass rate 72.5% Median days to pass 4 days Funded survives to day 60 53.5% · 73.8% of passes Median result at day 60 +$9,649.66 order luck (same days reordered): pass 76.8% · funded survives 57.2% · m",
+          "evaluations": "1"
+        },
+        "MFFU Pro 50k": {
+          "numbers": "Pass rate 73.9% Median days to pass 4 days Funded survives to day 60 3.1% · 4.2% of passes Median result at day 60 +$2,331.42 order luck (same days reordered): pass 77.9% · funded survives 0.6% · medi",
+          "evaluations": "6"
+        }
+      },
+      "modeTitle": "Strategy · backtest on MFFU Rapid EOD 25k\nthe top-bar account menu applies to real trades only",
+      "strategyNote": 1,
+      "compareByDefault": 0,
+      "menuMaxHeight": "248px",
+      "horizon120": true,
+      "compareRows": 4,
+      "accountTitle": "My account · mffur1"
+    },
+    "videos": [
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage3c\\plans_drawout_1440.webm"
+    ]
+  }
+}

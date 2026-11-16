@@ -2,6 +2,7 @@
 // subtitle), the empty state (Dot Matrix Text, a one-line message, the next action; never urgent information) and
 // skeletons shaped like the content.
 import type { ReactNode } from "react";
+import { motion } from "motion/react";
 import { DotMatrixText } from "@/components/ui/dot-text";
 import HalftoneWordmarkFooter from "@/components/ui/halftone-wordmark-footer";
 import { useAnimated } from "@/effects";
@@ -52,18 +53,26 @@ function footerWeight(width: number) {
 }
 
 /** A scrolling page that ends inside the "cream" letters (2/7 of their height hidden by the bottom edge): it cancels
- *  the bottom padding the dock and date block keep (--dock-pad), which may float over the letters. */
-export function FooterPage({ children }: { children: ReactNode }) {
+ *  the bottom padding the dock and date block keep (--dock-pad), which may float over the letters.
+ *  `ready` (owner 2026-11-15): until the page's content is in place, the content area fills at least the window and the
+ *  footer isn't rendered, so it can never flash into view while a page loads; it then fades in (Calm: at once). */
+export function FooterPage({ children, ready = true }: { children: ReactNode; ready?: boolean }) {
   const animated = useAnimated();
   return (
-    <div className="flex min-h-full flex-col" style={{ marginBottom: "calc(-1 * var(--dock-pad, 0px))" }}>
-      <div className="flex-1">{children}</div>
-      <HalftoneWordmarkFooter
-        wordmark="cream" label="CreamFlow · NQ" meta="Local control panel · 127.0.0.1" columns={[]} backToTop={false}
-        palette={{ background: "#111111", ink: "#ffe0c2", warm: "#ff9a3c" }} fontFamily='"Geist Variable", ui-sans-serif, sans-serif'
-        fontWeight={footerWeight} fit="inset" fitHeight={{ gapRatio: 0.18, minGap: 32 }}
-        monoFamily='"Geist Mono Variable", monospace' crop={2 / 7} grain={0.25} interactive={animated} height="320px"
-        className="mt-16 shrink-0" />
+    <div className="flex min-h-full flex-col" style={{ marginBottom: "calc(-1 * var(--dock-pad, 0px))" }} data-footer-page data-ready={ready ? "1" : "0"}>
+      <div className="flex-1" style={ready ? undefined : { minHeight: "100dvh" }}>{children}</div>
+      {ready && (
+        <motion.div initial={animated ? { opacity: 0 } : false} animate={{ opacity: 1 }} transition={{ duration: animated ? 0.24 : 0, ease: [0, 0, 0.2, 1] }}
+          // the same gap above the footer on every scrolling page (owner 2026-11-16: 80 px from the content to its label)
+          className="mt-10 shrink-0" data-page-footer>
+          <HalftoneWordmarkFooter
+            wordmark="cream" label="CreamFlow · NQ" meta="Local control panel · 127.0.0.1" columns={[]} backToTop={false}
+            palette={{ background: "#111111", ink: "#ffe0c2", warm: "#ff9a3c" }} fontFamily='"Geist Variable", ui-sans-serif, sans-serif'
+            fontWeight={footerWeight} fit="inset" fitHeight={{ gapRatio: 0.18, minGap: 32 }}
+            monoFamily='"Geist Mono Variable", monospace' crop={2 / 7} grain={0.25} interactive={animated} height="320px"
+            className="shrink-0" />
+        </motion.div>
+      )}
     </div>
   );
 }

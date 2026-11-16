@@ -5,6 +5,7 @@
 // 15). Global: gate_pass_rate_min, the session and setup windows and the news blackout (read-only, owner rules),
 // Effects & display, and a danger zone. Per-account changes save through the unsaved-changes bar and apply between
 // trades only (§9b).
+import { useScrollSpy } from "@/lib/scrollspy";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Gauge, HardDrive, Lock, RotateCw, ShieldCheck, Sparkles, Leaf, SunMoon } from "lucide-react";
 import { ApiError, getJson, postJson } from "@/lib/api";
@@ -102,18 +103,9 @@ export function SettingsPage({ onEffects }: { onEffects: (s: EffectsSetting) => 
   const count = Object.keys(changes).length;
   useEffect(() => registerLeaveGuard(() => count), [count]);
 
-  // the section list follows the scroll (scroll spy)
-  useEffect(() => {
-    const main = document.getElementById("cf-main");
-    if (!main) return;
-    const on = () => {
-      let cur = SECTIONS[0].id;
-      for (const s of SECTIONS) { const el = document.getElementById(`set-${s.id}`); if (el && el.getBoundingClientRect().top < 160) cur = s.id; }
-      setActive(cur);
-    };
-    main.addEventListener("scroll", on, { passive: true });
-    return () => main.removeEventListener("scroll", on);
-  }, [data]);
+  // the section list follows the scroll (scroll spy, lib/scrollspy.ts): a clicked entry is active at once and stays so
+  // while the page scrolls to it; at the bottom of the page the last section on screen is the active one
+  const spy = useScrollSpy(SECTIONS.map((s) => `set-${s.id}`), (id) => setActive(id.slice(4)), [data]);
 
   const save = async () => {
     if (!name || !data) return;
@@ -164,7 +156,7 @@ export function SettingsPage({ onEffects }: { onEffects: (s: EffectsSetting) => 
               <div key={g}>
                 <div className="eyebrow px-2.5 pb-1">{g}</div>
                 {SECTIONS.filter((s) => s.group === g).map((s) => (
-                  <a key={s.id} href={`#set-${s.id}`} onClick={(e) => { e.preventDefault(); document.getElementById(`set-${s.id}`)?.scrollIntoView({ behavior: animated ? "smooth" : "auto" }); }}
+                  <a key={s.id} href={`#set-${s.id}`} onClick={(e) => { e.preventDefault(); spy.go(`set-${s.id}`, animated); }} aria-current={active === s.id ? "true" : undefined} data-toc={s.id}
                     className={cn("block rounded-sm px-2.5 py-1.5 text-[13px]", active === s.id ? "bg-cream/10 text-cream" : "text-text-2 hover:text-text-1")}>{s.label}</a>
                 ))}
               </div>

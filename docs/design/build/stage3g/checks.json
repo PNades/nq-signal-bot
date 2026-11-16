@@ -1,0 +1,19 @@
+{
+  "stage": "3g",
+  "base": "http://127.0.0.1:8734",
+  "problems": [],
+  "checks": {
+    "funded_1440": {
+      "numbers": "NEXT PAYOUT BEFORE THE FLOOR 94.0% floor first 12.9% order luck 97.2% DAYS TO THE NEXT PAYOUT 3 days 10–90%: 2 – 7 PAYOUTS IN 60 DAYS 7 10–90%: 1 – 8 PAYOUTS TO YOU (YOUR 90%) $6,300 10–90%: $900 – $7,200 BALANCE TODAY $26,724 payout line $27,000 FLOOR TODAY $25,100 $1,624 of room DAYS TO THE FLOOR 10 days 10–90%: 4 – 24",
+      "outside": [],
+      "singleDots": 6,
+      "badges": 0
+    },
+    "funded_960": {
+      "numbers": "NEXT PAYOUT BEFORE THE FLOOR 94.0% floor first 12.9% order luck 97.2% DAYS TO THE NEXT PAYOUT 3 days 10–90%: 2 – 7 PAYOUTS IN 60 DAYS 7 10–90%: 1 – 8 PAYOUTS TO YOU (YOUR 90%) $6,300 10–90%: $900 – $7,200 BALANCE TODAY $26,724 payout line $27,000 FLOOR TODAY $25,100 $1,624 of room DAYS TO THE FLOOR 10 days 10–90%: 4 – 24",
+      "outside": [],
+      "singleDots": 6,
+      "badges": 0
+    }
+  }
+}

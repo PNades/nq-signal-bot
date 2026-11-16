@@ -1,0 +1,68 @@
+{
+  "stage": "3j",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "polish_1440": {
+      "ringPlan": {
+        "inner": 110,
+        "value": 82,
+        "clear": 14
+      },
+      "kicker": "MONTE CARLO · 1,000 PATHS",
+      "labelSpacing": "0.525px",
+      "legendGap": 8,
+      "ddCellLit": "1",
+      "ringAccount": {
+        "inner": 110,
+        "value": 59,
+        "clear": 26
+      },
+      "days": "DAYS TO PASS\n3 days\n10–90% 3 – 6",
+      "monthOnOpen": 0,
+      "monthOnHover": 1,
+      "monthAfterLeave": 0,
+      "monthAfterKey": 1,
+      "switcherAfterLeave": 0
+    },
+    "polish_960": {
+      "ringPlan": {
+        "inner": 110,
+        "value": 82,
+        "clear": 14
+      },
+      "kicker": "MONTE CARLO · 1,000 PATHS",
+      "labelSpacing": "0.525px",
+      "legendGap": 8,
+      "ddCellLit": "1",
+      "ringAccount": {
+        "inner": 110,
+        "value": 59,
+        "clear": 26
+      },
+      "days": "DAYS TO PASS\n3 days\n10–90% 3 – 6",
+      "monthOnOpen": 0,
+      "monthOnHover": 1,
+      "monthAfterLeave": 0,
+      "monthAfterKey": 1,
+      "switcherAfterLeave": 0
+    },
+    "settings_toc_1440": {
+      "atClick": "danger",
+      "whileScrolling": "danger",
+      "afterScroll": "danger",
+      "atTop": "profile",
+      "atBottom": "danger",
+      "last": "danger"
+    },
+    "settings_toc_960": {
+      "toc": "not shown at this width"
+    },
+    "footer_gaps": {
+      "/performance": 80,
+      "/accounts": 80,
+      "/settings": 80,
+      "/accounts/mffur1": 80
+    }
+  }
+}

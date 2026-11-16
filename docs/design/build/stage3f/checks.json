@@ -1,0 +1,503 @@
+{
+  "stage": "3f",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "phases_1440": {
+      "phaseButton": "Phase: Development (1–6)",
+      "phaseOptions": [
+        "Development (1–6)",
+        "Walk-forward 7–9 (totals)",
+        "Sealed (totals)",
+        "Demo",
+        "Prop",
+        "Live"
+      ],
+      "layout": {
+        "Equity": {
+          "same": true,
+          "dev": {
+            "kpis": [
+              47,
+              328,
+              1346,
+              200
+            ],
+            "stats": [
+              47,
+              540,
+              1346,
+              120
+            ],
+            "slot": [
+              645,
+              276,
+              212,
+              32
+            ],
+            "header": null,
+            "chart": null,
+            "legend": null
+          },
+          "prop": {
+            "kpis": [
+              47,
+              328,
+              1346,
+              200
+            ],
+            "stats": [
+              47,
+              540,
+              1346,
+              120
+            ],
+            "slot": [
+              645,
+              276,
+              212,
+              32
+            ],
+            "header": null,
+            "chart": null,
+            "legend": null
+          }
+        },
+        "Drawdown": {
+          "same": true,
+          "dev": {
+            "kpis": [
+              47,
+              328,
+              1346,
+              200
+            ],
+            "stats": [
+              47,
+              540,
+              1346,
+              120
+            ],
+            "slot": [
+              645,
+              276,
+              212,
+              32
+            ],
+            "header": [
+              64,
+              758,
+              1312,
+              64
+            ],
+            "chart": [
+              64,
+              973,
+              1312,
+              380
+            ],
+            "legend": [
+              64,
+              941,
+              1312,
+              20
+            ]
+          },
+          "prop": {
+            "kpis": [
+              47,
+              328,
+              1346,
+              200
+            ],
+            "stats": [
+              47,
+              540,
+              1346,
+              120
+            ],
+            "slot": [
+              645,
+              276,
+              212,
+              32
+            ],
+            "header": [
+              64,
+              758,
+              1312,
+              64
+            ],
+            "chart": [
+              64,
+              973,
+              1312,
+              380
+            ],
+            "legend": [
+              64,
+              941,
+              1312,
+              20
+            ]
+          }
+        },
+        "Monte Carlo": {
+          "same": true,
+          "dev": {
+            "kpis": [
+              47,
+              328,
+              1346,
+              200
+            ],
+            "stats": [
+              47,
+              540,
+              1346,
+              120
+            ],
+            "slot": [
+              645,
+              276,
+              212,
+              32
+            ],
+            "header": [
+              64,
+              758,
+              1312,
+              64
+            ],
+            "chart": [
+              64,
+              1156,
+              1312,
+              380
+            ],
+            "legend": [
+              64,
+              1124,
+              1312,
+              20
+            ]
+          },
+          "prop": {
+            "kpis": [
+              47,
+              328,
+              1346,
+              200
+            ],
+            "stats": [
+              47,
+              540,
+              1346,
+              120
+            ],
+            "slot": [
+              645,
+              276,
+              212,
+              32
+            ],
+            "header": [
+              64,
+              758,
+              1312,
+              64
+            ],
+            "chart": [
+              64,
+              1156,
+              1312,
+              380
+            ],
+            "legend": [
+              64,
+              1124,
+              1312,
+              20
+            ]
+          }
+        }
+      },
+      "pfTile": "PROFIT FACTOR — —",
+      "badge": "NET P&L +$575.70 +$575.70",
+      "accountMc": "PASS BEFORE FAILING pass first 77.6% open at day 60 0.0% fail first 22.4% order luck 81.8% 77.6% PASS FIRST WHERE IT STANDS TODAY today $25,576 floor $24,576 $1,000 of room $924 to go target $26,500 DAYS TO PASS 3 days 10–90% 3 – 6 DAYS TO FAIL 4 days 10–90% 2 – 7 DAYS TRADED SO FAR 1 minimum 4 days to pass RISK PER TRADE $333 of the $450 daily cap",
+      "noOldHeadline": true,
+      "horizonMcAccount": 1,
+      "horizonDdAccount": 1,
+      "horizonMcPlans": 1,
+      "hint_floor-base": "The floor along the backtest-order path. Every path has its own trailing floor (it follows that path's own high), so this line belongs to the backtest-order path only",
+      "hint_base": "The strategy's backtest days played forward in their original order, through the same rules: one path among the 1,000",
+      "horizonDdPlans": 1,
+      "zoomed": "1",
+      "zoomOutside": [],
+      "floorLabelZoomed": 1,
+      "panOutside": [],
+      "reset": "0"
+    },
+    "phases_960": {
+      "phaseButton": "Phase: Development (1–6)",
+      "phaseOptions": [
+        "Development (1–6)",
+        "Walk-forward 7–9 (totals)",
+        "Sealed (totals)",
+        "Demo",
+        "Prop",
+        "Live"
+      ],
+      "layout": {
+        "Equity": {
+          "same": true,
+          "dev": {
+            "kpis": [
+              39,
+              328,
+              882,
+              624
+            ],
+            "stats": [
+              39,
+              964,
+              882,
+              120
+            ],
+            "slot": [
+              173,
+              276,
+              212,
+              32
+            ],
+            "header": null,
+            "chart": null,
+            "legend": null
+          },
+          "prop": {
+            "kpis": [
+              39,
+              328,
+              882,
+              624
+            ],
+            "stats": [
+              39,
+              964,
+              882,
+              120
+            ],
+            "slot": [
+              173,
+              276,
+              212,
+              32
+            ],
+            "header": null,
+            "chart": null,
+            "legend": null
+          }
+        },
+        "Drawdown": {
+          "same": true,
+          "dev": {
+            "kpis": [
+              39,
+              328,
+              882,
+              624
+            ],
+            "stats": [
+              39,
+              964,
+              882,
+              120
+            ],
+            "slot": [
+              173,
+              276,
+              212,
+              32
+            ],
+            "header": [
+              56,
+              1216,
+              848,
+              64
+            ],
+            "chart": [
+              56,
+              1548,
+              848,
+              380
+            ],
+            "legend": [
+              56,
+              1492,
+              848,
+              44
+            ]
+          },
+          "prop": {
+            "kpis": [
+              39,
+              328,
+              882,
+              624
+            ],
+            "stats": [
+              39,
+              964,
+              882,
+              120
+            ],
+            "slot": [
+              173,
+              276,
+              212,
+              32
+            ],
+            "header": [
+              56,
+              1216,
+              848,
+              64
+            ],
+            "chart": [
+              56,
+              1548,
+              848,
+              380
+            ],
+            "legend": [
+              56,
+              1492,
+              848,
+              44
+            ]
+          }
+        },
+        "Monte Carlo": {
+          "same": true,
+          "dev": {
+            "kpis": [
+              39,
+              328,
+              882,
+              624
+            ],
+            "stats": [
+              39,
+              964,
+              882,
+              120
+            ],
+            "slot": [
+              173,
+              276,
+              212,
+              32
+            ],
+            "header": [
+              56,
+              1216,
+              848,
+              64
+            ],
+            "chart": [
+              56,
+              1758,
+              848,
+              380
+            ],
+            "legend": [
+              56,
+              1702,
+              848,
+              44
+            ]
+          },
+          "prop": {
+            "kpis": [
+              39,
+              328,
+              882,
+              624
+            ],
+            "stats": [
+              39,
+              964,
+              882,
+              120
+            ],
+            "slot": [
+              173,
+              276,
+              212,
+              32
+            ],
+            "header": [
+              56,
+              1216,
+              848,
+              64
+            ],
+            "chart": [
+              56,
+              1758,
+              848,
+              380
+            ],
+            "legend": [
+              56,
+              1702,
+              848,
+              44
+            ]
+          }
+        }
+      },
+      "pfTile": "PROFIT FACTOR — —",
+      "badge": "NET P&L +$575.70 +$575.70",
+      "accountMc": "PASS BEFORE FAILING pass first 77.6% open at day 60 0.0% fail first 22.4% order luck 81.8% 77.6% PASS FIRST WHERE IT STANDS TODAY today $25,576 floor $24,576 $1,000 of room $924 to go target $26,500 DAYS TO PASS 3 days 10–90% 3 – 6 DAYS TO FAIL 4 days 10–90% 2 – 7 DAYS TRADED SO FAR 1 minimum 4 days to pass RISK PER TRADE $333 of the $450 daily cap",
+      "noOldHeadline": true,
+      "horizonMcAccount": 1,
+      "horizonDdAccount": 1,
+      "horizonMcPlans": 1,
+      "hint_floor-base": "The floor along the backtest-order path. Every path has its own trailing floor (it follows that path's own high), so this line belongs to the backtest-order path only",
+      "hint_base": "The strategy's backtest days played forward in their original order, through the same rules: one path among the 1,000",
+      "horizonDdPlans": 1,
+      "zoomed": "1",
+      "zoomOutside": [],
+      "floorLabelZoomed": 1,
+      "panOutside": [],
+      "reset": "0"
+    },
+    "switch_full": {
+      "frames": 151,
+      "distinctNet": 39,
+      "netsSample": [
+        "+$26,329.11",
+        "+$23,477.33",
+        "+$22,926.10",
+        "+$20,964.72",
+        "+$19,268.51",
+        "+$16,891.46"
+      ],
+      "crossfadeFrames": 16
+    },
+    "switch_calm": {
+      "frames": 152,
+      "distinctNet": 2,
+      "netsSample": [
+        "+$26,329.11",
+        "+$575.70"
+      ],
+      "crossfadeFrames": 1
+    },
+    "videos": [
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage3f\\phase_switch_1440.webm",
+      "C:\\Users\\Prem Nadesan\\code\\nq-signal-bot\\docs\\design\\video\\stage3f\\zoom_1440.webm"
+    ]
+  }
+}

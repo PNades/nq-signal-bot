@@ -54,3 +54,12 @@ def apply_preset(preset: Preset, account: dict[str, Any] | None = None) -> dict[
     """The account's own fields kept, every rule field from the preset; `preset` records which stage filled it."""
     own = {k: v for k, v in (account or {}).items() if k in ACCOUNT_OWN_FIELDS}
     return {**own, **preset_fields(preset.fields), "preset": preset.id}  # the account's own fields (its name) first
+
+
+def account_kind(account: dict, labels: dict[str, str]) -> str:
+    """An account's type in a word or two (Rapid, Builder, Pro, Lucid Flex, or the saved preset's name), for badges."""
+    pid = str(account.get("preset") or "")
+    for key, word in (("rapid", "Rapid"), ("builder", "Builder"), ("pro_", "Pro"), ("lucid_flex", "Lucid Flex")):
+        if key in pid and not pid.startswith("own_"):
+            return word
+    return labels.get(pid) or str(account.get("firm") or "")
