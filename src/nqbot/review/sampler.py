@@ -18,6 +18,12 @@ At most one card per touch group (§5.4: a touch is traded at most once) and `MA
 then shuffled (seeded), so their order says nothing about their stratum or outcome. Every pick records why it was drawn
 (`Pick.why`, kept on the card and in the round), so the never-take cards can be redrawn once the owner defines them
 (owner 2026-11-16, SPEC §13 Q-review-sample (1)).
+
+**By month (real rounds; owner 2026-11-16):** a real round's cards are spread over the development months in proportion
+to each month's sessions (`month_quotas`, largest remainder), each month's share drawn by `sample` from that month's
+candidates, after the preview exclusion (`store.exclude_seen`): the exclusion empties most of the sessions a preview
+card showed, so without the quotas the months it never touched would take a larger share (`sample_by_month`). A month
+with fewer free candidates than its quota gives what it has; the shortfall is reported, not moved to another month.
 """
 
 from __future__ import annotations
@@ -178,3 +184,33 @@ def coverage(picks: list[Pick]) -> dict[str, dict[str, int]]:
             out[k][v] = out[k].get(v, 0) + 1
         out["stratum"][p.stratum] = out["stratum"].get(p.stratum, 0) + 1
     return out
+
+
+def month_quotas(sessions_by_month: dict[int, int], n: int) -> dict[int, int]:
+    """n cards over the months in proportion to their sessions (largest remainder; ties: the earlier month)."""
+    total = sum(v for v in sessions_by_month.values() if v > 0)
+    if n <= 0 or total <= 0:
+        return {m: 0 for m in sessions_by_month}
+    raw = {m: n * max(0, v) / total for m, v in sessions_by_month.items()}
+    out = {m: int(x) for m, x in raw.items()}
+    for m in sorted(raw, key=lambda m: (-(raw[m] - out[m]), m))[: n - sum(out.values())]:
+        out[m] += 1
+    return out
+
+
+def sample_by_month(cands: list[Candidate], n: int, seed: int, month_of, sessions_by_month: dict[int, int],
+                    **kw: Any) -> tuple[list[Pick], dict[int, dict[str, int]]]:
+    """`sample` within each month, n spread by `month_quotas`; the picks shuffled together (seeded), and per month its
+    quota, its candidates and the cards drawn."""
+    quotas = month_quotas(sessions_by_month, n)
+    by: dict[int, list[Candidate]] = {}
+    for c in cands:
+        by.setdefault(month_of(c.day), []).append(c)
+    picks: list[Pick] = []
+    report: dict[int, dict[str, int]] = {}
+    for m in sorted(quotas):
+        got = sample(by.get(m, []), quotas[m], seed * 100 + m, **kw) if quotas[m] else []
+        picks += got
+        report[m] = {"sessions": sessions_by_month[m], "quota": quotas[m], "candidates": len(by.get(m, [])), "cards": len(got)}
+    random.Random(seed).shuffle(picks)
+    return picks, report

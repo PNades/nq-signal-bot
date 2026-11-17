@@ -209,3 +209,50 @@ def test_deleting_preview_answers_keeps_their_touches_excluded(paths, synth):
     rs.answers_path(paths, "pv1").unlink()
     assert rs.preview_touches(paths) == before and len(before) == 5
     assert rs.read_answers(paths, "pv1") == {} and rs.summary(paths, "pv1")["answered"] == 0
+
+
+def test_a_real_round_is_spread_by_month_after_the_preview_exclusion(paths, monkeypatch):
+    # owner 2026-11-16: the real round's cards follow each month's share of the sessions (months 1 and 5 here, 4 and 2
+    # sessions), drawn from what the preview exclusion left: the exclusion empties two of month 1's sessions, and
+    # without the quotas month 5's many candidates would take most of the cards. The exclusion itself is unchanged.
+    from types import SimpleNamespace
+
+    from nqbot.checks import feature_build as fb
+    from nqbot.review import cards as cd
+
+    import json
+
+    m1 = ["2025-10-01", "2025-10-02", "2025-10-03", "2025-10-06"]
+    m5 = ["2026-02-02", "2026-02-03"]
+    cands, seen, i = [], [], 0
+    for day in m1 + m5:
+        for k in range(10 if day in m5 else 5):
+            i += 1
+            t = 1_760_000_000 + i * 600
+            cands.append(_cand(i, day, t, 1))
+            if day in m1[:2]:
+                seen.append((day, t, 1))                       # shown on a preview card
+    build = paths.data_dir / "b"
+    (build / "pairs" / "L").mkdir(parents=True)
+    (build / "build_plan.json").write_text(json.dumps({"sessions": m1 + m5}), encoding="utf-8")
+    monkeypatch.setattr(fb, "out_dir", lambda env, key: build)
+    monkeypatch.setattr(rs, "candidates", lambda *a: list(cands))
+    monkeypatch.setattr(rs, "preview_touches", lambda p: list(seen))
+    monkeypatch.setattr(cd, "load_day", lambda *a: None)
+    monkeypatch.setattr(cd, "card_payload", lambda dd, cid, did, pid, stratum=None, why=None:
+                        {"id": cid, "day": next(c.day for c in cands if c.decision_id == did), "decision_id": did,
+                         "pair_id": pid, "stratum": stratum, "why": why})
+    env = SimpleNamespace(paths=paths, settings=load_settings())
+    rs.draw_round(env, "K", "L", 6, 1, "real-m", echo=lambda *_: None)
+    real = rs.load_round(paths, "real-m")
+    months = [1 if c["day"] in m1 else 5 for c in real["cards"]]
+    assert months.count(1) == 4 and months.count(5) == 2        # 6 x 4/6 and 6 x 2/6
+    assert not {c["day"] for c in real["cards"]} & set(m1[:2])  # nothing from the excluded touches
+    assert real["excluded_preview_touches"] == 10
+    assert real["by_month"]["1"] == {"sessions": 4, "quota": 4, "candidates": 10, "cards": 4}
+    # without the quotas (the plain sampler on the same pool) month 5 takes more than its share
+    from nqbot.review import sampler as smp
+
+    keep, _ = rs.exclude_seen(cands, seen)
+    plain = smp.sample(keep, 6, 1)
+    assert sum(p.cand.day in m5 for p in plain) > 2

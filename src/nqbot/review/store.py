@@ -195,7 +195,22 @@ def draw_round(env, build_key: str, labels_key: str, n: int, seed: int, rid: str
     if not preview:
         cands, excluded = exclude_seen(cands, preview_touches(env.paths))
         echo(f"{excluded} candidates left out: their touch was shown in a preview card")
-    picks = smp.sample(cands, n, seed)
+    by_month: dict[str, Any] | None = None
+    if preview:
+        picks = smp.sample(cands, n, seed)
+    else:
+        # real rounds (owner 2026-11-16): spread over the months in proportion to their sessions, from what the
+        # preview exclusion left
+        sessions = {}
+        for d in days:
+            sessions[month_index(d, env.settings)] = sessions.get(month_index(d, env.settings), 0) + 1
+        picks, rep = smp.sample_by_month(cands, n, seed, lambda iso: month_index(date.fromisoformat(iso), env.settings),
+                                         sessions)
+        by_month = {str(m): v for m, v in rep.items()}
+        for m, v in rep.items():
+            short = f" (short by {v['quota'] - v['cards']})" if v["cards"] < v["quota"] else ""
+            echo(f"  month {m}: {v['sessions']} sessions, quota {v['quota']}, {v['candidates']} candidates, "
+                 f"{v['cards']} cards{short}")
     echo(f"{len(cands)} candidates over {len(days)} development sessions; {len(picks)} cards")
     rid = rid or f"{'p' if preview else 'r'}{datetime.now().strftime('%Y%m%d')}-{build_key[:6]}-s{seed}"
     by_day: dict[str, list[tuple[int, smp.Pick]]] = {}
@@ -213,7 +228,7 @@ def draw_round(env, build_key: str, labels_key: str, n: int, seed: int, rid: str
             "sampler": {"lost_share": smp.LOST_SHARE, "never_share": smp.NEVER_SHARE, "never_min": smp.NEVER_MIN,
                         "max_per_day": smp.MAX_PER_DAY},
             "coverage": smp.coverage(picks), "months": sorted({month_index(d, env.settings) for d in days}),
-            "excluded_preview_touches": excluded}
+            "excluded_preview_touches": excluded, "by_month": by_month}
     return write_round(paths=env.paths, rid=rid, meta=meta, cards=[c for c in cards if c is not None],
                        settings=env.settings, preview=preview)
 

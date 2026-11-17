@@ -92,3 +92,14 @@ def test_every_pick_records_how_it_was_picked():
     assert whys["lost"] == {smp.WHY_LOST} and whys["spread"] == {smp.WHY_SPREAD}
     assert whys["never take"] <= {smp.WHY_NEVER, smp.WHY_NEVER_FALLBACK}
     assert all(x.why == smp.WHY_NEVER for x in picks if x.stratum == "never take" and x.cand.never_take)
+
+
+def test_month_quotas_follow_the_sessions():
+    # owner 2026-11-16: a real round spreads its cards over months 1-6 in proportion to each month's sessions
+    sess = {1: 23, 2: 19, 3: 22, 4: 20, 5: 19, 6: 22}
+    q = smp.month_quotas(sess, 60)
+    assert sum(q.values()) == 60
+    assert q == {1: 11, 2: 9, 3: 11, 4: 10, 5: 9, 6: 10}          # 11.04 9.12 10.56 9.6 9.12 10.56, largest remainders
+    assert smp.month_quotas({1: 1, 2: 1, 3: 1}, 2) == {1: 1, 2: 1, 3: 0}   # ties: the earlier month
+    assert smp.month_quotas({1: 0, 2: 5}, 4) == {1: 0, 2: 4}
+    assert smp.month_quotas({1: 3}, 0) == {1: 0}

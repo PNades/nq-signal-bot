@@ -281,3 +281,52 @@ def test_the_board_on_the_dial_was_applied_by_the_moment_the_replay_shows(day):
                 # trade stamped at T, c05), read at T: the replay clock and the dial's minute agree at the end
                 assert snaps[-1]["tb"] * cd.NS <= T and snaps[-1]["t"] == c["t"]["minute"]
                 assert c["pre"]["bars"]["NQ"][-1][0] == c["t"]["minute"]
+
+
+def _with_boundary_trades(dd, spec, T: int, *, p_at: float, p_after: float):
+    """The synthetic day with card `spec`'s decision at T, one more trade stamped exactly at T (the last at T) and one
+    1 ns later; the decision's recorded price by the engine's own rule, `last_price_at(T)` (snapshot.py)."""
+    tp = dd.tapes["NQ"]
+    k = int(np.searchsorted(tp.ts, T, side="right"))
+    ins_t, ins_p = np.array([T, T + 1], dtype=np.int64), np.array([p_at, p_after])
+    ts = np.concatenate([tp.ts[:k], ins_t, tp.ts[k:]])
+    order = np.argsort(ts, kind="stable")      # stable: ours come after the trades already stamped at T
+    tape = st.Tape(tp.day, tp.symbol, ts[order], np.concatenate([tp.price[:k], ins_p, tp.price[k:]])[order],
+                   np.concatenate([tp.size[:k], [1.0, 1.0], tp.size[k:]])[order],
+                   np.concatenate([tp.side[:k], np.array([1, 1], dtype=tp.side.dtype), tp.side[k:]])[order])
+    decs = [dict(d) for d in dd.decisions]
+    dec = next(d for d in decs if d["decision_id"] == spec["decision_id"])
+    dec["decision_ts"] = int(T)
+    dec["price_at_decision"] = tape.last_price_at(T)
+    return cd.DayData(**{**dd.__dict__, "tapes": {**dd.tapes, "NQ": tape}, "decisions": decs}), dec
+
+
+@pytest.mark.parametrize("which", ["c_boundary", "d_touch"])
+def test_the_card_cuts_at_the_decision_like_the_decision(day, which):
+    # owner 2026-11-16: the backtest's decision knows every trade stamped at or before decision_ts (ts <= T, inclusive);
+    # the card cuts the same way: its last close is the decision's recorded price, a trade stamped exactly at T is on
+    # the card, a trade 1 ns after T is not (it is only in the revealed path). A style-(c) decision fires at a bar's
+    # close, exactly on a minute boundary; a style-(d) decision at its touching trade's own timestamp.
+    dd, specs = day
+    if which == "c_boundary":
+        s = specs[3]                                                     # c04, style (c)
+        T0 = int(next(d for d in dd.decisions if d["decision_id"] == s["decision_id"])["decision_ts"])
+        T = cd.floor_min(T0) + cd.MIN_NS                                 # its bar's close: an exact minute
+    else:
+        s = specs[1]                                                     # c02, style (d), mid-minute
+        T = int(next(d for d in dd.decisions if d["decision_id"] == s["decision_id"])["decision_ts"])
+    dec0 = next(d for d in dd.decisions if d["decision_id"] == s["decision_id"])
+    assert dec0["style"] == ("c" if which == "c_boundary" else "d")
+    p_at = round(float(dd.tapes["NQ"].last_price_at(T)) + 3.25, 2)      # a price no other trade near T has
+    p_after = p_at + 400.0                                               # far away: would show in any bar's high
+    dd2, dec = _with_boundary_trades(dd, s, T, p_at=p_at, p_after=p_after)
+    assert dec["price_at_decision"] == p_at                              # the decision includes the trade at T
+    c = cd.card_payload(dd2, s["id"], s["decision_id"], s["pair_id"])
+    pre = c["pre"]["bars"]["NQ"]
+    assert pre[-1][4] == p_at == c["setup"]["price"]                      # the card's last close = the decision's price
+    assert pre[-1][0] == cd.sec(cd.floor_min(T)) == c["t"]["minute"]      # the bar holding the trade at T
+    assert all(b[2] < p_after for b in pre)                               # the trade 1 ns after T is not on the card
+    post = c["post"]["bars"]["NQ"]
+    assert any(b[2] >= p_after for b in post)                             # ... it is in the revealed path
+    if which == "c_boundary":
+        assert T % cd.MIN_NS == 0 and pre[-1][5] >= 1                     # a one-trade bar starting at T itself

@@ -1,6 +1,47 @@
 # Step 14, build stage 4: the main chart, the GEX radial, the Review page (2026-11-16)
 
-The fourth of five stages (plan: owner 2026-11-15). Nothing is committed yet; this stops for your comments.
+The fourth of five stages (plan: owner 2026-11-15). **Approved by the owner 2026-11-16**, after the first build and ten
+review rounds (their sections follow below, in order); every round committed locally, nothing pushed yet.
+
+## Final state (2026-11-16)
+- **Main chart** (Lightweight Charts v5 + one series primitive, `ui/web/src/chart/`): candles from 18:00 ET the evening
+  before; levels coloured by role (grey only before a role), zones, highs/lows, touches; GEX orbs as vertical ovals, the
+  5 largest nodes of each ticker per minute (NQ: QQQ, NDXP; ES: SPX, SPY) from that minute's board only, the weakest
+  about 80% of a bar wide; Focus | Table (one switch; A shows every level at full strength); the price axis carries
+  only the last price and the entry, stop and target tags; hover cards (levels, highs/lows, nodes, touches, each with
+  its price; one orb per node, the nearest, with its own minute's board) measured and placed to stay whole inside the
+  pane, long role timelines shortened with "+n earlier" (the Table's Timeline column has them all).
+- **Replay:** the slider covers the 30 minutes before the decision (through the revealed path after the answer); the
+  chart keeps every candle from 18:00; step back / forward never pause and move 1 / 2 / 4 bars at 1× / 2× / 4×;
+  Home, End, ← →, Space; one centre line; the clock text fixed ("HH:MM ET" over "decision HH:MM:SS", cream at the
+  end).
+- **The cut at the decision time:** nothing after T before the answer (card halves `pre` / `post`, `store.public_card`);
+  the card cuts like the decision itself (ts ≤ T, inclusive: a trade stamped exactly at T is on the card, 1 ns later
+  is not; style (c) at a bar's close, style (d) at the touching trade); every map board shown applied by the moment the
+  replay shows (tests `test_the_card_cuts_at_the_decision_like_the_decision`,
+  `test_the_board_on_the_dial_was_applied_by_the_moment_the_replay_shows`); checked on all 60 preview cards.
+- **GEX box** (400 px): header "GEX SNAPSHOT · HH:MM ET" (the replay clock's minute) with the QQQ / NDXP / SPY / SPX
+  switch, on the readings' title line; the dial sized to the row (the readings set its height) and centred; ring
+  labels on a dark halo.
+- **Detector readings:** Stacked (the members per type, level zones inside first, then overlapping; containers
+  overlapping), Confluence, Nodes (no Pika/Barney counts or Pika member: display only), Regime, Freshness, Day so far,
+  Model and Order flow (from steps 15 and 17), on one grid.
+- **Review data:** `src/nqbot/review/` (sampler with the month spread for real rounds, cards, roles, store with preview
+  rounds kept apart and their touches excluded from real rounds); `nqbot review round-new | rounds | restack`.
+- **Preview round `preview-b958`:** 60 cards from build b958fe6e42aa / labels 8e9cdad94970 (months 1–4); not redrawn
+  (the owner has seen cards on it); its test answers deleted 2026-11-16; its 9,446 shown touches stay excluded.
+- **Checks:** `ui/web/scripts/shoot.mjs` stages 4, 4s, 4b, 4br, 4r3–4r9, 4r9t; stages 4r5 and 4r6 answer a card on a
+  scratch copy of the round (`ui/web/scripts/review_scratch.py serve` / `cleanup`), never in `reviews/preview/`.
+
+## Open items carried forward
+1. **4× replay frame times:** re-measure at 960, 1280 and 1440 px after 13c finishes (under 13c's load, 5–20% slow
+   frames with the pointer moving; 60 fps without).
+2. **Pre-13d (SPEC §13 Q-review-stack (b), (c)):** the scorer records which levels it counted (a record only, proven by
+   comparing the build files before and after); the retested-extreme age fix (age from the session the extreme
+   printed; `features_version` bump; estimate: 142 of 2,265 level-days, 43 touches gone, 1,284 lose a member).
+3. **The real review round** waits for 13d's months 1–6 build: spread by month in proportion to the sessions,
+   excluding the preview touches (`nqbot review round-new --build-key <key> --labels-key <key>`).
+4. **Push:** the full suite, then push all local commits, after 13c finishes.
 
 **Evidence** (`ui/web/scripts/shoot.mjs`):
 - [`build/stage4/`](build/stage4/) ([`checks.json`](build/stage4/checks.json)): the Review page on the real preview round
@@ -23,7 +64,8 @@ uv run nqbot ui              # Review is key 5 / the dock's eye icon
 - **Restart the panel already running on 8733 first.** It is a `--synthetic` panel from an earlier session, on the old
   server code, which has no Review routes.
 - **The preview round `preview-b958`** is on the SSD: 60 cards from build b958fe6e42aa (labels 8e9cdad94970, months
-  1–4). Answering a card there writes `D:\nqbot\data\reviews\answers_preview-b958.parquet`, a preview file only.
+  1–4). Answering a card there writes `D:\nqbot\data\reviews\preview\answers_preview-b958.parquet`, a preview file
+  only (the test answers given during the review rounds were deleted 2026-11-16).
 - **Your real round** (50–100 cards) is drawn from 13d's months 1–6 build once it exists (Q-step14a (16)):
   `uv run nqbot review round-new --build-key <key> --labels-key <key>`. `uv run nqbot review rounds` lists the rounds.
 
