@@ -16,7 +16,7 @@ const ARC_FROM = (210 * Math.PI) / 180, ARC_SWEEP = (240 * Math.PI) / 180;   // 
 const BASE = 0.36;            // the base ring, as a share of the radius
 const LABEL_SHARE = 0.25;     // labels on nodes at >= 25% of the largest (F2.4's relevance share), and the King
 const RINGS = [0.25, 0.5, 1];
-const DIAL_GAP = 12;          // px between the ticker switch and the dial
+const DIAL_GAP = 12;          // px at least above and below the dial
 const DIAL_MIN = 220, DIAL_MAX = 380;   // the dial's side, px
 
 interface Spoke { key: number; ang: number; share: number; v: number; king: boolean; rel: boolean }
@@ -46,9 +46,9 @@ function spokes(snap: MapSnap, relevant: Set<number>): { list: Spoke[]; spotAng:
 
 /** `fit` (round 8, owner 2026-11-16): the box takes its height from its row (the detector readings beside it), so the
  * dial is sized to the room left under the heading and the ticker switch, and the two are centred in it */
-export function GexRadial({ maps, map, onMap, snap, relevant, unit, animated, fit = false }: {
+export function GexRadial({ maps, map, onMap, snap, relevant, unit, animated, fit = false, boardAt = null }: {
   maps: MapName[]; map: MapName; onMap: (m: MapName) => void; snap: MapSnap | null; relevant: Set<number>;
-  unit: "NQ" | "ES"; animated: boolean; fit?: boolean;
+  unit: "NQ" | "ES"; animated: boolean; fit?: boolean; boardAt?: string | null;
 }) {
   const area = useRef<HTMLDivElement>(null);
   const sw = useRef<HTMLDivElement>(null);
@@ -64,7 +64,7 @@ export function GexRadial({ maps, map, onMap, snap, relevant, unit, animated, fi
     if (!el) return;
     const measure = () => {
       const w = el.clientWidth;
-      const h = fit ? widthForHeight(el.clientHeight - (sw.current?.offsetHeight ?? 28) - DIAL_GAP) : Infinity;
+      const h = fit ? widthForHeight(el.clientHeight - 2 * DIAL_GAP) : Infinity;
       setSize(Math.max(DIAL_MIN, Math.min(DIAL_MAX, Math.floor(Math.min(w, h)))));
     };
     measure();
@@ -108,15 +108,20 @@ export function GexRadial({ maps, map, onMap, snap, relevant, unit, animated, fi
 
   return (
     <div className={cn("flex flex-col", fit && "h-full")} data-radial>
-      <div className="eyebrow">GEX snapshot · at the replay clock</div>
-      {/* the ticker switch and the dial, one group centred in the room under the heading */}
-      <div ref={area} className={cn("flex flex-col items-center", fit ? "min-h-0 flex-1 justify-center" : "mt-3")} style={{ gap: DIAL_GAP }} data-radial-area>
-        <div ref={sw} className="flex rounded-full border border-line-strong p-0.5" role="radiogroup" aria-label="Map">
+      {/* one header row like the other boxes (round 9): the title left, the ticker switch right */}
+      <div className="flex items-center justify-between gap-2" data-radial-head>
+        {/* the time of the board on the dial, following the replay clock (owner 2026-11-16, round 9) */}
+        <div className="eyebrow whitespace-nowrap" data-hint="The board on the dial: the one in force at the close of the replay minute" data-radial-title>
+          GEX SNAPSHOT · {boardAt ? `${boardAt} ET` : "no board"}</div>
+        <div ref={sw} className="flex shrink-0 rounded-full border border-line-strong p-0.5" role="radiogroup" aria-label="Map">
           {maps.map((m) => (
             <button key={m} type="button" role="radio" aria-checked={map === m} onClick={() => onMap(m)} data-map={m}
               className={cn("h-6 rounded-full px-2 font-mono text-[11px]", map === m ? "bg-caramel text-cream" : "text-text-2 hover:text-text-1")}>{m}</button>
           ))}
         </div>
+      </div>
+      {/* the dial, centred in the room under the header (even gaps above and below) */}
+      <div ref={area} className={cn("flex flex-col items-center", fit ? "min-h-0 flex-1 justify-center" : "mt-3")} data-radial-area>
       <div className="relative shrink-0" style={{ width: size, height: geometry(size).h }} data-radial-dial>
         <canvas ref={canvas} style={{ width: size, height: geometry(size).h }} className="mx-auto block" onPointerMove={onMove} onPointerLeave={() => setHover(null)}
           role="img" aria-label={snap ? `${map} board: spot ${snap.spot}, King ${snap.king ?? "none"}` : `${map}: no board at this minute`} />

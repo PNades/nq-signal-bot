@@ -1,0 +1,107 @@
+{
+  "stage": "4r9t",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "r9_title_1440": {
+      "0": {
+        "at": "home",
+        "title": "GEX SNAPSHOT · 10:10 ET",
+        "clock": "10:09 ET",
+        "decision": "decision 10:39:00"
+      },
+      "1": {
+        "at": "+3",
+        "title": "GEX SNAPSHOT · 10:13 ET",
+        "clock": "10:12 ET",
+        "decision": "decision 10:39:00"
+      },
+      "2": {
+        "at": "end",
+        "title": "GEX SNAPSHOT · 10:39 ET",
+        "clock": "10:38 ET",
+        "decision": "decision 10:39:00"
+      },
+      "chart": {
+        "x": 48,
+        "y": -495,
+        "w": 888,
+        "h": 636
+      },
+      "radial": {
+        "x": 64,
+        "y": 368,
+        "w": 366,
+        "h": 284
+      },
+      "facts": {
+        "x": 1033,
+        "y": -547,
+        "w": 360,
+        "h": 448
+      },
+      "bar": null,
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r9_title_1280": {
+      "0": {
+        "at": "home",
+        "title": "GEX SNAPSHOT · 10:10 ET",
+        "clock": "10:09 ET",
+        "decision": "decision 10:39:00"
+      },
+      "1": {
+        "at": "+3",
+        "title": "GEX SNAPSHOT · 10:13 ET",
+        "clock": "10:12 ET",
+        "decision": "decision 10:39:00"
+      },
+      "2": {
+        "at": "end",
+        "title": "GEX SNAPSHOT · 10:39 ET",
+        "clock": "10:38 ET",
+        "decision": "decision 10:39:00"
+      },
+      "chart": {
+        "x": 40,
+        "y": -495,
+        "w": 744,
+        "h": 636
+      },
+      "radial": {
+        "x": 56,
+        "y": 368,
+        "w": 366,
+        "h": 284
+      },
+      "facts": {
+        "x": 881,
+        "y": -547,
+        "w": 360,
+        "h": 448
+      },
+      "bar": null,
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1260,
+      "flatFits": true,
+      "barW": 1280,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    }
+  }
+}

@@ -1,6 +1,6 @@
 {
   "stage": "4r5",
-  "base": "http://127.0.0.1:8733",
+  "base": "http://127.0.0.1:8735",
   "problems": [],
   "checks": {
     "r5_replay_1440": {
@@ -56,7 +56,7 @@
       },
       "radial": {
         "x": 64,
-        "y": 678,
+        "y": 661,
         "w": 366,
         "h": 284
       },
@@ -88,7 +88,7 @@
       },
       "radial": {
         "x": 64,
-        "y": 678,
+        "y": 661,
         "w": 366,
         "h": 284
       },
@@ -144,7 +144,7 @@
       },
       "radial": {
         "x": 64,
-        "y": 385,
+        "y": 368,
         "w": 366,
         "h": 284
       },
@@ -230,7 +230,7 @@
       },
       "radial": {
         "x": 64,
-        "y": 385,
+        "y": 368,
         "w": 366,
         "h": 284
       },
@@ -269,7 +269,7 @@
       },
       "radial": {
         "x": 64,
-        "y": 1198,
+        "y": 1181,
         "w": 366,
         "h": 284
       },
@@ -345,7 +345,7 @@
       },
       "radial": {
         "x": 290,
-        "y": 1503,
+        "y": 1468,
         "w": 380,
         "h": 295
       },
@@ -377,7 +377,7 @@
       },
       "radial": {
         "x": 290,
-        "y": 1503,
+        "y": 1468,
         "w": 380,
         "h": 295
       },
@@ -427,7 +427,7 @@
       "hiddenShown": [],
       "chart": {
         "x": 40,
-        "y": -1321,
+        "y": -1286,
         "w": 800,
         "h": 300
       },
@@ -439,7 +439,7 @@
       },
       "facts": {
         "x": 39,
-        "y": -920,
+        "y": -885,
         "w": 882,
         "h": 356
       },
@@ -513,7 +513,7 @@
       ],
       "chart": {
         "x": 40,
-        "y": -1321,
+        "y": -1286,
         "w": 800,
         "h": 300
       },
@@ -525,7 +525,7 @@
       },
       "facts": {
         "x": 39,
-        "y": -920,
+        "y": -885,
         "w": 882,
         "h": 356
       },
@@ -558,7 +558,7 @@
       },
       "radial": {
         "x": 290,
-        "y": 1503,
+        "y": 1468,
         "w": 380,
         "h": 295
       },
@@ -581,28 +581,80 @@
       "barOverflow": false,
       "title": "CreamFlow · Review"
     },
+    "r5_replay_answered_1440_answer": {
+      "round": "scratch-preview-b958",
+      "card": "01",
+      "hiddenBefore": true,
+      "result": {
+        "text": "Stop loss−0.96Rfilled 10:39 · out 10:53Against the outcomeYou said takeStructure labelheldWorst / best22.50 / 19.25 ptsHow it was pickedspread: the least-covere"
+      }
+    },
     "r5_replay_answered_1440": {
-      "skipped": "c01 is not answered",
+      "states": [
+        {
+          "at": "home",
+          "clock": "10:09 ET",
+          "line": "decision 10:39:00",
+          "color": "rgb(180, 180, 180)",
+          "block": 128,
+          "scrub": 518.3,
+          "min": 1761055740,
+          "max": 1761059280,
+          "value": 1761055740
+        },
+        {
+          "at": "mid",
+          "clock": "10:14 ET",
+          "line": "decision 10:39:00",
+          "color": "rgb(180, 180, 180)",
+          "block": 128,
+          "scrub": 518.3,
+          "min": 1761055740,
+          "max": 1761059280,
+          "value": 1761056040
+        },
+        {
+          "at": "end",
+          "clock": "11:08 ET",
+          "line": "decision 10:39:00",
+          "color": "rgb(255, 224, 194)",
+          "block": 128,
+          "scrub": 518.3,
+          "min": 1761055740,
+          "max": 1761059280,
+          "value": 1761059280
+        }
+      ],
+      "answered": true,
+      "start": {
+        "clock": "10:09 ET",
+        "expected": "10:09"
+      },
       "chart": {
         "x": 48,
-        "y": 318,
+        "y": -200,
         "w": 888,
-        "h": 636
+        "h": 660
       },
       "radial": {
         "x": 64,
-        "y": 1198,
+        "y": 688,
         "w": 366,
         "h": 284
       },
       "facts": {
         "x": 1033,
-        "y": 266,
+        "y": -252,
         "w": 360,
         "h": 448
       },
-      "bar": null,
-      "clock": "10:38 ET",
+      "bar": {
+        "x": 1033,
+        "y": 212,
+        "w": 360,
+        "h": 334
+      },
+      "clock": "11:08 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],

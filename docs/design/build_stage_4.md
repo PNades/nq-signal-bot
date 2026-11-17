@@ -448,3 +448,23 @@ that needed an answered card now record a skip: the preview answers were deleted
   (366 × 284 px), so the room left over is vertical. Equal padding all round would need a GEX box about 540 px wide,
   which fits at 1440 px only (the readings' columns would narrow to about 236 px).
 - **Ring labels** 11 px, brighter, on a dark halo, kept inside the canvas.
+
+## Review round 9 (owner 2026-11-16)
+**Evidence:** [`build/stage4r9/`](build/stage4r9/) and [`build/stage4r9t/`](build/stage4r9t/) (all passed) at 1440 and
+1280 px (c01 and c03) and 960 px; `stage4r5`, `stage4r6` ran on a scratch copy of the round (below), `stage4r7` re-ran
+clean.
+
+1. **GEX header:** title left, ticker switch right, on one row; the title sits on the readings' title line (0 px
+   apart). The header row is the switch's height (28 px), so the box's top padding is 9 px instead of 16. The dial is
+   centred under the header (85.5 px above, 86.5 below); the box stays 400 px wide (17 px at each side). The title is
+   "GEX SNAPSHOT · HH:MM ET", the time of the board on the dial: at a replay minute of 10:09 the board read at its
+   close, 10:10; at the end of the replay before the answer, the decision (10:39 for 10:39:00), never later. The orb
+   hover's "board at" line takes the same limit (it read one minute past the decision on the decision's own minute).
+2. **Readings' bottom gap:** already the same as the top (18 px from the box top to the title, 19 px from the last
+   row to the bottom, text to edge); unchanged, now checked within 2 px. Both boxes 496 px tall.
+3. **Answered-card checks no longer skip:** `ui/web/scripts/review_scratch.py serve --round preview-b958 --port 8735`
+   copies the round's cards (never its answers) to `<tmp_dir>/review_check_<time>/` as round `scratch-preview-b958` and
+   serves the panel there; the stage answers c01 through the page (Take, a reason, Ctrl+Enter) only on a `scratch-`
+   round, checks the result card ("Stop loss −0.96R … You said take"), then runs the after-answer checks (the slider
+   10:09 → 11:08, steps past the decision); the panel was stopped by its PID and `review_scratch.py cleanup` removed
+   the folder; `reviews/preview/` has no answers file.

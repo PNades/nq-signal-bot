@@ -1285,6 +1285,16 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   centred in the GEX box under its heading (equal left / right, equal above / below); the dial's canvas is only as
   tall as its drawing (a 240° arc open at the bottom is wider than tall), sized to the room; the ring labels (25%,
   50%, 100%) 11 px on a dark halo. Below 1280 px the boxes stack and the GEX box keeps its own height.
+- **Q-review-chart round 9 (owner 2026-11-16; built, waiting for the owner's OK):** (1) the GEX box has one header
+  row like the other boxes: the title "GEX SNAPSHOT · HH:MM ET" on the left (the time of the board on the dial: the
+  board read at the close of the replay minute, or at the decision inside the decision's own minute, so never after
+  the decision; it follows the replay) and the QQQ / NDXP / SPY / SPX switch on the right, its title on the detector
+  readings' title line; the dial centred in the room under the header (even gaps above and below); the box stays
+  400 px wide; the orb hover's "board at" line follows the same limit; (2) the readings' bottom gap matches their top
+  gap (measured 19 vs 18 px, text to box edge; unchanged, checked); (3) the shoot checks that need an answered card
+  answer on a scratch copy of the round (`ui/web/scripts/review_scratch.py serve`: round `scratch-<id>` under the
+  SSD's tmp folder, never `reviews/preview/`; the stage refuses to answer on any other round), and the scratch folder
+  is removed afterwards (`review_scratch.py cleanup`).
 - **Preview answers deleted (owner 2026-11-16):** the 10 answers on `preview-b958` (c01–c10) were test inputs and were
   deleted (`reviews/preview/answers_preview-b958.parquet`). Nothing else reads them: only `review/store.py` (the page's
   answered state and the append of a new answer). The record of the touches the preview cards showed comes from the

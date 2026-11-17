@@ -3794,6 +3794,27 @@ S["4b"] = async () => {
   await ctx.close();
 };
 
+// a throwaway answer for the checks that need an answered card (owner 2026-11-16, round 9): only on a scratch copy of
+// a round (`ui/web/scripts/review_scratch.py serve`, round id `scratch-...`, its data under the SSD's tmp folder, never
+// reviews/preview/); answers card `cid` through the page (Take, a reason, Ctrl+Enter) and checks the reveal and the
+// result card. Refuses (a problem, no answer) on any other round.
+async function answerThrowaway(p, name, cid = "01") {
+  const rounds = await p.evaluate(async () => (await (await fetch("/api/review")).json()));
+  const rid = rounds?.round?.id ?? rounds?.rounds?.[0]?.id ?? "";
+  if (!/^scratch-/.test(rid)) { problems.push(`${name}: refused to answer on round "${rid}" (run this stage on a scratch panel: review_scratch.py serve)`); return false; }
+  await p.locator("[role=listitem]", { hasText: new RegExp(`^${cid}`) }).click(); await p.waitForTimeout(1200);
+  if (await p.locator("[data-result]").count()) return true;
+  const hiddenBefore = await p.evaluate(() => !document.querySelector("[data-result]"));
+  await p.keyboard.press("t"); await p.locator("[data-reason]").click(); await p.keyboard.type("Throwaway answer from the shoot check.");
+  await p.keyboard.press("Control+Enter");
+  await p.waitForSelector("[data-result]", { timeout: 15000 }).catch(() => {});
+  await p.waitForTimeout(800);
+  const res = await p.evaluate(() => { const r = document.querySelector("[data-result]"); return r ? { text: r.textContent.slice(0, 160) } : null; });
+  checks[`${name}_answer`] = { round: rid, card: cid, hiddenBefore, result: res };
+  if (!res) { problems.push(`${name}: the answer did not reveal a result card`); return false; }
+  return true;
+}
+
 S["4br"] = async () => {
   for (const [w, h] of [[1440, 900], [1280, 800], [960, 800]]) await fixShots(`real_${w}`, w, h);
   // (4) the card strip: arrows, faded edges, the current card in view, nothing pushed off screen
@@ -4011,8 +4032,8 @@ S["4r5"] = async () => {
   await rshot("r5_replay_answered_1440", 1440, 900, "/review", async (p) => {
     await p.locator("[role=listitem]", { hasText: /^01/ }).click(); await p.waitForTimeout(1500);
     await p.evaluate(() => { document.activeElement?.blur?.(); });
-    // the preview round's test answers were deleted (owner 2026-11-16): with no answered card there is nothing to check
-    if (!(await p.locator("[data-result]").count())) { checks.r5_replay_answered_1440 = { skipped: "c01 is not answered" }; return; }
+    if (!(await answerThrowaway(p, "r5_replay_answered_1440"))) return;
+    await p.evaluate(() => { document.activeElement?.blur?.(); });
     await replayCheck(p, "r5_replay_answered_1440", true);
     const st = checks.r5_replay_answered_1440.states;
     if (!(st[2].max - st[0].min > 30 * 60)) problems.push("r5_replay_answered_1440: the slider does not extend through the revealed path");
@@ -4082,7 +4103,8 @@ S["4r6"] = async () => {
   await rshot("r6_step_answered_1440", 1440, 900, "/review", async (p) => {
     await p.locator("[role=listitem]", { hasText: /^01/ }).click(); await p.waitForTimeout(1500);
     await p.evaluate(() => { document.activeElement?.blur?.(); document.querySelector("[data-replay]").scrollIntoView({ block: "center" }); });
-    if (!(await p.locator("[data-result]").count())) { checks.r6_step_answered_1440 = { skipped: "c01 is not answered (the preview answers were deleted)" }; return; }
+    if (!(await answerThrowaway(p, "r6_step_answered_1440"))) return;
+    await p.evaluate(() => { document.activeElement?.blur?.(); document.querySelector("[data-replay]").scrollIntoView({ block: "center" }); });
     await speed(p, 4); await p.keyboard.press("End"); await p.waitForTimeout(300);
     const end = await val(p);
     for (let k = 0; k < 20; k++) await back(p);
@@ -4196,6 +4218,83 @@ S["4r8"] = async () => {
     if (r.description || r.dialToBottom < 14 || r.dialToBottom > 20) problems.push(`r8_boxes_960: ${JSON.stringify(r)}`);
   });
 };
+
+S["4r9"] = async () => {
+  // owner 2026-11-16, round 9: the GEX box's title left and ticker switch right on one header row, its title on the
+  // readings' title line; the dial centred under the header (even gaps above and below); the box 400 px wide; the
+  // readings' bottom gap the same as their top gap (text to box edge); both boxes the same height
+  const measure = async (p, name) => {
+    await p.locator("[data-readings]").scrollIntoViewIfNeeded(); await p.waitForTimeout(500);
+    const r = await p.evaluate(() => {
+      const glyph = (el) => { const rg = document.createRange(); rg.selectNodeContents(el); return rg.getBoundingClientRect(); };
+      const gx = document.querySelector("[data-gex-box]"), rd = document.querySelector("[data-readings]");
+      const G = gx.getBoundingClientRect(), R = rd.getBoundingClientRect();
+      const head = gx.querySelector("[data-radial-head]"), H = head.getBoundingClientRect();
+      const gt = glyph(gx.querySelector(".eyebrow")), rt = glyph(rd.querySelector(".eyebrow")), sw = head.querySelector("[role=radiogroup]").getBoundingClientRect();
+      const dial = gx.querySelector("[data-radial-dial]").getBoundingClientRect();
+      const last = Math.max(...[...rd.querySelectorAll("dt,dd")].map((e) => glyph(e).bottom));
+      return { gexW: G.width, heights: [G.height, R.height], titleDy: +(gt.top - rt.top).toFixed(1),
+        titleLeftOfSwitch: gt.right < sw.left, switchRightGap: +(G.right - sw.right).toFixed(1), titleLeftGap: +(gt.left - G.left).toFixed(1),
+        switchMidVsTitleMid: +(((sw.top + sw.bottom) / 2) - ((gt.top + gt.bottom) / 2)).toFixed(1),
+        dialAbove: +(dial.top - Math.max(H.bottom, sw.bottom)).toFixed(1), dialBelow: +(G.bottom - dial.bottom).toFixed(1), dialW: dial.width,
+        readingsTop: +(rt.top - R.top).toFixed(1), readingsBottom: +(R.bottom - last).toFixed(1),
+        description: /Strikes run low/.test(gx.textContent), titleLines: Math.round(gt.height / parseFloat(getComputedStyle(gx.querySelector(".eyebrow")).lineHeight)) };
+    });
+    checks[name] = r;
+    if (r.description) problems.push(`${name}: the description is back`);
+    if (r.titleLines !== 1) problems.push(`${name}: the GEX title wraps (${r.titleLines} lines)`);
+    if (Math.abs(r.gexW - 400) > 0.5) problems.push(`${name}: the GEX box is ${r.gexW} px wide`);
+    if (Math.abs(r.heights[0] - r.heights[1]) > 1) problems.push(`${name}: box heights differ ${r.heights}`);
+    if (Math.abs(r.titleDy) > 1) problems.push(`${name}: the titles are ${r.titleDy} px apart vertically`);
+    if (!r.titleLeftOfSwitch || r.switchRightGap > 18 || Math.abs(r.switchMidVsTitleMid) > 1.5) problems.push(`${name}: header row ${JSON.stringify(r)}`);
+    if (Math.abs(r.dialAbove - r.dialBelow) > 1.5 || r.dialAbove < 8) problems.push(`${name}: the dial is not centred under the header (${r.dialAbove} above, ${r.dialBelow} below)`);
+    if (Math.abs(r.readingsTop - r.readingsBottom) > 2) problems.push(`${name}: readings top gap ${r.readingsTop} vs bottom gap ${r.readingsBottom}`);
+    await p.locator("[data-gex-box]").screenshot({ path: path.join(OUT, `${name}_gex.png`) });
+  };
+  for (const [w, h] of [[1440, 900], [1280, 900]]) {
+    await rshot(`r9_boxes_${w}`, w, h, "/review", async (p) => measure(p, `r9_boxes_${w}`));
+    await rshot(`r9_boxes_c03_${w}`, w, h, "/review", async (p) => {
+      await p.locator("[role=listitem]", { hasText: /^03/ }).click(); await p.waitForTimeout(1500);
+      await p.evaluate(() => document.activeElement?.blur?.());
+      await measure(p, `r9_boxes_c03_${w}`);
+    });
+  }
+  await rshot("r9_boxes_960", 960, 800, "/review", async (p) => {
+    await p.locator("[data-gex-box]").scrollIntoViewIfNeeded(); await p.waitForTimeout(400);
+    const r = await p.evaluate(() => { const g = document.querySelector("[data-gex-box]"), d = g.querySelector("[data-radial-dial]").getBoundingClientRect(), b = g.getBoundingClientRect();
+      return { dial: d.width, dialToBottom: +(b.bottom - d.bottom).toFixed(1), description: /Strikes run low/.test(g.textContent) }; });
+    checks.r9_boxes_960 = r;
+    if (r.description || r.dialToBottom < 14 || r.dialToBottom > 20) problems.push(`r9_boxes_960: ${JSON.stringify(r)}`);
+  });
+};
+// the GEX title carries the time of the board on the dial and follows the replay; never after the decision
+S["4r9t"] = async () => {
+  for (const [w, h] of [[1440, 900], [1280, 900]]) {
+    await rshot(`r9_title_${w}`, w, h, "/review", async (p) => {
+      const read = () => p.evaluate(() => ({ title: document.querySelector("[data-radial-title]").textContent.trim(),
+        clock: document.querySelector("[data-clock]").textContent.trim(), decision: document.querySelector("[data-decision-line]").textContent.trim() }));
+      const mins = (s) => { const m = s.match(/(\d\d):(\d\d)/); return m ? +m[1] * 60 + +m[2] : null; };
+      const out = [];
+      await p.keyboard.press("Home"); await p.waitForTimeout(300); out.push({ at: "home", ...(await read()) });
+      for (let k = 0; k < 3; k++) await p.keyboard.press("ArrowRight");
+      await p.waitForTimeout(300); out.push({ at: "+3", ...(await read()) });
+      await p.keyboard.press("End"); await p.waitForTimeout(400); out.push({ at: "end", ...(await read()) });
+      checks[`r9_title_${w}`] = out;
+      for (const o of out) {
+        if (!/^GEX SNAPSHOT · \d\d:\d\d ET$/.test(o.title)) problems.push(`r9_title_${w}: title "${o.title}"`);
+        const tb = mins(o.title), tc = mins(o.clock), td = mins(o.decision.replace(/^decision /, ""));
+        if (tb > td) problems.push(`r9_title_${w}: board ${o.title} after the decision ${o.decision}`);
+        if (o.at !== "end" && tb !== tc + 1) problems.push(`r9_title_${w}: at ${o.clock} the board reads ${o.title} (want the minute's close)`);
+      }
+      if (mins(out[1].title) - mins(out[0].title) !== 3) problems.push(`r9_title_${w}: the title did not follow the replay`);
+      if (mins(out[2].title) !== mins(out[2].decision.replace(/^decision /, ""))) problems.push(`r9_title_${w}: at the decision the board reads ${out[2].title}`);
+      await p.locator("[data-gex-box]").scrollIntoViewIfNeeded(); await p.waitForTimeout(300);
+      await p.locator("[data-gex-box]").screenshot({ path: path.join(OUT, `r9_title_${w}_gex.png`) });
+    });
+  }
+};
+// round 9 replaced round 8's layout (the switch now sits in the header): the round-8 stage runs the round-9 checks
+S["4r8"] = () => S["4r9"]();
 
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();
 await browser.close();

@@ -1,6 +1,6 @@
 {
   "stage": "4r6",
-  "base": "http://127.0.0.1:8733",
+  "base": "http://127.0.0.1:8735",
   "problems": [],
   "checks": {
     "r6_step_paused_1440": {
@@ -25,31 +25,31 @@
       "arrow4x": 4,
       "backAtStart": true,
       "atDecision": {
-        "before": 1761159720,
-        "afterFwd": 1761159720,
-        "afterBackFwd": 1761159720,
-        "max": 1761159720
+        "before": 1762874160,
+        "afterFwd": 1762874160,
+        "afterBackFwd": 1762874160,
+        "max": 1762874160
       },
       "chart": {
         "x": 48,
-        "y": -162,
+        "y": -182,
         "w": 888,
-        "h": 596
+        "h": 616
       },
       "radial": {
         "x": 64,
-        "y": 596,
+        "y": 661,
         "w": 366,
-        "h": 366
+        "h": 284
       },
       "facts": {
         "x": 1033,
-        "y": -214,
+        "y": -234,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "14:34 ET",
+      "clock": "09:49 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -74,28 +74,28 @@
         "backJump": -4,
         "playingAfterFwd": true,
         "playingAfterBack": true,
-        "movedOnAfter": 9
+        "movedOnAfter": 8
       },
       "chart": {
         "x": 48,
-        "y": -162,
+        "y": -182,
         "w": 888,
-        "h": 596
+        "h": 616
       },
       "radial": {
         "x": 64,
-        "y": 596,
+        "y": 661,
         "w": 366,
-        "h": 366
+        "h": 284
       },
       "facts": {
         "x": 1033,
-        "y": -214,
+        "y": -234,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "14:35 ET",
+      "clock": "09:50 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -129,10 +129,10 @@
       "arrow4x": 4,
       "backAtStart": true,
       "atDecision": {
-        "before": 1761159720,
-        "afterFwd": 1761159720,
-        "afterBackFwd": 1761159720,
-        "max": 1761159720
+        "before": 1762874160,
+        "afterFwd": 1762874160,
+        "afterBackFwd": 1762874160,
+        "max": 1762874160
       },
       "chart": {
         "x": 40,
@@ -142,9 +142,9 @@
       },
       "radial": {
         "x": 290,
-        "y": 1475,
+        "y": 1468,
         "w": 380,
-        "h": 380
+        "h": 295
       },
       "facts": {
         "x": 39,
@@ -153,7 +153,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "14:34 ET",
+      "clock": "09:49 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -188,9 +188,9 @@
       },
       "radial": {
         "x": 290,
-        "y": 1475,
+        "y": 1468,
         "w": 380,
-        "h": 380
+        "h": 295
       },
       "facts": {
         "x": 39,
@@ -199,7 +199,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "14:35 ET",
+      "clock": "09:51 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -224,9 +224,9 @@
       },
       "radial": {
         "x": 64,
-        "y": 596,
+        "y": 661,
         "w": 366,
-        "h": 366
+        "h": 284
       },
       "facts": {
         "x": 1033,

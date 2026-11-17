@@ -331,9 +331,12 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
           its own (its content sits in an absolute layer) and sizes its dial to that height, so neither box has empty
           room at the bottom */}
       <div className="grid gap-4 min-[1280px]:grid-cols-[400px_minmax(0,1fr)]">
-        <section className="relative rounded-md border border-line bg-bg-1 p-4 min-[1280px]:p-0" aria-label="GEX snapshot" data-gex-box>
-          <div className="min-[1280px]:absolute min-[1280px]:inset-0 min-[1280px]:p-4 min-[1280px]:pb-0">
-            <GexRadial maps={MAPS} map={map} onMap={setMap} snap={snap} relevant={relevant} unit={MAP_ROOT[map]} animated={animated} fit={wide} />
+        {/* the header row is the ticker switch's height (28 px); 7 px less top padding than the readings' 16 puts both
+            titles on one line (round 9) */}
+        <section className="relative rounded-md border border-line bg-bg-1 p-4 pt-[9px] min-[1280px]:p-0" aria-label="GEX snapshot" data-gex-box>
+          <div className="min-[1280px]:absolute min-[1280px]:inset-0 min-[1280px]:p-4 min-[1280px]:pt-[9px] min-[1280px]:pb-0">
+            <GexRadial maps={MAPS} map={map} onMap={setMap} snap={snap} relevant={relevant} unit={MAP_ROOT[map]} animated={animated} fit={wide}
+              boardAt={snap ? clockOf(Math.min(snap.t + 60, limit), card.et_offset_sec) : null} />
           </div>
         </section>
         <Readings card={card} />
