@@ -1,15 +1,20 @@
 // The main chart (shared component; design-system/coverage.md "main chart"; MASTER.md §3.6, §11; SPEC §9b item 3):
 // NQ or ES 1-minute candles on TradingView Lightweight Charts with our own overlay (`overlay.ts`), following a replay
-// clock. Toolbar: NQ | ES, the layers (zones, chart lines, highs / lows, nodes, touches), Table (the same numbers as a
-// table, MASTER §11's accessibility fallback) and full screen (F). The crosshair tooltip shows the bar and, over a level,
-// its role timeline for the day so far; over an orb, the node's strike, value and share of the King.
-import { useEffect, useMemo, useRef, useState } from "react";
+// clock. Toolbar: NQ | ES, the layers (zones, chart lines, highs / lows, nodes, touches), one Focus | Table switch
+// (Focus: the chart with the setup's levels at full strength and the rest faint; Table: the same numbers as a table,
+// MASTER §11's accessibility fallback) and full screen (F). Owner 2026-11-16 (stage-4 review):
+// - each symbol fits its own candles: a switch resets the price scale (a stretched ES axis never blanks NQ);
+// - hovering any drawn object (zone, line, high / low, orb, touch, crown, the trade) shows its facts and price, all the
+//   objects under the pointer in one card sorted by price; nothing right of the last bar (where the owner reads candle
+//   tops on the crosshair); no OHLC box; the card never covers the price axis;
+// - the axis carries only the last price and the trade's entry, stop and target tags.
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CandlestickSeries, ColorType, CrosshairMode, LineStyle, createChart, type IChartApi, type ISeriesApi, type Time, type UTCTimestamp } from "lightweight-charts";
-import { Expand, Minimize, Table2 } from "lucide-react";
+import { Expand, Minimize } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Half, Level, MapName } from "@/pages/review/types";
-import { clockOf, gexText, lastAt, roleAt, segAt } from "./data";
-import { ReviewOverlay, RIGHT_ROOM_PX, ROLE_COLOR, type Orb, type TradeLines } from "./overlay";
+import { clockOf, roleAt, segAt } from "./data";
+import { ReviewOverlay, RIGHT_ROOM_PX, ROLE_COLOR, type Hit, type OrbSeries, type TradeLines } from "./overlay";
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 export const LAYERS = [
@@ -17,26 +22,10 @@ export const LAYERS = [
   { id: "nodes", label: "Nodes" }, { id: "touches", label: "Touches" },
 ] as const;
 export type LayerId = (typeof LAYERS)[number]["id"];
+export type ChartView = "focus" | "table";
 const CHAINS: Record<"NQ" | "ES", MapName[]> = { NQ: ["QQQ", "NDXP"], ES: ["SPY", "SPX"] };
-const VISIBLE_BARS = 150;     // bars in view when a card opens (the rest scrolls)
-
-export function orbsAt(half: Half, inst: "NQ" | "ES", clock: number): Orb[] {
-  const out: Orb[] = [];
-  for (const m of CHAINS[inst]) {
-    const snap = lastAt(half.maps[m] ?? [], clock, (s) => s.t);
-    if (!snap) continue;
-    for (const l of half.levels[inst]) {
-      if (!l.node || l.chain !== m || l.strike == null) continue;
-      const band = segAt(l, clock);
-      if (!band) continue;
-      const hit = snap.s.find((x) => Math.abs(x[0] - l.strike!) < 1e-6);
-      const v = hit ? hit[1] : 0;
-      out.push({ price: (band[0] + band[1]) / 2, value: v, share: snap.max ? Math.abs(v) / snap.max : 0,
-        king: snap.king != null && Math.abs(snap.king - l.strike) < 1e-6, label: `${m} ${l.strike}`, chain: m, strike: l.strike });
-    }
-  }
-  return out;
-}
+const VISIBLE_BARS = 150;     // bars in view when a card opens (the rest scrolls back to 18:00)
+const CARD_W = 300;           // the hover card's width
 
 /** a level's role timeline so far, in words (§9b item 3: hovering shows the level's role timeline for the day) */
 export function roleStory(l: Level, limit: number, off: number): string[] {
@@ -56,30 +45,33 @@ export function roleStory(l: Level, limit: number, off: number): string[] {
   return out.length ? out : ["no role yet"];
 }
 
-type Tip = { x: number; y: number; head: string; lines: [string, string, string?][] } | null;
+type Tip = { x: number; y: number; hits: Hit[] } | null;
 
-export function MainChart({ half, inst, off, clock, limit, trade, layers, onLayer, onInst, table, onTable, animated, height = 560,
-  focus = true, onFocus, focusUids, ownZone = null }: {
+export function MainChart({ half, inst, off, clock, limit, trade, layers, onLayer, onInst, view, onView, focus = true, focusUids,
+  ownZone = null, replay, minHeight = 360 }: {
   half: Half; inst: "NQ" | "ES"; off: number; clock: number; limit: number; trade: TradeLines | null;
   layers: Record<LayerId, boolean>; onLayer: (id: LayerId) => void; onInst: (i: "NQ" | "ES") => void;
-  table: boolean; onTable: () => void; animated: boolean; height?: number | string;
-  /** Focus: the setup's own levels and zone at full strength, the rest faint (NQ only) */
-  focus?: boolean; onFocus?: () => void; focusUids?: Set<string>; ownZone?: string | null;
+  /** the one switch: the chart (Focus) or the table; exactly one is on */
+  view: ChartView; onView: (v: ChartView) => void;
+  /** with Focus, the setup's own levels and zone at full strength, the rest faint (NQ only) */
+  focus?: boolean; focusUids?: Set<string>; ownZone?: string | null;
+  /** the replay bar, under the toolbar (so it never sits under the dock) */
+  replay?: ReactNode; minHeight?: number;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const plot = useRef<HTMLDivElement>(null);
   const api = useRef<{ chart: IChartApi; series: ISeriesApi<"Candlestick">; overlay: ReviewOverlay } | null>(null);
   const [tip, setTip] = useState<Tip>(null);
   const [full, setFull] = useState(false);
+  const table = view === "table";
   const bars = half.bars[inst];
   const shown = useMemo(() => bars.filter((b) => b[0] <= clock), [bars, clock]);
-  const orbs = useMemo(() => orbsAt(half, inst, clock), [half, inst, clock]);
+  const orbs: OrbSeries[] = useMemo(() => CHAINS[inst].map((m) => ({ chain: m, snaps: half.maps[m] ?? [] })), [half, inst]);
+  const kings = useMemo(() => CHAINS[inst].flatMap((m) => (half.kings[m] ?? []).map((k) => [k[0], k[1], k[2], m] as [number, number, number, string])), [half, inst]);
   const lastShown = useRef<{ inst: string; n: number; first: number } | null>(null);
-  void animated;
-  // what the tooltip reads (without re-subscribing)
+  // what the pointer reads (without re-subscribing)
   const stateRef = useRef({ levels: [] as Level[], limit: 0, off });
   stateRef.current = { levels: half.levels[inst], limit, off };
-
 
   // the chart, once
   useEffect(() => {
@@ -108,29 +100,18 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
     series.attachPrimitive(overlay);
     api.current = { chart, series, overlay };
     (window as unknown as { __cfOverlay?: ReviewOverlay }).__cfOverlay = overlay;   // the stage-4 shoot script reads it
-    chart.subscribeCrosshairMove((p) => {
+    const onMove = (p: Parameters<Parameters<IChartApi["subscribeCrosshairMove"]>[0]>[0]) => {
       const a = api.current;
-      if (!a || !p.point) { setTip(null); a?.overlay.set({ hover: null }); return; }
-      const { x, y } = p.point;
-      const orb = a.overlay.orbHits.find((o) => Math.hypot((o.x ?? 0) - x, (o.y ?? 0) - y) < 10);
-      if (orb) {
-        a.overlay.set({ hover: null });
-        setTip({ x, y, head: `${orb.chain} ${orb.strike}${orb.king ? " · King" : ""}`, lines: [
-          ["Value", `${gexText(orb.value)} (${orb.value >= 0 ? "Pika" : "Barney"})`, orb.value >= 0 ? "text-orb-pika" : "text-orb-barney"],
-          ["Share of the King", `${Math.round(orb.share * 100)}%`],
-          ["On the chart", orb.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })]] });
-        return;
-      }
-      const near = a.overlay.hits.filter((h) => Math.abs(h.y - y) < 5 && x >= h.x0 - 4).sort((m, n) => Math.abs(m.y - y) - Math.abs(n.y - y))[0];
-      a.overlay.set({ hover: near?.uid ?? null });
-      const bar = p.time != null ? (p.seriesData.get(a.series) as { open?: number; high?: number; low?: number; close?: number } | undefined) : undefined;
-      const lines: [string, string, string?][] = [];
-      if (bar && bar.open != null) lines.push(["O H L C", `${bar.open} ${bar.high} ${bar.low} ${bar.close}`]);
-      const lv = near ? stateRef.current.levels.find((l) => l.uid === near.uid) : null;
-      if (lv) for (const s of roleStory(lv, stateRef.current.limit, stateRef.current.off)) lines.push(["", s]);
-      const t = typeof p.time === "number" ? p.time - stateRef.current.off : null;
-      setTip(lines.length ? { x, y, head: lv ? lv.label : t != null ? `${clockOf(t, stateRef.current.off)} ET` : "", lines } : null);
-    });
+      if (!a) return;
+      const right = a.overlay.lastBarRight();
+      // nothing in the empty room right of the last bar (the owner reads candle tops there on the crosshair)
+      if (!p.point || (right != null && p.point.x > right)) { setTip(null); a.overlay.set({ hover: null }); return; }
+      const hits = a.overlay.hitsAt(p.point.x, p.point.y);
+      const lv = hits.find((h) => h.kind === "level");
+      a.overlay.set({ hover: lv ? lv.key.slice(2) : null });
+      setTip(hits.length ? { x: p.point.x, y: p.point.y, hits } : null);
+    };
+    chart.subscribeCrosshairMove(onMove);
     // the attribution link (kept: its licence) carries a native title; the panel shows hints in its own tooltip instead
     const hintTitles = () => el.querySelectorAll<HTMLElement>("[title]").forEach((n) => { n.setAttribute("data-hint", n.getAttribute("title") ?? ""); n.removeAttribute("title"); });
     hintTitles();
@@ -138,7 +119,8 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
     mo.observe(el, { subtree: true, childList: true, attributes: true, attributeFilter: ["title"] });
     const onFs = () => setFull(document.fullscreenElement === box.current);
     document.addEventListener("fullscreenchange", onFs);
-    return () => { mo.disconnect(); document.removeEventListener("fullscreenchange", onFs); chart.remove(); api.current = null; };
+    // let go of the chart before removing it: its last crosshair event must not reach a removed chart
+    return () => { api.current = null; chart.unsubscribeCrosshairMove(onMove); mo.disconnect(); document.removeEventListener("fullscreenchange", onFs); chart.remove(); };
   }, []);
 
   // bars: the whole set on an instrument or card change, one bar at a time while the replay steps on
@@ -147,37 +129,42 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
     if (!a) return;
     const data = shown.map((b) => ({ time: (b[0] + off) as UTCTimestamp, open: b[1], high: b[2], low: b[3], close: b[4] }));
     const prev = lastShown.current;
-    const sameRun = prev && prev.inst === inst && prev.first === (shown[0]?.[0] ?? 0) && data.length >= prev.n && data.length - prev.n <= 2 && prev.n > 0;
+    const switched = !prev || prev.inst !== inst || prev.first !== (shown[0]?.[0] ?? 0);
+    const sameRun = !switched && data.length >= prev!.n && data.length - prev!.n <= 2 && prev!.n > 0;
     if (sameRun) {
       for (let i = Math.max(0, prev!.n - 1); i < data.length; i++) a.series.update(data[i]);
     } else {
+      // each symbol fits its own candles: a price axis stretched or squashed on the other symbol (which turns autoscale
+      // off) is reset, so a switch never leaves the chart blank (owner 2026-11-16)
+      if (switched) a.series.priceScale().applyOptions({ autoScale: true });
       a.series.setData(data);
       const n = data.length;
-      if (!prev || prev.inst !== inst || prev.first !== (shown[0]?.[0] ?? 0)) {
-        // the last VISIBLE_BARS bars, with RIGHT_ROOM_PX kept right of the last one for the orbs and the labels
+      if (switched) {
         const ts = a.chart.timeScale(), wpx = Math.max(200, ts.width()), room = RIGHT_ROOM_PX / Math.max(1, wpx - RIGHT_ROOM_PX) * VISIBLE_BARS;
         ts.setVisibleLogicalRange({ from: Math.max(0, n - VISIBLE_BARS), to: n - 1 + room });
       }
     }
     lastShown.current = { inst, n: data.length, first: shown[0]?.[0] ?? 0 };
     a.overlay.set({ barTimes: shown.map((b) => b[0]) });
+    setTip(null);
   }, [shown, inst, off]);
 
-  // the trade's exact prices on the price axis (coloured labels; the lines themselves are the overlay's, from the decision on)
+  // the axis tags: the trade's entry, stop and target (the lines themselves are the overlay's, from the decision on)
   useEffect(() => {
     const a = api.current;
     if (!a || !trade || inst !== "NQ") return;
-    const mk = (price: number | null, color: string) => price == null ? null : a.series.createPriceLine({ price, color, lineVisible: false, axisLabelVisible: true, title: "" });
-    const lines = [mk(trade.target, "#5FD39B"), mk(trade.stop, "#FF4F4F"), mk(trade.entry, "#FFE0C2")];
-    return () => { for (const l of lines) if (l) a.series.removePriceLine(l); };
+    const mk = (price: number | null, color: string, title: string) => price == null ? null : a.series.createPriceLine({ price, color, lineVisible: false, axisLabelVisible: true, title });
+    const lines = [mk(trade.target, "#5FD39B", "target"), mk(trade.stop, "#FF4F4F", "stop"), mk(trade.entry, "#FFE0C2", "entry")];
+    // on unmount the chart is removed first (the effect above): its series is gone with it, nothing to remove
+    return () => { if (api.current !== a) return; for (const l of lines) if (l) a.series.removePriceLine(l); };
   }, [trade, inst]);
 
   // the overlay
   useEffect(() => {
     api.current?.overlay.set({ clock, limit, levels: half.levels[inst], zones: inst === "NQ" ? half.zones : [],
-      touches: inst === "NQ" ? half.events : [], kings: CHAINS[inst].flatMap((m) => half.kings[m] ?? []), orbs,
+      touches: inst === "NQ" ? half.events : [], kings, orbs,
       trade: inst === "NQ" ? trade : null, layers, focus: focus && inst === "NQ", focusUids: focusUids ?? new Set(), ownZone });
-  }, [half, inst, clock, limit, orbs, trade, layers, focus, focusUids, ownZone]);
+  }, [half, inst, clock, limit, orbs, kings, trade, layers, focus, focusUids, ownZone]);
 
   const toggleFull = () => {
     const el = box.current;
@@ -192,12 +179,16 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
       .sort((a, b) => b.mid - a.mid).map((x) => ({ ...x, dist: x.mid - last }));
   }, [half, inst, clock, shown]);
 
+  // the hover card: beside the pointer, never over the price axis
+  const paneW = (plot.current?.clientWidth ?? 800) - (api.current?.chart.priceScale("right").width() ?? 70);
+  const tipLeft = tip ? (tip.x + 14 + CARD_W <= paneW - 4 ? tip.x + 14 : Math.max(4, tip.x - 14 - CARD_W)) : 0;
+
   return (
-    <div ref={box} id="cf-main-chart" className={cn("relative flex flex-col bg-bg-1", full && "h-screen p-3")} data-chart>
+    <div ref={box} id="cf-main-chart" className={cn("relative flex h-full flex-col bg-bg-1", full && "h-screen p-3")} data-chart>
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2" role="toolbar" aria-label="Chart">
         <div className="flex rounded-full border border-line-strong p-0.5" role="radiogroup" aria-label="Instrument">
           {(["NQ", "ES"] as const).map((i) => (
-            <button key={i} type="button" role="radio" aria-checked={inst === i} onClick={() => onInst(i)}
+            <button key={i} type="button" role="radio" aria-checked={inst === i} onClick={() => onInst(i)} data-inst={i}
               className={cn("h-7 rounded-full px-3 font-mono text-[12px]", inst === i ? "bg-caramel text-cream" : "text-text-2 hover:text-text-1")}>{i}</button>
           ))}
         </div>
@@ -208,31 +199,39 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
           ))}
         </div>
         <div className="ml-auto flex items-center gap-1">
-          {onFocus && (
-            <button type="button" onClick={onFocus} aria-pressed={focus} data-focus-toggle
-              data-hint={focus ? "Focus on: the setup's zone, its levels and the target at full strength, the rest faint. Click to show all equally" : "Show the setup's zone, its levels and the target at full strength, the rest faint"}
-              className={cn("h-7 rounded-full border px-2.5 text-[12px]", focus ? "border-line-strong bg-bg-3 text-text-1" : "border-transparent text-text-2 hover:text-text-1")}>Focus</button>
-          )}
-          <button type="button" onClick={onTable} aria-pressed={table} data-hint="The same numbers as a table"
-            className={cn("inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[12px]", table ? "border-line-strong bg-bg-3 text-text-1" : "border-transparent text-text-2 hover:text-text-1")}>
-            <Table2 className="size-3.5" aria-hidden="true" />Table</button>
+          <div className="flex rounded-full border border-line-strong p-0.5" role="radiogroup" aria-label="Chart or table" data-view-switch>
+            {([["focus", "Focus", "The chart: the setup's zone, its levels and the target at full strength, the rest faint (A: every level at full strength)"],
+               ["table", "Table", "The same numbers as a table"]] as const).map(([v, label, hint]) => (
+              <button key={v} type="button" role="radio" aria-checked={view === v} onClick={() => onView(v)} data-view={v} data-hint={hint}
+                className={cn("h-7 rounded-full px-3 text-[12px]", view === v ? "bg-caramel text-cream" : "text-text-2 hover:text-text-1")}>{label}</button>
+            ))}
+          </div>
           <button type="button" onClick={toggleFull} data-hint={full ? "Leave full screen (F)" : "Full screen (F)"} aria-label="Full screen"
             className="inline-flex size-7 items-center justify-center rounded-full text-text-2 hover:bg-bg-3 hover:text-text-1">
             {full ? <Minimize className="size-4" aria-hidden="true" /> : <Expand className="size-4" aria-hidden="true" />}
           </button>
         </div>
       </div>
-      <div className="relative" style={{ height: full ? undefined : height, flex: full ? 1 : undefined }}>
+      {replay}
+      <div className="relative min-h-0 flex-1" style={{ minHeight: full ? undefined : minHeight }} onPointerLeave={() => setTip(null)}>
         <div ref={plot} className={cn("absolute inset-0", table && "invisible")} data-plot />
         {tip && !table && (
-          <div className="pointer-events-none absolute z-20 max-w-[320px] rounded-sm border border-line-strong bg-bg-3 px-3 py-2 shadow-[0_12px_32px_rgba(0,0,0,.55)]"
-            style={{ left: Math.min(tip.x + 14, (plot.current?.clientWidth ?? 800) - 330), top: Math.max(8, tip.y - 60) }} data-tip>
-            {tip.head && <div className="eyebrow">{tip.head}</div>}
-            {tip.lines.map(([k, v, cls], i) => (
-              <div key={i} className="mt-1 flex items-baseline justify-between gap-4">
-                {k && <span className="text-[12px] text-text-2">{k}</span>}<span className={`font-mono text-[12px] ${cls ?? "text-text-1"}`}>{v}</span>
-              </div>
-            ))}
+          <div className="pointer-events-none absolute z-20 rounded-sm border border-line-strong bg-bg-3 px-3 py-2 shadow-[0_12px_32px_rgba(0,0,0,.55)]"
+            style={{ left: tipLeft, top: Math.max(6, tip.y - 18), width: CARD_W }} data-tip>
+            {tip.hits.slice(0, 8).map((h, i) => {
+              const lv = h.kind === "level" ? stateRef.current.levels.find((l) => `l:${l.uid}` === h.key) : null;
+              const story = lv ? roleStory(lv, stateRef.current.limit, stateRef.current.off) : [];
+              const extra = story.length === 1 && story[0] === "no role yet" ? [] : story;   // the state line already says so
+              return (
+                <div key={h.key} className={cn("text-[12px]", i > 0 && "mt-2 border-t border-line pt-2")} data-tip-item={h.kind}>
+                  <div className="flex items-center gap-1.5"><span className="size-2 shrink-0 rounded-full" style={{ background: h.color }} aria-hidden="true" />
+                    <span className="truncate font-medium text-text-1">{h.title}</span></div>
+                  <div className="mt-0.5 font-mono text-text-1">{h.lines[0]}</div>
+                  {[...h.lines.slice(1), ...extra].map((t, k) => <div key={k} className="text-text-2">{t}</div>)}
+                </div>
+              );
+            })}
+            {tip.hits.length > 8 && <div className="mt-2 text-[11px] text-text-3">+{tip.hits.length - 8} more here</div>}
           </div>
         )}
         {table && (

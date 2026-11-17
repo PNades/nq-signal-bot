@@ -7,7 +7,7 @@
 // Back and Later are always there.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, CircleCheck, CircleX, Pause, Play, RotateCcw, SkipForward, StepBack, StepForward } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, ChevronsRight, CircleCheck, CircleX, Pause, Play, RotateCcw, SkipForward, StepBack, StepForward } from "lucide-react";
 import { ApiError, postJson } from "@/lib/api";
 import { load, peek, prime } from "@/lib/prefetch";
 import { cn } from "@/lib/utils";
@@ -18,7 +18,7 @@ import { BAR_BOTTOM, DOCK_PAD, useDockLayout } from "@/shell/Shell";
 import { FlipDiskDisplay } from "@/components/ui/flip-disk-matrix";
 import { Kbd } from "@/components/ui/kbd";
 import { notify } from "@/lib/notify";
-import { MainChart, type LayerId } from "@/chart/MainChart";
+import { MainChart, type ChartView, type LayerId } from "@/chart/MainChart";
 import { GexRadial } from "@/chart/GexRadial";
 import { clockOf, joined, lastAt, MAP_ROOT, segAt } from "@/chart/data";
 import type { TradeLines } from "@/chart/overlay";
@@ -31,8 +31,10 @@ const STEP_MS = 650;                    // one replay minute at 1×
 const REVEAL_STEP_MS = 90;              // after the answer the rest of the path plays out at this pace (Full)
 const MAPS: MapName[] = ["QQQ", "NDXP", "SPY", "SPX"];
 // the plot takes the window's height left between its top and the dock (open or minimized), so the replay bar stays
-// clear of the dock when the page opens; never under PLOT_MIN or over PLOT_MAX (full screen: F)
-const PLOT_MIN = 260, PLOT_MAX = 760, REPLAY_H = 52, TOOLBAR_H = 45;
+// clear of the dock when the page opens; never under PLOT_MIN or over PLOT_MAX (full screen: F). At 1280 px and wider the
+// chart card also stretches to the height of the column beside it, so no gap is left under it (owner 2026-11-16); the
+// replay bar sits under the toolbar, so it never moves under the dock
+const PLOT_MIN = 300, PLOT_MAX = 760, REPLAY_H = 49, TOOLBAR_H = 45;
 const ENTRY_CHOICES = [["order_flow", "Order-flow trigger"], ["audit", "Audit"], ["plain", "Plain at the level"]] as const;
 const STYLE_NAME: Record<string, string> = { c: "(c) audit / sweep reclaim", d: "(d) plain at the touch", a: "(a) absorption", b: "(b) order flow" };
 const ORDER_NAME: Record<string, string> = { limit: "limit", stop_limit: "stop-limit", marketable_limit: "marketable limit", limit_center: "limit at the centre" };
@@ -126,12 +128,37 @@ function CardStrip({ cards, current, onPick, onBack, onLater, onNext, info }: {
   current: string | null; onPick: (id: string) => void; onBack: () => void; onLater: () => void; onNext: () => void; info: React.ReactNode;
 }) {
   const row = useRef<HTMLDivElement>(null);
-  // the current card stays in view in the one-row strip
-  useEffect(() => { row.current?.querySelector<HTMLElement>("[aria-current=true]")?.scrollIntoView({ block: "nearest", inline: "nearest" }); }, [current]);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const measure = useCallback(() => {
+    const el = row.current;
+    if (el) setEdges({ left: el.scrollLeft > 1, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 1 });
+  }, []);
+  // the current card stays in view in the one-row strip (scrolled within the strip only, never the page)
+  useEffect(() => {
+    const el = row.current, cur = el?.querySelector<HTMLElement>("[aria-current=true]");
+    if (el && cur) {
+      const l = cur.offsetLeft - el.offsetLeft, r = l + cur.offsetWidth;
+      if (l < el.scrollLeft + 28) el.scrollTo({ left: Math.max(0, l - 28) });
+      else if (r > el.scrollLeft + el.clientWidth - 28) el.scrollTo({ left: r - el.clientWidth + 28 });
+    }
+    measure();
+  }, [current, cards.length, measure]);
+  useEffect(() => {
+    const el = row.current;
+    if (!el) return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [measure]);
+  const page = (d: number) => { const el = row.current; if (el) el.scrollBy({ left: d * el.clientWidth * 0.8, behavior: "smooth" }); };
+  const fade = `linear-gradient(to right, ${edges.left ? "transparent, #000 28px" : "#000, #000"}, ${edges.right ? "#000 calc(100% - 28px), transparent" : "#000, #000"})`;
   return (
     <div className="flex items-center gap-3" data-strip>
       <div className="flex shrink-0 items-center gap-2 text-[12px] text-text-2">{info}</div>
-      <div ref={row} className="cf-noscrollbar flex min-w-0 flex-1 gap-1 overflow-x-auto py-1" role="list" aria-label="Cards">
+      <button type="button" onClick={() => page(-1)} disabled={!edges.left} aria-label="Earlier cards" data-strip-left
+        className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-text-2 hover:bg-bg-3 hover:text-text-1 disabled:opacity-30"><ChevronLeft className="size-4" aria-hidden="true" /></button>
+      <div ref={row} onScroll={measure} className="cf-noscrollbar flex min-w-0 flex-1 gap-1 overflow-x-auto py-1" role="list" aria-label="Cards"
+        style={{ maskImage: fade, WebkitMaskImage: fade }} data-strip-row>
         {cards.map((c) => (
           <button key={c.id} type="button" role="listitem" onClick={() => onPick(c.id)} aria-current={c.id === current ? "true" : undefined}
             data-hint={c.answered ? `${c.id}: ${c.verdict}${c.correct == null ? "" : c.correct ? ", agreed with the outcome" : ", against the outcome"}` : `${c.id}: not answered yet`}
@@ -142,6 +169,8 @@ function CardStrip({ cards, current, onPick, onBack, onLater, onNext, info }: {
           </button>
         ))}
       </div>
+      <button type="button" onClick={() => page(1)} disabled={!edges.right} aria-label="Later cards" data-strip-right
+        className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-text-2 hover:bg-bg-3 hover:text-text-1 disabled:opacity-30"><ChevronRight className="size-4" aria-hidden="true" /></button>
       <div className="flex shrink-0 items-center gap-1.5">
         <NavBtn onClick={onBack} icon={<ArrowLeft className="size-4" />} label="Back" keys={["P"]} />
         <NavBtn onClick={onLater} icon={<SkipForward className="size-4" />} label="Later" keys={["L"]} hint="Leave this card for later: the next card not answered yet" />
@@ -174,7 +203,10 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
   const [inst, setInst] = useState<"NQ" | "ES">("NQ");
   const [layers, setLayers] = useState<Record<LayerId, boolean>>({ zones: true, lines: true, highs: true, nodes: true, touches: true });
-  const [table, setTable] = useState(false);
+  // the chart (Focus) or the table, exactly one; the chart when a card opens (owner 2026-11-16)
+  const [view, setView] = useState<ChartView>("focus");
+  // A: every level at full strength (the old Focus-off view, kept until the owner decides whether it goes)
+  const [allLevels, setAllLevels] = useState(false);
   const [map, setMap] = useState<MapName>("QQQ");
   const limit = answered ? card.t.reveal_end : card.t.decision;
 
@@ -195,6 +227,8 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
   const restart = () => { setPlaying(false); setClock(card.t.replay_start); };
   const play = () => { if (clock >= maxClock) setClock(card.t.replay_start); setPlaying((p) => !p); };
   const step = (d: number) => { setPlaying(false); setClock((c) => Math.max(card.t.chart_start, Math.min(maxClock, c + 60 * d))); };
+  // the end of what may be shown: the decision before the answer, the end of the revealed path after it
+  const toEnd = () => { setPlaying(false); setClock(maxClock); };
   // after the answer the rest of the path plays out from the decision (Calm: at once)
   const wasAnswered = useRef(answered);
   useEffect(() => {
@@ -208,7 +242,6 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
     exit: answered && card.outcome?.t_exit != null && card.outcome.exit != null ? { t: card.outcome.t_exit, px: card.outcome.exit, result: card.outcome.result } : null,
   }), [card, answered]);
 
-  const [focus, setFocus] = useState(true);
   const chartBox = useRef<HTMLElement>(null);
   const { barBottom } = useDockLayout();
   const [plotH, setPlotH] = useState(420);
@@ -219,6 +252,7 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
       const top = el.getBoundingClientRect().top + (document.getElementById("cf-main")?.scrollTop ?? 0);
       const pad = barBottom === BAR_BOTTOM.low ? DOCK_PAD.min : DOCK_PAD.open;
       setPlotH(Math.round(Math.max(PLOT_MIN, Math.min(PLOT_MAX, window.innerHeight - top - TOOLBAR_H - REPLAY_H - pad - 8))));
+      void REPLAY_H;
     };
     fit();
     window.addEventListener("resize", fit);
@@ -251,6 +285,8 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
       else if (k === "ArrowRight") { e.preventDefault(); step(1); }
       else if (k === "ArrowLeft") { e.preventDefault(); step(-1); }
       else if (k === "Home") { e.preventDefault(); restart(); }
+      else if (k === "End") { e.preventDefault(); toEnd(); }
+      else if (k === "a" || k === "A") { e.preventDefault(); setAllLevels((v) => !v); }
       else if (k === "f" || k === "F") { e.preventDefault(); document.getElementById("cf-main-chart")?.requestFullscreen?.(); }
       else if (k === "n" || k === "N") { e.preventDefault(); onNext(); }
       else if (k === "l" || k === "L") { e.preventDefault(); onLater(); }
@@ -263,15 +299,15 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
   const off = card.et_offset_sec;
   return (
     <div className="flex flex-col gap-4" data-card={card.id}>
-      <div className="grid items-start gap-4 min-[1280px]:grid-cols-[minmax(0,1fr)_360px]">
-        <section ref={chartBox} className="overflow-hidden rounded-md border border-line bg-bg-1" aria-label="Main chart">
-          <MainChart half={half} inst={inst} off={off} clock={clock} limit={limit} trade={trade} layers={layers} animated={animated}
-            onLayer={(id) => setLayers((l) => ({ ...l, [id]: !l[id] }))} onInst={setInst} table={table} onTable={() => setTable((t) => !t)}
-            focus={focus} onFocus={() => setFocus((f) => !f)} focusUids={focusUids} ownZone={card.setup.zone.id} height={plotH} />
-          <ReplayBar card={card} clock={clock} max={maxClock} playing={playing} speed={speed} answered={answered}
-            onRestart={restart} onPlay={play} onStep={step} onSpeed={setSpeed} onSeek={(t) => { setPlaying(false); setClock(t); }} />
+      <div className="grid gap-4 min-[1280px]:grid-cols-[minmax(0,1fr)_360px]">
+        <section ref={chartBox} className="flex flex-col overflow-hidden rounded-md border border-line bg-bg-1" aria-label="Main chart" data-chart-card>
+          <MainChart half={half} inst={inst} off={off} clock={clock} limit={limit} trade={trade} layers={layers}
+            onLayer={(id) => setLayers((l) => ({ ...l, [id]: !l[id] }))} onInst={setInst} view={view} onView={setView}
+            focus={!allLevels} focusUids={focusUids} ownZone={card.setup.zone.id} minHeight={plotH}
+            replay={<ReplayBar card={card} clock={clock} max={maxClock} playing={playing} speed={speed} answered={answered}
+              onRestart={restart} onPlay={play} onStep={step} onEnd={toEnd} onSpeed={setSpeed} onSeek={(t) => { setPlaying(false); setClock(t); }} />} />
         </section>
-        <aside className="flex flex-col gap-4" aria-label="At this point">
+        <aside className="flex flex-col gap-4 self-start" aria-label="At this point">
           <Facts card={card} clock={clock} off={off} />
           <AnimatePresence mode="wait" initial={false}>
             {answered
@@ -290,21 +326,23 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
   );
 }
 
-function ReplayBar({ card, clock, max, playing, speed, answered, onRestart, onPlay, onStep, onSpeed, onSeek }: {
+function ReplayBar({ card, clock, max, playing, speed, answered, onRestart, onPlay, onStep, onEnd, onSpeed, onSeek }: {
   card: Card; clock: number; max: number; playing: boolean; speed: number; answered: boolean;
-  onRestart: () => void; onPlay: () => void; onStep: (d: number) => void; onSpeed: (s: (typeof SPEEDS)[number]) => void; onSeek: (t: number) => void;
+  onRestart: () => void; onPlay: () => void; onStep: (d: number) => void; onEnd: () => void; onSpeed: (s: (typeof SPEEDS)[number]) => void; onSeek: (t: number) => void;
 }) {
-  const off = card.et_offset_sec, start = card.t.replay_start;
+  // the slider reaches back to the session's open, 18:00 ET the evening before (owner 2026-11-16)
+  const off = card.et_offset_sec, start = card.t.chart_start;
   const span = Math.max(60, max - start);
   const atDecision = clock >= card.t.minute;
   const pct = (t: number) => `${Math.max(0, Math.min(100, ((t - start) / span) * 100))}%`;
   return (
-    <div className="flex flex-wrap items-center gap-3 border-t border-line px-3 py-2.5" data-replay>
+    <div className="flex flex-wrap items-center gap-3 border-b border-line px-3 py-2" data-replay>
       <div className="flex items-center gap-1">
-        <IconBtn label="Restart" keys="Home" onClick={onRestart}><RotateCcw className="size-4" /></IconBtn>
+        <IconBtn label={`Restart (${clockOf(card.t.replay_start, off)})`} keys="Home" onClick={onRestart}><RotateCcw className="size-4" /></IconBtn>
         <IconBtn label="A minute back" keys="←" onClick={() => onStep(-1)}><StepBack className="size-4" /></IconBtn>
         <IconBtn label={playing ? "Pause" : "Play"} keys="Space" onClick={onPlay} primary>{playing ? <Pause className="size-4" /> : <Play className="size-4" />}</IconBtn>
         <IconBtn label="Minute →" keys="→" onClick={() => onStep(1)}><StepForward className="size-4" /></IconBtn>
+        <IconBtn label={answered ? "To the end of the revealed path" : "To the decision"} keys="End" onClick={onEnd}><ChevronsRight className="size-4" /></IconBtn>
       </div>
       <div className="flex rounded-full border border-line-strong p-0.5" role="radiogroup" aria-label="Speed">
         {SPEEDS.map((s) => (

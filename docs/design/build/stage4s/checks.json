@@ -6,9 +6,9 @@
     "review_synthetic_1440": {
       "chart": {
         "x": 48,
-        "y": 342,
+        "y": 399,
         "w": 888,
-        "h": 372
+        "h": 594
       },
       "radial": {
         "x": 64,
@@ -38,19 +38,19 @@
     "review_synthetic_960": {
       "chart": {
         "x": 40,
-        "y": 342,
+        "y": 399,
         "w": 800,
-        "h": 272
+        "h": 276
       },
       "radial": {
         "x": 290,
-        "y": 1477,
+        "y": 1476,
         "w": 380,
         "h": 380
       },
       "facts": {
         "x": 39,
-        "y": 721,
+        "y": 720,
         "w": 882,
         "h": 356
       },
@@ -106,9 +106,9 @@
       "clock": "09:33 ET",
       "chart": {
         "x": 48,
-        "y": 342,
+        "y": 399,
         "w": 888,
-        "h": 372
+        "h": 594
       },
       "radial": {
         "x": 64,
@@ -123,73 +123,6 @@
         "h": 408
       },
       "bar": null,
-      "hOverflow": false,
-      "titles": 0,
-      "titled": [],
-      "replay_vs_dock": false,
-      "flatH": 36,
-      "flatRight": 1420,
-      "flatFits": true,
-      "barW": 1440,
-      "barOverflow": false,
-      "title": "CreamFlow · Review"
-    },
-    "level_tooltip_1440": {
-      "tip": "ON highO H L C21402 21409.5 21402 21408.25ceiling from 08:00",
-      "chart": {
-        "x": 48,
-        "y": 342,
-        "w": 888,
-        "h": 372
-      },
-      "radial": {
-        "x": 64,
-        "y": 1100,
-        "w": 366,
-        "h": 366
-      },
-      "facts": {
-        "x": 1033,
-        "y": 290,
-        "w": 360,
-        "h": 408
-      },
-      "bar": null,
-      "clock": "10:12 ET",
-      "hOverflow": false,
-      "titles": 0,
-      "titled": [],
-      "replay_vs_dock": false,
-      "flatH": 36,
-      "flatRight": 1420,
-      "flatFits": true,
-      "barW": 1440,
-      "barOverflow": false,
-      "title": "CreamFlow · Review"
-    },
-    "orb_tooltip_1440": {
-      "king": true,
-      "tip": "QQQ 612 · KingValue+66.1M (Pika)Share of the King100%On the chart21,440.07",
-      "chart": {
-        "x": 48,
-        "y": 342,
-        "w": 888,
-        "h": 372
-      },
-      "radial": {
-        "x": 64,
-        "y": 1100,
-        "w": 366,
-        "h": 366
-      },
-      "facts": {
-        "x": 1033,
-        "y": 290,
-        "w": 360,
-        "h": 408
-      },
-      "bar": null,
-      "clock": "10:12 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -205,9 +138,9 @@
       "tip": "QQQ 612 · King+66.1M Pika100% of the largest · NQ 21,440.07",
       "chart": {
         "x": 48,
-        "y": -455,
+        "y": -398,
         "w": 888,
-        "h": 372
+        "h": 594
       },
       "radial": {
         "x": 64,
@@ -237,9 +170,9 @@
     "es_1440": {
       "chart": {
         "x": 48,
-        "y": 342,
-        "w": 888,
-        "h": 372
+        "y": 399,
+        "w": 894,
+        "h": 594
       },
       "radial": {
         "x": 64,
@@ -269,9 +202,9 @@
     "table_1440": {
       "chart": {
         "x": 48,
-        "y": 342,
+        "y": 399,
         "w": 888,
-        "h": 372
+        "h": 594
       },
       "radial": {
         "x": 64,
@@ -298,12 +231,12 @@
       "barOverflow": false,
       "title": "CreamFlow · Review"
     },
-    "focus_off_1440": {
+    "all_levels_1440": {
       "chart": {
         "x": 48,
-        "y": 342,
+        "y": 399,
         "w": 888,
-        "h": 372
+        "h": 594
       },
       "radial": {
         "x": 64,
@@ -337,9 +270,9 @@
     "answer_filled_1440": {
       "chart": {
         "x": 48,
-        "y": -96,
+        "y": -39,
         "w": 888,
-        "h": 372
+        "h": 788
       },
       "radial": {
         "x": 64,
@@ -373,9 +306,9 @@
     "answer_filled_960": {
       "chart": {
         "x": 40,
-        "y": -454,
+        "y": -396,
         "w": 800,
-        "h": 272
+        "h": 276
       },
       "radial": {
         "x": 290,
@@ -409,9 +342,9 @@
     "answer_filled_1440_calm": {
       "chart": {
         "x": 48,
-        "y": -96,
+        "y": -39,
         "w": 888,
-        "h": 380
+        "h": 788
       },
       "radial": {
         "x": 64,
@@ -439,32 +372,32 @@
       "title": "CreamFlow · Review"
     },
     "result_1440": {
-      "shown_ms": 201,
+      "shown_ms": 228,
       "clock": "10:52 ET",
       "net": "+1.62R",
       "chart": {
         "x": 48,
-        "y": -124,
+        "y": -106,
         "w": 888,
-        "h": 372
+        "h": 636
       },
       "radial": {
         "x": 64,
-        "y": 635,
+        "y": 636,
         "w": 366,
         "h": 366
       },
       "facts": {
         "x": 1033,
-        "y": -176,
+        "y": -215,
         "w": 360,
         "h": 408
       },
       "bar": {
         "x": 1033,
-        "y": 248,
+        "y": 209,
         "w": 360,
-        "h": 310
+        "h": 350
       },
       "hOverflow": false,
       "titles": 0,
@@ -478,14 +411,14 @@
       "title": "CreamFlow · Review"
     },
     "result_960": {
-      "shown_ms": 241,
+      "shown_ms": 235,
       "clock": "12:05 ET",
       "net": "−1.00R",
       "chart": {
         "x": 40,
-        "y": -441,
+        "y": -383,
         "w": 800,
-        "h": 272
+        "h": 276
       },
       "radial": {
         "x": 290,
@@ -517,14 +450,14 @@
       "title": "CreamFlow · Review"
     },
     "result_1440_calm": {
-      "shown_ms": 70,
+      "shown_ms": 117,
       "clock": "13:25 ET",
       "net": "+0.31R",
       "chart": {
         "x": 48,
-        "y": -143,
+        "y": -126,
         "w": 888,
-        "h": 380
+        "h": 636
       },
       "radial": {
         "x": 64,
@@ -534,15 +467,15 @@
       },
       "facts": {
         "x": 1033,
-        "y": -195,
+        "y": -235,
         "w": 360,
         "h": 408
       },
       "bar": {
         "x": 1033,
-        "y": 229,
+        "y": 189,
         "w": 360,
-        "h": 310
+        "h": 350
       },
       "hOverflow": false,
       "titles": 0,

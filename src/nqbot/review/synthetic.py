@@ -135,14 +135,14 @@ def synthetic_day(seed: int = 7, day: date = DAY) -> tuple[cd.DayData, list[dict
     """A seeded synthetic session and its card specs [{id, decision_id, pair_id, stratum}]."""
     rng = random.Random(seed)
     open_ns, close_ns = st.rth_open_ns(day), st.rth_close_ns(day)
-    t0 = et(day, 7, 50)
+    t0 = st.cme_start_ns(day)          # the session's open, 18:00 ET the evening before
     pdh, pdl, onh = 21512.0, 21288.0, 21460.0
-    nq = tape(day, t0, close_ns, 21420.0, rng, vol=1.6, anchors=[
-        (et(day, 9, 30), 21430.0), (et(day, 10, 12), onh + 3), (et(day, 10, 40), 21402.0), (et(day, 11, 25), 21356.0),
+    nq = tape(day, t0, close_ns, 21390.0, rng, vol=1.6, anchors=[
+        (t0 + 3 * 3600 * NS, 21452.0), (et(day, 2, 0), 21338.0), (et(day, 6, 0), 21405.0), (et(day, 9, 30), 21430.0), (et(day, 10, 12), onh + 3), (et(day, 10, 40), 21402.0), (et(day, 11, 25), 21356.0),
         (et(day, 12, 10), 21366.0), (et(day, 13, 20), 21318.0), (et(day, 14, 5), 21294.0), (et(day, 14, 50), 21352.0),
         (et(day, 15, 30), 21384.0), (et(day, 16, 0), 21376.0)])
-    es = tape(day, t0, close_ns, 5824.0, random.Random(seed + 1), vol=0.4, symbol="ESH6", anchors=[
-        (et(day, 10, 12), 5836.0), (et(day, 11, 25), 5812.0), (et(day, 14, 5), 5797.0), (et(day, 16, 0), 5815.0)])
+    es = tape(day, t0, close_ns, 5822.0, random.Random(seed + 1), vol=0.4, symbol="ESH6", anchors=[
+        (et(day, 6, 0), 5826.0), (et(day, 10, 12), 5836.0), (et(day, 11, 25), 5812.0), (et(day, 14, 5), 5797.0), (et(day, 16, 0), 5815.0)])
     r_q = 21370.0 / 610.0
 
     def flat(uid, sub, rtype, kind, px, hw, start=t0):

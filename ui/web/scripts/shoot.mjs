@@ -3583,23 +3583,7 @@ S["4s"] = async () => {
     await p.waitForTimeout(700);
     checks.replay_restart_1440 = { clock: await p.locator("[data-clock]").textContent() };
   });
-  // a level's role timeline in the crosshair tooltip; an orb's tooltip
-  await rshot("level_tooltip_1440", 1440, 900, "/review", async (p) => {
-    const ok = await p.evaluate(() => { const o = window.__cfOverlay; const h = o.hits.find((x) => o.s.focusUids.has(x.uid)) ?? o.hits[0]; return h ? { x: (h.x0 + h.x1) / 2, y: h.y } : null; });
-    if (!ok) { problems.push("level_tooltip_1440: no level line to hover"); return; }
-    const box = await p.locator("[data-plot]").boundingBox();
-    await p.mouse.move(box.x + Math.min(ok.x, box.width - 140), box.y + ok.y); await p.waitForTimeout(400);
-    const tip = await p.locator("[data-tip]").textContent().catch(() => null);
-    checks.level_tooltip_1440 = { tip };
-    if (!tip || !/from|crossed|flipped|reclaimed/.test(tip)) problems.push(`level_tooltip_1440: no role timeline in the tooltip (${tip})`);
-  });
-  await rshot("orb_tooltip_1440", 1440, 900, "/review", async (p) => {
-    const o = await p.evaluate(() => { const k = window.__cfOverlay.orbHits; const best = [...k].sort((a, b) => Number(b.king) - Number(a.king))[0]; return best ? { x: best.x, y: best.y, king: best.king } : null; });
-    if (!o) { problems.push("orb_tooltip_1440: no orb on the chart"); return; }
-    const box = await p.locator("[data-plot]").boundingBox();
-    await p.mouse.move(box.x + o.x, box.y + o.y); await p.waitForTimeout(400);
-    checks.orb_tooltip_1440 = { king: o.king, tip: await p.locator("[data-tip]").textContent().catch(() => null) };
-  });
+  // (the level and orb hover cards are checked by "4b" / "4br": fix6)
   await rshot("radial_tooltip_1440", 1440, 900, "/review", async (p) => {
     await p.locator("[data-radial]").scrollIntoViewIfNeeded(); await p.waitForTimeout(500);
     const cv = await p.locator("[data-radial] canvas").boundingBox();
@@ -3609,8 +3593,8 @@ S["4s"] = async () => {
     checks.radial_tooltip_1440 = { tip: await p.locator("[data-radial-tip]").textContent().catch(() => null) };
   });
   await rshot("es_1440", 1440, 900, "/review", async (p) => { await p.getByRole("radio", { name: "ES" }).click(); await p.waitForTimeout(500); });
-  await rshot("table_1440", 1440, 900, "/review", async (p) => { await p.getByRole("button", { name: "Table" }).click(); await p.waitForTimeout(300); });
-  await rshot("focus_off_1440", 1440, 900, "/review", async (p) => { await p.locator("[data-focus-toggle]").click(); await p.waitForTimeout(300); });
+  await rshot("table_1440", 1440, 900, "/review", async (p) => { await p.locator("[data-view=table]").click(); await p.waitForTimeout(300); });
+  await rshot("all_levels_1440", 1440, 900, "/review", async (p) => { await p.keyboard.press("a"); await p.waitForTimeout(300); });
   // answering: Take (T), the reason, the optional fields; then Ctrl+Enter, the reveal and the result card
   for (const [w, h, calm] of [[1440, 900, false], [960, 800, false], [1440, 900, true]]) {
     const tag = `${w}${calm ? "_calm" : ""}`;
@@ -3642,6 +3626,184 @@ S["4s"] = async () => {
       await p.locator("[data-result]").scrollIntoViewIfNeeded();
     }, { reducedMotion: calm ? "reduce" : "no-preference" });
   }
+};
+
+// ── stage 4, review fixes (owner 2026-11-16): "4b" on a --synthetic panel, "4br" on the real preview round ─────────
+const plotBox = (p) => p.locator("[data-plot]").boundingBox();
+const ov = (p, fn, arg) => p.evaluate(fn, arg);
+
+async function cutCheckAll(page, round, ids) {
+  // §8: before its answer, nothing in a card is after its decision time (bars, levels, zones, touches, maps, Kings)
+  const bad = [];
+  const late18 = [];
+  for (const id of ids) {
+    const c = await (await page.request.get(BASE + `/api/review/card?round=${round}&card=${id}`)).json();
+    if (c.answer) continue;
+    const T = c.t.decision, M = c.t.minute;
+    const n = {
+      hidden: ["post", "outcome", "stratum", "why"].filter((k) => k in c).length,
+      bars: [...c.pre.bars.NQ, ...c.pre.bars.ES].filter((b) => b[0] > M).length,
+      levels: [...c.pre.levels.NQ, ...c.pre.levels.ES].flatMap((l) => [...l.segs.map((s) => s[0]), ...l.roles.map((r) => r[0]), ...l.marks.map((m) => m[0])]).filter((t) => t > T).length,
+      zones: c.pre.zones.flatMap((z) => z.pts.map((p) => p[0])).filter((t) => t > T).length,
+      touches: c.pre.events.filter((e) => e.t > T || (e.own && e.label != null)).length,
+      maps: Object.values(c.pre.maps).flat().filter((m) => m.t > M).length,
+      kings: Object.values(c.pre.kings).flat().filter((k) => k[0] > T).length,
+    };
+    if (Object.values(n).some((v) => v)) bad.push(`${id}: ${JSON.stringify(n)}`);
+    const first = c.pre.bars.NQ[0]?.[0];
+    if (first == null || first > c.t.chart_start + 5 * 60) late18.push(`${id} ${c.day}: first bar ${first == null ? "none" : new Date((first + c.et_offset_sec) * 1000).toISOString().slice(11, 16)} ET`);
+  }
+  checks[`cut_all_${round}`] = { cards: ids.length, bad, not_from_1800: late18 };
+  if (bad.length) problems.push(`cut_all_${round}: ${bad.length} card(s) show later data: ${bad.slice(0, 5).join("; ")}`);
+}
+
+async function fixShots(tag, w, h, opts = {}) {
+  // (1) the price axis after a symbol switch: stretch ES, switch to NQ, the candles must be on screen
+  await rshot(`fix1_axis_switch_${tag}`, w, h, "/review", async (p) => {
+    await p.locator("[data-inst=ES]").click(); await p.waitForTimeout(400);
+    const b = await plotBox(p);
+    const ax = b.x + b.width - 30, ay = b.y + b.height / 2;
+    await p.mouse.move(ax, ay); await p.mouse.down(); await p.mouse.move(ax, ay - 160, { steps: 8 }); await p.mouse.up(); await p.waitForTimeout(200);
+    const esAuto = await ov(p, () => window.__cfOverlay.series.priceScale().options().autoScale);
+    await p.locator("[data-inst=NQ]").click(); await p.waitForTimeout(500);
+    const r = await ov(p, () => { const o = window.__cfOverlay, bt = o.s.barTimes; const d = o.series.data(); const last = d[d.length - 1];
+      const ys = d.slice(-60).flatMap((x) => [o.yOf(x.high), o.yOf(x.low)]); const H = o.chart.paneSize().height;
+      return { autoScale: o.series.priceScale().options().autoScale, inView: ys.filter((y) => y != null && y >= 0 && y <= H).length, of: ys.length, lastClose: last?.close, bars: bt.length }; });
+    checks[`fix1_${tag}`] = { esAutoScaleAfterDrag: esAuto, ...r };
+    if (esAuto !== false) problems.push(`fix1_${tag}: dragging the ES axis didn't take it off autoscale (the test didn't stretch it)`);
+    if (!r.autoScale || r.inView < r.of) problems.push(`fix1_${tag}: NQ after the switch is not fitted to its candles (${JSON.stringify(r)})`);
+  }, opts);
+  // (2) one switch: exactly one of Focus / Table, the chart when a card opens
+  await rshot(`fix2_view_switch_${tag}`, w, h, "/review", async (p) => {
+    const read = () => p.locator("[data-view-switch] [role=radio]").evaluateAll((els) => els.map((e) => `${e.getAttribute("data-view")}:${e.getAttribute("aria-checked")}`));
+    const at0 = await read(); await p.locator("[data-view=table]").click(); await p.waitForTimeout(200);
+    const at1 = await read(); await p.locator("[data-view=focus]").click(); await p.waitForTimeout(200);
+    const at2 = await read();
+    checks[`fix2_${tag}`] = { open: at0, table: at1, back: at2, oldToggles: await p.locator("[data-focus-toggle]").count() };
+    const one = (a) => a.filter((x) => x.endsWith(":true")).length === 1;
+    if (!(one(at0) && one(at1) && one(at2) && at0[0] === "focus:true" && at1[1] === "table:true")) problems.push(`fix2_${tag}: the switch isn't one-of-two (${JSON.stringify(checks[`fix2_${tag}`])})`);
+    await p.locator("[data-view=table]").click(); await p.waitForTimeout(200);
+  }, opts);
+  // (3) the orbs across the chart: none after the clock or the decision; then 4× replay frame times
+  await rshot(`fix3_orbs_${tag}`, w, h, "/review", async (p) => {
+    const r = await ov(p, () => { const o = window.__cfOverlay; const keys = o.orbShapes.map((s) => s.hit().key.split(":")); const ts = keys.map((k) => Number(k[3]));
+      return { orbs: ts.length, latest: Math.max(...ts), clock: o.s.clock, limit: o.s.limit, nodeLines: 0 }; });
+    checks[`fix3_${tag}`] = r;
+    if (!r.orbs) problems.push(`fix3_${tag}: no orbs drawn`);
+    if (r.latest > r.clock || r.latest + 60 > r.limit + 60) problems.push(`fix3_${tag}: an orb after the clock / decision (${JSON.stringify(r)})`);
+  }, opts);
+  await rshot(`fix3_replay4x_${tag}`, w, h, "/review", async (p) => {
+    await p.keyboard.press("Home"); await p.waitForTimeout(300);
+    await p.getByRole("radio", { name: "4×" }).click();
+    const before = await ov(p, () => window.__cfOverlay.orbRedraws);
+    await p.evaluate(() => { window.__frames = []; let last = performance.now(); const tick = (t) => { window.__frames.push(t - last); last = t; if (window.__frames.length < 600) requestAnimationFrame(tick); }; requestAnimationFrame(tick); });
+    await p.keyboard.press(" ");
+    // move the pointer over the chart while it plays (hover redraws too)
+    const b = await plotBox(p);
+    for (let i = 0; i < 40; i++) { await p.mouse.move(b.x + 40 + i * 12, b.y + b.height * (0.3 + 0.01 * i)); await p.waitForTimeout(60); }
+    await p.waitForTimeout(1500);
+    const f = await p.evaluate(() => { const a = window.__frames.slice(5).sort((x, y) => x - y); const n = a.length; return { frames: n, median: a[Math.floor(n / 2)], p95: a[Math.floor(n * 0.95)], over20ms: a.filter((x) => x > 20).length, max: a[n - 1] }; });
+    const after = await ov(p, () => window.__cfOverlay.orbRedraws);
+    checks[`fix3_fps_${tag}`] = { ...f, orbRedrawsWhilePlaying: after - before };
+    if (f.p95 > 20) problems.push(`fix3_fps_${tag}: 95th-percentile frame ${f.p95.toFixed(1)} ms at 4× (60 fps = 16.7 ms)`);
+  }, opts);
+  // (5) the chart fills down to the next row; the replay bar never under the dock
+  await rshot(`fix5_fill_${tag}`, w, h, "/review", async (p) => {
+    const r = await p.evaluate(() => { const b = (s) => document.querySelector(s)?.getBoundingClientRect(); const c = b("[data-chart-card]"), a = b("aside[aria-label='At this point']"), rad = document.querySelector("[data-radial]")?.closest("section")?.getBoundingClientRect();
+      return { chartBottom: Math.round(c.bottom), asideBottom: Math.round(a.bottom), nextRowTop: rad ? Math.round(rad.top) : null, sideBySide: Math.abs(c.top - a.top) < 2 }; });
+    checks[`fix5_${tag}`] = r;
+    if (r.sideBySide && Math.abs(r.chartBottom - r.asideBottom) > 2) problems.push(`fix5_${tag}: a gap under the chart (${JSON.stringify(r)})`);
+  }, opts);
+  // (6) hover: the objects under the pointer in one card; nothing right of the last bar; never over the axis; no OHLC
+  await rshot(`fix6_hover_${tag}`, w, h, "/review", async (p) => {
+    const b = await plotBox(p);
+    const target = await ov(p, () => { const o = window.__cfOverlay; const right = o.lastBarRight();
+      const H = o.chart.paneSize().height;
+      const kindOf = (sh) => (typeof sh.hit === "function" ? sh.hit() : sh.hit).kind;
+      for (const sh of [...(o.shapes ?? [])].reverse()) if (sh.shape.kind === "h" && kindOf(sh) === "level") {
+        const x = Math.min(sh.shape.x1, right) - 2; if (x > Math.max(10, sh.shape.x0) && sh.shape.y > 10 && sh.shape.y < H - 10) return { x, y: sh.shape.y }; }
+      const s0 = o.orbShapes[o.orbShapes.length - 1]; return s0 ? { x: s0.x, y: s0.y } : null; });
+    if (!target) { problems.push(`fix6_${tag}: nothing to hover`); return; }
+    await p.mouse.move(b.x + target.x, b.y + target.y); await p.waitForTimeout(300);
+    const tip = await p.evaluate(() => { const t = document.querySelector("[data-tip]"); if (!t) return null; const r = t.getBoundingClientRect();
+      return { items: [...t.querySelectorAll("[data-tip-item]")].map((e) => e.getAttribute("data-tip-item")), text: t.textContent, right: Math.round(r.right) }; });
+    const axisLeft = await ov(p, () => { const o = window.__cfOverlay; return o.chart.paneSize().width; });
+    checks[`fix6_${tag}`] = { tip, axisLeft: Math.round(b.x + axisLeft) };
+    if (!tip) problems.push(`fix6_${tag}: no card over a drawn object`);
+    else {
+      if (/O H L C/.test(tip.text)) problems.push(`fix6_${tag}: the OHLC box is back`);
+      if (tip.right > b.x + axisLeft) problems.push(`fix6_${tag}: the hover card covers the price axis (${tip.right} > ${b.x + axisLeft})`);
+    }
+  }, opts);
+  await rshot(`fix6_gap_${tag}`, w, h, "/review", async (p) => {
+    const b = await plotBox(p);
+    const g = await ov(p, () => { const o = window.__cfOverlay; return { right: o.lastBarRight(), pane: o.chart.paneSize().width }; });
+    const x = (g.right + g.pane) / 2;
+    for (const fy of [0.2, 0.4, 0.5, 0.6, 0.8]) { await p.mouse.move(b.x + x, b.y + b.height * fy); await p.waitForTimeout(120);
+      if (await p.locator("[data-tip]").count()) { problems.push(`fix6_gap_${tag}: a card in the empty room right of the last bar`); break; } }
+    checks[`fix6_gap_${tag}`] = { pointerX: Math.round(x), lastBarRight: Math.round(g.right), pane: g.pane };
+  }, opts);
+  // (8) End: to the decision before the answer
+  await rshot(`fix8_end_${tag}`, w, h, "/review", async (p) => {
+    const c0 = await p.locator("[data-clock]").textContent();
+    await p.keyboard.press("Home"); await p.waitForTimeout(200); const c1 = await p.locator("[data-clock]").textContent();
+    await p.keyboard.press("End"); await p.waitForTimeout(300); const c2 = await p.locator("[data-clock]").textContent();
+    await p.keyboard.press("Home"); await p.waitForTimeout(200); await p.getByRole("button", { name: "To the decision" }).click(); await p.waitForTimeout(300);
+    const c3 = await p.locator("[data-clock]").textContent();
+    checks[`fix8_${tag}`] = { open: c0, home: c1, endKey: c2, endButton: c3 };
+    if (c2 !== c0 || c3 !== c0 || c1 === c0) problems.push(`fix8_${tag}: End doesn't go to the decision (${JSON.stringify(checks[`fix8_${tag}`])})`);
+  }, opts);
+  // (7) history from 18:00: the slider's start and the first candle
+  await rshot(`fix7_history_${tag}`, w, h, "/review", async (p) => {
+    const s = await p.locator("[data-scrub]").evaluate((e) => ({ min: Number(e.min), max: Number(e.max) }));
+    await p.locator("[data-scrub]").evaluate((e) => { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(e, e.min); e.dispatchEvent(new Event("input", { bubbles: true })); });
+    await p.waitForTimeout(400);
+    checks[`fix7_${tag}`] = { sliderMin: s.min, clockAtMin: await p.locator("[data-clock]").textContent(), bars: await ov(p, () => window.__cfOverlay.s.barTimes.length) };
+  }, opts);
+}
+
+S["4b"] = async () => {
+  for (const [w, h] of [[1440, 900], [960, 800]]) await fixShots(`syn_${w}`, w, h);
+  // (8) after the answer: End goes to the end of the revealed path
+  await rshot("fix8_after_answer_1440", 1440, 900, "/review", async (p) => {
+    for (let k = 0; k < 5 && await p.locator("[data-result]").count(); k++) { await p.keyboard.press("n"); await p.waitForTimeout(500); }
+    await p.keyboard.press("t"); await p.locator("[data-reason]").click(); await p.keyboard.type("Testing the reveal.");
+    await p.keyboard.press("Control+Enter"); await p.waitForSelector("[data-result]"); await p.waitForTimeout(600);
+    await p.locator("[data-replay]").click({ position: { x: 4, y: 4 } }).catch(() => {});
+    await p.keyboard.press("Home"); await p.waitForTimeout(200);
+    await p.getByRole("button", { name: "To the end of the revealed path" }).click(); await p.waitForTimeout(300);
+    const c = await p.locator("[data-clock]").textContent();
+    const lim = await ov(p, () => { const o = window.__cfOverlay; return { clock: o.s.clock, limit: o.s.limit }; });
+    checks.fix8_after_answer = { clock: c, ...lim };
+    if (lim.clock + 60 < lim.limit - 60) problems.push(`fix8_after_answer: End stops before the revealed end (${JSON.stringify(lim)})`);
+  });
+  const { ctx, page } = await open("cut_all", 1440, 900, "/review");
+  await cutCheckAll(page, "synthetic", ["c01", "c02", "c03", "c04", "c05"]);
+  await ctx.close();
+};
+
+S["4br"] = async () => {
+  for (const [w, h] of [[1440, 900], [1280, 800], [960, 800]]) await fixShots(`real_${w}`, w, h);
+  // (4) the card strip: arrows, faded edges, the current card in view, nothing pushed off screen
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    await rshot(`fix4_strip_${w}`, w, h, "/review", async (p) => {
+      const st0 = await p.evaluate(() => { const r = document.querySelector("[data-strip-row]"); return { scroll: r.scrollWidth > r.clientWidth, mask: getComputedStyle(r).maskImage || getComputedStyle(r).webkitMaskImage }; });
+      await p.locator("[data-strip-right]").click(); await p.waitForTimeout(500);
+      await p.locator("[data-strip-right]").click(); await p.waitForTimeout(500);
+      await p.locator("[role=listitem]", { hasText: /^50/ }).click(); await p.waitForTimeout(900);
+      const r = await p.evaluate(() => { const row = document.querySelector("[data-strip-row]").getBoundingClientRect(); const cur = document.querySelector("[data-strip-row] [aria-current=true]").getBoundingClientRect();
+        const nav = [...document.querySelectorAll("[data-strip] button")].map((b) => b.getBoundingClientRect().right);
+        return { current: document.querySelector("[data-strip-row] [aria-current=true]").textContent, inView: cur.left >= row.left && cur.right <= row.right,
+          navRight: Math.round(Math.max(...nav)), vw: window.innerWidth, pageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 }; });
+      checks[`fix4_${w}`] = { ...st0, ...r };
+      if (!r.inView || r.navRight > r.vw || r.pageOverflow) problems.push(`fix4_${w}: the strip (${JSON.stringify(r)})`);
+      await p.locator("[data-strip-row]").scrollIntoViewIfNeeded();
+    });
+  }
+  const { ctx, page } = await open("cut_all", 1440, 900, "/review");
+  const idx = await (await page.request.get(BASE + "/api/review")).json();
+  await cutCheckAll(page, idx.round.id, idx.round.cards.map((c) => c.id));
+  await ctx.close();
 };
 
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();

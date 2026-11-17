@@ -1,0 +1,767 @@
+{
+  "stage": "4b",
+  "base": "http://127.0.0.1:8735",
+  "problems": [],
+  "checks": {
+    "fix1_syn_1440": {
+      "esAutoScaleAfterDrag": false,
+      "autoScale": true,
+      "inView": 120,
+      "of": 120,
+      "lastClose": 21361.5,
+      "bars": 1091
+    },
+    "fix1_axis_switch_syn_1440": {
+      "chart": {
+        "x": 48,
+        "y": 399,
+        "w": 888,
+        "h": 594
+      },
+      "radial": {
+        "x": 64,
+        "y": 1100,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 290,
+        "w": 360,
+        "h": 408
+      },
+      "bar": null,
+      "clock": "12:10 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix2_syn_1440": {
+      "open": [
+        "focus:true",
+        "table:false"
+      ],
+      "table": [
+        "focus:false",
+        "table:true"
+      ],
+      "back": [
+        "focus:true",
+        "table:false"
+      ],
+      "oldToggles": 0
+    },
+    "fix2_view_switch_syn_1440": {
+      "chart": {
+        "x": 48,
+        "y": 399,
+        "w": 888,
+        "h": 594
+      },
+      "radial": {
+        "x": 64,
+        "y": 1100,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 290,
+        "w": 360,
+        "h": 408
+      },
+      "bar": null,
+      "clock": "12:10 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix3_syn_1440": {
+      "orbs": 1510,
+      "latest": 1768410600,
+      "clock": 1768410600,
+      "limit": 1768410605,
+      "nodeLines": 0
+    },
+    "fix3_orbs_syn_1440": {
+      "chart": {
+        "x": 48,
+        "y": 399,
+        "w": 888,
+        "h": 594
+      },
+      "radial": {
+        "x": 64,
+        "y": 1100,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 290,
+        "w": 360,
+        "h": 408
+      },
+      "bar": null,
+      "clock": "12:10 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix3_fps_syn_1440": {
+      "frames": 271,
+      "median": 16.699999999999818,
+      "p95": 16.799999999999272,
+      "over20ms": 2,
+      "max": 33.30000000000018,
+      "orbRedrawsWhilePlaying": 27
+    },
+    "fix3_replay4x_syn_1440": {
+      "chart": {
+        "x": 48,
+        "y": 399,
+        "w": 888,
+        "h": 594
+      },
+      "radial": {
+        "x": 64,
+        "y": 1100,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 290,
+        "w": 360,
+        "h": 408
+      },
+      "bar": null,
+      "clock": "11:52 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix5_syn_1440": {
+      "chartBottom": 1023,
+      "asideBottom": 1023,
+      "nextRowTop": 1039,
+      "sideBySide": true
+    },
+    "fix5_fill_syn_1440": {
+      "chart": {
+        "x": 48,
+        "y": 399,
+        "w": 888,
+        "h": 594
+      },
+      "radial": {
+        "x": 64,
+        "y": 1100,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 290,
+        "w": 360,
+        "h": 408
+      },
+      "bar": null,
+      "clock": "12:10 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix6_syn_1440": {
+      "tip": {
+        "items": [
+          "level",
+          "orb"
+        ],
+        "text": "VWAP21,406.06 (band 21,394.06 – 21,418.06)ceiling, provisionalfloor from 08:00crossed 10:45 → ceiling (provisional)QQQ 61121,405.03+5.5M Pika · 8% of the largestboard at 12:10 ET",
+        "right": 847
+      },
+      "axisLeft": 936
+    },
+    "fix6_hover_syn_1440": {
+      "chart": {
+        "x": 48,
+        "y": 399,
+        "w": 888,
+        "h": 594
+      },
+      "radial": {
+        "x": 64,
+        "y": 1100,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 290,
+        "w": 360,
+        "h": 408
+      },
+      "bar": null,
+      "clock": "12:10 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix6_gap_syn_1440": {
+      "pointerX": 854,
+      "lastBarRight": 821,
+      "pane": 888,
+      "chart": {
+        "x": 48,
+        "y": 399,
+        "w": 888,
+        "h": 594
+      },
+      "radial": {
+        "x": 64,
+        "y": 1100,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 290,
+        "w": 360,
+        "h": 408
+      },
+      "bar": null,
+      "clock": "12:10 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix8_syn_1440": {
+      "open": "12:10 ET",
+      "home": "11:25 ET",
+      "endKey": "12:10 ET",
+      "endButton": "12:10 ET"
+    },
+    "fix8_end_syn_1440": {
+      "chart": {
+        "x": 48,
+        "y": 399,
+        "w": 888,
+        "h": 594
+      },
+      "radial": {
+        "x": 64,
+        "y": 1100,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 290,
+        "w": 360,
+        "h": 408
+      },
+      "bar": null,
+      "clock": "12:10 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix7_syn_1440": {
+      "sliderMin": 1768345200,
+      "clockAtMin": "18:00 ET",
+      "bars": 1
+    },
+    "fix7_history_syn_1440": {
+      "chart": {
+        "x": 48,
+        "y": 399,
+        "w": 888,
+        "h": 594
+      },
+      "radial": {
+        "x": 64,
+        "y": 1100,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 290,
+        "w": 360,
+        "h": 408
+      },
+      "bar": null,
+      "clock": "18:00 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix1_syn_960": {
+      "esAutoScaleAfterDrag": false,
+      "autoScale": true,
+      "inView": 120,
+      "of": 120,
+      "lastClose": 21361.5,
+      "bars": 1091
+    },
+    "fix1_axis_switch_syn_960": {
+      "chart": {
+        "x": 40,
+        "y": 399,
+        "w": 800,
+        "h": 276
+      },
+      "radial": {
+        "x": 290,
+        "y": 1476,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 720,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "12:10 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix2_syn_960": {
+      "open": [
+        "focus:true",
+        "table:false"
+      ],
+      "table": [
+        "focus:false",
+        "table:true"
+      ],
+      "back": [
+        "focus:true",
+        "table:false"
+      ],
+      "oldToggles": 0
+    },
+    "fix2_view_switch_syn_960": {
+      "chart": {
+        "x": 40,
+        "y": 399,
+        "w": 800,
+        "h": 276
+      },
+      "radial": {
+        "x": 290,
+        "y": 1476,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 720,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "12:10 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix3_syn_960": {
+      "orbs": 1510,
+      "latest": 1768410600,
+      "clock": 1768410600,
+      "limit": 1768410605,
+      "nodeLines": 0
+    },
+    "fix3_orbs_syn_960": {
+      "chart": {
+        "x": 40,
+        "y": 399,
+        "w": 800,
+        "h": 276
+      },
+      "radial": {
+        "x": 290,
+        "y": 1476,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 720,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "12:10 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix3_fps_syn_960": {
+      "frames": 278,
+      "median": 16.699999999999818,
+      "p95": 16.800000000000182,
+      "over20ms": 0,
+      "max": 16.800000000000182,
+      "orbRedrawsWhilePlaying": 27
+    },
+    "fix3_replay4x_syn_960": {
+      "chart": {
+        "x": 40,
+        "y": 399,
+        "w": 800,
+        "h": 276
+      },
+      "radial": {
+        "x": 290,
+        "y": 1476,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 720,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "11:53 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix5_syn_960": {
+      "chartBottom": 704,
+      "asideBottom": 1401,
+      "nextRowTop": 1417,
+      "sideBySide": false
+    },
+    "fix5_fill_syn_960": {
+      "chart": {
+        "x": 40,
+        "y": 399,
+        "w": 800,
+        "h": 276
+      },
+      "radial": {
+        "x": 290,
+        "y": 1476,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 720,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "12:10 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix6_syn_960": {
+      "tip": {
+        "items": [
+          "level",
+          "orb"
+        ],
+        "text": "VWAP21,406.06 (band 21,394.06 – 21,418.06)ceiling, provisionalfloor from 08:00crossed 10:45 → ceiling (provisional)QQQ 61121,405.03+5.5M Pika · 8% of the largestboard at 12:10 ET",
+        "right": 753
+      },
+      "axisLeft": 840
+    },
+    "fix6_hover_syn_960": {
+      "chart": {
+        "x": 40,
+        "y": 399,
+        "w": 800,
+        "h": 276
+      },
+      "radial": {
+        "x": 290,
+        "y": 1476,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 720,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "12:10 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix6_gap_syn_960": {
+      "pointerX": 767,
+      "lastBarRight": 734,
+      "pane": 800,
+      "chart": {
+        "x": 40,
+        "y": 399,
+        "w": 800,
+        "h": 276
+      },
+      "radial": {
+        "x": 290,
+        "y": 1476,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 720,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "12:10 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix8_syn_960": {
+      "open": "12:10 ET",
+      "home": "11:25 ET",
+      "endKey": "12:10 ET",
+      "endButton": "12:10 ET"
+    },
+    "fix8_end_syn_960": {
+      "chart": {
+        "x": 40,
+        "y": 399,
+        "w": 800,
+        "h": 276
+      },
+      "radial": {
+        "x": 290,
+        "y": 1476,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 720,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "12:10 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix7_syn_960": {
+      "sliderMin": 1768345200,
+      "clockAtMin": "18:00 ET",
+      "bars": 1
+    },
+    "fix7_history_syn_960": {
+      "chart": {
+        "x": 40,
+        "y": 399,
+        "w": 800,
+        "h": 276
+      },
+      "radial": {
+        "x": 290,
+        "y": 1476,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 720,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "18:00 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "fix8_after_answer": {
+      "clock": 1768415100,
+      "limit": 1768415105
+    },
+    "fix8_after_answer_1440": {
+      "chart": {
+        "x": 48,
+        "y": 399,
+        "w": 888,
+        "h": 620
+      },
+      "radial": {
+        "x": 64,
+        "y": 1125,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 290,
+        "w": 360,
+        "h": 408
+      },
+      "bar": {
+        "x": 1033,
+        "y": 714,
+        "w": 360,
+        "h": 334
+      },
+      "clock": "13:25 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "cut_all_synthetic": {
+      "cards": 5,
+      "bad": [],
+      "not_from_1800": []
+    }
+  }
+}

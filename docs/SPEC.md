@@ -1190,6 +1190,25 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   The preview round `preview-b958` (60 cards, build b958fe6e42aa, labels 8e9cdad94970, months 1-4; drawn with
   `--preview`, Q-review-sample) is for the screenshots and a first look; the owner's round runs on 13d's months 1-6
   build (Q-step14a (16)).
+- **Q-review-chart (owner 2026-11-16, stage-4 review; built, waiting for the owner's OK):** (1) each symbol fits its own
+  candles: a switch between NQ and ES resets the price scale (a stretched axis never leaves the other symbol blank);
+  (2) one Focus | Table switch, exactly one selected, the chart (Focus) when a card opens; the old "every level at full
+  strength" view stays on the A key until the owner decides whether it goes; (3) the GEX nodes are no longer level lines
+  or a column of orbs at the clock: at every minute from 09:30, one small orb per node at its chart price (strike × the R
+  in force), from the board known at that minute only, sized, lit and glowing by its share of that board's largest
+  |value| (Pika gold, Barney orchid), the King the brightest with a ring (the reference
+  `docs/design/inspiration/gex_chart_1.jpeg`); nothing after the replay clock or the decision; drawn from pre-rendered
+  sprites into a cached layer, redrawn only when the view or the clock moves; (4) the card strip has arrows at both ends,
+  fades its edges while there is more to scroll and keeps the current card in view, inside its own row; (5) at 1280 px and
+  wider the chart card stretches to the height of the column beside it (no gap above the GEX snapshot and the readings),
+  the replay bar sits under the chart's toolbar so it never moves under the dock (the plot's lower part may sit behind
+  the open dock until scrolled); (6) hovering any drawn object (zone, level line, high / low, orb, touch, crown, the
+  trade) shows its facts and price, all objects within 4 px in one card sorted by price; nothing in the empty room right
+  of the last bar; no OHLC box; the card never covers the price axis; the axis carries only the last price and the
+  trade's entry, stop and target tags (the level names now show on hover and in the Table, no longer in a label column);
+  (7) the chart and the replay slider start at the session's open, 18:00 ET the evening before (Restart still goes to
+  the decision − 45 min); the overnight follows the same cut; (8) a skip-to-end button after step-forward and the End
+  key: the decision before the answer, the end of the revealed path after it.
 - **Q-review-sample (step 14 build stage 4; (1)-(3), (5) and the preview rule decided by the owner 2026-11-16; (4),
   (6), (7) open):** (1) **"Setups the owner would never take"** (§8): single-level zones (stack count 1) traded against
   the day's direction so far (`with_day_direction` false), else any single-level zone, are accepted as a **stand-in**;
@@ -1200,7 +1219,7 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   (3) **decided:** only candidates whose bootstrap entry filled (an unfilled order has no outcome to reveal); (4) open:
   a zone is drawn as a band when two or more level centres lie inside it (a single level is a line; display);
   (5) **decided:** every level line is coloured by its current role (§9b item 3), `--level-neutral` grey only until a
-  level has a role (MASTER §3.6 updated); (6) open, the owner's notes on the dial to come: the GEX radial is a dial
+  level has a role (MASTER §3.6 updated); (6) **approved as it is (owner 2026-11-16):** the GEX radial is a dial
   (strikes low → high around a 240° arc, spokes out to their share of the largest node on a square-root scale, rings at
   25% / 50% / 100%, spot the needle) instead of the shortlist's "rings by distance"; (7) open: Focus on by default (the
   card's zone, the levels stacked in it and the target's level at full strength, the rest faint). **Preview rounds

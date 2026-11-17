@@ -85,7 +85,11 @@ def test_maps_kings_and_the_replay_span(day, card):
     t = card["t"]
     assert t["replay_start"] == t["decision"] - t["decision"] % 60 - cd.REPLAY_LOOKBACK_MIN * 60
     q = card["pre"]["maps"]["QQQ"]
-    assert q[0]["t"] == t["replay_start"] and q[-1]["t"] == t["minute"]
+    # one snapshot a minute over the whole session (the chart's orbs), from 09:30 to the decision minute
+    assert q[0]["t"] == t["open"] and q[-1]["t"] == t["minute"] and len(q) == (t["minute"] - t["open"]) // 60 + 1
+    # the chart starts at the session's open, 18:00 ET the evening before
+    assert t["chart_start"] == st.cme_start_ns(dd.day) // cd.NS
+    assert card["pre"]["bars"]["NQ"][0][0] >= t["chart_start"] and card["pre"]["bars"]["NQ"][0][0] < t["chart_start"] + 600
     assert q[-1]["king"] == 612.0 and len(q[-1]["s"]) <= cd.MAP_STRIKES_KEPT
     # the King switch to 615 at 12:40 is after T: not in pre, in post
     assert [k[1] for k in card["pre"]["kings"]["QQQ"]] == [612.0]

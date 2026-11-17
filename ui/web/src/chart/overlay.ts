@@ -1,19 +1,24 @@
 // The main chart's own drawing, as one Lightweight Charts series primitive (MASTER.md §3.6, §11; SPEC §9b item 3):
 // - zones (merged levels) as shaded bands between their edges, hatched while provisional, coloured by the role;
 // - single levels as thin lines, solid in the original role, dashed while provisional, a marker at each cross (◇),
-//   flip (◆) and reclaim (○), a label at the right edge;
+//   flip (◆) and reclaim (○); GEX nodes are not drawn as lines but as orbs;
+// - the GEX orbs across the whole chart (owner 2026-11-16, stage-4 review (3); the reference
+//   docs/design/inspiration/gex_chart_1.jpeg): at every minute, one small orb per node at its price on the chart
+//   (strike × the R in force), from the board known at that minute only, sized and lit by the node's share of that
+//   board's largest |value|; Pika gold (+), Barney orchid (−), the King the brightest;
 // - touches with their outcome once known (● held, ✕ broke, ◌ timeout), the card's own touch as a cream ◆;
-// - the confirmed King's switches as crowns; the relevant nodes at the replay clock as glowing orbs (Pika gold +,
-//   Barney orchid −), the King the brightest with its extra ring;
-// - the proposed trade (entry, stop, target from the decision on) and, once revealed, the fill and the exit.
-// Everything is clipped at `limit` (the decision time until the owner answers): the chart never draws ahead.
+// - the confirmed King's switches as crowns; the proposed trade (entry, stop, target from the decision on) and, once
+//   revealed, its fill and exit.
+// Everything is clipped at `limit` (the decision time until the owner answers) and at the replay clock. Every drawn
+// object is recorded for the pointer (`hitsAt`), so hovering shows its facts; nothing is written on the price axis
+// except the trade's and the last price's own tags (MainChart).
 import type { CanvasRenderingTarget2D } from "fancy-canvas";
 import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Logical, PrimitivePaneViewZOrder, SeriesAttachedParameter, Time } from "lightweight-charts";
-import type { Level, Touch, Zone } from "@/pages/review/types";
+import type { Level, MapSnap, Touch, Zone } from "@/pages/review/types";
 import { roleAt } from "./data";
 
-export interface Orb { x?: number; y?: number; price: number; value: number; share: number; king: boolean; label: string; chain: string; strike: number }
 export interface TradeLines { from: number; entry: number | null; stop: number; target: number; dir: number; fill?: { t: number; px: number } | null; exit?: { t: number; px: number; result: string } | null }
+export interface OrbSeries { chain: string; snaps: MapSnap[] }
 export interface OverlayState {
   clock: number;      // the replay minute (UTC s, the bar's start)
   limit: number;      // nothing drawn after this (UTC s)
@@ -21,8 +26,8 @@ export interface OverlayState {
   levels: Level[];
   zones: Zone[];
   touches: Touch[];
-  kings: [number, number, number][];
-  orbs: Orb[];
+  kings: [number, number, number, string][];  // t, strike, chart price, chain
+  orbs: OrbSeries[];
   trade: TradeLines | null;
   layers: Record<string, boolean>;
   hover: string | null;   // a level uid under the pointer (drawn brighter)
@@ -32,16 +37,20 @@ export interface OverlayState {
   focus: boolean;
 }
 
+/** one drawn object under the pointer: what it is, its price (for sorting), and its facts */
+export interface Hit { key: string; kind: "zone" | "level" | "orb" | "touch" | "king" | "trade"; price: number; title: string; lines: string[]; color: string }
+type Shape = { kind: "h"; x0: number; x1: number; y: number } | { kind: "r"; x0: number; x1: number; y0: number; y1: number } | { kind: "c"; x: number; y: number; r: number };
+
 export const ROLE_COLOR = { ceiling: "rgba(255,123,110,.78)", floor: "rgba(95,211,155,.78)", none: "rgba(179,173,163,.6)" };
 const ZONE_FILL = { ceiling: "rgba(255,123,110,.10)", floor: "rgba(95,211,155,.10)", none: "rgba(179,173,163,.08)" };
-const CONTEXT_ALPHA = 0.28;   // levels outside the setup, with Focus on
+const CONTEXT_ALPHA = 0.28;      // levels outside the setup, with Focus on
 const CONTEXT_ZONE_ALPHA = 0.14; // zones outside the setup (they stack, so quieter than the lines)
-const PIKA = "#F2B950", BARNEY = "#DD9BE0", KING_RING = "rgba(255,241,220,.7)", CREAM = "#FFE0C2";
+const PIKA = [242, 185, 80], BARNEY = [221, 155, 224], CREAM = "#FFE0C2";
 const MARK = { held: "#5FD39B", broke: "#FF4F4F", timeout: "#B4B4B4" };
-const FONT = '11px "Geist Mono Variable", ui-monospace, monospace';
-export const ORB_GAP = 16;    // px right of the clock's bar: the orbs' column
-export const LABEL_GAP = 40;  // px right of the clock's bar: the labels' column (levels and the trade), after the orbs
-export const RIGHT_ROOM_PX = 190; // the room the chart keeps right of the last bar for both
+export const RIGHT_ROOM_PX = 72;  // empty room right of the last bar (the owner reads candle tops there)
+const HIT_PX = 4;                // the pointer's tolerance for lines and markers
+const fmtP = (p: number) => p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const gexTxt = (v: number) => { const a = Math.abs(v), s = v < 0 ? "−" : "+"; return a >= 1e6 ? `${s}${(a / 1e6).toFixed(1)}M` : a >= 1e3 ? `${s}${(a / 1e3).toFixed(0)}K` : `${s}${a.toFixed(0)}`; };
 
 function bisectRight(a: number[], t: number) {
   let lo = 0, hi = a.length;
@@ -49,17 +58,42 @@ function bisectRight(a: number[], t: number) {
   return lo;
 }
 
+/** a pre-rendered orb (a circle with its glow), drawn once per look and blitted thousands of times */
+const sprites = new Map<string, HTMLCanvasElement>();
+function sprite(rgb: number[], r: number, alpha: number, glow: number, king: boolean, pr: number): HTMLCanvasElement {
+  const key = `${rgb.join()}|${r}|${alpha}|${glow}|${king}|${pr}`;
+  let c = sprites.get(key);
+  if (c) return c;
+  const pad = Math.ceil((glow + (king ? 3 : 0) + 2) * pr), R = r * pr, size = Math.ceil(2 * (R + pad));
+  c = document.createElement("canvas");
+  c.width = c.height = size;
+  const g = c.getContext("2d")!;
+  if (glow > 0) { g.shadowColor = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${Math.min(1, alpha + 0.2)})`; g.shadowBlur = glow * pr; }
+  g.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`; g.beginPath(); g.arc(size / 2, size / 2, R, 0, Math.PI * 2); g.fill();
+  if (king) { g.shadowBlur = 0; g.strokeStyle = "rgba(255,241,220,.85)"; g.lineWidth = 1 * pr; g.beginPath(); g.arc(size / 2, size / 2, R + 1.6 * pr, 0, Math.PI * 2); g.stroke(); }
+  sprites.set(key, c);
+  return c;
+}
+
+/** "12:40" in New York from a UTC second (DST-aware) */
+const ET_CLOCK = new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false });
+function clockET(t: number) { return ET_CLOCK.format(new Date(t * 1000)); }
+
 export class ReviewOverlay implements ISeriesPrimitive<Time> {
   s: OverlayState;
-  private chart: IChartApi | null = null;
-  private series: ISeriesApi<"Candlestick"> | null = null;
+  chart: IChartApi | null = null;
+  series: ISeriesApi<"Candlestick"> | null = null;
   private request: (() => void) | null = null;
   private hatch = new Map<string, CanvasPattern | null>();
-  /** where each drawn level line sits at the clock (for the pointer's hit test) */
-  hits: { uid: string; y: number; x0: number; x1: number }[] = [];
-  orbHits: Orb[] = [];
-  /** the level labels of the last drawing (drawn with the trade's in the top layer) */
-  private labels: { y: number; text: string; color: string; pri: number }[] = [];
+  private shapes: { shape: Shape; hit: Hit | (() => Hit) }[] = [];
+  /** each level's role-change instants (for a binary search per segment) */
+  private roleTimes = new WeakMap<Level, number[]>();
+  private orbShapes: { x: number; y: number; r: number; hit: () => Hit }[] = [];
+  private orbCache: { key: string; canvas: HTMLCanvasElement } | null = null;
+  /** frames that had to draw the orbs again (the cache missed): read by the stage-4 shoot script */
+  orbRedraws = 0;
+  /** each layer's drawing time (ms: orbs, the rest), the last few hundred: read by the stage-4 shoot script */
+  drawMs: [string, number, number][] = [];
 
   constructor(s: OverlayState) { this.s = s; }
   attached(p: SeriesAttachedParameter<Time>) { this.chart = p.chart as IChartApi; this.series = p.series as ISeriesApi<"Candlestick">; this.request = p.requestUpdate; }
@@ -83,15 +117,41 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
     return x0 + (logical - base) * (x1 - x0);
   }
   yOf(p: number): number | null { return this.series?.priceToCoordinate(p) ?? null; }
+  /** the right edge of the last bar shown: right of it the pointer shows nothing (the owner reads candle tops there) */
+  lastBarRight(): number | null { const bt = this.s.barTimes; return bt.length ? this.xOf(bt[bt.length - 1] + 60) : null; }
+
+  /** every drawn object within the pointer's tolerance at (x, y), sorted by price, highest first */
+  hitsAt(x: number, y: number): Hit[] {
+    const out = new Map<string, Hit>();
+    for (const { shape: s, hit } of this.shapes) {
+      const on = s.kind === "h" ? x >= s.x0 - HIT_PX && x <= s.x1 + HIT_PX && Math.abs(y - s.y) <= HIT_PX
+        : s.kind === "r" ? x >= s.x0 && x <= s.x1 && y >= s.y0 - 1 && y <= s.y1 + 1
+          : Math.hypot(x - s.x, y - s.y) <= s.r + HIT_PX;
+      if (!on) continue;
+      const h = typeof hit === "function" ? hit() : hit;
+      if (!out.has(h.key)) out.set(h.key, h);
+    }
+    for (const o of this.orbShapes) {
+      if (Math.hypot(x - o.x, y - o.y) <= o.r + HIT_PX - 1) { const h = o.hit(); if (!out.has(h.key)) out.set(h.key, h); }
+    }
+    return [...out.values()].sort((a, b) => b.price - a.price);
+  }
 
   paneViews(): readonly IPrimitivePaneView[] {
-    const view = (z: PrimitivePaneViewZOrder, draw: (ctx: CanvasRenderingContext2D, w: number, h: number) => void): IPrimitivePaneView => ({
+    const view = (z: PrimitivePaneViewZOrder, draw: (ctx: CanvasRenderingContext2D, w: number, h: number) => void, orbs = false): IPrimitivePaneView => ({
       zOrder: () => z,
       renderer: (): IPrimitivePaneRenderer => ({
-        draw: (target: CanvasRenderingTarget2D) => target.useMediaCoordinateSpace(({ context, mediaSize }) => draw(context, mediaSize.width, mediaSize.height)),
+        draw: (target: CanvasRenderingTarget2D) => {
+          const t0 = performance.now();
+          if (orbs) target.useBitmapCoordinateSpace(({ context, bitmapSize, horizontalPixelRatio }) => this.drawOrbs(context, bitmapSize.width, bitmapSize.height, horizontalPixelRatio));
+          const t1 = performance.now();
+          target.useMediaCoordinateSpace(({ context, mediaSize }) => draw(context, mediaSize.width, mediaSize.height));
+          this.drawMs.push([z, t1 - t0, performance.now() - t1]);
+          if (this.drawMs.length > 600) this.drawMs.splice(0, 300);
+        },
       }),
     });
-    return [view("bottom", (c, w, h) => this.drawZones(c, w, h)), view("normal", (c, w, h) => this.drawLevels(c, w, h)), view("top", (c, w, h) => this.drawTop(c, w, h))];
+    return [view("bottom", (c, w, h) => this.drawZones(c, w, h)), view("normal", (c, w, h) => this.drawLevels(c, w, h)), view("top", (c, w, h) => this.drawTop(c, w, h), true)];
   }
 
   private pattern(ctx: CanvasRenderingContext2D, color: string): CanvasPattern | null {
@@ -108,16 +168,26 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
 
   private end() { return Math.min(this.s.limit, this.s.clock + 60); }
 
+  /** the times on screen (UTC s, a bar's margin each side): only what falls inside is drawn */
+  private visibleTimes(): [number, number] {
+    const bt = this.s.barTimes, vis = this.chart?.timeScale().getVisibleLogicalRange();
+    if (!bt.length || !vis) return [-Infinity, Infinity];
+    const a = Math.max(0, Math.floor(vis.from) - 1), b = Math.ceil(vis.to) + 1;
+    return [bt[Math.min(a, bt.length - 1)], b >= bt.length ? Infinity : bt[b]];
+  }
+
   private drawZones(ctx: CanvasRenderingContext2D, w: number, _h: number) {
+    this.shapes = [];                 // the first layer of a frame: the pointer's objects are recorded afresh
     if (!this.s.layers.zones) return;
-    const end = this.end();
+    const end = this.end(), [vf, vt] = this.visibleTimes();
     for (const z of this.s.zones) {
       const pts = z.pts;
       for (let i = 0; i < pts.length; i++) {
         const p = pts[i];
-        if (p[0] > end || p[1] == null || p[2] == null) continue;
+        if (p[0] > end || p[0] > vt || p[1] == null || p[2] == null) continue;
         if (p[3] < 2 && !z.own) continue;            // a single level is a line, not a band (owner 2026-11-14)
         const t1 = Math.min(end, i + 1 < pts.length ? pts[i + 1][0] : z.end ?? end);
+        if (t1 < vf) continue;
         const x0 = this.xOf(p[0]), x1 = this.xOf(t1), y0 = this.yOf(p[2]), y1 = this.yOf(p[1]);
         if (x0 == null || x1 == null || y0 == null || y1 == null || x1 < 0 || x0 > w) continue;
         const role = p[4] ?? "none";
@@ -133,43 +203,72 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
           ctx.strokeRect(x0 + 0.5, y0 + 0.5, Math.max(1, x1 - x0) - 1, Math.max(1, y1 - y0) - 1);
         }
         ctx.globalAlpha = 1;
+        const zp = p as [number, number, number, number, "ceiling" | "floor" | null, boolean];
+        this.shapes.push({ shape: { kind: "r", x0, x1, y0, y1 }, hit: () => ({
+          key: `z:${z.id}`, kind: "zone", price: zp[2], color: ROLE_COLOR[role],
+          title: z.own ? "This setup's zone" : `Zone (${zp[3]} levels)`,
+          lines: [`${fmtP(zp[1])} – ${fmtP(zp[2])}`, `${zp[4] ?? "no role"}${zp[5] ? ", provisional" : ""}`, `${zp[3]} level${zp[3] === 1 ? "" : "s"} inside`] }) });
       }
     }
   }
 
   private drawLevels(ctx: CanvasRenderingContext2D, w: number, _h: number) {
-    const end = this.end(), L = this.s.layers;
-    this.hits = [];
-    const labels: { y: number; text: string; color: string }[] = [];
+    const end = this.end(), L = this.s.layers, [vf, vt] = this.visibleTimes();
     for (const l of this.s.levels) {
-      const layer = l.node ? "nodes" : l.group === "highs/lows" ? "highs" : "lines";
+      if (l.node) continue;                        // GEX nodes are drawn as orbs (owner 2026-11-16)
+      const layer = l.group === "highs/lows" ? "highs" : "lines";
       if (!L[layer]) continue;
       const hot = this.s.hover === l.uid;
       const faint = this.s.focus && !hot && !this.s.focusUids.has(l.uid);
-      let lastY: number | null = null, lastColor = "";
-      for (const s of l.segs) {
-        if (s[0] >= end) break;
+      // the segments on screen only (they are in time order)
+      let lo = 0, hi = l.segs.length;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (l.segs[m][1] < vf) lo = m + 1; else hi = m; }
+      // one path per stretch with the same role look (a stroke per minute was the replay's bottleneck)
+      let look = "", open = false;
+      const flush = () => { if (open) { ctx.stroke(); open = false; } };
+      ctx.lineWidth = hot ? 2 : 1;
+      ctx.globalAlpha = faint ? CONTEXT_ALPHA : 1;
+      let rt = this.roleTimes.get(l);
+      if (!rt) { rt = l.roles.map((r) => r[0]); this.roleTimes.set(l, rt); }
+      for (let si = lo; si < l.segs.length; si++) {
+        const s = l.segs[si];
+        if (s[0] >= end || s[0] > vt) break;
         const t1 = Math.min(end, s[1]);
-        // split at role changes inside the segment
-        const cuts = [s[0], ...l.roles.map((r) => r[0]).filter((t) => t > s[0] && t < t1), t1];
-        for (let k = 0; k + 1 < cuts.length; k++) {
-          const a = cuts[k], b = cuts[k + 1];
-          const x0 = this.xOf(a), x1 = this.xOf(b), y = this.yOf((s[2] + s[3]) / 2);
-          if (x0 == null || x1 == null || y == null || x1 < 0 || x0 > w) continue;
-          const r = roleAt(l.roles, a);
-          const color = ROLE_COLOR[r?.[1] ?? "none"];
-          ctx.strokeStyle = color; ctx.lineWidth = hot ? 2 : l.node ? 1 : 1;
-          ctx.setLineDash(r?.[2] ? [5, 4] : []);
-          ctx.globalAlpha = (l.node ? 0.7 : 1) * (faint ? CONTEXT_ALPHA : 1);
-          ctx.beginPath(); ctx.moveTo(x0, Math.round(y) + 0.5); ctx.lineTo(x1, Math.round(y) + 0.5); ctx.stroke();
-          ctx.globalAlpha = 1;
-          lastY = y; lastColor = color;
+        const y = this.yOf((s[2] + s[3]) / 2);
+        if (y == null) continue;
+        const yy = Math.round(y) + 0.5;
+        // the role steps inside this segment (usually none): the segment is cut at each
+        let ri = bisectRight(rt, s[0]);
+        let a = s[0];
+        while (a < t1) {
+          const b = ri < rt.length && rt[ri] < t1 ? rt[ri] : t1;
+          const rIdx = bisectRight(rt, a) - 1;
+          const r = rIdx >= 0 ? l.roles[rIdx] : null;
+          const segA = a;
+          a = b;
+          if (b < t1) ri++;
+          const x0 = this.xOf(segA), x1 = this.xOf(b);
+          if (x0 == null || x1 == null || x1 < 0 || x0 > w) continue;
+          const lk = `${r?.[1] ?? "none"}|${r?.[2] ? 1 : 0}`;
+          if (lk !== look) {
+            flush();
+            look = lk;
+            ctx.strokeStyle = ROLE_COLOR[r?.[1] ?? "none"];
+            ctx.setLineDash(r?.[2] ? [5, 4] : []);
+          }
+          if (!open) { ctx.beginPath(); open = true; ctx.moveTo(x0, yy); } else ctx.lineTo(x0, yy);
+          ctx.lineTo(x1, yy);
+          const lo2 = s[2], hi2 = s[3];
+          this.shapes.push({ shape: { kind: "h", x0, x1, y }, hit: () => this.levelHitNew(l, lo2, hi2, end) });
         }
       }
+      flush();
       ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
       // cross / flip / reclaim markers on the line
       for (const [t, name] of l.marks) {
         if (t > end) break;
+        if (t < vf || t > vt) continue;
         const seg = l.segs.find((s) => s[0] <= t && t < s[1]);
         const x = this.xOf(t), y = seg ? this.yOf((seg[2] + seg[3]) / 2) : null;
         if (x == null || y == null) continue;
@@ -181,14 +280,68 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
         else { ctx.moveTo(x, y - 4.5); ctx.lineTo(x + 4.5, y); ctx.lineTo(x, y + 4.5); ctx.lineTo(x - 4.5, y); ctx.closePath(); if (name === "flip") ctx.fill(); else ctx.stroke(); }
         ctx.globalAlpha = 1;
       }
-      const at = l.segs.find((s) => s[0] <= this.s.clock && this.s.clock < s[1]);
-      if (at && lastY != null) {
-        const x0 = this.xOf(at[0]) ?? 0, x1 = this.xOf(Math.min(end, at[1])) ?? w;
-        this.hits.push({ uid: l.uid, y: lastY, x0, x1 });
-        if (!l.node && !faint) labels.push({ y: lastY, text: l.label, color: lastColor });
-      }
     }
-    this.labels = labels.map((l) => ({ ...l, pri: 1 }));
+  }
+
+  private levelHitNew(l: Level, lo: number, hi: number, end: number): Hit {
+    const r = roleAt(l.roles, end), mid = (lo + hi) / 2;
+    const state = !r ? "no role yet" : `${r[1]}${r[2] ? (r[3] ? ", provisional, crossed back" : ", provisional") : r[4] ? `, flipped ×${r[4]}` : ""}`;
+    return { key: `l:${l.uid}`, kind: "level", price: mid, color: ROLE_COLOR[r?.[1] ?? "none"], title: l.label,
+      lines: [lo === hi ? fmtP(mid) : `${fmtP(mid)} (band ${fmtP(lo)} – ${fmtP(hi)})`, state] };
+  }
+
+  /** the orbs: every minute's board up to the clock, at each node's chart price; cached while nothing on screen moves */
+  private drawOrbs(ctx: CanvasRenderingContext2D, W: number, H: number, pr: number) {
+    if (!this.s.layers.nodes || !this.chart || !this.series) { this.orbShapes = []; return; }
+    const ts = this.chart.timeScale(), vis = ts.getVisibleLogicalRange();
+    const key = [vis?.from, vis?.to, this.yOf(10000), this.yOf(20000), this.s.clock, this.s.limit, W, H, pr, this.s.barTimes.length].map(String).join("|");
+    if (this.orbCache?.key !== key || this.orbCache.canvas.dataset.src !== this.orbSrc()) {
+      this.orbRedraws++;
+      const c = this.orbCache?.canvas ?? document.createElement("canvas");
+      c.width = W; c.height = H; c.dataset.src = this.orbSrc();
+      const g = c.getContext("2d")!;
+      g.clearRect(0, 0, W, H);
+      const shapes: typeof this.orbShapes = [];
+      const bt = this.s.barTimes;
+      const xa = bt.length ? this.xOf(bt[bt.length - 1]) : null, xb = bt.length ? this.xOf(bt[bt.length - 1] + 60) : null;
+      const spacing = xa != null && xb != null ? Math.max(1, xb - xa) : 6;
+      const rMax = Math.max(1.3, Math.min(3.4, spacing * 0.42));
+      const tFrom = vis && bt.length ? bt[Math.max(0, Math.min(bt.length - 1, Math.floor(vis.from)))] : 0;
+      const last = Math.min(this.s.clock, this.s.limit);
+      for (const ser of this.s.orbs) {
+        let i0 = 0, i1 = ser.snaps.length;
+        while (i0 < i1) { const m = (i0 + i1) >> 1; if (ser.snaps[m].t + 60 < tFrom) i0 = m + 1; else i1 = m; }
+        for (let si = i0; si < ser.snaps.length; si++) {
+          const sn = ser.snaps[si];
+          if (sn.t > last) break;
+          const x = this.xOf(sn.t + 30);
+          if (x == null || x < -6 || x > W / pr + 6) continue;
+          for (const [k, v] of sn.s) {
+            const price = k * sn.r, y = this.yOf(price);
+            if (y == null || y < -6 || y > H / pr + 6) continue;
+            const share = sn.max ? Math.min(1, Math.abs(v) / sn.max) : 0;
+            const king = sn.king != null && Math.abs(sn.king - k) < 1e-6;
+            const r = Math.round((0.6 + (rMax - 0.6) * Math.sqrt(share)) * 4) / 4;
+            const alpha = king ? 1 : Math.round((0.22 + 0.7 * Math.pow(share, 0.6)) * 10) / 10;
+            const glow = king ? 7 : share >= 0.5 ? 4 : share >= 0.25 ? 2 : 0;
+            const sp = sprite(v >= 0 ? PIKA : BARNEY, r, alpha, glow, king, pr);
+            g.drawImage(sp, Math.round(x * pr - sp.width / 2), Math.round(y * pr - sp.height / 2));
+            const t = sn.t, chain = ser.chain;
+            shapes.push({ x, y, r, hit: () => ({ key: `o:${chain}:${k}:${t}`, kind: "orb", price, color: v >= 0 ? "#F2B950" : "#DD9BE0",
+              title: `${chain} ${k}${king ? " · King" : ""}`,
+              lines: [fmtP(price), `${gexTxt(v)} ${v >= 0 ? "Pika" : "Barney"} · ${Math.round(share * 100)}% of the largest`, `board at ${clockET(t + 60)} ET`] }) });
+          }
+        }
+      }
+      this.orbCache = { key, canvas: c };
+      this.orbShapes = shapes;
+    }
+    ctx.drawImage(this.orbCache.canvas, 0, 0);
+  }
+
+  /** which boards the cached orbs were drawn from (a new card or instrument draws them again) */
+  private orbSrc(): string {
+    return this.s.orbs.map((o) => `${o.chain}:${o.snaps.length}:${o.snaps[0]?.t ?? 0}`).join(",");
   }
 
   private drawTop(ctx: CanvasRenderingContext2D, w: number, _h: number) {
@@ -201,33 +354,38 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
       if (e.own) {
         ctx.fillStyle = CREAM; ctx.strokeStyle = "#111"; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.moveTo(x, y - 7); ctx.lineTo(x + 7, y); ctx.lineTo(x, y + 7); ctx.lineTo(x - 7, y); ctx.closePath(); ctx.fill(); ctx.stroke();
-        continue;
+      } else {
+        ctx.lineWidth = 1.6;
+        if (e.label === "held") { ctx.fillStyle = MARK.held; ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill(); }
+        else if (e.label === "broke") { ctx.strokeStyle = MARK.broke; ctx.beginPath(); ctx.moveTo(x - 3.5, y - 3.5); ctx.lineTo(x + 3.5, y + 3.5); ctx.moveTo(x + 3.5, y - 3.5); ctx.lineTo(x - 3.5, y + 3.5); ctx.stroke(); }
+        else if (e.label === "timeout") { ctx.strokeStyle = MARK.timeout; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
+        else { ctx.strokeStyle = "rgba(180,180,180,.55)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.stroke(); }
       }
-      ctx.lineWidth = 1.6;
-      if (e.label === "held") { ctx.fillStyle = MARK.held; ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill(); }
-      else if (e.label === "broke") { ctx.strokeStyle = MARK.broke; ctx.beginPath(); ctx.moveTo(x - 3.5, y - 3.5); ctx.lineTo(x + 3.5, y + 3.5); ctx.moveTo(x + 3.5, y - 3.5); ctx.lineTo(x - 3.5, y + 3.5); ctx.stroke(); }
-      else if (e.label === "timeout") { ctx.strokeStyle = MARK.timeout; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
-      else { ctx.strokeStyle = "rgba(180,180,180,.55)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.stroke(); }
+      this.shapes.push({ shape: { kind: "c", x, y, r: e.own ? 7 : 4 }, hit: { key: `t:${e.t}:${e.price}`, kind: "touch", price: e.price,
+        color: e.own ? CREAM : (e.label && MARK[e.label as keyof typeof MARK]) || "#b4b4b4",
+        title: e.own ? `This setup's touch · ${clockET(e.t)} ET` : `Touch · ${clockET(e.t)} ET`,
+        lines: [fmtP(e.price), `${e.role}, ${e.dir > 0 ? "long" : "short"}`, e.own ? "outcome hidden until you answer" : e.label ? `structure: ${e.label}` : "outcome not known yet"] } });
     }
     // King switches: crowns
-    if (this.s.layers.nodes) for (const [t, , px] of this.s.kings) {
+    if (this.s.layers.nodes) for (const [t, strike, px, chain] of this.s.kings) {
       if (t > end) continue;
       const x = this.xOf(t), y = this.yOf(px);
       if (x == null || y == null || x < -10 || x > w + 10) continue;
       crown(ctx, x, y - 9);
+      this.shapes.push({ shape: { kind: "c", x, y: y - 9, r: 6 }, hit: { key: `k:${chain}:${t}`, kind: "king", price: px, color: CREAM,
+        title: `${chain} King → ${strike}`, lines: [fmtP(px), `switched at ${clockET(t)} ET`] } });
     }
     // the proposed trade from the decision on, and once revealed its fill and exit
-    const tradeLabels: { y: number; text: string; color: string; pri: number }[] = [];
     const tr = this.s.trade;
     if (tr && this.s.clock + 60 >= tr.from) {
       const x0 = this.xOf(tr.from) ?? 0;
-      const line = (p: number | null, color: string, text: string, dash: number[]) => {
+      const line = (p: number | null, color: string, name: string, dash: number[]) => {
         if (p == null) return;
         const y = this.yOf(p);
         if (y == null) return;
         ctx.strokeStyle = color; ctx.lineWidth = 1.25; ctx.setLineDash(dash);
         ctx.beginPath(); ctx.moveTo(x0, Math.round(y) + 0.5); ctx.lineTo(w, Math.round(y) + 0.5); ctx.stroke(); ctx.setLineDash([]);
-        tradeLabels.push({ y, text, color, pri: 0 });
+        this.shapes.push({ shape: { kind: "h", x0, x1: w, y }, hit: { key: `tr:${name}`, kind: "trade", price: p, color, title: `Proposed ${name}`, lines: [fmtP(p)] } });
       };
       line(tr.target, "rgba(95,211,155,.95)", "target", [6, 3]);
       line(tr.stop, "rgba(255,79,79,.95)", "stop", [6, 3]);
@@ -242,44 +400,8 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
         ctx.strokeStyle = "#111"; ctx.lineWidth = 1.5;
         const up = exit ? tr.dir < 0 : tr.dir > 0;
         ctx.beginPath(); ctx.moveTo(x, y + (up ? -1 : 1) * 8); ctx.lineTo(x + 6, y); ctx.lineTo(x - 6, y); ctx.closePath(); ctx.fill(); ctx.stroke();
-      }
-    }
-    // one label column right of the orbs: the trade's labels first, then the levels', skipping any that would collide
-    const xc0 = this.xOf(this.s.clock + 60);
-    if (xc0 != null) {
-      const lx = xc0 + LABEL_GAP;
-      ctx.font = FONT; ctx.textAlign = "left"; ctx.textBaseline = "middle";
-      const placed: number[] = [];
-      for (const lb of [...tradeLabels, ...this.labels].sort((a, b) => a.pri - b.pri)) {
-        if (placed.some((y) => Math.abs(y - lb.y) < 12)) continue;
-        placed.push(lb.y);
-        const tw = ctx.measureText(lb.text).width;
-        ctx.fillStyle = "rgba(12,12,12,.8)"; ctx.fillRect(lx - 3, lb.y - 7, tw + 6, 14);
-        ctx.fillStyle = lb.color; ctx.fillText(lb.text, lx, lb.y + 0.5);
-      }
-    }
-    // the relevant nodes at the clock: orbs right of its bar
-    this.orbHits = [];
-    if (this.s.layers.nodes) {
-      const xc = this.xOf(this.s.clock + 60);
-      if (xc != null) {
-        const x = xc + ORB_GAP;
-        const orbs = [...this.s.orbs].sort((a, b) => Number(a.king) - Number(b.king) || a.share - b.share);
-        for (const o of orbs) {
-          const y = this.yOf(o.price);
-          if (y == null) continue;
-          const r = 3 + 8 * Math.sqrt(Math.max(0, Math.min(1, o.share)));
-          const col = o.value >= 0 ? PIKA : BARNEY;
-          ctx.save();
-          ctx.shadowColor = col; ctx.shadowBlur = o.king ? 16 : 9;
-          ctx.globalAlpha = o.king ? 1 : 0.55 + 0.45 * Math.min(1, o.share);
-          ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-          ctx.restore();
-          if (o.king) {
-            ctx.strokeStyle = KING_RING; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 3.5, 0, Math.PI * 2); ctx.stroke();
-          }
-          this.orbHits.push({ ...o, x, y });
-        }
+        this.shapes.push({ shape: { kind: "c", x, y, r: 6 }, hit: { key: exit ? "tr:exit" : "tr:fill", kind: "trade", price: p.px, color: CREAM,
+          title: exit ? `Exit · ${tr.exit!.result}` : "Fill", lines: [fmtP(p.px), `${clockET(p.t)} ET`] } });
       }
     }
   }

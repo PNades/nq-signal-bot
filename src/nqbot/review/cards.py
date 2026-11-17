@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -33,7 +33,8 @@ from nqbot.review import roles
 ET = ZoneInfo("America/New_York")
 NS = 1_000_000_000
 MIN_NS = 60 * NS
-CHART_START_ET = time(8, 0)        # design-system/pages/review.md: the chart opens with the pre-open hour for context
+# the chart starts at the session's open, 18:00 ET the evening before (owner 2026-11-16, stage-4 review (7)); the maps
+# (RTH only, §3.1) start at 09:30 and are sampled once a minute over the whole session up to the cut
 REPLAY_LOOKBACK_MIN = 45           # the replay slider covers T - 45 min (not before the RTH open) .. T
 REVEAL_AFTER_EXIT_MIN = 15         # after the answer the path is shown to the exit (or the label) + 15 min
 MAP_STRIKES_KEPT = 40              # per map snapshot: the largest |value| strikes kept for the radial
@@ -96,11 +97,15 @@ def sec(t_ns: int) -> int:
     return int(int(t_ns) // NS)
 
 
-def rnd(x: float | None, d: int = PRICE_DECIMALS) -> float | None:
+def rnd(x: float | None, d: int = PRICE_DECIMALS) -> float | int | None:
+    """Rounded to `d` decimals; a whole number as an int (a card holds hundreds of thousands of numbers: `612` not `612.0`)."""
     if x is None:
         return None
     x = float(x)
-    return None if math.isnan(x) or math.isinf(x) else round(x, d)
+    if math.isnan(x) or math.isinf(x):
+        return None
+    r = round(x, d)
+    return int(r) if r.is_integer() else r
 
 
 # ── the day's stored data ──────────────────────────────────────────────────────────────────────────────────────────
@@ -582,7 +587,7 @@ def card_payload(dd: DayData, card_id: str, decision_id: str, pair_id: str, stra
     row = dd.rows.get(decision_id, {})
     T = int(dec["decision_ts"])
     tm = last_known_minute(T, dd.tapes.get("NQ"))
-    chart0 = st.et_ns(dd.day, CHART_START_ET)
+    chart0 = st.cme_start_ns(dd.day)
     replay0 = max(floor_min(dd.open_ns), floor_min(T - REPLAY_LOOKBACK_MIN * MIN_NS))
     ends = [T]
     if _f(pair.get("t_exit_none")) is not None:
@@ -606,7 +611,7 @@ def card_payload(dd: DayData, card_id: str, decision_id: str, pair_id: str, stra
                 "maps": map_snapshots(dd, mgrid),
                 "kings": kings_payload(dd, t1)}
 
-    pre = half(chart0, T, replay0, reveal=False)
+    pre = half(chart0, T, max(floor_min(dd.open_ns), chart0), reveal=False)
     post = half(tm, reveal_end, tm, reveal=True)
     members = list(row.get("founding_level_ids") or [])
     return {

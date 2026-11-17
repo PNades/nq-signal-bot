@@ -263,3 +263,56 @@ I fetched and tried none of them in this stage. The reasons come from the step-1
 - **Presence Fade 18251:** a small wrapper doing what Motion already does here.
 
 Worth trying if you want them: 29206 (layer toggles), 35286 (full screen), 35685 (scrubber), 23792 (answer → result).
+
+## Review fixes (owner 2026-11-16)
+**Evidence:**
+- [`build/stage4br/`](build/stage4br/) ([`checks.json`](build/stage4br/checks.json)): the real preview round, at 1440,
+  1280 and 960 px.
+- [`build/stage4b/`](build/stage4b/): a synthetic panel, including the answer and the reveal.
+- **Both: all checks passed.** Stages 4 and 4s re-ran clean.
+- **The decision-time cut**, checked through the API on **all 60 preview cards** and the 5 synthetic ones: before an
+  answer, no bar, level step, role change, marker, zone point, touch, map snapshot or King switch is after the
+  decision, and no post half, outcome, stratum or pick reason is sent.
+- The dial is approved as it is.
+
+1. **Price axis on a symbol switch.** Each symbol now fits its own candles: switching resets the price scale.
+   - **Check** (`fix1_*`, a browser test in `shoot.mjs`; the front end has no unit-test runner): on ES, drag the price
+     axis (which turns its autoscale off), switch to NQ. Autoscale comes back and all 120 highs and lows of the last 60
+     bars are on screen.
+2. **One Focus | Table switch.** Exactly one is selected, and the chart opens on Focus (`fix2_*`).
+   - **Before removing anything:** the old "every level at full strength" view would go with the toggle. It is kept on
+     the **A** key for now (named in the Focus option's hint) until you say whether it goes.
+3. **GEX orbs across the chart.** The node lines and the orb column are gone.
+   - **What is drawn:** at every minute from 09:30, one small orb per node at its chart price (strike × the R in force),
+     from the board known at that minute only.
+   - **Size and glow** grow with its share of that board's largest node. Glow only from 25%; the King is the brightest,
+     with a ring.
+   - **Measured:** no orb after the replay clock or the decision.
+   - **4× replay:** the 95th-percentile frame is 16.7 ms at all three widths, 0–3 frames over 20 ms out of about 280.
+     One of four runs at 1280 px had 16 single dropped frames while step 13c's builds were loading the PC.
+   - **How:** the orbs come from pre-rendered sprites into a cached layer. Lines and zones draw only what is on screen
+     and build their hover facts only when hovered; each layer now takes under 2 ms (it was 20–47 ms).
+4. **Card strip.** Arrows at both ends, faded edges while there is more to scroll, and the current card kept in view
+   (checked: card 50 after two arrow clicks, inside the strip). Nothing is pushed off screen at 1440 or 960 px.
+5. **No gap under the chart.** At 1280 px and wider the chart card is as tall as the column beside it; measured: the
+   same bottom edge to the pixel. The replay bar moved under the toolbar, so it never sits under the dock.
+   - **Trade-off:** at 900 px tall, the plot's lower part sits behind the open dock until you scroll (or minimize the
+     dock).
+6. **Hovering.**
+   - **What shows:** any drawn object under the pointer (zone, line, high/low, orb, touch, crown, trade line) within
+     4 px, all in one card sorted by price: name, price (and band), state, the level's role timeline.
+   - **What doesn't:** no OHLC box, and nothing right of the last bar (checked at five heights).
+   - **Placement:** the card never crosses the price axis (measured).
+   - **The axis** keeps only the last price and the entry, stop and target tags (each named on the tag).
+   - **What went:** the level labels in the right margin. Their names now show on hover and in the Table.
+7. **From 18:00.** The chart and the replay slider start at 18:00 ET the evening before. **All 60 preview cards have
+   candles from 18:00**, so none is short. Overnight levels, zones and touches follow the same cut. Restart still
+   goes to the decision − 45 min.
+8. **Skip to the end.** A button after step-forward, and the End key: to the decision before the answer
+   (`fix8_*`), to the end of the revealed path after it (`fix8_after_answer`).
+
+**Also:**
+- **Card size:** about 1.8 MB now, with the night and the whole session's boards (the preview round is 71 MB on the
+  SSD).
+- **A crash fixed:** changing cards no longer throws "Object is disposed". The trade's axis tags were removed after the
+  chart itself.
