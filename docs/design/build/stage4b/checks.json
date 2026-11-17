@@ -138,12 +138,12 @@
       "title": "CreamFlow · Review"
     },
     "fix3_fps_syn_1440": {
-      "frames": 266,
+      "frames": 270,
       "median": 16.699999999999818,
-      "p95": 16.700000000000728,
+      "p95": 16.799999999999272,
       "over20ms": 0,
       "max": 16.800000000000182,
-      "orbRedrawsWhilePlaying": 25
+      "orbRedrawsWhilePlaying": 27
     },
     "fix3_replay4x_syn_1440": {
       "chart": {
@@ -165,7 +165,7 @@
         "h": 408
       },
       "bar": null,
-      "clock": "14:00 ET",
+      "clock": "14:02 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -502,12 +502,12 @@
       "title": "CreamFlow · Review"
     },
     "fix3_fps_syn_960": {
-      "frames": 284,
+      "frames": 272,
       "median": 16.699999999999818,
-      "p95": 16.700000000000728,
+      "p95": 16.799999999999727,
       "over20ms": 0,
       "max": 16.800000000000182,
-      "orbRedrawsWhilePlaying": 28
+      "orbRedrawsWhilePlaying": 27
     },
     "fix3_replay4x_syn_960": {
       "chart": {
@@ -529,7 +529,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "14:03 ET",
+      "clock": "14:02 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],

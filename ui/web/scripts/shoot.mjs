@@ -4017,6 +4017,79 @@ S["4r5"] = async () => {
   });
 };
 
+S["4r6"] = async () => {
+  // the step buttons (owner 2026-11-16, round 6): never pause; speed × 1 bar per click; inside the replay window
+  // (before the answer never past the decision); ← / → do the same
+  const val = (p) => p.locator("[data-scrub]").evaluate((e) => ({ v: Number(e.value), min: Number(e.min), max: Number(e.max) }));
+  const isPlaying = (p) => p.getByRole("button", { name: /^Pause/ }).count().then((n) => n > 0);
+  const fwd = (p) => p.getByRole("button", { name: /^Forward/ }).click();
+  const back = (p) => p.getByRole("button", { name: /^Back \d/ }).click();
+  const speed = async (p, s) => { await p.getByRole("radio", { name: `${s}×` }).click(); await p.waitForTimeout(150); };
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    await rshot(`r6_step_paused_${w}`, w, h, "/review", async (p) => {
+      await p.locator("[data-replay]").scrollIntoViewIfNeeded();
+      const res = {};
+      for (const s of [1, 2, 4]) {
+        await speed(p, s); await p.keyboard.press("Home"); await p.waitForTimeout(150);
+        const a = await val(p); await fwd(p); await p.waitForTimeout(150); const b = await val(p);
+        await fwd(p); await p.waitForTimeout(150); const c = await val(p);
+        await back(p); await p.waitForTimeout(150); const d = await val(p);
+        const playing = await isPlaying(p);
+        res[`${s}x`] = { fwd: (b.v - a.v) / 60, fwd2: (c.v - b.v) / 60, back: (d.v - c.v) / 60, playing };
+        if ((b.v - a.v) / 60 !== s || (c.v - b.v) / 60 !== s || (c.v - d.v) / 60 !== s || playing) problems.push(`r6_step_paused_${w}: ${s}× ${JSON.stringify(res[`${s}x`])}`);
+      }
+      // the arrow keys step the same way
+      await speed(p, 4); await p.keyboard.press("Home"); await p.waitForTimeout(150);
+      const k0 = await val(p); await p.keyboard.press("ArrowRight"); await p.waitForTimeout(150); const k1 = await val(p);
+      res.arrow4x = (k1.v - k0.v) / 60;
+      if (res.arrow4x !== 4) problems.push(`r6_step_paused_${w}: → at 4× moved ${res.arrow4x} bars`);
+      // back at the window's start stays there
+      await p.keyboard.press("Home"); await p.waitForTimeout(150); await back(p); await p.waitForTimeout(150);
+      const s0 = await val(p); res.backAtStart = s0.v === s0.min;
+      if (!res.backAtStart) problems.push(`r6_step_paused_${w}: back went before the window's start`);
+      // never past the decision before the answer, at any speed
+      await p.keyboard.press("End"); await p.waitForTimeout(200);
+      const e0 = await val(p); await fwd(p); await p.waitForTimeout(150); const e1 = await val(p);
+      await back(p); await p.waitForTimeout(150); await fwd(p); await p.waitForTimeout(150); const e2 = await val(p);
+      res.atDecision = { before: e0.v, afterFwd: e1.v, afterBackFwd: e2.v, max: e0.max };
+      if (e1.v !== e0.max || e2.v !== e0.max || e0.v !== e0.max) problems.push(`r6_step_paused_${w}: past or short of the decision ${JSON.stringify(res.atDecision)}`);
+      checks[`r6_step_paused_${w}`] = res;
+      await speed(p, 1); await p.keyboard.press("Home"); await p.waitForTimeout(150); await fwd(p); await fwd(p); await p.waitForTimeout(200);
+    });
+    // while playing: a step jumps and playback goes on from there
+    await rshot(`r6_step_playing_${w}`, w, h, "/review", async (p) => {
+      await p.locator("[data-replay]").scrollIntoViewIfNeeded();
+      const res = {};
+      for (const s of [1, 4]) {
+        await speed(p, s); await p.keyboard.press("Home"); await p.waitForTimeout(150);
+        await p.getByRole("button", { name: /^Play/ }).click(); await p.waitForTimeout(300);
+        const a = await val(p); await fwd(p); const b = await val(p);
+        const playingAfterFwd = await isPlaying(p);
+        await back(p); const c = await val(p);
+        const playingAfterBack = await isPlaying(p);
+        await p.waitForTimeout(1500); const d = await val(p);
+        res[`${s}x`] = { jump: (b.v - a.v) / 60, backJump: (c.v - b.v) / 60, playingAfterFwd, playingAfterBack, movedOnAfter: (d.v - c.v) / 60 };
+        if (!playingAfterFwd || !playingAfterBack || d.v <= c.v || (b.v - a.v) / 60 < s) problems.push(`r6_step_playing_${w}: ${s}× ${JSON.stringify(res[`${s}x`])}`);
+        if (await isPlaying(p)) await p.getByRole("button", { name: /^Pause/ }).click();
+      }
+      checks[`r6_step_playing_${w}`] = res;
+      await speed(p, 2); await p.keyboard.press("Home"); await p.getByRole("button", { name: /^Play/ }).click(); await p.waitForTimeout(400); await fwd(p); await p.waitForTimeout(300);
+    });
+  }
+  // after the answer (c01): steps go past the decision, up to the end of the revealed path
+  await rshot("r6_step_answered_1440", 1440, 900, "/review", async (p) => {
+    await p.locator("[role=listitem]", { hasText: /^01/ }).click(); await p.waitForTimeout(1500);
+    await p.evaluate(() => { document.activeElement?.blur?.(); document.querySelector("[data-replay]").scrollIntoView({ block: "center" }); });
+    await speed(p, 4); await p.keyboard.press("End"); await p.waitForTimeout(300);
+    const end = await val(p);
+    for (let k = 0; k < 20; k++) await back(p);
+    await p.waitForTimeout(150); const mid = await val(p);
+    await fwd(p); await p.waitForTimeout(150); const nxt = await val(p);
+    checks.r6_step_answered_1440 = { end: end.v, max: end.max, mid: mid.v, next: nxt.v };
+    if (end.v !== end.max || (nxt.v - mid.v) / 60 !== 4) problems.push(`r6_step_answered_1440: ${JSON.stringify(checks.r6_step_answered_1440)}`);
+  });
+};
+
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();
 await browser.close();
 fs.writeFileSync(path.join(OUT, "checks.json"), JSON.stringify({ stage, base: BASE, problems, checks }, null, 2));

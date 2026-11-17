@@ -414,3 +414,14 @@ after the decision before the answer.
 5. **Replay window:** the slider runs from 30 minutes before the decision's minute (10:30 for 11:00:10) to the
    decision, and after the answer through the revealed path (c01: 10:09 → 11:08); Restart and Home go to its start;
    at the start the chart still has every candle from 18:00 (991 on c03).
+
+## Review round 6 (owner 2026-11-16)
+**Evidence:** [`build/stage4r6/`](build/stage4r6/) ([`checks.json`](build/stage4r6/checks.json), all passed) at 1440
+and 960 px; `stage4`, `stage4s`, `stage4b`, `stage4r5` re-ran clean.
+
+- **Step buttons** (and ← / →): paused, one click moves 1 / 2 / 4 bars at 1× / 2× / 4×, forward and back, and stays
+  paused. While playing, a step jumps by the same amount and playback goes on from there (1×: +1, then still moving;
+  4×: +4 plus the tick in between). Back at the window's start stays there; at the decision, forward stays at the
+  decision before the answer; after the answer it steps on through the revealed path (c01 at 4×: +4 bars).
+- The buttons say what they do: "Back 2 bars" / "Forward 2 bars" at 2×; the shortcut sheet says the same.
+- **Preview answers** (c01–c10, test inputs) deleted; the shown touches stay excluded (SPEC §13).

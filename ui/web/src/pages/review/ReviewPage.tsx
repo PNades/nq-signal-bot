@@ -1,5 +1,5 @@
 // Review (SPEC §8, §9b item 5; design-system/pages/review.md): one setup card at a time. The main chart follows a replay
-// clock (Restart / Play / Minute → / Next card, speed, slider) that stops at the decision time until the owner answers
+// clock (Restart / Play / step back and forward / Next card, speed, slider) that stops at the decision time until the owner answers
 // (§8: the outcome stays hidden, enforced by the server: the card's later half isn't sent before the answer); the
 // "at this point" panel beside it holds the card's facts and the answer (Take T / Skip S, the reason, optional entry /
 // stop / target / confidence, Ctrl+Enter), clear of the dock; the GEX radial for the clock's minute and the detector
@@ -227,7 +227,10 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
   const rStart = replayStart(card);
   const restart = () => { setPlaying(false); setClock(rStart); };
   const play = () => { if (clock >= maxClock) setClock(rStart); setPlaying((p) => !p); };
-  const step = (d: number) => { setPlaying(false); setClock((c) => Math.max(rStart, Math.min(maxClock, c + 60 * d))); };
+  // round 6 (owner 2026-11-16): a step never pauses (while playing, playback goes on from the new position), moves as
+  // many bars as the speed (1 at 1×, 2 at 2×, 4 at 4×) and stays inside the replay window (before the answer: never
+  // past the decision)
+  const step = (d: number) => { setClock((c) => Math.max(rStart, Math.min(maxClock, c + 60 * d * speed))); };
   // the end of what may be shown: the decision before the answer, the end of the revealed path after it
   const toEnd = () => { setPlaying(false); setClock(maxClock); };
   // after the answer the rest of the path plays out from the decision (Calm: at once)
@@ -277,7 +280,7 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
     return set;
   }, [half, map, clock]);
 
-  // keys (pages/review.md): Space play / pause, ← → a minute, Home restart, F full screen, N / L / P cards
+  // keys (pages/review.md): Space play / pause, ← → a step (speed × 1 bar), Home restart, F full screen, N / L / P cards
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || document.querySelector("[role=dialog]")) return;
@@ -354,9 +357,9 @@ function ReplayBar({ card, clock, max, playing, speed, answered, onRestart, onPl
     <div className="flex h-14 shrink-0 items-center gap-3 border-t border-line px-3" data-replay>
       <div className="flex shrink-0 items-center gap-0.5">
         <IconBtn label={`Restart (${clockOf(start, off)})`} keys="Home" onClick={onRestart}><RotateCcw className="size-4" /></IconBtn>
-        <IconBtn label="A minute back" keys="←" onClick={() => onStep(-1)}><StepBack className="size-4" /></IconBtn>
+        <IconBtn label={`Back ${speed} bar${speed > 1 ? "s" : ""}`} keys="←" onClick={() => onStep(-1)}><StepBack className="size-4" /></IconBtn>
         <IconBtn label={playing ? "Pause" : "Play"} keys="Space" onClick={onPlay} primary>{playing ? <Pause className="size-4" /> : <Play className="size-4 translate-x-px" />}</IconBtn>
-        <IconBtn label="Minute →" keys="→" onClick={() => onStep(1)}><StepForward className="size-4" /></IconBtn>
+        <IconBtn label={`Forward ${speed} bar${speed > 1 ? "s" : ""}`} keys="→" onClick={() => onStep(1)}><StepForward className="size-4" /></IconBtn>
         <IconBtn label={answered ? "To the end of the revealed path" : "To the decision"} keys="End" onClick={onEnd}><ChevronsRight className="size-4" /></IconBtn>
       </div>
       <div className="flex h-8 shrink-0 items-center rounded-full border border-line-strong p-0.5" role="radiogroup" aria-label="Speed">

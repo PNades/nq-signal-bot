@@ -195,3 +195,17 @@ def test_every_touch_a_preview_card_shows_is_left_out_of_real_rounds(paths, synt
     pv = rs.load_round(paths, "pv2")                                 # 3 a session (smp.MAX_PER_DAY) + the other day
     assert pv["excluded_preview_touches"] == 0 and len(pv["cards"]) == 4
     assert {c["decision_id"] for c in pv["cards"]} & {"d1", "d2"}     # a preview round may hold a shown touch
+
+
+def test_deleting_preview_answers_keeps_their_touches_excluded(paths, synth):
+    # owner 2026-11-16: the preview answers were test inputs and were deleted; the record of which touches a preview
+    # card showed comes from the preview round's cards, never from its answers
+    meta, cards = synth
+    settings = load_settings()
+    rs.write_round(paths, "pv1", {}, cards, settings, preview=True)
+    before = rs.preview_touches(paths)
+    rs.answer(paths, "pv1", "c01", GOOD, settings)
+    assert rs.preview_touches(paths) == before
+    rs.answers_path(paths, "pv1").unlink()
+    assert rs.preview_touches(paths) == before and len(before) == 5
+    assert rs.read_answers(paths, "pv1") == {} and rs.summary(paths, "pv1")["answered"] == 0

@@ -1271,6 +1271,15 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   the 30 minutes before the decision's minute (after the answer, through the revealed path); Restart goes there; the
   chart still draws every candle from 18:00 ET before it (`REPLAY_LOOKBACK_MIN` 30, no longer clipped at the open;
   the page computes it for cards stored earlier).
+- **Q-review-chart round 6 (owner 2026-11-16; built, waiting for the owner's OK):** the step-back and step-forward
+  buttons (and ← / →) never pause: while playing, playback goes on from the new position; each click moves as many
+  bars as the speed (1 at 1×, 2 at 2×, 4 at 4×); they stay inside the replay window, and before the answer never past
+  the decision.
+- **Preview answers deleted (owner 2026-11-16):** the 10 answers on `preview-b958` (c01–c10) were test inputs and were
+  deleted (`reviews/preview/answers_preview-b958.parquet`). Nothing else reads them: only `review/store.py` (the page's
+  answered state and the append of a new answer). The record of the touches the preview cards showed comes from the
+  preview round's card files (`preview_touches`), not from the answers, so they stay excluded from every real round:
+  9,446 touches before and after, identical (test `test_deleting_preview_answers_keeps_their_touches_excluded`).
 - **Q-review-sample (step 14 build stage 4; (1)-(3), (5) and the preview rule decided by the owner 2026-11-16; (4),
   (6), (7) open):** (1) **"Setups the owner would never take"** (§8): single-level zones (stack count 1) traded against
   the day's direction so far (`with_day_direction` false), else any single-level zone, are accepted as a **stand-in**;

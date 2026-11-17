@@ -248,7 +248,7 @@ function App() {
     ] },
     { heading: "Review", items: [
       { keys: "t", label: "Take" }, { keys: "s", label: "Skip" }, { keys: "mod+enter", label: "Answer and reveal" },
-      { keys: "space", label: "Play / pause the replay" }, { keys: ["left", "right"], label: "A minute back / forward" },
+      { keys: "space", label: "Play / pause the replay" }, { keys: ["left", "right"], label: "Step back / forward (1 bar at 1×, 2 at 2×, 4 at 4×; playback goes on)" },
       { keys: "home", label: "Restart the replay" }, { keys: "end", label: "To the decision (after the answer: the end of the path)" },
       { keys: "a", label: "Every level at full strength (the chart's Focus off)" },
       { keys: ["p", "n"], label: "Previous / next card" }, { keys: "l", label: "Later: the next card not answered" },
