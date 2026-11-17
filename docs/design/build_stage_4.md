@@ -425,3 +425,12 @@ and 960 px; `stage4`, `stage4s`, `stage4b`, `stage4r5` re-ran clean.
   decision before the answer; after the answer it steps on through the revealed path (c01 at 4×: +4 bars).
 - The buttons say what they do: "Back 2 bars" / "Forward 2 bars" at 2×; the shortcut sheet says the same.
 - **Preview answers** (c01–c10, test inputs) deleted; the shown touches stay excluded (SPEC §13).
+
+## Review round 7 (owner 2026-11-16)
+**Evidence:** [`build/stage4r7/`](build/stage4r7/) ([`checks.json`](build/stage4r7/checks.json), all passed);
+`stage4b`, `stage4r3`, `stage4r4` re-ran clean.
+
+- **One orb per node in the hover card:** on the densest orb row (1440: QQQ 612, 68 orbs; 960: QQQ 610, 54 orbs) the
+  pointer stepped along the row, on orbs and between two of them (12 points each): no card held a node twice, every
+  card showed the orb nearest the pointer with its own minute's board, and moving along the row showed 6 different
+  minutes. Other nodes and levels under the pointer still all show, sorted by price.

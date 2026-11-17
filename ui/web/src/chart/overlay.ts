@@ -149,10 +149,17 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
       const h = typeof hit === "function" ? hit() : hit;
       if (!out.has(h.key)) out.set(h.key, h);
     }
+    // each node once (owner 2026-11-16, round 7): of the orbs of one node (same ticker and strike, `o:<chain>:<strike>:
+    // <minute>`) under the pointer, only the one nearest the pointer, with its own minute's board
+    const nearest = new Map<string, { d: number; h: Hit }>();
     for (const o of this.orbShapes) {
       const dx = (x - o.x) / (o.rx + 2), dy = (y - o.y) / (o.ry + 2);
-      if (dx * dx + dy * dy <= 1) { const h = o.hit(); if (!out.has(h.key)) out.set(h.key, h); }
+      if (dx * dx + dy * dy > 1) continue;
+      const h = o.hit(), node = h.key.slice(0, h.key.lastIndexOf(":")), d = Math.hypot(x - o.x, y - o.y);
+      const cur = nearest.get(node);
+      if (!cur || d < cur.d) nearest.set(node, { d, h });
     }
+    for (const { h } of nearest.values()) out.set(h.key, h);
     return [...out.values()].sort((a, b) => b.price - a.price);
   }
 

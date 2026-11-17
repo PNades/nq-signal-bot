@@ -1,0 +1,327 @@
+{
+  "stage": "4r7",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "r7_hover_row_1440": {
+      "node": "o:QQQ:612",
+      "rowOrbs": 68,
+      "points": 12,
+      "dup": 0,
+      "wrong": 0,
+      "minutesShown": 6,
+      "res": [
+        {
+          "at": [
+            615,
+            48
+          ],
+          "orbs": [
+            "QQQ:612:1761055260"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            618,
+            47
+          ],
+          "orbs": [
+            "QQQ:612:1761055260"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            621,
+            46
+          ],
+          "orbs": [
+            "QQQ:612:1761055320"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            623,
+            46
+          ],
+          "orbs": [
+            "QQQ:612:1761055320"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            626,
+            46
+          ],
+          "orbs": [
+            "QQQ:612:1761055380"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            629,
+            45
+          ],
+          "orbs": [
+            "QQQ:612:1761055380"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            632,
+            45
+          ],
+          "orbs": [
+            "QQQ:612:1761055440"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            634,
+            45
+          ],
+          "orbs": [
+            "QQQ:612:1761055440"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            637,
+            46
+          ],
+          "orbs": [
+            "QQQ:612:1761055500"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            640,
+            46
+          ],
+          "orbs": [
+            "QQQ:612:1761055500"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            643,
+            46
+          ],
+          "orbs": [
+            "QQQ:612:1761055560"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            645,
+            46
+          ],
+          "orbs": [
+            "QQQ:612:1761055560"
+          ],
+          "tipOrbs": 1
+        }
+      ],
+      "chart": {
+        "x": 48,
+        "y": 236,
+        "w": 888,
+        "h": 636
+      },
+      "radial": {
+        "x": 64,
+        "y": 1034,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 184,
+        "w": 360,
+        "h": 448
+      },
+      "bar": null,
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r7_hover_row_960": {
+      "node": "o:QQQ:610",
+      "rowOrbs": 54,
+      "points": 12,
+      "dup": 0,
+      "wrong": 0,
+      "minutesShown": 6,
+      "res": [
+        {
+          "at": [
+            584,
+            207
+          ],
+          "orbs": [
+            "QQQ:610:1761055680"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            586,
+            207
+          ],
+          "orbs": [
+            "QQQ:610:1761055680"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            589,
+            208
+          ],
+          "orbs": [
+            "QQQ:610:1761055740"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            591,
+            208
+          ],
+          "orbs": [
+            "QQQ:610:1761055740"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            594,
+            208
+          ],
+          "orbs": [
+            "QQQ:610:1761055800"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            596,
+            209
+          ],
+          "orbs": [
+            "QQQ:610:1761055800"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            599,
+            210
+          ],
+          "orbs": [
+            "QQQ:610:1761055860"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            601,
+            209
+          ],
+          "orbs": [
+            "QQQ:610:1761055860"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            604,
+            209
+          ],
+          "orbs": [
+            "QQQ:610:1761055920"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            606,
+            209
+          ],
+          "orbs": [
+            "QQQ:610:1761055920"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            609,
+            210
+          ],
+          "orbs": [
+            "QQQ:610:1761055980"
+          ],
+          "tipOrbs": 1
+        },
+        {
+          "at": [
+            611,
+            210
+          ],
+          "orbs": [
+            "QQQ:610:1761055980"
+          ],
+          "tipOrbs": 1
+        }
+      ],
+      "chart": {
+        "x": 40,
+        "y": 318,
+        "w": 800,
+        "h": 300
+      },
+      "radial": {
+        "x": 290,
+        "y": 1475,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 719,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    }
+  }
+}

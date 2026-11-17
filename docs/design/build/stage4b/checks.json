@@ -8,8 +8,8 @@
       "autoScale": true,
       "inView": 120,
       "of": 120,
-      "lastClose": 21291,
-      "bars": 1206
+      "lastClose": 21468.75,
+      "bars": 973
     },
     "fix1_axis_switch_syn_1440": {
       "chart": {
@@ -31,7 +31,7 @@
         "h": 408
       },
       "bar": null,
-      "clock": "14:05 ET",
+      "clock": "10:12 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -78,7 +78,7 @@
         "h": 408
       },
       "bar": null,
-      "clock": "14:05 ET",
+      "clock": "10:12 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -91,17 +91,17 @@
       "title": "CreamFlow · Review"
     },
     "fix3_syn_1440": {
-      "orbs": 302,
-      "latest": 1768417500,
-      "clock": 1768417500,
-      "limit": 1768417520,
+      "orbs": 172,
+      "latest": 1768403520,
+      "clock": 1768403520,
+      "limit": 1768403560,
       "nodeLines": 0,
       "ovals": {
-        "n": 302,
+        "n": 172,
         "notTall": 0,
         "spacing": 5.48,
         "weakWidth": 4.5,
-        "biggest": 2.75,
+        "biggest": 4.5,
         "smallest": 2.75
       }
     },
@@ -125,7 +125,7 @@
         "h": 408
       },
       "bar": null,
-      "clock": "14:05 ET",
+      "clock": "10:12 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -138,11 +138,11 @@
       "title": "CreamFlow · Review"
     },
     "fix3_fps_syn_1440": {
-      "frames": 270,
+      "frames": 268,
       "median": 16.699999999999818,
       "p95": 16.799999999999272,
-      "over20ms": 0,
-      "max": 16.800000000000182,
+      "over20ms": 1,
+      "max": 33.30000000000018,
       "orbRedrawsWhilePlaying": 27
     },
     "fix3_replay4x_syn_1440": {
@@ -165,7 +165,7 @@
         "h": 408
       },
       "bar": null,
-      "clock": "14:02 ET",
+      "clock": "10:09 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -203,7 +203,7 @@
         "h": 408
       },
       "bar": null,
-      "clock": "14:05 ET",
+      "clock": "10:12 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -220,8 +220,8 @@
         "items": [
           "level"
         ],
-        "text": "VWAP21,395.34 (band 21,383.34 – 21,407.34)floorfloor from 08:00crossed 10:45 → ceiling (provisional)reclaimed 12:30 → floor",
-        "right": 849
+        "text": "VWAP21,408.54 (band 21,396.54 – 21,420.54)floorfloor from 08:00",
+        "right": 851
       },
       "axisLeft": 936
     },
@@ -245,7 +245,7 @@
         "h": 408
       },
       "bar": null,
-      "clock": "14:05 ET",
+      "clock": "10:12 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -280,7 +280,7 @@
         "h": 408
       },
       "bar": null,
-      "clock": "14:05 ET",
+      "clock": "10:12 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -293,10 +293,10 @@
       "title": "CreamFlow · Review"
     },
     "fix8_syn_1440": {
-      "open": "14:05 ET",
-      "home": "13:35 ET",
-      "endKey": "14:05 ET",
-      "endButton": "14:05 ET"
+      "open": "10:12 ET",
+      "home": "09:42 ET",
+      "endKey": "10:12 ET",
+      "endButton": "10:12 ET"
     },
     "fix8_end_syn_1440": {
       "chart": {
@@ -318,7 +318,7 @@
         "h": 408
       },
       "bar": null,
-      "clock": "14:05 ET",
+      "clock": "10:12 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -331,9 +331,9 @@
       "title": "CreamFlow · Review"
     },
     "fix7_syn_1440": {
-      "sliderMin": 1768415700,
-      "clockAtMin": "13:35 ET",
-      "bars": 1176
+      "sliderMin": 1768401720,
+      "clockAtMin": "09:42 ET",
+      "bars": 943
     },
     "fix7_history_syn_1440": {
       "chart": {
@@ -355,7 +355,7 @@
         "h": 408
       },
       "bar": null,
-      "clock": "13:35 ET",
+      "clock": "09:42 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -372,8 +372,8 @@
       "autoScale": true,
       "inView": 120,
       "of": 120,
-      "lastClose": 21291,
-      "bars": 1206
+      "lastClose": 21468.75,
+      "bars": 973
     },
     "fix1_axis_switch_syn_960": {
       "chart": {
@@ -395,7 +395,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "14:05 ET",
+      "clock": "10:12 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -442,7 +442,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "14:05 ET",
+      "clock": "10:12 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -455,17 +455,17 @@
       "title": "CreamFlow · Review"
     },
     "fix3_syn_960": {
-      "orbs": 302,
-      "latest": 1768417500,
-      "clock": 1768417500,
-      "limit": 1768417520,
+      "orbs": 172,
+      "latest": 1768403520,
+      "clock": 1768403520,
+      "limit": 1768403560,
       "nodeLines": 0,
       "ovals": {
-        "n": 302,
+        "n": 172,
         "notTall": 0,
         "spacing": 4.9,
         "weakWidth": 4,
-        "biggest": 2.5,
+        "biggest": 4.25,
         "smallest": 2.5
       }
     },
@@ -489,7 +489,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "14:05 ET",
+      "clock": "10:12 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -502,12 +502,12 @@
       "title": "CreamFlow · Review"
     },
     "fix3_fps_syn_960": {
-      "frames": 272,
+      "frames": 283,
       "median": 16.699999999999818,
-      "p95": 16.799999999999727,
+      "p95": 16.799999999999272,
       "over20ms": 0,
       "max": 16.800000000000182,
-      "orbRedrawsWhilePlaying": 27
+      "orbRedrawsWhilePlaying": 28
     },
     "fix3_replay4x_syn_960": {
       "chart": {
@@ -529,7 +529,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "14:02 ET",
+      "clock": "10:10 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -567,7 +567,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "14:05 ET",
+      "clock": "10:12 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -584,8 +584,8 @@
         "items": [
           "level"
         ],
-        "text": "VWAP21,395.34 (band 21,383.34 – 21,407.34)floorfloor from 08:00crossed 10:45 → ceiling (provisional)reclaimed 12:30 → floor",
-        "right": 754
+        "text": "VWAP21,408.54 (band 21,396.54 – 21,420.54)floorfloor from 08:00",
+        "right": 755
       },
       "axisLeft": 840
     },
@@ -609,7 +609,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "14:05 ET",
+      "clock": "10:12 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -644,7 +644,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "14:05 ET",
+      "clock": "10:12 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -657,10 +657,10 @@
       "title": "CreamFlow · Review"
     },
     "fix8_syn_960": {
-      "open": "14:05 ET",
-      "home": "13:35 ET",
-      "endKey": "14:05 ET",
-      "endButton": "14:05 ET"
+      "open": "10:12 ET",
+      "home": "09:42 ET",
+      "endKey": "10:12 ET",
+      "endButton": "10:12 ET"
     },
     "fix8_end_syn_960": {
       "chart": {
@@ -682,7 +682,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "14:05 ET",
+      "clock": "10:12 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -695,9 +695,9 @@
       "title": "CreamFlow · Review"
     },
     "fix7_syn_960": {
-      "sliderMin": 1768415700,
-      "clockAtMin": "13:35 ET",
-      "bars": 1176
+      "sliderMin": 1768401720,
+      "clockAtMin": "09:42 ET",
+      "bars": 943
     },
     "fix7_history_syn_960": {
       "chart": {
@@ -719,7 +719,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "13:35 ET",
+      "clock": "09:42 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -732,8 +732,8 @@
       "title": "CreamFlow · Review"
     },
     "fix8_after_answer": {
-      "clock": 1768420260,
-      "limit": 1768420280
+      "clock": 1768405920,
+      "limit": 1768405960
     },
     "fix8_after_answer_1440": {
       "chart": {
@@ -760,7 +760,7 @@
         "w": 360,
         "h": 334
       },
-      "clock": "14:51 ET",
+      "clock": "10:52 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],

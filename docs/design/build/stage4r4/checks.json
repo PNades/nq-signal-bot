@@ -16,14 +16,14 @@
       ],
       "thumb": 490.5,
       "track": 490.5,
-      "clock": "11:00 ET",
+      "clock": "10:38 ET",
       "bar": null,
       "spread": 0,
       "chart": {
         "x": 48,
-        "y": -182,
+        "y": -202,
         "w": 888,
-        "h": 616
+        "h": 636
       },
       "radial": {
         "x": 64,
@@ -33,9 +33,9 @@
       },
       "facts": {
         "x": 1033,
-        "y": -234,
+        "y": -254,
         "w": 360,
-        "h": 428
+        "h": 448
       },
       "hOverflow": false,
       "titles": 0,
@@ -50,7 +50,7 @@
     },
     "r4_hover_corners_1440": {
       "pane": {
-        "height": 616,
+        "height": 636,
         "width": 888
       },
       "res": [
@@ -61,9 +61,9 @@
           ],
           "tip": {
             "l": 102,
-            "t": 69,
+            "t": 51,
             "r": 402,
-            "b": 169,
+            "b": 330,
             "earlier": false
           }
         },
@@ -73,10 +73,10 @@
             0.1
           ],
           "tip": {
-            "l": 440,
-            "t": 75,
-            "r": 740,
-            "b": 175,
+            "l": 434,
+            "t": 99,
+            "r": 734,
+            "b": 279,
             "earlier": false
           }
         },
@@ -87,9 +87,9 @@
           ],
           "tip": {
             "l": 102,
-            "t": 437,
+            "t": 350,
             "r": 402,
-            "b": 537,
+            "b": 549,
             "earlier": false
           }
         },
@@ -106,10 +106,10 @@
             0.5
           ],
           "tip": {
-            "l": 458,
-            "t": 310,
-            "r": 758,
-            "b": 410,
+            "l": 468,
+            "t": 342,
+            "r": 768,
+            "b": 442,
             "earlier": false
           }
         }
@@ -118,11 +118,11 @@
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 616
+        "h": 636
       },
       "radial": {
         "x": 64,
-        "y": 1096,
+        "y": 1116,
         "w": 366,
         "h": 366
       },
@@ -130,10 +130,10 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 428
+        "h": 448
       },
       "bar": null,
-      "clock": "11:00 ET",
+      "clock": "10:38 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -146,18 +146,18 @@
       "title": "CreamFlow · Review"
     },
     "r4_orbs_1440": {
-      "minutes": 151,
-      "most": 5,
+      "minutes": 87,
+      "most": 4,
       "notTall": 0,
       "chart": {
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 616
+        "h": 636
       },
       "radial": {
         "x": 64,
-        "y": 1096,
+        "y": 1116,
         "w": 366,
         "h": 366
       },
@@ -165,10 +165,10 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 428
+        "h": 448
       },
       "bar": null,
-      "clock": "11:00 ET",
+      "clock": "10:38 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -182,15 +182,20 @@
     },
     "r4_stacked_1440": {
       "rows": [
-        "Retested extreme25,337.75",
-        "Retested extreme25,329.50"
+        "QQQ 61125,273.10",
+        "RTH VWAP +1σ25,272.03",
+        "VWAP · flipped ×125,270.45",
+        "Retested extreme25,264.75",
+        "ON low25,253.00",
+        "Retested extreme · flipped ×225,251.00",
+        "RTH VWAP · flipped ×225,249.90"
       ],
-      "head": "Stacked (2)",
+      "head": "Stacked (7)",
       "chart": {
         "x": 48,
-        "y": -367,
+        "y": -387,
         "w": 888,
-        "h": 616
+        "h": 636
       },
       "radial": {
         "x": 64,
@@ -200,12 +205,12 @@
       },
       "facts": {
         "x": 1033,
-        "y": -419,
+        "y": -439,
         "w": 360,
-        "h": 428
+        "h": 448
       },
       "bar": null,
-      "clock": "11:00 ET",
+      "clock": "10:38 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -230,7 +235,7 @@
       ],
       "thumb": 674.5,
       "track": 674.5,
-      "clock": "11:00 ET",
+      "clock": "10:38 ET",
       "bar": null,
       "spread": 0,
       "chart": {
@@ -275,9 +280,9 @@
           ],
           "tip": {
             "l": 94,
-            "t": 41,
+            "t": 15,
             "r": 394,
-            "b": 141,
+            "b": 294,
             "earlier": false
           }
         },
@@ -287,10 +292,10 @@
             0.1
           ],
           "tip": {
-            "l": 366,
-            "t": 43,
-            "r": 666,
-            "b": 143,
+            "l": 364,
+            "t": 55,
+            "r": 664,
+            "b": 235,
             "earlier": false
           }
         },
@@ -301,9 +306,9 @@
           ],
           "tip": {
             "l": 94,
-            "t": 154,
+            "t": 52,
             "r": 394,
-            "b": 254,
+            "b": 251,
             "earlier": false
           }
         },
@@ -314,9 +319,9 @@
           ],
           "tip": {
             "l": 366,
-            "t": 154,
+            "t": 25,
             "r": 666,
-            "b": 254,
+            "b": 252,
             "earlier": false
           }
         },
@@ -326,10 +331,10 @@
             0.5
           ],
           "tip": {
-            "l": 414,
-            "t": 158,
-            "r": 714,
-            "b": 258,
+            "l": 420,
+            "t": 168,
+            "r": 720,
+            "b": 268,
             "earlier": false
           }
         }
@@ -353,7 +358,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "11:00 ET",
+      "clock": "10:38 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -366,8 +371,8 @@
       "title": "CreamFlow · Review"
     },
     "r4_orbs_960": {
-      "minutes": 151,
-      "most": 5,
+      "minutes": 87,
+      "most": 4,
       "notTall": 0,
       "chart": {
         "x": 40,
@@ -388,7 +393,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "11:00 ET",
+      "clock": "10:38 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -402,10 +407,15 @@
     },
     "r4_stacked_960": {
       "rows": [
-        "Retested extreme25,337.75",
-        "Retested extreme25,329.50"
+        "QQQ 61125,273.10",
+        "RTH VWAP +1σ25,272.03",
+        "VWAP · flipped ×125,270.45",
+        "Retested extreme25,264.75",
+        "ON low25,253.00",
+        "Retested extreme · flipped ×225,251.00",
+        "RTH VWAP · flipped ×225,249.90"
       ],
-      "head": "Stacked (2)",
+      "head": "Stacked (7)",
       "chart": {
         "x": 40,
         "y": -1314,
@@ -425,7 +435,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "11:00 ET",
+      "clock": "10:38 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -442,11 +452,11 @@
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 616
+        "h": 636
       },
       "radial": {
         "x": 64,
-        "y": 1096,
+        "y": 1116,
         "w": 366,
         "h": 366
       },
@@ -454,10 +464,10 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 428
+        "h": 448
       },
       "bar": null,
-      "clock": "11:00 ET",
+      "clock": "10:38 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -480,7 +490,7 @@
         "t": 27,
         "r": 684,
         "b": 266,
-        "earlier": "+6 earlier (all in the Table)",
+        "earlier": "+5 earlier (all in the Table)",
         "story": 11,
         "at": {
           "x": 370.1696969696968,
@@ -496,7 +506,7 @@
       },
       "radial": {
         "x": 290,
-        "y": 1246,
+        "y": 1261,
         "w": 380,
         "h": 380
       },
@@ -506,12 +516,7 @@
         "w": 882,
         "h": 356
       },
-      "bar": {
-        "x": 39,
-        "y": 877,
-        "w": 882,
-        "h": 294
-      },
+      "bar": null,
       "clock": "10:38 ET",
       "hOverflow": false,
       "titles": 0,

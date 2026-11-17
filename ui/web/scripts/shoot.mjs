@@ -4090,6 +4090,62 @@ S["4r6"] = async () => {
   });
 };
 
+S["4r7"] = async () => {
+  // hover shows each node once (owner 2026-11-16, round 7): on the densest orb row, step the pointer along it (on the
+  // orbs and between two of them): every card holds one orb per node, the one nearest the pointer, with its minute
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    await rshot(`r7_hover_row_${w}`, w, h, "/review", async (p) => {
+      await p.locator("[data-plot]").scrollIntoViewIfNeeded(); await p.waitForTimeout(300);
+      const b = await p.locator("[data-plot]").boundingBox();
+      const row = await p.evaluate(() => {
+        const o = window.__cfOverlay, P = o.chart.paneSize(), right = o.lastBarRight();
+        const by = {};
+        for (const s of o.orbShapes) { const k = s.hit().key; const node = k.slice(0, k.lastIndexOf(":")); (by[node] ??= []).push({ x: s.x, y: s.y, key: k }); }
+        let best = null;
+        for (const [node, v] of Object.entries(by)) {
+          const vis = v.filter((q) => q.x > 8 && q.x < Math.min(P.width - 8, right - 4) && q.y > 30 && q.y < P.height - 30).sort((a, c) => a.x - c.x);
+          if (!best || vis.length > best.orbs.length) best = { node, orbs: vis };
+        }
+        return best;
+      });
+      if (!row || row.orbs.length < 6) { problems.push(`r7_hover_row_${w}: no dense orb row (${row?.orbs.length ?? 0})`); return; }
+      const res = []; let dup = 0, wrong = 0;
+      const mid = Math.floor(row.orbs.length / 2);
+      const pts = [];
+      for (let i = Math.max(0, mid - 3); i < Math.min(row.orbs.length - 1, mid + 3); i++) {
+        const a = row.orbs[i], c = row.orbs[i + 1];
+        pts.push({ x: a.x, y: a.y }, { x: a.x + (c.x - a.x) * 0.45, y: a.y + (c.y - a.y) * 0.45 });
+      }
+      for (const q of pts) {
+        await p.mouse.move(b.x + q.x, b.y + q.y); await p.waitForTimeout(160);
+        const r = await p.evaluate(([x, y]) => {
+          const o = window.__cfOverlay, hits = o.hitsAt(x, y), orbs = hits.filter((h) => h.kind === "orb");
+          const nodes = orbs.map((h) => h.key.slice(0, h.key.lastIndexOf(":")));
+          // the nearest orb of each hit node (what the card must show)
+          const want = {};
+          for (const s of o.orbShapes) { const dx = (x - s.x) / (s.rx + 2), dy = (y - s.y) / (s.ry + 2); if (dx * dx + dy * dy > 1) continue;
+            const k = s.hit().key, n = k.slice(0, k.lastIndexOf(":")), d = Math.hypot(x - s.x, y - s.y); if (!want[n] || d < want[n].d) want[n] = { d, key: k }; }
+          const tip = document.querySelector("[data-tip]");
+          const titles = tip ? [...tip.querySelectorAll("[data-tip-item=orb]")].map((e) => e.textContent) : [];
+          return { nodes, keys: orbs.map((h) => h.key), want: Object.fromEntries(Object.entries(want).map(([n, v]) => [n, v.key])), tipOrbs: titles.length,
+            prices: hits.map((h) => h.price) };
+        }, [q.x, q.y]);
+        if (new Set(r.nodes).size !== r.nodes.length) dup++;
+        if (r.keys.some((k) => r.want[k.slice(0, k.lastIndexOf(":"))] !== k)) wrong++;
+        if (r.prices.some((v, i) => i && v > r.prices[i - 1])) problems.push(`r7_hover_row_${w}: hits not sorted by price`);
+        res.push({ at: [Math.round(q.x), Math.round(q.y)], orbs: r.keys.map((k) => k.split(":").slice(1).join(":")), tipOrbs: r.tipOrbs });
+      }
+      const minutes = new Set(res.filter((x) => x.orbs.length).map((x) => x.orbs.find((k) => k.startsWith(row.node.slice(2)))).filter(Boolean));
+      checks[`r7_hover_row_${w}`] = { node: row.node, rowOrbs: row.orbs.length, points: res.length, dup, wrong, minutesShown: minutes.size, res };
+      if (dup || wrong) problems.push(`r7_hover_row_${w}: ${dup} card(s) with a node twice, ${wrong} not the nearest orb`);
+      if (minutes.size < 3) problems.push(`r7_hover_row_${w}: moving along the row showed only ${minutes.size} minute(s)`);
+      // leave the pointer between two orbs of the row for the screenshot
+      const a = row.orbs[mid], c = row.orbs[mid + 1];
+      await p.mouse.move(b.x + a.x + (c.x - a.x) * 0.45, b.y + a.y); await p.waitForTimeout(300);
+    });
+  }
+};
+
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();
 await browser.close();
 fs.writeFileSync(path.join(OUT, "checks.json"), JSON.stringify({ stage, base: BASE, problems, checks }, null, 2));

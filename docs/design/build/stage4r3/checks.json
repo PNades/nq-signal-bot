@@ -4,19 +4,19 @@
   "problems": [],
   "checks": {
     "r3_replay_1440": {
-      "replayTop": 962,
-      "plotBottom": 962
+      "replayTop": 982,
+      "plotBottom": 982
     },
     "r3_replay_bottom_1440": {
       "chart": {
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 616
+        "h": 636
       },
       "radial": {
         "x": 64,
-        "y": 1096,
+        "y": 1116,
         "w": 366,
         "h": 366
       },
@@ -24,10 +24,10 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 428
+        "h": 448
       },
       "bar": null,
-      "clock": "11:00 ET",
+      "clock": "10:38 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -41,15 +41,20 @@
     },
     "r3_stack_1440": {
       "rows": [
-        "Retested extreme25,337.75",
-        "Retested extreme25,329.50"
+        "QQQ 61125,273.10",
+        "RTH VWAP +1σ25,272.03",
+        "VWAP · flipped ×125,270.45",
+        "Retested extreme25,264.75",
+        "ON low25,253.00",
+        "Retested extreme · flipped ×225,251.00",
+        "RTH VWAP · flipped ×225,249.90"
       ],
-      "head": "Stacked (2)Retested extreme25,337.75Retested extreme25,329.5",
+      "head": "Stacked (7)QQQ 61125,273.10RTH VWAP +1σ25,272.03VWAP · flipp",
       "chart": {
         "x": 48,
-        "y": -367,
+        "y": -387,
         "w": 888,
-        "h": 616
+        "h": 636
       },
       "radial": {
         "x": 64,
@@ -59,12 +64,12 @@
       },
       "facts": {
         "x": 1033,
-        "y": -419,
+        "y": -439,
         "w": 360,
-        "h": 428
+        "h": 448
       },
       "bar": null,
-      "clock": "11:00 ET",
+      "clock": "10:38 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -84,11 +89,11 @@
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 616
+        "h": 636
       },
       "radial": {
         "x": 64,
-        "y": 1096,
+        "y": 1116,
         "w": 366,
         "h": 366
       },
@@ -96,10 +101,10 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 428
+        "h": 448
       },
       "bar": null,
-      "clock": "11:00 ET",
+      "clock": "10:38 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -135,7 +140,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "11:00 ET",
+      "clock": "10:38 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -149,10 +154,15 @@
     },
     "r3_stack_960": {
       "rows": [
-        "Retested extreme25,337.75",
-        "Retested extreme25,329.50"
+        "QQQ 61125,273.10",
+        "RTH VWAP +1σ25,272.03",
+        "VWAP · flipped ×125,270.45",
+        "Retested extreme25,264.75",
+        "ON low25,253.00",
+        "Retested extreme · flipped ×225,251.00",
+        "RTH VWAP · flipped ×225,249.90"
       ],
-      "head": "Stacked (2)Retested extreme25,337.75Retested extreme25,329.5",
+      "head": "Stacked (7)QQQ 61125,273.10RTH VWAP +1σ25,272.03VWAP · flipp",
       "chart": {
         "x": 40,
         "y": -1314,
@@ -172,7 +182,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "11:00 ET",
+      "clock": "10:38 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -186,6 +196,7 @@
     },
     "r3_orb_hover_960": {
       "kinds": [
+        "touch",
         "orb"
       ],
       "chart": {
@@ -207,7 +218,7 @@
         "h": 356
       },
       "bar": null,
-      "clock": "11:00 ET",
+      "clock": "10:38 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -224,11 +235,11 @@
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 616
+        "h": 636
       },
       "radial": {
         "x": 64,
-        "y": 1096,
+        "y": 1116,
         "w": 366,
         "h": 366
       },
@@ -236,10 +247,10 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 428
+        "h": 448
       },
       "bar": null,
-      "clock": "11:00 ET",
+      "clock": "10:38 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
