@@ -103,7 +103,7 @@
       "own_label": 0
     },
     "replay_restart_1440": {
-      "clock": "09:33 ET",
+      "clock": "09:45 ET",
       "chart": {
         "x": 48,
         "y": 342,
@@ -372,7 +372,7 @@
       "title": "CreamFlow · Review"
     },
     "result_1440": {
-      "shown_ms": 262,
+      "shown_ms": 220,
       "clock": "10:52 ET",
       "net": "+1.62R",
       "chart": {
@@ -411,7 +411,7 @@
       "title": "CreamFlow · Review"
     },
     "result_960": {
-      "shown_ms": 260,
+      "shown_ms": 246,
       "clock": "12:05 ET",
       "net": "−1.00R",
       "chart": {

@@ -35,7 +35,7 @@ NS = 1_000_000_000
 MIN_NS = 60 * NS
 # the chart starts at the session's open, 18:00 ET the evening before (owner 2026-11-16, stage-4 review (7)); the maps
 # (RTH only, §3.1) start at 09:30 and are sampled once a minute over the whole session up to the cut
-REPLAY_LOOKBACK_MIN = 45           # the replay slider covers T - 45 min (not before the RTH open) .. T
+REPLAY_LOOKBACK_MIN = 30           # the replay slider covers T - 30 min .. T (owner 2026-11-16, round 5; candles from 18:00)
 REVEAL_AFTER_EXIT_MIN = 15         # after the answer the path is shown to the exit (or the label) + 15 min
 MAP_STRIKES_KEPT = 40              # per map snapshot: the largest |value| strikes kept for the radial
 MAP_MIN_SHARE_OF_KING = 0.05       # ... and only those at >= 5% of the board's largest |value|
@@ -492,11 +492,8 @@ READINGS: tuple[tuple[str, str, str, str], ...] = (
     ("Nodes", "king_present", "King in the zone", "bool"),
     ("Nodes", "gatekeeper_present", "Gatekeeper in the zone", "bool"),
     ("Nodes", "largest_pct_of_king", "Largest node, % of King", "pct"),
-    ("Nodes", "n_node_pos", "Pika nodes (+)", "int"),
-    ("Nodes", "n_node_neg", "Barney nodes (−)", "int"),
     ("Nodes", "any_rug", "Rug", "bool"),
     ("Nodes", "any_reverse_rug", "Reverse rug", "bool"),
-    ("Nodes", "any_pika_member", "Pika member", "bool"),
     ("Nodes", "qqq_king_strike", "QQQ King", "strike"),
     ("Nodes", "ndxp_king_strike", "NDXP King", "strike"),
     ("Regime", "qqq_regime_net", "QQQ regime (net)", "signed"),
@@ -514,6 +511,9 @@ READINGS: tuple[tuple[str, str, str, str], ...] = (
     ("Day so far", "approach_move_15", "Approach, last 15 min", "pts"),
 )
 READING_COLUMNS = tuple(dict.fromkeys(c for _, c, _, _ in READINGS))
+# round 5 (owner 2026-11-16; display only, the detector still computes them and the scorer still reads them): the Nodes
+# lines no longer shown; cards stored before are filtered when served (`store.public_card`)
+HIDDEN_READING_LABELS = frozenset({"Pika nodes (+)", "Barney nodes (−)", "Pika member"})
 DEFERRED_READINGS = (("Model", "P(trend)", "from step 15"), ("Order flow", "Trigger", "from step 17"))
 
 
@@ -523,13 +523,20 @@ def readings(row: dict[str, Any]) -> list[dict[str, str]]:
     return out
 
 
-def stack_payload(dd: DayData, row: dict[str, Any], t: int, lo: float, hi: float) -> dict[str, Any]:
+def stack_payload(dd: DayData, row: dict[str, Any], t: int, lo: float, hi: float, level_zone: bool = True) -> dict[str, Any]:
     """The confluences behind "Levels stacked" (owner 2026-11-16, stage-4 review round 3), as known at the decision time
     t: the scorer's own count per level type at that decision point (`stack_count`, `n_<sub_type>`,
     `SessionFeatures._makeup`), and for each type the level(s) of that type whose band at t lies in, or nearest, the zone
     [lo, hi]: its name, its price (the band centre at t), its band, its role and whether that role was still
     provisional, from its role steps up to t only (no lookahead). A member the chart can't find is listed as missing; a
-    member type the counts don't name (e.g. a gameplan zone) as "other"."""
+    member type the counts don't name (e.g. a gameplan zone) as "other".
+
+    Which level of a type (owner 2026-11-16, round 5; SPEC §13 Q-review-stack; display only, the scorer stores counts):
+    a level zone's members are the zone book's, and its edges are the union of their bands, so the levels whose band
+    lies inside the zone come first, then those overlapping it (a VWAP band sampled once a second can straddle an edge
+    by a hair), then the nearest; a container's (golden zone, gameplan zone) members are every level whose band
+    overlaps it: overlapping first, then the nearest. Each item says how it fits (`fit`: inside / overlapping /
+    outside)."""
     from nqbot.features.session_features import NQ_SUBTYPES
 
     comp = {st: int(row.get(f"n_{st}") or 0) for st in NQ_SUBTYPES}
@@ -548,19 +555,22 @@ def stack_payload(dd: DayData, row: dict[str, Any], t: int, lo: float, hi: float
             if b is None:
                 continue
             gap = max(0.0, b[0] - hi, lo - b[1])           # 0 when the band overlaps the zone
-            cands.append((gap, abs((b[0] + b[1]) / 2 - (lo + hi) / 2), r["uid"], r, b))
-        cands.sort(key=lambda c: c[:3])
-        for gap, _, _, r, b in cands[:n]:
+            inside = b[0] >= lo - 1e-9 and b[1] <= hi + 1e-9
+            fit = "inside" if inside else ("overlapping" if gap == 0 else "outside")
+            rank = 0 if (inside and level_zone) else (1 if gap == 0 else 2)
+            cands.append((rank, gap, abs((b[0] + b[1]) / 2 - (lo + hi) / 2), r["uid"], r, b, fit))
+        cands.sort(key=lambda c: c[:4])
+        for _, gap, _, _, r, b, fit in cands[:n]:
             step = roles.role_at(steps.get(r["uid"], []), t)
             items.append({"label": level_label(r), "price": rnd((b[0] + b[1]) / 2), "lo": rnd(b[0]), "hi": rnd(b[1]),
                           "role": step.role if step else None, "provisional": bool(step and step.provisional),
                           "crossed_back": bool(step and step.broken_back), "flips": step.flips if step else 0,
-                          "outside_pts": rnd(gap) if gap > 0 else None})
+                          "outside_pts": rnd(gap) if gap > 0 else None, "fit": fit})
         for _ in range(max(0, n - len(cands))):
             items.append({"label": SUB_LABEL.get(st, st), "missing": True})
     other = total - sum(comp.values())
     items.sort(key=lambda x: -(x.get("price") or -1e18))
-    return {"count": total, "items": items, "other": max(0, other)}
+    return {"count": total, "items": items, "other": max(0, other), "rule": "inside first" if level_zone else "overlapping"}
 
 
 def members_at(dd: DayData, t: int, lo: float, hi: float) -> list[str]:
@@ -628,7 +638,7 @@ def card_payload(dd: DayData, card_id: str, decision_id: str, pair_id: str, stra
     T = int(dec["decision_ts"])
     tm = last_known_minute(T, dd.tapes.get("NQ"))
     chart0 = st.cme_start_ns(dd.day)
-    replay0 = max(floor_min(dd.open_ns), floor_min(T - REPLAY_LOOKBACK_MIN * MIN_NS))
+    replay0 = max(chart0, floor_min(T) - REPLAY_LOOKBACK_MIN * MIN_NS)
     ends = [T]
     if _f(pair.get("t_exit_none")) is not None:
         ends.append(int(float(pair["t_exit_none"])))
@@ -672,7 +682,7 @@ def card_payload(dd: DayData, card_id: str, decision_id: str, pair_id: str, stra
                   "audit_or_sweep": dec.get("style") == "c", "trigger": dec.get("trigger_kind") if isinstance(dec.get("trigger_kind"), str) else None},
         "trade": trade_payload(pair, fill, int(dec["direction"])),
         "readings": readings(row),
-        "stack": stack_payload(dd, row, T, float(dec["zone_lo"]), float(dec["zone_hi"])),
+        "stack": stack_payload(dd, row, T, float(dec["zone_lo"]), float(dec["zone_hi"]), dec.get("event_type") == "level"),
         "pre": pre,
         "post": post,
         "outcome": outcome_payload(dd, pair, fill, event),

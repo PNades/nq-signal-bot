@@ -218,6 +218,50 @@ def draw_round(env, build_key: str, labels_key: str, n: int, seed: int, rid: str
                        settings=env.settings, preview=preview)
 
 
+def restack_round(env, rid: str, echo=print) -> dict[str, int]:
+    """Recompute only the `stack` field of a stored round's cards (owner 2026-11-16, round 5: the display rule for
+    which levels are listed changed; SPEC §13 Q-review-stack). Not a redraw: the same cards, every other field kept
+    byte-for-byte as stored (checked); the old card files are copied to `restack_backup/<time>/` first. Answers are
+    untouched."""
+    import shutil
+
+    from nqbot.checks import feature_build as fb
+    from nqbot.review import cards as cd
+
+    meta = load_round(env.paths, rid)
+    rd = round_dir(env.paths, rid)
+    build_dir = fb.out_dir(env, meta["build_key"])
+    backup = rd / "restack_backup" / datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup.mkdir(parents=True, exist_ok=False)
+    by_day: dict[str, list[dict[str, Any]]] = {}
+    for c in meta["cards"]:
+        by_day.setdefault(c["day"], []).append(c)
+    changed = same = 0
+    for iso, cs in sorted(by_day.items()):
+        require_development(date.fromisoformat(iso), env.settings)
+        dd = cd.load_day(env, build_dir, meta["labels_key"], date.fromisoformat(iso), {c["decision_id"] for c in cs},
+                         {c["pair_id"] for c in cs})
+        for c in cs:
+            f = rd / "cards" / f"{c['id']}.json"
+            old = json.loads(f.read_text(encoding="utf-8"))
+            dec = next(d for d in dd.decisions if d["decision_id"] == c["decision_id"])
+            row = dd.rows.get(c["decision_id"], {})
+            new_stack = cd.stack_payload(dd, row, int(dec["decision_ts"]), float(dec["zone_lo"]), float(dec["zone_hi"]),
+                                         dec.get("event_type") == "level")
+            shutil.copy2(f, backup / f.name)
+            new = {**old, "stack": new_stack}
+            assert {k: v for k, v in new.items() if k != "stack"} == {k: v for k, v in old.items() if k != "stack"}
+            if new_stack != old.get("stack"):
+                changed += 1
+            else:
+                same += 1
+            atomic_write_text(f, json.dumps(new, separators=(",", ":")))
+        echo(f"  {iso}: {len(cs)} card(s)")
+        del dd
+    echo(f"round {rid}: stacked lists recomputed, {changed} changed, {same} unchanged; old files in {backup}")
+    return {"changed": changed, "same": same}
+
+
 # ── reading rounds, answering ──────────────────────────────────────────────────────────────────────────────────────
 
 def list_rounds(paths: Paths) -> list[dict[str, Any]]:
@@ -270,6 +314,10 @@ def read_answers(paths: Paths, rid: str) -> dict[str, dict[str, Any]]:
 def public_card(card: dict[str, Any], answer: dict[str, Any] | None) -> dict[str, Any]:
     """§8: the card as the owner may see it: before an answer only its `pre` half (nothing after the decision time,
     no outcome, no stratum); after it, everything."""
+    from nqbot.review.cards import HIDDEN_READING_LABELS
+
+    if "readings" in card:
+        card = {**card, "readings": [r for r in card["readings"] if r.get("label") not in HIDDEN_READING_LABELS]}
     if answer is None:
         hidden = {"post", "outcome", "stratum", "why"}
         return {**{k: v for k, v in card.items() if k not in hidden}, "answer": None}

@@ -1010,6 +1010,10 @@ def _add_review(sub) -> None:
                      help="a preview round (kept apart, answers marked preview); every touch its cards show is left "
                           "out of the real rounds drawn afterwards")
     rv_sub.add_parser("rounds", help="list the rounds and how many cards are answered")
+    rs_ = rv_sub.add_parser("restack", help="recompute only the stacked-levels list of a stored round's cards with the "
+                                            "current display rule (no redraw: the same cards; the old files kept "
+                                            "under restack_backup/)")
+    rs_.add_argument("round")
 
 
 def _run_review(args: argparse.Namespace, settings, paths, log) -> int:
@@ -1026,6 +1030,13 @@ def _run_review(args: argparse.Namespace, settings, paths, log) -> int:
                   f"{m.get('labels_key')}, {s['answered']}/{s['n']} answered, created {m.get('created')}")
         return 0
     env = Env(settings=settings, features=load_features(), paths=paths, log=log, cal=cal_mod.load())
+    if args.action == "restack":
+        try:
+            rs.restack_round(env, args.round)
+        except (rs.ReviewRefused, NotDevelopmentMonth) as e:
+            print(f"refused: {e}", file=sys.stderr)
+            return EXIT_REFUSED
+        return 0
     try:
         rd = rs.draw_round(env, args.build_key, args.labels_key, args.n, args.seed, args.id, preview=args.preview)
     except (rs.ReviewRefused, NotDevelopmentMonth) as e:

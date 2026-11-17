@@ -80,10 +80,16 @@ function sprite(rgb: number[], rx: number, ry: number, alpha: number, glow: numb
  * fills most of its minute's width (its row reads as a near-continuous line), every orb is taller than it is wide, and
  * both grow with the share (owner 2026-11-16, round 3; the reference docs/design/inspiration/gex_chart_1.jpeg) */
 export const ORB_SCALE = 0.8;   // round 4 (owner 2026-11-16): every orb 20% smaller, the same proportions
+/** round 5 (owner 2026-11-16): the weakest orbs back to about 80% of a bar wide (their rows read as near-continuous
+ * lines), the larger ones as wide as in round 4 (about 80-84%); heights stay round 4's (20% smaller), except that a
+ * weak orb is always a little taller than wide (ORB_MIN_TALL) */
+export const ORB_WEAK_W = 0.8;
+export const ORB_MIN_TALL = 1.1;
 export function orbSize(share: number, spacing: number): [number, number] {
   const q = Math.sqrt(Math.max(0, Math.min(1, share)));
-  const rx = Math.max(0.6, Math.min(4, spacing * 0.42 * (0.85 + 0.35 * q))) * ORB_SCALE;
-  const ry = Math.max(rx * 1.15, Math.min(8 * ORB_SCALE, rx * 1.15 + 2.6 * q * ORB_SCALE));
+  const rx4 = Math.max(0.6, Math.min(4, spacing * 0.42 * (0.85 + 0.35 * q))) * ORB_SCALE;
+  const rx = Math.max(rx4, Math.min(4 * ORB_SCALE, spacing * ORB_WEAK_W / 2));
+  const ry = Math.max(rx * ORB_MIN_TALL, Math.min(8 * ORB_SCALE, rx4 * 1.15 + 2.6 * q * ORB_SCALE));
   return [Math.round(rx * 4) / 4, Math.round(ry * 4) / 4];
 }
 

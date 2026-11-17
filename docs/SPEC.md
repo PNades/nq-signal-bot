@@ -1233,7 +1233,7 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   (7) only the 5 largest nodes (|value|, Pika and Barney together) of each ticker at each minute are drawn, from that
   minute's board only; NQ: QQQ and NDXP, ES: SPX (the SPXW chain) and SPY; the readings, the radial, the Table and the
   hover shares keep the whole board.
-- **Q-review-stack (open; for the owner; step 14 build stage 4, round 4 (6)):** the scorer records which levels it
+- **Q-review-stack (owner 2026-11-16, round 5: the display rule decided and built; exact recording a pre-13d item; step 14 build stage 4, round 4 (6)):** the scorer records which levels it
   stacked only as counts (`stack_count`, `n_<sub_type>`; `founding_level_ids` holds a level zone's founding members at
   its formation, not at the decision). How membership is decided (`features/session_features.py` `members_at`,
   `features/zones.py`): a **level zone's** members are the levels the zone book holds at that instant (two levels join
@@ -1249,6 +1249,28 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   zones "inside, then overlapping to fill the count", containers "overlapping"; the card would then match every count
   in the preview round. Recording the counted `level_id`s in the scorer's rows would make it exact, but that changes
   the build (after 13c, the owner's decision).
+  **Decided (owner 2026-11-16, round 5):** (a) the display rule is built (`review/cards.py` `stack_payload`: level
+  zones inside first, then overlapping, then nearest; containers overlapping, then nearest; each item carries its
+  `fit`; test `test_stacked_members_prefer_bands_inside_a_level_zone`); the stored preview round was updated in place
+  by `nqbot review restack preview-b958` (only each card's `stack` field, checked; old files under
+  `restack_backup/`; not a redraw, answers untouched): the listed levels are the same on all 60 cards (the old
+  nearest-centre tie-break already chose the inside bands), now 105 inside and 7 overlapping on the level zones, 45
+  overlapping and 4 inside on the golden zones, none outside. (b) **Pre-13d item (after 13c finishes, before 13d's
+  months 1–6 build):** the scorer records which levels it counted at each decision point (their `level_id`s, beside
+  `stack_count` / `n_<sub_type>`), so the real rounds show exact members. It adds a record only and changes no
+  feature value: proved by building the same sessions before and after and comparing every build file (all
+  existing columns equal; only the new column added). Not built now: no scorer or build change while 13c runs.
+- **Q-review-chart round 5 (owner 2026-11-16; built, waiting for the owner's OK):** (1) the readings' Nodes group no
+  longer shows "Pika nodes (+)", "Barney nodes (−)" and "Pika member" (display only: the detector still computes them,
+  the scorer still reads them; cards stored earlier are filtered when served); the groups sit on one grid (checked on
+  c01 with 7 stacked levels: Model and Order flow on the columns of Regime and Freshness, in one row); (2) the replay
+  bar's text is the same two lines at all times (the replay time and "decision HH:MM:SS"; "the chart stops here"
+  gone), only the decision line turns cream at the end of the replay, in a block of fixed width so the scrubber never
+  changes length; (4) the weakest orbs back to about 80% of a bar wide (measured 82%), the larger ones as in round 4,
+  heights as round 4's except that a weak orb stays a little taller than wide (1.1×); (5) the replay slider covers
+  the 30 minutes before the decision's minute (after the answer, through the revealed path); Restart goes there; the
+  chart still draws every candle from 18:00 ET before it (`REPLAY_LOOKBACK_MIN` 30, no longer clipped at the open;
+  the page computes it for cards stored earlier).
 - **Q-review-sample (step 14 build stage 4; (1)-(3), (5) and the preview rule decided by the owner 2026-11-16; (4),
   (6), (7) open):** (1) **"Setups the owner would never take"** (§8): single-level zones (stack count 1) traded against
   the day's direction so far (`with_day_direction` false), else any single-level zone, are accepted as a **stand-in**;

@@ -188,3 +188,57 @@ def test_a_stacked_member_the_chart_cannot_find_is_listed_as_missing(day):
     assert any(x["label"] == "PDH" and x["price"] == 21512 for x in st["items"])     # the PDH band at T, though far away
     assert any(x.get("missing") and x["label"] == "IB high" for x in st["items"])     # no IB levels in the synthetic day
     assert st["other"] == 1
+
+
+def test_stacked_members_prefer_bands_inside_a_level_zone(day):
+    # round 5 (owner 2026-11-16, SPEC §13 Q-review-stack): a level zone's edges are the union of its members' bands, so
+    # a level whose band lies inside the zone is listed before one that only overlaps it, even when the overlapping
+    # one's centre is nearer the zone's centre; a container (golden / gameplan zone) counts every overlapping level
+    dd, specs = day
+    s = specs[1]                                     # c02: a level zone 21,354 - 21,378
+    dec = next(d for d in dd.decisions if d["decision_id"] == s["decision_id"])
+    lo, hi = float(dec["zone_lo"]), float(dec["zone_hi"])
+    assert dec["event_type"] == "level" and (lo, hi) == (21354, 21378)
+    base = next(r for r in dd.levels if r["uid"] == "pdh")
+
+    def lvl(uid, b_lo, b_hi):
+        return {**{k: v for k, v in base.items() if not k.startswith("_")}, "uid": uid, "level_id": uid, "key": uid,
+                "sub_type": "ib_high", "lo": [b_lo], "hi": [b_hi]}
+
+    wide = lvl("ib_wide", 21350, 21382)              # overlaps both edges, centre 21,366 = the zone's centre
+    narrow = lvl("ib_narrow", 21370, 21378)          # inside, centre 21,374
+    far = lvl("ib_far", 21390, 21400)                # outside
+    rows = dict(dd.rows)
+    rows[s["decision_id"]] = {**rows[s["decision_id"]], "n_ib_high": 1, "stack_count": 3}
+    dd2 = cd.DayData(**{**dd.__dict__, "rows": rows, "levels": [*dd.levels, wide, narrow, far]})
+    row, t = rows[s["decision_id"]], int(dec["decision_ts"])
+
+    as_level = cd.stack_payload(dd2, row, t, lo, hi, level_zone=True)
+    ib = [x for x in as_level["items"] if x["label"].startswith("IB")]
+    assert len(ib) == 1 and (ib[0]["lo"], ib[0]["hi"]) == (21370, 21378) and ib[0]["fit"] == "inside"
+    assert as_level["rule"] == "inside first"
+    # the card itself uses the level-zone rule for a level event
+    card_ib = [x for x in cd.card_payload(dd2, s["id"], s["decision_id"], s["pair_id"])["stack"]["items"] if x["label"].startswith("IB")]
+    assert [(x["lo"], x["hi"]) for x in card_ib] == [(21370, 21378)]
+
+    as_container = cd.stack_payload(dd2, row, t, lo, hi, level_zone=False)
+    ib = [x for x in as_container["items"] if x["label"].startswith("IB")]
+    assert len(ib) == 1 and (ib[0]["lo"], ib[0]["hi"]) == (21350, 21382) and ib[0]["fit"] == "overlapping"
+
+    # two counted: inside first, then the overlapping one; never the outside one while an overlapping one is left
+    rows[s["decision_id"]] = {**row, "n_ib_high": 2, "stack_count": 4}
+    two = cd.stack_payload(dd2, rows[s["decision_id"]], t, lo, hi, level_zone=True)
+    assert sorted(x["fit"] for x in two["items"] if x["label"].startswith("IB")) == ["inside", "overlapping"]
+
+
+def test_the_hidden_node_readings_are_not_shown(card):
+    # round 5 (owner 2026-11-16): display only; stored cards that still carry them are filtered when served
+    from nqbot.review import store as rs
+
+    labels = {r["label"] for r in card["readings"]}
+    assert not labels & cd.HIDDEN_READING_LABELS
+    old = {**card, "readings": [*card["readings"], {"group": "Nodes", "label": "Pika member", "value": "yes"},
+                                {"group": "Nodes", "label": "Pika nodes (+)", "value": "1"}]}
+    for answer in (None, {"verdict": "take"}):
+        shown = {r["label"] for r in rs.public_card(old, answer)["readings"]}
+        assert not shown & cd.HIDDEN_READING_LABELS and "King in the zone" in shown

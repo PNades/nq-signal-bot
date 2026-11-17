@@ -224,9 +224,10 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
     }, ms);
     return () => { if (timer.current) clearTimeout(timer.current); };
   }, [playing, clock, speed, maxClock, answered, tMin, animated]);
-  const restart = () => { setPlaying(false); setClock(card.t.replay_start); };
-  const play = () => { if (clock >= maxClock) setClock(card.t.replay_start); setPlaying((p) => !p); };
-  const step = (d: number) => { setPlaying(false); setClock((c) => Math.max(card.t.chart_start, Math.min(maxClock, c + 60 * d))); };
+  const rStart = replayStart(card);
+  const restart = () => { setPlaying(false); setClock(rStart); };
+  const play = () => { if (clock >= maxClock) setClock(rStart); setPlaying((p) => !p); };
+  const step = (d: number) => { setPlaying(false); setClock((c) => Math.max(rStart, Math.min(maxClock, c + 60 * d))); };
   // the end of what may be shown: the decision before the answer, the end of the revealed path after it
   const toEnd = () => { setPlaying(false); setClock(maxClock); };
   // after the answer the rest of the path plays out from the decision (Calm: at once)
@@ -326,14 +327,23 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
   );
 }
 
+/** the replay window starts REPLAY_WINDOW_MIN minutes before the decision's minute (never before the chart's start);
+ * computed here rather than read from `t.replay_start`, which older cards stored as 45 min, clipped at the open */
+const REPLAY_WINDOW_MIN = 30;
+function replayStart(card: Card) {
+  return Math.max(card.t.chart_start, card.t.decision - (card.t.decision % 60) - REPLAY_WINDOW_MIN * 60);
+}
+
 function ReplayBar({ card, clock, max, playing, speed, answered, onRestart, onPlay, onStep, onEnd, onSpeed, onSeek }: {
   card: Card; clock: number; max: number; playing: boolean; speed: number; answered: boolean;
   onRestart: () => void; onPlay: () => void; onStep: (d: number) => void; onEnd: () => void; onSpeed: (s: (typeof SPEEDS)[number]) => void; onSeek: (t: number) => void;
 }) {
   // the slider reaches back to the session's open, 18:00 ET the evening before (owner 2026-11-16)
-  const off = card.et_offset_sec, start = card.t.chart_start;
+  // round 5 (owner 2026-11-16): the slider covers the 30 minutes before the decision (after the answer, through the
+  // revealed path too); the chart still shows every candle from 18:00 ET, so the owner can scroll back further
+  const off = card.et_offset_sec, start = replayStart(card);
   const span = Math.max(60, max - start);
-  const atDecision = clock >= card.t.minute;
+  const atEnd = clock >= max;
   const pct = (t: number) => `${Math.max(0, Math.min(100, ((t - start) / span) * 100))}%`;
   const cur = Math.max(start, Math.min(max, clock));
   // one row on one centre line (owner 2026-11-16, round 4): the transport, the speed, the scrubber, the clock. The
@@ -343,7 +353,7 @@ function ReplayBar({ card, clock, max, playing, speed, answered, onRestart, onPl
   return (
     <div className="flex h-14 shrink-0 items-center gap-3 border-t border-line px-3" data-replay>
       <div className="flex shrink-0 items-center gap-0.5">
-        <IconBtn label={`Restart (${clockOf(card.t.replay_start, off)})`} keys="Home" onClick={onRestart}><RotateCcw className="size-4" /></IconBtn>
+        <IconBtn label={`Restart (${clockOf(start, off)})`} keys="Home" onClick={onRestart}><RotateCcw className="size-4" /></IconBtn>
         <IconBtn label="A minute back" keys="←" onClick={() => onStep(-1)}><StepBack className="size-4" /></IconBtn>
         <IconBtn label={playing ? "Pause" : "Play"} keys="Space" onClick={onPlay} primary>{playing ? <Pause className="size-4" /> : <Play className="size-4 translate-x-px" />}</IconBtn>
         <IconBtn label="Minute →" keys="→" onClick={() => onStep(1)}><StepForward className="size-4" /></IconBtn>
@@ -367,9 +377,11 @@ function ReplayBar({ card, clock, max, playing, speed, answered, onRestart, onPl
         <span className="pointer-events-none absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-bg-1 bg-cream shadow-[0_0_0_1px_rgba(255,224,194,.35)] peer-hover:scale-110 peer-focus-visible:ring-2 peer-focus-visible:ring-cream/60"
           style={{ left: pct(cur) }} aria-hidden="true" data-thumb />
       </div>
-      <div className="flex shrink-0 flex-col items-end justify-center font-mono leading-tight" data-clock-block>
+      {/* round 5 (owner 2026-11-16): the same two lines at all times in a block of fixed width (the scrubber's length
+          never changes); at the end of the replay only the decision line's colour turns cream */}
+      <div className="flex w-32 shrink-0 flex-col items-end justify-center font-mono leading-tight" data-clock-block>
         <div className="text-[13px] text-text-1" data-clock>{clockOf(clock, off)} ET</div>
-        <div className={cn("text-[11px]", atDecision ? "text-cream" : "text-text-3")}>{answered ? (clock > card.t.minute ? "after the decision" : "decision " + card.t.decision_et) : atDecision ? `decision ${card.t.decision_et} · the chart stops here` : `decision at ${card.t.decision_et}`}</div>
+        <div className={cn("text-[11px]", atEnd ? "text-cream" : "text-text-3")} data-decision-line>decision {card.t.decision_et}</div>
       </div>
     </div>
   );
@@ -435,7 +447,7 @@ function Stacked({ stack }: { stack: NonNullable<Card["stack"]> }) {
             <div key={i} className="flex items-baseline justify-between gap-2" data-stack-item>
               <dt className="min-w-0 truncate text-text-3">{x.label}{note && <span className="text-text-3/70"> · {note}</span>}</dt>
               <dd className={cn("shrink-0 font-mono", x.missing ? "text-text-3" : ROLE_TEXT[x.role ?? ""] ?? "text-text-1")}
-                data-hint={x.missing ? undefined : `${x.role ?? "no role yet"} at the decision · band ${fmtPrice(x.lo!)} – ${fmtPrice(x.hi!)}`}>
+                data-hint={x.missing ? undefined : `${x.role ?? "no role yet"} at the decision · band ${fmtPrice(x.lo!)} – ${fmtPrice(x.hi!)}${x.fit ? (x.fit === "inside" ? ", inside the zone" : x.fit === "overlapping" ? ", overlapping the zone" : ", outside the zone") : ""}`}>
                 {x.missing ? "—" : fmtPrice(x.price!)}</dd>
             </div>
           );

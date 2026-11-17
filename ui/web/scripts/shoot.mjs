@@ -3921,6 +3921,102 @@ S["4r4"] = async () => {
   });
 };
 
+S["4r5"] = async () => {
+  const HIDDEN = ["Pika nodes (+)", "Barney nodes (−)", "Pika member"];
+  // the readings' groups: no hidden lines; Model and Order flow on the same columns as the groups above them, every
+  // group in a row starting at the same top
+  const readingsCheck = async (p, name) => {
+    await p.locator("[data-readings]").scrollIntoViewIfNeeded(); await p.waitForTimeout(250);
+    const r = await p.evaluate(() => {
+      const grid = document.querySelector("[data-readings] > div.grid");
+      const groups = [...grid.children].map((g) => { const b = g.getBoundingClientRect(); return { name: g.firstElementChild.textContent, l: Math.round(b.left), t: Math.round(b.top), w: Math.round(b.width) }; });
+      const labels = [...document.querySelectorAll("[data-readings] dt")].map((e) => e.textContent);
+      return { groups, labels };
+    });
+    const shown = r.labels.filter((l) => HIDDEN.some((h) => l.startsWith(h)));
+    const cols = [...new Set(r.groups.map((g) => g.l))].sort((a, b) => a - b);
+    const rows = {}; for (const g of r.groups) (rows[g.t] ??= []).push(g.name);
+    const offCol = r.groups.filter((g) => !cols.some((c) => Math.abs(c - g.l) <= 1));
+    const byName = Object.fromEntries(r.groups.map((g) => [g.name, g]));
+    const mo = ["Model", "Order flow"].map((n) => byName[n]).filter(Boolean);
+    const above = ["Freshness", "Day so far", "Regime"].map((n) => byName[n]).filter(Boolean);
+    const moOnCols = mo.every((g) => above.some((a) => Math.abs(a.l - g.l) <= 1));
+    const moRow = mo.length === 2 && Math.abs(mo[0].t - mo[1].t) <= 1;
+    checks[name] = { columns: cols, rows, model_order_flow_on_columns: moOnCols, model_order_flow_one_row: moRow, hiddenShown: shown };
+    if (shown.length) problems.push(`${name}: hidden readings still shown: ${shown.join(", ")}`);
+    if (!moOnCols || !moRow || offCol.length) problems.push(`${name}: groups off the grid ${JSON.stringify(checks[name])}`);
+  };
+  // the replay text: the same two lines at every clock position, the block's and the scrubber's widths fixed; cream at
+  // the end only; the slider covers the 30 minutes before the decision
+  const replayCheck = async (p, name, answered) => {
+    await p.locator("[data-replay]").scrollIntoViewIfNeeded(); await p.waitForTimeout(200);
+    const read = () => p.evaluate(() => { const bar = document.querySelector("[data-replay]"), d = bar.querySelector("[data-decision-line]"), s = bar.querySelector("[data-scrub]");
+      return { clock: bar.querySelector("[data-clock]").textContent, line: d.textContent, color: getComputedStyle(d).color,
+        block: +bar.querySelector("[data-clock-block]").getBoundingClientRect().width.toFixed(1), scrub: +bar.querySelector("[data-scrub-wrap]").getBoundingClientRect().width.toFixed(1),
+        min: Number(s.min), max: Number(s.max), value: Number(s.value) }; });
+    const card = await p.evaluate(() => window.__cfReviewCard ?? null);
+    const states = [];
+    await p.keyboard.press("Home"); await p.waitForTimeout(250); states.push({ at: "home", ...(await read()) });
+    for (let k = 0; k < 5; k++) await p.keyboard.press("ArrowRight");
+    await p.waitForTimeout(250); states.push({ at: "mid", ...(await read()) });
+    await p.keyboard.press("End"); await p.waitForTimeout(400); states.push({ at: "end", ...(await read()) });
+    const lines = new Set(states.map((s) => s.line)), blocks = new Set(states.map((s) => s.block)), scrubs = new Set(states.map((s) => s.scrub));
+    const endCream = states[2].color !== states[0].color && states[0].color === states[1].color;
+    checks[name] = { states, answered };
+    if (lines.size !== 1 || !/^decision \d\d:\d\d:\d\d$/.test(states[0].line)) problems.push(`${name}: the decision line changes or reads oddly: ${[...lines].join(" | ")}`);
+    if (blocks.size !== 1 || scrubs.size !== 1) problems.push(`${name}: widths change (block ${[...blocks]}, scrubber ${[...scrubs]})`);
+    if (!endCream) problems.push(`${name}: the colour does not turn only at the end (${states.map((s) => s.color).join(" / ")})`);
+    if (states.some((s) => /stops here/.test(s.line))) problems.push(`${name}: "the chart stops here" is still shown`);
+    // the slider's start: the decision's minute − 30 min; Restart goes there
+    const [hh, mm, ss] = states[0].line.slice(9).split(":").map(Number);
+    const startClock = states[0].clock;
+    const want = ((hh * 60 + mm - 30) + 1440) % 1440;
+    const got = startClock.match(/(\d\d):(\d\d)/).slice(1).map(Number);
+    checks[name].start = { clock: startClock, expected: `${String(Math.floor(want / 60)).padStart(2, "0")}:${String(want % 60).padStart(2, "0")}` };
+    if (got[0] * 60 + got[1] !== want) problems.push(`${name}: Restart/slider start ${startClock}, expected 30 min before ${states[0].line}`);
+    if (states[0].min !== states[0].value) problems.push(`${name}: Home is not at the slider's start`);
+    if (!answered && states[2].max - states[0].min > 31 * 60) problems.push(`${name}: the unanswered slider covers ${(states[2].max - states[0].min) / 60} min`);
+  };
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    // an unanswered card: replay text and window, the chart before the window still drawn at the replay's start
+    await rshot(`r5_replay_${w}`, w, h, "/review", async (p) => {
+      await replayCheck(p, `r5_replay_${w}`, false);
+      await p.keyboard.press("Home"); await p.waitForTimeout(300);
+      const bars = await p.evaluate(() => { const o = window.__cfOverlay; return { first: o.s.barTimes[0], n: o.s.barTimes.length }; });
+      checks[`r5_replay_${w}`].barsAtStart = bars;
+      if (bars.n < 120) problems.push(`r5_replay_${w}: only ${bars.n} candles at the replay's start (the history before the window should stay)`);
+    });
+    await rshot(`r5_replay_end_${w}`, w, h, "/review", async (p) => { await p.locator("[data-replay]").scrollIntoViewIfNeeded(); await p.keyboard.press("End"); await p.waitForTimeout(400); });
+    await rshot(`r5_readings_${w}`, w, h, "/review", async (p) => readingsCheck(p, `r5_readings_${w}`));
+    // c01: answered, seven stacked levels
+    await rshot(`r5_readings_c01_${w}`, w, h, "/review", async (p) => {
+      await p.locator("[role=listitem]", { hasText: /^01/ }).click(); await p.waitForTimeout(1500);
+      await p.evaluate(() => document.activeElement?.blur?.());
+      await readingsCheck(p, `r5_readings_c01_${w}`);
+      checks[`r5_readings_c01_${w}`].stacked = await p.evaluate(() => [...document.querySelectorAll("[data-stack-item]")].map((e) => [e.textContent, e.querySelector("dd")?.getAttribute("data-hint")]));
+    });
+    // the weakest orbs about 80% of a bar wide, every orb taller than wide
+    await rshot(`r5_orbs_${w}`, w, h, "/review", async (p) => {
+      const r = await p.evaluate(() => { const o = window.__cfOverlay, s = o.orbShapes, sp = o.chart.timeScale().options().barSpacing;
+        const minRy = Math.min(...s.map((x) => x.ry)); const weak = s.filter((x) => x.ry <= minRy + 0.01);
+        return { n: s.length, spacing: +sp.toFixed(2), weakWidth: weak.length ? 2 * weak[0].rx : null, weakHeight: weak.length ? 2 * weak[0].ry : null,
+          biggest: Math.max(...s.map((x) => 2 * x.ry)), notTall: s.filter((x) => !(x.ry > x.rx)).length }; });
+      r.weakShare = r.weakWidth != null ? +(r.weakWidth / r.spacing).toFixed(2) : null;
+      checks[`r5_orbs_${w}`] = r;
+      if (r.notTall) problems.push(`r5_orbs_${w}: ${r.notTall} orbs not taller than wide`);
+      if (r.weakShare != null && (r.weakShare < 0.7 || r.weakShare > 0.92)) problems.push(`r5_orbs_${w}: the weakest are ${r.weakShare} of a bar wide (want about 0.8)`);
+    });
+  }
+  // after the answer (c01): the same text, the slider through the revealed path, cream at its end
+  await rshot("r5_replay_answered_1440", 1440, 900, "/review", async (p) => {
+    await p.locator("[role=listitem]", { hasText: /^01/ }).click(); await p.waitForTimeout(1500);
+    await p.evaluate(() => { document.activeElement?.blur?.(); });
+    await replayCheck(p, "r5_replay_answered_1440", true);
+    const st = checks.r5_replay_answered_1440.states;
+    if (!(st[2].max - st[0].min > 30 * 60)) problems.push("r5_replay_answered_1440: the slider does not extend through the revealed path");
+  });
+};
+
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();
 await browser.close();
 fs.writeFileSync(path.join(OUT, "checks.json"), JSON.stringify({ stage, base: BASE, problems, checks }, null, 2));

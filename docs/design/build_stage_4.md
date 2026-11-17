@@ -395,3 +395,22 @@ Worth trying if you want them: 29206 (layer toggles), 35286 (full screen), 35685
 - **Made cheaper this round:** the card re-renders only when its objects change, its position is set directly, the
   chart redraws for hover only when the highlighted line changes, and pointer updates are coalesced to one per frame.
 - **Open:** I'll measure again once 13c ends.
+
+## Review round 5 (owner 2026-11-16)
+**Evidence:** [`build/stage4r5/`](build/stage4r5/) ([`checks.json`](build/stage4r5/checks.json), all passed) at 1440
+and 960 px; `stage4`, `stage4s`, `stage4b`, `stage4r3`, `stage4r4` re-ran clean; `stage4br` clean except the 4×
+frame-time check at 960 px (open since round 4, measured under 13c's load); its cut check: 0 of 60 cards show anything
+after the decision before the answer.
+
+1. **Nodes readings:** "Pika nodes (+)", "Barney nodes (−)" and "Pika member" are gone from the page (display only).
+   Model and Order flow sit on the same columns as Regime and Freshness, in one row, on c01 (7 stacked) and c03.
+2. **Replay text:** always "HH:MM ET" over "decision HH:MM:SS"; at the end only the decision line turns cream; the
+   block is 128 px wide at every position, so the scrubber keeps its length (518 px at 1440).
+3. **Stacked members:** the inside-first rule is built with a test. The preview round's stored lists were recomputed
+   in place (`nqbot review restack preview-b958`, only the `stack` field): the same levels on all 60 cards; level
+   zones 105 inside / 7 overlapping, golden zones 45 overlapping / 4 inside, none outside. The price hint now says
+   whether the band is inside or overlapping the zone. Exact recording is a pre-13d item (SPEC §13 Q-review-stack).
+4. **Orbs:** weakest 82% of a bar wide (4.5 × 5 px at 5.5 px a bar), every orb taller than wide; the largest 9 px tall.
+5. **Replay window:** the slider runs from 30 minutes before the decision's minute (10:30 for 11:00:10) to the
+   decision, and after the answer through the revealed path (c01: 10:09 → 11:08); Restart and Home go to its start;
+   at the start the chart still has every candle from 18:00 (991 on c03).

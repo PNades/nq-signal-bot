@@ -1,0 +1,672 @@
+{
+  "stage": "4r5",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "r5_replay_1440": {
+      "states": [
+        {
+          "at": "home",
+          "clock": "10:30 ET",
+          "line": "decision 11:00:10",
+          "color": "rgb(180, 180, 180)",
+          "block": 128,
+          "scrub": 518.3,
+          "min": 1767367800,
+          "max": 1767369600,
+          "value": 1767367800
+        },
+        {
+          "at": "mid",
+          "clock": "10:35 ET",
+          "line": "decision 11:00:10",
+          "color": "rgb(180, 180, 180)",
+          "block": 128,
+          "scrub": 518.3,
+          "min": 1767367800,
+          "max": 1767369600,
+          "value": 1767368100
+        },
+        {
+          "at": "end",
+          "clock": "11:00 ET",
+          "line": "decision 11:00:10",
+          "color": "rgb(255, 224, 194)",
+          "block": 128,
+          "scrub": 518.3,
+          "min": 1767367800,
+          "max": 1767369600,
+          "value": 1767369600
+        }
+      ],
+      "answered": false,
+      "start": {
+        "clock": "10:30 ET",
+        "expected": "10:30"
+      },
+      "barsAtStart": {
+        "first": 1767308400,
+        "n": 991
+      },
+      "chart": {
+        "x": 48,
+        "y": -182,
+        "w": 888,
+        "h": 616
+      },
+      "radial": {
+        "x": 64,
+        "y": 596,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": -234,
+        "w": 360,
+        "h": 428
+      },
+      "bar": null,
+      "clock": "10:30 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r5_replay_end_1440": {
+      "chart": {
+        "x": 48,
+        "y": -182,
+        "w": 888,
+        "h": 616
+      },
+      "radial": {
+        "x": 64,
+        "y": 596,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": -234,
+        "w": 360,
+        "h": 428
+      },
+      "bar": null,
+      "clock": "11:00 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r5_readings_1440": {
+      "columns": [
+        480,
+        787,
+        1093
+      ],
+      "rows": {
+        "275": [
+          "Stacked (2)",
+          "Confluence",
+          "Nodes"
+        ],
+        "481": [
+          "Regime",
+          "Freshness",
+          "Day so far"
+        ],
+        "663": [
+          "Model",
+          "Order flow"
+        ]
+      },
+      "model_order_flow_on_columns": true,
+      "model_order_flow_one_row": true,
+      "hiddenShown": [],
+      "chart": {
+        "x": 48,
+        "y": -487,
+        "w": 888,
+        "h": 616
+      },
+      "radial": {
+        "x": 64,
+        "y": 291,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": -539,
+        "w": 360,
+        "h": 428
+      },
+      "bar": null,
+      "clock": "11:00 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r5_readings_c01_1440": {
+      "columns": [
+        480,
+        787,
+        1093
+      ],
+      "rows": {
+        "425": [
+          "Stacked (7)",
+          "Confluence",
+          "Nodes"
+        ],
+        "631": [
+          "Regime",
+          "Freshness",
+          "Day so far"
+        ],
+        "813": [
+          "Model",
+          "Order flow"
+        ]
+      },
+      "model_order_flow_on_columns": true,
+      "model_order_flow_one_row": true,
+      "hiddenShown": [],
+      "stacked": [
+        [
+          "QQQ 61125,273.10",
+          "ceiling at the decision · band 25,257.58 – 25,288.61, overlapping the zone"
+        ],
+        [
+          "RTH VWAP +1σ25,272.03",
+          "ceiling at the decision · band 25,260.03 – 25,284.03, overlapping the zone"
+        ],
+        [
+          "VWAP · flipped ×125,270.45",
+          "ceiling at the decision · band 25,258.45 – 25,282.45, overlapping the zone"
+        ],
+        [
+          "Retested extreme25,264.75",
+          "ceiling at the decision · band 25,256.50 – 25,273.00, overlapping the zone"
+        ],
+        [
+          "ON low25,253.00",
+          "no role yet at the decision · band 25,244.00 – 25,262.00, overlapping the zone"
+        ],
+        [
+          "Retested extreme · flipped ×225,251.00",
+          "ceiling at the decision · band 25,242.75 – 25,259.25, overlapping the zone"
+        ],
+        [
+          "RTH VWAP · flipped ×225,249.90",
+          "ceiling at the decision · band 25,237.90 – 25,261.90, overlapping the zone"
+        ]
+      ],
+      "chart": {
+        "x": 48,
+        "y": -382,
+        "w": 888,
+        "h": 660
+      },
+      "radial": {
+        "x": 64,
+        "y": 441,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": -434,
+        "w": 360,
+        "h": 448
+      },
+      "bar": {
+        "x": 1033,
+        "y": 30,
+        "w": 360,
+        "h": 334
+      },
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r5_orbs_1440": {
+      "n": 557,
+      "spacing": 5.48,
+      "weakWidth": 4.5,
+      "weakHeight": 5,
+      "biggest": 9,
+      "notTall": 0,
+      "weakShare": 0.82,
+      "chart": {
+        "x": 48,
+        "y": 318,
+        "w": 888,
+        "h": 616
+      },
+      "radial": {
+        "x": 64,
+        "y": 1096,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 266,
+        "w": 360,
+        "h": 428
+      },
+      "bar": null,
+      "clock": "11:00 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r5_replay_960": {
+      "states": [
+        {
+          "at": "home",
+          "clock": "10:30 ET",
+          "line": "decision 11:00:10",
+          "color": "rgb(180, 180, 180)",
+          "block": 128,
+          "scrub": 430.3,
+          "min": 1767367800,
+          "max": 1767369600,
+          "value": 1767367800
+        },
+        {
+          "at": "mid",
+          "clock": "10:35 ET",
+          "line": "decision 11:00:10",
+          "color": "rgb(180, 180, 180)",
+          "block": 128,
+          "scrub": 430.3,
+          "min": 1767367800,
+          "max": 1767369600,
+          "value": 1767368100
+        },
+        {
+          "at": "end",
+          "clock": "11:00 ET",
+          "line": "decision 11:00:10",
+          "color": "rgb(255, 224, 194)",
+          "block": 128,
+          "scrub": 430.3,
+          "min": 1767367800,
+          "max": 1767369600,
+          "value": 1767369600
+        }
+      ],
+      "answered": false,
+      "start": {
+        "clock": "10:30 ET",
+        "expected": "10:30"
+      },
+      "barsAtStart": {
+        "first": 1767308400,
+        "n": 991
+      },
+      "chart": {
+        "x": 40,
+        "y": 318,
+        "w": 800,
+        "h": 300
+      },
+      "radial": {
+        "x": 290,
+        "y": 1475,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 719,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "10:30 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r5_replay_end_960": {
+      "chart": {
+        "x": 40,
+        "y": 318,
+        "w": 800,
+        "h": 300
+      },
+      "radial": {
+        "x": 290,
+        "y": 1475,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 719,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "11:00 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r5_readings_960": {
+      "columns": [
+        56,
+        347,
+        637
+      ],
+      "rows": {
+        "237": [
+          "Stacked (2)",
+          "Confluence",
+          "Nodes"
+        ],
+        "443": [
+          "Regime",
+          "Freshness",
+          "Day so far"
+        ],
+        "625": [
+          "Model",
+          "Order flow"
+        ]
+      },
+      "model_order_flow_on_columns": true,
+      "model_order_flow_one_row": true,
+      "hiddenShown": [],
+      "chart": {
+        "x": 40,
+        "y": -1422,
+        "w": 800,
+        "h": 300
+      },
+      "radial": {
+        "x": 290,
+        "y": -265,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": -1021,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "11:00 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r5_readings_c01_960": {
+      "columns": [
+        56,
+        347,
+        637
+      ],
+      "rows": {
+        "237": [
+          "Stacked (7)",
+          "Confluence",
+          "Nodes"
+        ],
+        "443": [
+          "Regime",
+          "Freshness",
+          "Day so far"
+        ],
+        "625": [
+          "Model",
+          "Order flow"
+        ]
+      },
+      "model_order_flow_on_columns": true,
+      "model_order_flow_one_row": true,
+      "hiddenShown": [],
+      "stacked": [
+        [
+          "QQQ 61125,273.10",
+          "ceiling at the decision · band 25,257.58 – 25,288.61, overlapping the zone"
+        ],
+        [
+          "RTH VWAP +1σ25,272.03",
+          "ceiling at the decision · band 25,260.03 – 25,284.03, overlapping the zone"
+        ],
+        [
+          "VWAP · flipped ×125,270.45",
+          "ceiling at the decision · band 25,258.45 – 25,282.45, overlapping the zone"
+        ],
+        [
+          "Retested extreme25,264.75",
+          "ceiling at the decision · band 25,256.50 – 25,273.00, overlapping the zone"
+        ],
+        [
+          "ON low25,253.00",
+          "no role yet at the decision · band 25,244.00 – 25,262.00, overlapping the zone"
+        ],
+        [
+          "Retested extreme · flipped ×225,251.00",
+          "ceiling at the decision · band 25,242.75 – 25,259.25, overlapping the zone"
+        ],
+        [
+          "RTH VWAP · flipped ×225,249.90",
+          "ceiling at the decision · band 25,237.90 – 25,261.90, overlapping the zone"
+        ]
+      ],
+      "chart": {
+        "x": 40,
+        "y": -1415,
+        "w": 800,
+        "h": 308
+      },
+      "radial": {
+        "x": 290,
+        "y": -265,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": -1006,
+        "w": 882,
+        "h": 356
+      },
+      "bar": {
+        "x": 39,
+        "y": -634,
+        "w": 882,
+        "h": 294
+      },
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r5_orbs_960": {
+      "n": 557,
+      "spacing": 4.9,
+      "weakWidth": 4,
+      "weakHeight": 4.5,
+      "biggest": 8.5,
+      "notTall": 0,
+      "weakShare": 0.82,
+      "chart": {
+        "x": 40,
+        "y": 318,
+        "w": 800,
+        "h": 300
+      },
+      "radial": {
+        "x": 290,
+        "y": 1475,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 719,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "11:00 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r5_replay_answered_1440": {
+      "states": [
+        {
+          "at": "home",
+          "clock": "10:09 ET",
+          "line": "decision 10:39:00",
+          "color": "rgb(180, 180, 180)",
+          "block": 128,
+          "scrub": 518.3,
+          "min": 1761055740,
+          "max": 1761059280,
+          "value": 1761055740
+        },
+        {
+          "at": "mid",
+          "clock": "10:14 ET",
+          "line": "decision 10:39:00",
+          "color": "rgb(180, 180, 180)",
+          "block": 128,
+          "scrub": 518.3,
+          "min": 1761055740,
+          "max": 1761059280,
+          "value": 1761056040
+        },
+        {
+          "at": "end",
+          "clock": "11:08 ET",
+          "line": "decision 10:39:00",
+          "color": "rgb(255, 224, 194)",
+          "block": 128,
+          "scrub": 518.3,
+          "min": 1761055740,
+          "max": 1761059280,
+          "value": 1761059280
+        }
+      ],
+      "answered": true,
+      "start": {
+        "clock": "10:09 ET",
+        "expected": "10:09"
+      },
+      "chart": {
+        "x": 48,
+        "y": -219,
+        "w": 888,
+        "h": 660
+      },
+      "radial": {
+        "x": 64,
+        "y": 604,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": -271,
+        "w": 360,
+        "h": 448
+      },
+      "bar": {
+        "x": 1033,
+        "y": 193,
+        "w": 360,
+        "h": 334
+      },
+      "clock": "11:08 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    }
+  }
+}
