@@ -316,3 +316,32 @@ Worth trying if you want them: 29206 (layer toggles), 35286 (full screen), 35685
   SSD).
 - **A crash fixed:** changing cards no longer throws "Object is disposed". The trade's axis tags were removed after the
   chart itself.
+
+## Review round 3 (owner 2026-11-16)
+**Evidence:**
+- [`build/stage4r3/`](build/stage4r3/): the stacked list, the replay bar at the bottom, a hover over orbs, the shortcut
+  sheet, at 1440 and 960 px.
+- `stage4br` / `stage4b` / `stage4` / `stage4s` re-ran on the final build. **All checks passed.**
+- **The cut:** the preview round was redrawn (the cards gain the stacked list), then all 60 cards were checked through
+  the API. Before an answer nothing is after the decision, and each card's stacked list adds up to its count.
+
+1. **Replay bar** back under the chart. The open dock may cover it.
+2. **Hovering** shows only levels, highs/lows, node orbs and touch markers, each with its price. Zones, crowns and the
+   trade lines no longer react. Checked: the cards over lines and orbs hold only those kinds.
+3. **Stacked in the zone** (new, at the top of the detector readings). The list comes from the scorer's own count per
+   level type at the decision (`stack_count`, `n_<type>`).
+   - **Which levels:** for each type, the level(s) whose band at the decision lies in (or nearest) the zone.
+   - **What it shows:** name, price (band centre), role, and state: provisional, provisional and crossed back, settled
+     and flipped ×n, or original role. All from the state at the decision only.
+   - **Gaps:** a member the chart can't find is listed as missing, and a type the counts don't name as "other". The
+     facts panel's "Stacked" line now names the same members.
+   - **Tested** (`tests/test_review_cards.py`): the VWAP is provisional at 11:25 although it is reclaimed at 12:30, and
+     settled on the 14:05 card.
+4. **Orbs** are vertical ovals, every one taller than wide (measured: 0 not). The weakest are about 80% of a bar wide
+   (4.5 px at 5.5 px a bar), so their rows read as near-continuous lines; height and width grow with the share, up to
+   about 6 × 12 px for the King.
+   - **A correction on the way:** my first oval version made the King's row a thick 16-px band that took over the chart,
+     so the heights and the glow were brought down.
+   - **4× replay:** 16.7 ms at the 95th percentile at 1440, 1280 and 960 px, 0–1 frames over 20 ms.
+5. **The A key** (every level at full strength) is listed in the `?` sheet under a new Review group, with T / S /
+   Ctrl+Enter / Space / ← → / Home / End / P N / L.

@@ -48,6 +48,8 @@ export interface Card {
   };
   trade: Trade;
   readings: Reading[];
+  /** the confluences behind "Levels stacked", as known at the decision time */
+  stack?: { count: number; other: number; items: { label: string; price?: number; lo?: number; hi?: number; role?: "ceiling" | "floor" | null; provisional?: boolean; crossed_back?: boolean; flips?: number; outside_pts?: number | null; missing?: boolean }[] };
   pre: Half;
   post?: Half;
   outcome?: Outcome;

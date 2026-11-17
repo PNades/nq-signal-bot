@@ -33,7 +33,7 @@ const MAPS: MapName[] = ["QQQ", "NDXP", "SPY", "SPX"];
 // the plot takes the window's height left between its top and the dock (open or minimized), so the replay bar stays
 // clear of the dock when the page opens; never under PLOT_MIN or over PLOT_MAX (full screen: F). At 1280 px and wider the
 // chart card also stretches to the height of the column beside it, so no gap is left under it (owner 2026-11-16); the
-// replay bar sits under the toolbar, so it never moves under the dock
+// replay bar is at the chart's bottom (round 3: the dock may cover it; scroll or minimize the dock)
 const PLOT_MIN = 300, PLOT_MAX = 760, REPLAY_H = 49, TOOLBAR_H = 45;
 const ENTRY_CHOICES = [["order_flow", "Order-flow trigger"], ["audit", "Audit"], ["plain", "Plain at the level"]] as const;
 const STYLE_NAME: Record<string, string> = { c: "(c) audit / sweep reclaim", d: "(d) plain at the touch", a: "(a) absorption", b: "(b) order flow" };
@@ -336,7 +336,7 @@ function ReplayBar({ card, clock, max, playing, speed, answered, onRestart, onPl
   const atDecision = clock >= card.t.minute;
   const pct = (t: number) => `${Math.max(0, Math.min(100, ((t - start) / span) * 100))}%`;
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b border-line px-3 py-2" data-replay>
+    <div className="flex flex-wrap items-center gap-3 border-t border-line px-3 py-2.5" data-replay>
       <div className="flex items-center gap-1">
         <IconBtn label={`Restart (${clockOf(card.t.replay_start, off)})`} keys="Home" onClick={onRestart}><RotateCcw className="size-4" /></IconBtn>
         <IconBtn label="A minute back" keys="←" onClick={() => onStep(-1)}><StepBack className="size-4" /></IconBtn>
@@ -378,7 +378,8 @@ function Facts({ card, clock, off }: { card: Card; clock: number; off: number })
   const rows: [string, React.ReactNode][] = [
     ["Setup", <>{s.event_type === "golden" ? "Golden zone" : "Level"} touch, {s.role} · <span className={long ? "text-pnl-up" : "text-pnl-down"}>{long ? "long ▲" : "short ▼"}</span></>],
     ["Zone", <span className="font-mono">{fmtPrice(s.zone.lo)} – {fmtPrice(s.zone.hi)}</span>],
-    ["Stacked", s.members.length ? s.members.join(" · ") : `${s.stack_count} level${s.stack_count === 1 ? "" : "s"}`],
+    // the same members as the readings' stacked list (the scorer's per-type counts at the decision)
+    ["Stacked", card.stack?.items.length ? card.stack.items.map((x) => x.label).join(" · ") : s.members.length ? s.members.join(" · ") : `${s.stack_count} level${s.stack_count === 1 ? "" : "s"}`],
     ["Entry style", STYLE_NAME[t.style] ?? t.style],
     ["Price", <span className="font-mono">{fmtPrice(s.price)}</span>],
   ];
@@ -406,6 +407,35 @@ function Facts({ card, clock, off }: { card: Card; clock: number; off: number })
   );
 }
 
+const ROLE_TEXT: Record<string, string> = { ceiling: "text-pnl-down", floor: "text-pnl-up" };
+
+/** the confluences behind "Levels stacked", as known at the decision time (owner 2026-11-16, round 3) */
+function Stacked({ stack }: { stack: NonNullable<Card["stack"]> }) {
+  return (
+    <div className="mt-3 rounded-sm border border-line bg-bg-2/60 p-3" data-stack>
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="text-[12px] font-medium text-text-2">Stacked in the zone · {stack.count} level{stack.count === 1 ? "" : "s"}</div>
+        <div className="text-[11px] text-text-3">name, price, role and state at the decision</div>
+      </div>
+      <table className="mt-2 w-full text-[12px]">
+        <tbody>
+          {stack.items.map((x, i) => (
+            <tr key={i} className="border-t border-line first:border-t-0" data-stack-item>
+              <td className="py-1 pr-3 text-text-1">{x.label}</td>
+              {x.missing ? <td colSpan={3} className="py-1 text-text-3">not found on the chart at the decision</td> : <>
+                <td className="py-1 pr-3 text-right font-mono text-text-1">{fmtPrice(x.price!)}{x.outside_pts ? <span className="text-text-3"> ({x.outside_pts} pts out)</span> : null}</td>
+                <td className={cn("py-1 pr-3", ROLE_TEXT[x.role ?? ""] ?? "text-text-2")}>{x.role ?? "no role yet"}</td>
+                <td className="py-1 text-text-2">{x.role == null ? "—" : x.provisional ? (x.crossed_back ? "provisional, crossed back" : "provisional") : x.flips ? `settled, flipped ×${x.flips}` : "original role"}</td>
+              </>}
+            </tr>
+          ))}
+          {stack.other > 0 && <tr className="border-t border-line"><td className="py-1 pr-3 text-text-1">Other</td><td colSpan={3} className="py-1 text-text-3">{stack.other} member{stack.other === 1 ? "" : "s"} the per-type counts don't name</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return <><dt className="text-text-3">{k}</dt><dd className="min-w-0 text-text-1">{v}</dd></>;
 }
@@ -419,6 +449,7 @@ function Readings({ card }: { card: Card }) {
   return (
     <section className="rounded-md border border-line bg-bg-1 p-4" aria-label="Detector readings at the decision" data-readings>
       <div className="eyebrow">Detector readings at the decision</div>
+      {card.stack && <Stacked stack={card.stack} />}
       <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-x-6 gap-y-4">
         {groups.map(([g, rows]) => (
           <div key={g} className="min-w-0">

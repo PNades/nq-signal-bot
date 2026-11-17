@@ -159,3 +159,32 @@ def test_a_decision_at_a_bar_close_shows_the_closed_bar_as_its_minute():
     assert c["post"]["bars"]["NQ"][0][0] == c["t"]["minute"]
     assert cd.last_known_minute(T) == T - cd.MIN_NS and cd.last_known_minute(T + 1) == T
     assert cd.last_known_minute(T, nq) == T                         # a trade at T itself opens the 10:12 bar
+
+
+def test_the_stacked_confluences_are_as_known_at_the_decision(day, card):
+    # c02 at 11:25:10: the scorer counted a daily POC and the VWAP (`n_poc_daily`, `n_vwap18`)
+    st = card["stack"]
+    assert st["count"] == 2 and st["other"] == 0 and len(st["items"]) == 2
+    by = {x["label"]: x for x in st["items"]}
+    poc, vwap = by["Daily POC"], by["VWAP"]
+    assert poc["price"] == 21366 and (poc["lo"], poc["hi"]) == (21354, 21378)
+    assert poc["role"] == "ceiling" and not poc["provisional"] and poc["flips"] == 1     # crossed 11:20, flipped 11:25
+    assert vwap["role"] == "ceiling" and vwap["provisional"]                           # crossed 10:45; its 12:30 reclaim is later
+    assert [x["price"] for x in st["items"]] == sorted([x["price"] for x in st["items"]], reverse=True)
+    # the same VWAP on the 14:05 card: reclaimed at 12:30, back to floor and settled
+    dd, specs = day
+    c4 = cd.card_payload(dd, specs[3]["id"], specs[3]["decision_id"], specs[3]["pair_id"])
+    v4 = next(x for x in c4["stack"]["items"] if x["label"] == "VWAP")
+    assert v4["role"] == "floor" and not v4["provisional"]
+
+
+def test_a_stacked_member_the_chart_cannot_find_is_listed_as_missing(day):
+    dd, specs = day
+    s = specs[1]
+    rows = dict(dd.rows)
+    rows[s["decision_id"]] = {**rows[s["decision_id"]], "n_pdh": 1, "n_ib_high": 1, "stack_count": 5}
+    dd2 = cd.DayData(**{**dd.__dict__, "rows": rows})
+    st = cd.card_payload(dd2, s["id"], s["decision_id"], s["pair_id"])["stack"]
+    assert any(x["label"] == "PDH" and x["price"] == 21512 for x in st["items"])     # the PDH band at T, though far away
+    assert any(x.get("missing") and x["label"] == "IB high" for x in st["items"])     # no IB levels in the synthetic day
+    assert st["other"] == 1

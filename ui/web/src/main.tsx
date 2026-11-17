@@ -246,6 +246,13 @@ function App() {
       { keys: "mod+k", label: "Command palette" }, { keys: "?", label: "This sheet" }, { keys: "esc", label: "Close a dialog or leave full screen" },
       { keys: "f", label: "Full-screen chart (Review, Live)" },
     ] },
+    { heading: "Review", items: [
+      { keys: "t", label: "Take" }, { keys: "s", label: "Skip" }, { keys: "mod+enter", label: "Answer and reveal" },
+      { keys: "space", label: "Play / pause the replay" }, { keys: ["left", "right"], label: "A minute back / forward" },
+      { keys: "home", label: "Restart the replay" }, { keys: "end", label: "To the decision (after the answer: the end of the path)" },
+      { keys: "a", label: "Every level at full strength (the chart's Focus off)" },
+      { keys: ["p", "n"], label: "Previous / next card" }, { keys: "l", label: "Later: the next card not answered" },
+    ] },
     { heading: "Risk", items: [{ keys: "enter", label: "Confirm KILL in its dialog" }] },
   ];
 

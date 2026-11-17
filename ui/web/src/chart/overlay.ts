@@ -10,8 +10,9 @@
 // - the confirmed King's switches as crowns; the proposed trade (entry, stop, target from the decision on) and, once
 //   revealed, its fill and exit.
 // Everything is clipped at `limit` (the decision time until the owner answers) and at the replay clock. Every drawn
-// object is recorded for the pointer (`hitsAt`), so hovering shows its facts; nothing is written on the price axis
-// except the trade's and the last price's own tags (MainChart).
+// level, high / low, node orb and touch is recorded for the pointer (`hitsAt`), so hovering shows its facts and price;
+// zones, crowns and the trade lines are not (owner 2026-11-16, round 3: the setup's zone is in the panel on the right);
+// nothing is written on the price axis except the trade's and the last price's own tags (MainChart).
 import type { CanvasRenderingTarget2D } from "fancy-canvas";
 import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Logical, PrimitivePaneViewZOrder, SeriesAttachedParameter, Time } from "lightweight-charts";
 import type { Level, MapSnap, Touch, Zone } from "@/pages/review/types";
@@ -58,21 +59,31 @@ function bisectRight(a: number[], t: number) {
   return lo;
 }
 
-/** a pre-rendered orb (a circle with its glow), drawn once per look and blitted thousands of times */
+/** a pre-rendered orb (a vertical oval with its glow), drawn once per look and blitted thousands of times */
 const sprites = new Map<string, HTMLCanvasElement>();
-function sprite(rgb: number[], r: number, alpha: number, glow: number, king: boolean, pr: number): HTMLCanvasElement {
-  const key = `${rgb.join()}|${r}|${alpha}|${glow}|${king}|${pr}`;
+function sprite(rgb: number[], rx: number, ry: number, alpha: number, glow: number, king: boolean, pr: number): HTMLCanvasElement {
+  const key = `${rgb.join()}|${rx}|${ry}|${alpha}|${glow}|${king}|${pr}`;
   let c = sprites.get(key);
   if (c) return c;
-  const pad = Math.ceil((glow + (king ? 3 : 0) + 2) * pr), R = r * pr, size = Math.ceil(2 * (R + pad));
+  const pad = Math.ceil((glow + (king ? 3 : 0) + 2) * pr), X = rx * pr, Y = ry * pr;
+  const w = Math.ceil(2 * (X + pad)), h = Math.ceil(2 * (Y + pad));
   c = document.createElement("canvas");
-  c.width = c.height = size;
+  c.width = w; c.height = h;
   const g = c.getContext("2d")!;
   if (glow > 0) { g.shadowColor = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${Math.min(1, alpha + 0.2)})`; g.shadowBlur = glow * pr; }
-  g.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`; g.beginPath(); g.arc(size / 2, size / 2, R, 0, Math.PI * 2); g.fill();
-  if (king) { g.shadowBlur = 0; g.strokeStyle = "rgba(255,241,220,.85)"; g.lineWidth = 1 * pr; g.beginPath(); g.arc(size / 2, size / 2, R + 1.6 * pr, 0, Math.PI * 2); g.stroke(); }
+  g.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`; g.beginPath(); g.ellipse(w / 2, h / 2, X, Y, 0, 0, Math.PI * 2); g.fill();
+  if (king) { g.shadowBlur = 0; g.strokeStyle = "rgba(255,241,220,.85)"; g.lineWidth = 1 * pr; g.beginPath(); g.ellipse(w / 2, h / 2, X + 1.4 * pr, Y + 1.4 * pr, 0, 0, Math.PI * 2); g.stroke(); }
   sprites.set(key, c);
   return c;
+}
+/** an orb's half width and half height (px) for its share of the board's largest node and the bar spacing: a weak node
+ * fills most of its minute's width (its row reads as a near-continuous line), every orb is taller than it is wide, and
+ * both grow with the share (owner 2026-11-16, round 3; the reference docs/design/inspiration/gex_chart_1.jpeg) */
+export function orbSize(share: number, spacing: number): [number, number] {
+  const q = Math.sqrt(Math.max(0, Math.min(1, share)));
+  const rx = Math.max(0.6, Math.min(4, spacing * 0.42 * (0.85 + 0.35 * q)));
+  const ry = Math.max(rx * 1.15, Math.min(8, rx * 1.15 + 2.6 * q));
+  return [Math.round(rx * 4) / 4, Math.round(ry * 4) / 4];
 }
 
 /** "12:40" in New York from a UTC second (DST-aware) */
@@ -88,7 +99,7 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
   private shapes: { shape: Shape; hit: Hit | (() => Hit) }[] = [];
   /** each level's role-change instants (for a binary search per segment) */
   private roleTimes = new WeakMap<Level, number[]>();
-  private orbShapes: { x: number; y: number; r: number; hit: () => Hit }[] = [];
+  private orbShapes: { x: number; y: number; r: number; rx: number; ry: number; hit: () => Hit }[] = [];
   private orbCache: { key: string; canvas: HTMLCanvasElement } | null = null;
   /** frames that had to draw the orbs again (the cache missed): read by the stage-4 shoot script */
   orbRedraws = 0;
@@ -132,7 +143,8 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
       if (!out.has(h.key)) out.set(h.key, h);
     }
     for (const o of this.orbShapes) {
-      if (Math.hypot(x - o.x, y - o.y) <= o.r + HIT_PX - 1) { const h = o.hit(); if (!out.has(h.key)) out.set(h.key, h); }
+      const dx = (x - o.x) / (o.rx + 2), dy = (y - o.y) / (o.ry + 2);
+      if (dx * dx + dy * dy <= 1) { const h = o.hit(); if (!out.has(h.key)) out.set(h.key, h); }
     }
     return [...out.values()].sort((a, b) => b.price - a.price);
   }
@@ -203,11 +215,6 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
           ctx.strokeRect(x0 + 0.5, y0 + 0.5, Math.max(1, x1 - x0) - 1, Math.max(1, y1 - y0) - 1);
         }
         ctx.globalAlpha = 1;
-        const zp = p as [number, number, number, number, "ceiling" | "floor" | null, boolean];
-        this.shapes.push({ shape: { kind: "r", x0, x1, y0, y1 }, hit: () => ({
-          key: `z:${z.id}`, kind: "zone", price: zp[2], color: ROLE_COLOR[role],
-          title: z.own ? "This setup's zone" : `Zone (${zp[3]} levels)`,
-          lines: [`${fmtP(zp[1])} – ${fmtP(zp[2])}`, `${zp[4] ?? "no role"}${zp[5] ? ", provisional" : ""}`, `${zp[3]} level${zp[3] === 1 ? "" : "s"} inside`] }) });
       }
     }
   }
@@ -305,7 +312,6 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
       const bt = this.s.barTimes;
       const xa = bt.length ? this.xOf(bt[bt.length - 1]) : null, xb = bt.length ? this.xOf(bt[bt.length - 1] + 60) : null;
       const spacing = xa != null && xb != null ? Math.max(1, xb - xa) : 6;
-      const rMax = Math.max(1.3, Math.min(3.4, spacing * 0.42));
       const tFrom = vis && bt.length ? bt[Math.max(0, Math.min(bt.length - 1, Math.floor(vis.from)))] : 0;
       const last = Math.min(this.s.clock, this.s.limit);
       for (const ser of this.s.orbs) {
@@ -321,13 +327,14 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
             if (y == null || y < -6 || y > H / pr + 6) continue;
             const share = sn.max ? Math.min(1, Math.abs(v) / sn.max) : 0;
             const king = sn.king != null && Math.abs(sn.king - k) < 1e-6;
-            const r = Math.round((0.6 + (rMax - 0.6) * Math.sqrt(share)) * 4) / 4;
+            const [rx, ry] = orbSize(share, spacing);
+            const r = Math.max(rx, ry);
             const alpha = king ? 1 : Math.round((0.22 + 0.7 * Math.pow(share, 0.6)) * 10) / 10;
-            const glow = king ? 7 : share >= 0.5 ? 4 : share >= 0.25 ? 2 : 0;
-            const sp = sprite(v >= 0 ? PIKA : BARNEY, r, alpha, glow, king, pr);
+            const glow = king ? 5 : share >= 0.5 ? 3 : share >= 0.25 ? 1.5 : 0;
+            const sp = sprite(v >= 0 ? PIKA : BARNEY, rx, ry, alpha, glow, king, pr);
             g.drawImage(sp, Math.round(x * pr - sp.width / 2), Math.round(y * pr - sp.height / 2));
             const t = sn.t, chain = ser.chain;
-            shapes.push({ x, y, r, hit: () => ({ key: `o:${chain}:${k}:${t}`, kind: "orb", price, color: v >= 0 ? "#F2B950" : "#DD9BE0",
+            shapes.push({ x, y, r, rx, ry, hit: () => ({ key: `o:${chain}:${k}:${t}`, kind: "orb", price, color: v >= 0 ? "#F2B950" : "#DD9BE0",
               title: `${chain} ${k}${king ? " · King" : ""}`,
               lines: [fmtP(price), `${gexTxt(v)} ${v >= 0 ? "Pika" : "Barney"} · ${Math.round(share * 100)}% of the largest`, `board at ${clockET(t + 60)} ET`] }) });
           }
@@ -372,8 +379,7 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
       const x = this.xOf(t), y = this.yOf(px);
       if (x == null || y == null || x < -10 || x > w + 10) continue;
       crown(ctx, x, y - 9);
-      this.shapes.push({ shape: { kind: "c", x, y: y - 9, r: 6 }, hit: { key: `k:${chain}:${t}`, kind: "king", price: px, color: CREAM,
-        title: `${chain} King → ${strike}`, lines: [fmtP(px), `switched at ${clockET(t)} ET`] } });
+      void strike; void chain;
     }
     // the proposed trade from the decision on, and once revealed its fill and exit
     const tr = this.s.trade;
@@ -385,7 +391,7 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
         if (y == null) return;
         ctx.strokeStyle = color; ctx.lineWidth = 1.25; ctx.setLineDash(dash);
         ctx.beginPath(); ctx.moveTo(x0, Math.round(y) + 0.5); ctx.lineTo(w, Math.round(y) + 0.5); ctx.stroke(); ctx.setLineDash([]);
-        this.shapes.push({ shape: { kind: "h", x0, x1: w, y }, hit: { key: `tr:${name}`, kind: "trade", price: p, color, title: `Proposed ${name}`, lines: [fmtP(p)] } });
+        void name;
       };
       line(tr.target, "rgba(95,211,155,.95)", "target", [6, 3]);
       line(tr.stop, "rgba(255,79,79,.95)", "stop", [6, 3]);
@@ -400,8 +406,7 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
         ctx.strokeStyle = "#111"; ctx.lineWidth = 1.5;
         const up = exit ? tr.dir < 0 : tr.dir > 0;
         ctx.beginPath(); ctx.moveTo(x, y + (up ? -1 : 1) * 8); ctx.lineTo(x + 6, y); ctx.lineTo(x - 6, y); ctx.closePath(); ctx.fill(); ctx.stroke();
-        this.shapes.push({ shape: { kind: "c", x, y, r: 6 }, hit: { key: exit ? "tr:exit" : "tr:fill", kind: "trade", price: p.px, color: CREAM,
-          title: exit ? `Exit · ${tr.exit!.result}` : "Fill", lines: [fmtP(p.px), `${clockET(p.t)} ET`] } });
+
       }
     }
   }

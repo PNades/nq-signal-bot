@@ -1,0 +1,268 @@
+{
+  "stage": "4r3",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "r3_replay_1440": {
+      "replayTop": 977,
+      "plotBottom": 977
+    },
+    "r3_replay_bottom_1440": {
+      "chart": {
+        "x": 48,
+        "y": 318,
+        "w": 888,
+        "h": 630
+      },
+      "radial": {
+        "x": 64,
+        "y": 1116,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 266,
+        "w": 360,
+        "h": 448
+      },
+      "bar": null,
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r3_stack_1440": {
+      "rows": [
+        "QQQ 61125,273.10ceilingoriginal role",
+        "RTH VWAP +1σ25,272.03ceilingoriginal role",
+        "VWAP25,270.45ceilingsettled, flipped ×1",
+        "Retested extreme25,264.75ceilingoriginal role",
+        "ON low25,253.00no role yet—",
+        "Retested extreme25,251.00ceilingsettled, flipped ×2",
+        "RTH VWAP25,249.90ceilingsettled, flipped ×2"
+      ],
+      "head": "Stacked in the zone · 7 levelsname, price, role and state at",
+      "chart": {
+        "x": 48,
+        "y": -420,
+        "w": 888,
+        "h": 630
+      },
+      "radial": {
+        "x": 64,
+        "y": 378,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": -472,
+        "w": 360,
+        "h": 448
+      },
+      "bar": null,
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r3_orb_hover_1440": {
+      "kinds": [
+        "orb"
+      ],
+      "chart": {
+        "x": 48,
+        "y": 318,
+        "w": 888,
+        "h": 630
+      },
+      "radial": {
+        "x": 64,
+        "y": 1116,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 266,
+        "w": 360,
+        "h": 448
+      },
+      "bar": null,
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r3_replay_960": {
+      "replayTop": 646,
+      "plotBottom": 646
+    },
+    "r3_replay_bottom_960": {
+      "chart": {
+        "x": 40,
+        "y": 318,
+        "w": 800,
+        "h": 300
+      },
+      "radial": {
+        "x": 290,
+        "y": 1480,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 724,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r3_stack_960": {
+      "rows": [
+        "QQQ 61125,273.10ceilingoriginal role",
+        "RTH VWAP +1σ25,272.03ceilingoriginal role",
+        "VWAP25,270.45ceilingsettled, flipped ×1",
+        "Retested extreme25,264.75ceilingoriginal role",
+        "ON low25,253.00no role yet—",
+        "Retested extreme25,251.00ceilingsettled, flipped ×2",
+        "RTH VWAP25,249.90ceilingsettled, flipped ×2"
+      ],
+      "head": "Stacked in the zone · 7 levelsname, price, role and state at",
+      "chart": {
+        "x": 40,
+        "y": -1352,
+        "w": 800,
+        "h": 300
+      },
+      "radial": {
+        "x": 290,
+        "y": -190,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": -946,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r3_orb_hover_960": {
+      "kinds": [
+        "touch",
+        "orb",
+        "orb",
+        "level"
+      ],
+      "chart": {
+        "x": 40,
+        "y": 318,
+        "w": 800,
+        "h": 300
+      },
+      "radial": {
+        "x": 290,
+        "y": 1480,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 724,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r3_shortcuts_1440": {
+      "chart": {
+        "x": 48,
+        "y": 318,
+        "w": 888,
+        "h": 630
+      },
+      "radial": {
+        "x": 64,
+        "y": 1116,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 266,
+        "w": 360,
+        "h": 448
+      },
+      "bar": null,
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    }
+  }
+}

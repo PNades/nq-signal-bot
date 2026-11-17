@@ -1193,7 +1193,7 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
 - **Q-review-chart (owner 2026-11-16, stage-4 review; built, waiting for the owner's OK):** (1) each symbol fits its own
   candles: a switch between NQ and ES resets the price scale (a stretched axis never leaves the other symbol blank);
   (2) one Focus | Table switch, exactly one selected, the chart (Focus) when a card opens; the old "every level at full
-  strength" view stays on the A key until the owner decides whether it goes; (3) the GEX nodes are no longer level lines
+  strength" view stays on the A key (decided in round 3: the key only, no button); (3) the GEX nodes are no longer level lines
   or a column of orbs at the clock: at every minute from 09:30, one small orb per node at its chart price (strike × the R
   in force), from the board known at that minute only, sized, lit and glowing by its share of that board's largest
   |value| (Pika gold, Barney orchid), the King the brightest with a ring (the reference
@@ -1209,6 +1209,19 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   (7) the chart and the replay slider start at the session's open, 18:00 ET the evening before (Restart still goes to
   the decision − 45 min); the overnight follows the same cut; (8) a skip-to-end button after step-forward and the End
   key: the decision before the answer, the end of the revealed path after it.
+- **Q-review-chart round 3 (owner 2026-11-16; built, waiting for the owner's OK):** (1) the replay bar is back at the
+  chart's bottom (the dock may cover it; the owner scrolls or minimizes the dock); (2) hover cards show only individual
+  levels, highs / lows, node orbs and touch markers, each with its price (no zones: the setup's zone is in the panel on
+  the right; no crowns or trade lines); (3) the detector readings list the confluences behind "Levels stacked": the
+  scorer's own count per level type at the decision (`stack_count`, `n_<sub_type>`), and for each type the level(s)
+  whose band at the decision lies in, or nearest, the zone, with the name, price (band centre), role and whether it was
+  still provisional, all from the state at the decision only; a member the chart can't find is listed as missing, a
+  type the counts don't name as "other"; the facts panel's "Stacked" line names the same members; (4) the GEX orbs are
+  vertical ovals (every one taller than wide), the weakest about 80% of a bar wide so their rows read as near-continuous
+  lines, both axes growing with the node's share, the glow softer (the King still the brightest), 60 fps at 4× kept.
+  **Decided:** the every-level view stays on the A key only (no button), listed in the `?` shortcut sheet with the other
+  Review keys; level names on hover and in the Table, the axis keeping only the last price, entry, stop and target
+  (approved).
 - **Q-review-sample (step 14 build stage 4; (1)-(3), (5) and the preview rule decided by the owner 2026-11-16; (4),
   (6), (7) open):** (1) **"Setups the owner would never take"** (§8): single-level zones (stack count 1) traded against
   the day's direction so far (`with_day_direction` false), else any single-level zone, are accepted as a **stand-in**;

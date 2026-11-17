@@ -4,9 +4,9 @@
 // (Focus: the chart with the setup's levels at full strength and the rest faint; Table: the same numbers as a table,
 // MASTER §11's accessibility fallback) and full screen (F). Owner 2026-11-16 (stage-4 review):
 // - each symbol fits its own candles: a switch resets the price scale (a stretched ES axis never blanks NQ);
-// - hovering any drawn object (zone, line, high / low, orb, touch, crown, the trade) shows its facts and price, all the
-//   objects under the pointer in one card sorted by price; nothing right of the last bar (where the owner reads candle
-//   tops on the crosshair); no OHLC box; the card never covers the price axis;
+// - hovering a level, a high / low, a node's orb or a touch shows its facts and price, all of them under the pointer in
+//   one card sorted by price (no zones: the setup's zone is in the panel on the right); nothing right of the last bar
+//   (where the owner reads candle tops on the crosshair); no OHLC box; the card never covers the price axis;
 // - the axis carries only the last price and the trade's entry, stop and target tags.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CandlestickSeries, ColorType, CrosshairMode, LineStyle, createChart, type IChartApi, type ISeriesApi, type Time, type UTCTimestamp } from "lightweight-charts";
@@ -55,7 +55,7 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
   view: ChartView; onView: (v: ChartView) => void;
   /** with Focus, the setup's own levels and zone at full strength, the rest faint (NQ only) */
   focus?: boolean; focusUids?: Set<string>; ownZone?: string | null;
-  /** the replay bar, under the toolbar (so it never sits under the dock) */
+  /** the replay bar, under the plot */
   replay?: ReactNode; minHeight?: number;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -212,7 +212,6 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
           </button>
         </div>
       </div>
-      {replay}
       <div className="relative min-h-0 flex-1" style={{ minHeight: full ? undefined : minHeight }} onPointerLeave={() => setTip(null)}>
         <div ref={plot} className={cn("absolute inset-0", table && "invisible")} data-plot />
         {tip && !table && (
@@ -255,6 +254,8 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
           </div>
         )}
       </div>
+      {/* the replay bar under the chart (owner 2026-11-16, round 3: back at the bottom; the dock may cover it) */}
+      {replay}
     </div>
   );
 }

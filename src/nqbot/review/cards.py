@@ -523,6 +523,46 @@ def readings(row: dict[str, Any]) -> list[dict[str, str]]:
     return out
 
 
+def stack_payload(dd: DayData, row: dict[str, Any], t: int, lo: float, hi: float) -> dict[str, Any]:
+    """The confluences behind "Levels stacked" (owner 2026-11-16, stage-4 review round 3), as known at the decision time
+    t: the scorer's own count per level type at that decision point (`stack_count`, `n_<sub_type>`,
+    `SessionFeatures._makeup`), and for each type the level(s) of that type whose band at t lies in, or nearest, the zone
+    [lo, hi]: its name, its price (the band centre at t), its band, its role and whether that role was still
+    provisional, from its role steps up to t only (no lookahead). A member the chart can't find is listed as missing; a
+    member type the counts don't name (e.g. a gameplan zone) as "other"."""
+    from nqbot.features.session_features import NQ_SUBTYPES
+
+    comp = {st: int(row.get(f"n_{st}") or 0) for st in NQ_SUBTYPES}
+    total = int(row.get("stack_count") or 0)
+    steps = _steps_by_uid(dd)
+    items: list[dict[str, Any]] = []
+    for st, n in comp.items():
+        if n <= 0:
+            continue
+        cands = []
+        for r in dd.levels:
+            if r.get("instrument") != "NQ" or r.get("sub_type") != st:
+                continue
+            _prep(r)
+            b = band_at(r, t)
+            if b is None:
+                continue
+            gap = max(0.0, b[0] - hi, lo - b[1])           # 0 when the band overlaps the zone
+            cands.append((gap, abs((b[0] + b[1]) / 2 - (lo + hi) / 2), r["uid"], r, b))
+        cands.sort(key=lambda c: c[:3])
+        for gap, _, _, r, b in cands[:n]:
+            step = roles.role_at(steps.get(r["uid"], []), t)
+            items.append({"label": level_label(r), "price": rnd((b[0] + b[1]) / 2), "lo": rnd(b[0]), "hi": rnd(b[1]),
+                          "role": step.role if step else None, "provisional": bool(step and step.provisional),
+                          "crossed_back": bool(step and step.broken_back), "flips": step.flips if step else 0,
+                          "outside_pts": rnd(gap) if gap > 0 else None})
+        for _ in range(max(0, n - len(cands))):
+            items.append({"label": SUB_LABEL.get(st, st), "missing": True})
+    other = total - sum(comp.values())
+    items.sort(key=lambda x: -(x.get("price") or -1e18))
+    return {"count": total, "items": items, "other": max(0, other)}
+
+
 def members_at(dd: DayData, t: int, lo: float, hi: float) -> list[str]:
     """The NQ levels stacked in [lo, hi] at t (band centre inside the zone; display)."""
     out = []
@@ -632,6 +672,7 @@ def card_payload(dd: DayData, card_id: str, decision_id: str, pair_id: str, stra
                   "audit_or_sweep": dec.get("style") == "c", "trigger": dec.get("trigger_kind") if isinstance(dec.get("trigger_kind"), str) else None},
         "trade": trade_payload(pair, fill, int(dec["direction"])),
         "readings": readings(row),
+        "stack": stack_payload(dd, row, T, float(dec["zone_lo"]), float(dec["zone_hi"])),
         "pre": pre,
         "post": post,
         "outcome": outcome_payload(dd, pair, fill, event),
@@ -640,7 +681,13 @@ def card_payload(dd: DayData, card_id: str, decision_id: str, pair_id: str, stra
 
 # ── loading a stored day ───────────────────────────────────────────────────────────────────────────────────────────
 
-FEATURE_COLUMNS = ("founding_level_ids", "primary_member_type", "with_day_direction", *READING_COLUMNS)
+def _stack_columns() -> tuple[str, ...]:
+    from nqbot.features.session_features import NQ_SUBTYPES
+
+    return ("stack_count", *(f"n_{st}" for st in NQ_SUBTYPES))
+
+
+FEATURE_COLUMNS = ("founding_level_ids", "primary_member_type", "with_day_direction", *READING_COLUMNS, *_stack_columns())
 
 
 def feature_rows(build_dir, iso: str, decisions: list[dict[str, Any]], decision_ids: set[str]) -> dict[str, dict[str, Any]]:

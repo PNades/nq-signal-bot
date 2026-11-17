@@ -197,7 +197,7 @@ def synthetic_day(seed: int = 7, day: date = DAY) -> tuple[cd.DayData, list[dict
         paths[pid] = {"pair_id": pid, "mae": abs(entry - stop) * (1.0 if out == "stop" else 0.4),
                       "mfe": abs(target - entry) * (1.0 if out == "target" else 0.5)}
         cardspecs.append({"id": cid, "decision_id": did, "pair_id": pid, "stratum": stratum})
-    rows = {d["decision_id"]: {"stack_count": 2, "zone_width": d["zone_hi"] - d["zone_lo"],
+    rows = {d["decision_id"]: {"stack_count": 2, "n_poc_daily": 1, "n_vwap18": 1, "zone_width": d["zone_hi"] - d["zone_lo"],
                                "distance_to_near_edge": 3.0, "trinity_count": 1, "es_at_level": True,
                                "king_present": False, "gatekeeper_present": True, "largest_pct_of_king": 0.41,
                                "n_node_pos": 1, "n_node_neg": 0, "any_rug": False, "any_reverse_rug": False,

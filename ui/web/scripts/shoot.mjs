@@ -3551,7 +3551,7 @@ async function reviewChecks(name, page) {
   const clash = await page.evaluate(() => { const d = document.querySelector("[data-dock]") ?? document.querySelector("nav[aria-label*=ock]"); const rb = document.querySelector("[data-replay]");
     if (!d || !rb) return null; const a = d.getBoundingClientRect(), b = rb.getBoundingClientRect(); return a.top < b.bottom && b.top < a.bottom && a.left < b.right && b.left < a.right ? { dockTop: Math.round(a.top), replayBottom: Math.round(b.bottom) } : false; });
   checks[name].replay_vs_dock = clash;
-  if (clash && name.startsWith("review_")) problems.push(`${name}: the replay bar is under the dock (${JSON.stringify(clash)})`);
+  // owner 2026-11-16, round 3: the replay bar is back at the chart's bottom and may sit under the dock (recorded only)
 }
 async function rshot(name, w, h, url, act, opts = {}) {
   return shot(name, w, h, url, async (p) => { await p.waitForSelector("[data-plot] canvas", { timeout: 15000 }); await p.waitForTimeout(700); if (act) await act(p); await reviewChecks(name, p); }, opts);
@@ -3650,6 +3650,9 @@ async function cutCheckAll(page, round, ids) {
       kings: Object.values(c.pre.kings).flat().filter((k) => k[0] > T).length,
     };
     if (Object.values(n).some((v) => v)) bad.push(`${id}: ${JSON.stringify(n)}`);
+    // the stacked list adds up to the scorer's count (its items, the ones not found, and "other")
+    if (c.stack && c.stack.items.length + c.stack.other !== c.stack.count) bad.push(`${id}: stacked ${c.stack.items.length} + other ${c.stack.other} != ${c.stack.count}`);
+    if (!c.stack) bad.push(`${id}: no stacked list`);
     const first = c.pre.bars.NQ[0]?.[0];
     if (first == null || first > c.t.chart_start + 5 * 60) late18.push(`${id} ${c.day}: first bar ${first == null ? "none" : new Date((first + c.et_offset_sec) * 1000).toISOString().slice(11, 16)} ET`);
   }
@@ -3691,6 +3694,14 @@ async function fixShots(tag, w, h, opts = {}) {
     checks[`fix3_${tag}`] = r;
     if (!r.orbs) problems.push(`fix3_${tag}: no orbs drawn`);
     if (r.latest > r.clock || r.latest + 60 > r.limit + 60) problems.push(`fix3_${tag}: an orb after the clock / decision (${JSON.stringify(r)})`);
+    // round 3: every orb a vertical oval; the weakest nodes nearly fill their minute (rows read as near-continuous lines)
+    const sh = await ov(p, () => { const o = window.__cfOverlay, bt = o.s.barTimes; const sp = o.xOf(bt[bt.length - 1] + 60) - o.xOf(bt[bt.length - 1]);
+      const s = o.orbShapes; const weak = s.filter((x) => x.ry <= Math.min(...s.map((y) => y.ry)) + 0.01);
+      return { n: s.length, notTall: s.filter((x) => !(x.ry > x.rx)).length, spacing: +sp.toFixed(2), weakWidth: weak.length ? +(2 * weak[0].rx).toFixed(2) : null,
+        biggest: Math.max(...s.map((x) => x.ry)), smallest: Math.min(...s.map((x) => x.ry)) }; });
+    checks[`fix3_${tag}`].ovals = sh;
+    if (sh.notTall) problems.push(`fix3_${tag}: ${sh.notTall} orb(s) not taller than wide`);
+    if (sh.weakWidth != null && sh.weakWidth < 0.7 * sh.spacing) problems.push(`fix3_${tag}: the weakest orbs leave wide gaps (${sh.weakWidth} px wide at ${sh.spacing} px a bar)`);
   }, opts);
   await rshot(`fix3_replay4x_${tag}`, w, h, "/review", async (p) => {
     await p.keyboard.press("Home"); await p.waitForTimeout(300);
@@ -3732,6 +3743,7 @@ async function fixShots(tag, w, h, opts = {}) {
     if (!tip) problems.push(`fix6_${tag}: no card over a drawn object`);
     else {
       if (/O H L C/.test(tip.text)) problems.push(`fix6_${tag}: the OHLC box is back`);
+      if (tip.items.some((k) => !["level", "orb", "touch"].includes(k))) problems.push(`fix6_${tag}: the card shows ${tip.items.join(", ")} (levels, orbs and touches only)`);
       if (tip.right > b.x + axisLeft) problems.push(`fix6_${tag}: the hover card covers the price axis (${tip.right} > ${b.x + axisLeft})`);
     }
   }, opts);
@@ -3804,6 +3816,34 @@ S["4br"] = async () => {
   const idx = await (await page.request.get(BASE + "/api/review")).json();
   await cutCheckAll(page, idx.round.id, idx.round.cards.map((c) => c.id));
   await ctx.close();
+};
+
+// ── stage 4, review round 3 (owner 2026-11-16): the stacked list, the replay bar back at the bottom, orb hover ──────
+S["4r3"] = async () => {
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    await rshot(`r3_replay_bottom_${w}`, w, h, "/review", async (p) => {
+      const r = await p.evaluate(() => { const plot = document.querySelector("[data-plot]").getBoundingClientRect(), rb = document.querySelector("[data-replay]").getBoundingClientRect();
+        return { replayTop: Math.round(rb.top), plotBottom: Math.round(plot.bottom) }; });
+      checks[`r3_replay_${w}`] = r;
+      if (r.replayTop < r.plotBottom - 1) problems.push(`r3_replay_${w}: the replay bar isn't under the chart (${JSON.stringify(r)})`);
+    });
+    await rshot(`r3_stack_${w}`, w, h, "/review", async (p) => {
+      await p.locator("[data-stack]").scrollIntoViewIfNeeded(); await p.waitForTimeout(300);
+      const r = await p.evaluate(() => ({ rows: [...document.querySelectorAll("[data-stack-item]")].map((e) => e.textContent), head: document.querySelector("[data-stack]").textContent.slice(0, 60) }));
+      checks[`r3_stack_${w}`] = r;
+      if (!r.rows.length) problems.push(`r3_stack_${w}: no stacked confluences listed`);
+    });
+    await rshot(`r3_orb_hover_${w}`, w, h, "/review", async (p) => {
+      const b = await p.locator("[data-plot]").boundingBox();
+      const o = await p.evaluate(() => { const s = window.__cfOverlay.orbShapes; const k = s.filter((x) => x.hit().title.includes("King")); const t = (k.length ? k : s)[Math.floor((k.length ? k : s).length * 0.6)]; return t ? { x: t.x, y: t.y } : null; });
+      if (!o) { problems.push(`r3_orb_hover_${w}: no orb`); return; }
+      await p.mouse.move(b.x + o.x, b.y + o.y); await p.waitForTimeout(300);
+      const kinds = await p.locator("[data-tip-item]").evaluateAll((e) => e.map((x) => x.getAttribute("data-tip-item")));
+      checks[`r3_orb_hover_${w}`] = { kinds };
+      if (!kinds.includes("orb") || kinds.some((k) => !["level", "orb", "touch"].includes(k))) problems.push(`r3_orb_hover_${w}: ${kinds.join(", ")}`);
+    });
+  }
+  await rshot("r3_shortcuts_1440", 1440, 900, "/review", async (p) => { await p.keyboard.press("?"); await p.waitForTimeout(500); await p.getByPlaceholder("Search shortcuts").fill("review"); await p.waitForTimeout(300); });
 };
 
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();
