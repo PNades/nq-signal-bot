@@ -1295,6 +1295,15 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   answer on a scratch copy of the round (`ui/web/scripts/review_scratch.py serve`: round `scratch-<id>` under the
   SSD's tmp folder, never `reviews/preview/`; the stage refuses to answer on any other round), and the scratch folder
   is removed afterwards (`review_scratch.py cleanup`).
+- **Q-review-chart round 10 (owner 2026-11-16; built, waiting for the owner's OK):** the GEX title's time is on the
+  replay clock's convention (the minute's start: clock 10:09, title 10:09); the orb hover's "board at" line too. The
+  board behind a minute is the one applied by the moment the chart shows at that position: the minute's close, or
+  the decision inside the decision's own minute (before the answer; the revealed path's end after it); each map
+  snapshot now records its board's apply time (`tb`), and a test checks every replay position on a day with boards at
+  irregular times (`test_the_board_on_the_dial_was_applied_by_the_moment_the_replay_shows`). Found by that test and
+  fixed: when the decision falls exactly on a minute boundary with a trade stamped at that instant, the chart drew
+  that minute's bar but the maps and levels stopped a minute earlier; `minute_grid` now includes that minute, read at
+  the decision (none of the 60 stored preview cards has this case).
 - **Preview answers deleted (owner 2026-11-16):** the 10 answers on `preview-b958` (c01–c10) were test inputs and were
   deleted (`reviews/preview/answers_preview-b958.parquet`). Nothing else reads them: only `review/store.py` (the page's
   answered state and the append of a new answer). The record of the touches the preview cards showed comes from the

@@ -111,7 +111,7 @@ export function GexRadial({ maps, map, onMap, snap, relevant, unit, animated, fi
       {/* one header row like the other boxes (round 9): the title left, the ticker switch right */}
       <div className="flex items-center justify-between gap-2" data-radial-head>
         {/* the time of the board on the dial, following the replay clock (owner 2026-11-16, round 9) */}
-        <div className="eyebrow whitespace-nowrap" data-hint="The board on the dial: the one in force at the close of the replay minute" data-radial-title>
+        <div className="eyebrow whitespace-nowrap" data-hint="The board on the dial, at the replay clock's minute (applied by that minute's close, or by the decision)" data-radial-title>
           GEX SNAPSHOT · {boardAt ? `${boardAt} ET` : "no board"}</div>
         <div ref={sw} className="flex shrink-0 rounded-full border border-line-strong p-0.5" role="radiogroup" aria-label="Map">
           {maps.map((m) => (

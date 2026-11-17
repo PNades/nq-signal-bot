@@ -206,14 +206,17 @@ def bars(tape: st.Tape | None, t0_ns: int, t1_ns: int) -> list[list[float]]:
             for j in range(len(b))]
 
 
-def minute_grid(t0_ns: int, t1_ns: int) -> list[tuple[int, int]]:
+def minute_grid(t0_ns: int, t1_ns: int, tape: st.Tape | None = None) -> list[tuple[int, int]]:
     """(bar start, sample time) for each minute from t0's minute to t1's: a minute is read at its close, the minute
-    holding t1 at t1 itself."""
+    holding t1 at t1 itself. A minute starting at t1 itself has nothing known yet, unless a trade is stamped exactly at
+    t1 (`last_known_minute`; the chart draws that minute's bar then, owner 2026-11-16, round 10): it is read at t1."""
     out = []
     m = floor_min(t0_ns)
-    while m < t1_ns:            # a minute starting at t1 itself has nothing known yet
+    while m < t1_ns:
         out.append((m, min(m + MIN_NS, t1_ns)))
         m += MIN_NS
+    if m == int(t1_ns) and last_known_minute(t1_ns, tape) == m and m >= floor_min(t0_ns):
+        out.append((m, m))
     return out
 
 
@@ -425,7 +428,9 @@ def map_snapshots(dd: DayData, grid: list[tuple[int, int]]) -> dict[str, list[di
                 if len(keep) > MAP_STRIKES_KEPT:
                     keep = keep[np.argsort(-a[keep], kind="stable")[:MAP_STRIKES_KEPT]]
                 keep = np.sort(keep)
-                snaps.append({"t": sec(bar), "spot": rnd(mb.spot[i], 4), "r": rnd(mb.r[i], 8),
+                # "tb": the board's apply time (s), the earliest moment the bot could use it (owner 2026-11-16, round
+                # 10): never after the moment the replay shows at this bar (its close, or the half's end inside it)
+                snaps.append({"t": sec(bar), "tb": sec(int(mb.t_apply[i])), "spot": rnd(mb.spot[i], 4), "r": rnd(mb.r[i], 8),
                               "king": king_at(kings.get(m, []), s), "max": rnd(top, 0),
                               "s": [[rnd(k[j], 4), rnd(v[j], 0)] for j in keep]})
         out[m] = snaps
@@ -648,8 +653,8 @@ def card_payload(dd: DayData, card_id: str, decision_id: str, pair_id: str, stra
     reveal_end = max(reveal_end, min(dd.close_ns, T + MIN_NS))
 
     def half(t0: int, t1: int, maps0: int, *, reveal: bool) -> dict[str, Any]:
-        grid = minute_grid(t0, t1)
-        mgrid = minute_grid(maps0, t1)
+        grid = minute_grid(t0, t1, dd.tapes.get("NQ"))
+        mgrid = minute_grid(maps0, t1, dd.tapes.get("NQ"))
         b = {k: bars(dd.tapes.get(k), t0, t1) for k in ("NQ", "ES")}
         # the price range the pruning keeps: the bars shown so far (pre: up to T only)
         seen = {k: price_window(bars(dd.tapes.get(k), chart0, t1)) if reveal else price_window(b[k]) for k in b}

@@ -242,3 +242,42 @@ def test_the_hidden_node_readings_are_not_shown(card):
     for answer in (None, {"verdict": "take"}):
         shown = {r["label"] for r in rs.public_card(old, answer)["readings"]}
         assert not shown & cd.HIDDEN_READING_LABELS and "King in the zone" in shown
+
+
+def test_the_board_on_the_dial_was_applied_by_the_moment_the_replay_shows(day):
+    # owner 2026-11-16, round 10: at every replay position the GEX board shown (the page takes the last snapshot whose
+    # bar is at or before the replay clock C) was applied no later than the moment the chart shows at C: the close of
+    # bar C, or the decision T inside T's own minute (before the answer; the revealed path's end after it). Boards here
+    # come at irregular times (every 17 s from 3 s past the open), so a board inside a minute is the trap
+    dd, specs = day
+    open_ns, close_ns = dd.open_ns, dd.close_ns
+    odd = syn.boards("QQQ", dd.day, open_ns + 3 * cd.NS, close_ns, np.arange(598.0, 627.0),
+                     lambda t, s: np.where(s == 612.0, 1e8, 1e7 * (1 + (t // cd.NS) % 7)), lambda t: 612.0 + (t // cd.NS) % 1000 / 1e4,
+                     lambda t: 35.0, every_sec=17)
+    dd2 = cd.DayData(**{**dd.__dict__, "maps": {**dd.maps, "QQQ": odd}})
+    ta = odd.t_apply
+    for s in specs:
+        c = cd.card_payload(dd2, s["id"], s["decision_id"], s["pair_id"])
+        T = int(c["t"]["decision_ns"])
+        for half, limit_ns in (("pre", T), ("post", c["t"]["reveal_end"] * cd.NS)):
+            snaps = c[half]["maps"]["QQQ"]
+            assert snaps, (s["id"], half)
+            first, last = snaps[0]["t"], snaps[-1]["t"]
+            for C in range(first, last + 60, 60):                         # every replay clock position of the half
+                shown = [x for x in snaps if x["t"] <= C]
+                if not shown:
+                    continue
+                snap = shown[-1]
+                moment = min((C + 60) * cd.NS, limit_ns)                  # what the chart shows at C
+                # the board behind it: applied at or before the moment, and the latest such board of its own bar
+                i = int(np.searchsorted(ta, moment, side="right")) - 1
+                j = [k for k in range(len(ta)) if cd.sec(int(ta[k])) == snap["tb"]]
+                assert j and int(ta[j[-1]]) <= moment, (s["id"], half, C, snap["tb"])
+                if snap["t"] == C:
+                    assert j[-1] == int(np.searchsorted(ta, min((C + 60) * cd.NS, limit_ns), side="right")) - 1
+                assert j[-1] <= i
+            if half == "pre":
+                # the last snapshot is the decision's own minute (also when T is exactly on a minute boundary with a
+                # trade stamped at T, c05), read at T: the replay clock and the dial's minute agree at the end
+                assert snaps[-1]["tb"] * cd.NS <= T and snaps[-1]["t"] == c["t"]["minute"]
+                assert c["pre"]["bars"]["NQ"][-1][0] == c["t"]["minute"]

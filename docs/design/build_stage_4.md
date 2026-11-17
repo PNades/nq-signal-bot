@@ -468,3 +468,18 @@ clean.
    round, checks the result card ("Stop loss −0.96R … You said take"), then runs the after-answer checks (the slider
    10:09 → 11:08, steps past the decision); the panel was stopped by its PID and `review_scratch.py cleanup` removed
    the folder; `reviews/preview/` has no answers file.
+
+## Review round 10 (owner 2026-11-16)
+**Evidence:** [`build/stage4r9t/`](build/stage4r9t/) (re-run, all passed: at 1440 and 1280 px the title read 10:09 /
+10:12 / 10:38 with the clock at 10:09 / 10:12 / 10:38), `stage4r7` re-ran clean; test
+`test_the_board_on_the_dial_was_applied_by_the_moment_the_replay_shows` (every replay position of every synthetic
+card, both halves, boards every 17 s from 3 s past the open).
+
+- **Title time = the replay clock's minute.** The board shown at clock C is the last board applied by the moment the
+  chart shows at C: C's close (C + 1 min), or the decision T inside T's own minute; so at clock 10:09 the title reads
+  10:09 and the board was applied by 10:10:00 at the latest, which is when the 10:09 candle the chart shows closed.
+  The orb hover's "board at" uses the same minute.
+- **Each snapshot records its board's apply time** (`tb`), so the test checks it directly.
+- **Fixed edge:** a decision exactly on a minute boundary with a trade at that instant: the chart drew the minute's
+  bar but the maps and levels ended a minute earlier (the dial would have read one minute behind the clock); now the
+  grid includes that minute, read at the decision. No stored preview card has the case.

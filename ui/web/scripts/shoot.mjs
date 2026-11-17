@@ -4284,10 +4284,10 @@ S["4r9t"] = async () => {
         if (!/^GEX SNAPSHOT · \d\d:\d\d ET$/.test(o.title)) problems.push(`r9_title_${w}: title "${o.title}"`);
         const tb = mins(o.title), tc = mins(o.clock), td = mins(o.decision.replace(/^decision /, ""));
         if (tb > td) problems.push(`r9_title_${w}: board ${o.title} after the decision ${o.decision}`);
-        if (o.at !== "end" && tb !== tc + 1) problems.push(`r9_title_${w}: at ${o.clock} the board reads ${o.title} (want the minute's close)`);
+        if (tb !== tc) problems.push(`r9_title_${w}: at ${o.clock} the board reads ${o.title} (round 10: the replay clock's minute)`);
       }
       if (mins(out[1].title) - mins(out[0].title) !== 3) problems.push(`r9_title_${w}: the title did not follow the replay`);
-      if (mins(out[2].title) !== mins(out[2].decision.replace(/^decision /, ""))) problems.push(`r9_title_${w}: at the decision the board reads ${out[2].title}`);
+
       await p.locator("[data-gex-box]").scrollIntoViewIfNeeded(); await p.waitForTimeout(300);
       await p.locator("[data-gex-box]").screenshot({ path: path.join(OUT, `r9_title_${w}_gex.png`) });
     });

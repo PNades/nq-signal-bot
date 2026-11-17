@@ -347,11 +347,12 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
             const glow = king ? 5 : share >= 0.5 ? 3 : share >= 0.25 ? 1.5 : 0;
             const sp = sprite(v >= 0 ? PIKA : BARNEY, rx, ry, alpha, glow, king, pr);
             g.drawImage(sp, Math.round(x * pr - sp.width / 2), Math.round(y * pr - sp.height / 2));
-            // the board read at the minute's close, or at the limit (the decision) inside the decision's own minute
-            const t = sn.t, chain = ser.chain, lim = this.s.limit;
+            // the board's minute on the replay clock's convention (round 10): the bar it belongs to; the board itself
+            // was applied by that bar's close, or by the decision inside the decision's own minute
+            const t = sn.t, chain = ser.chain;
             shapes.push({ x, y, r, rx, ry, hit: () => ({ key: `o:${chain}:${k}:${t}`, kind: "orb", price, color: v >= 0 ? "#F2B950" : "#DD9BE0",
               title: `${chain} ${k}${king ? " · King" : ""}`,
-              lines: [fmtP(price), `${gexTxt(v)} ${v >= 0 ? "Pika" : "Barney"} · ${Math.round(share * 100)}% of the largest`, `board at ${clockET(Math.min(t + 60, lim))} ET`] }) });
+              lines: [fmtP(price), `${gexTxt(v)} ${v >= 0 ? "Pika" : "Barney"} · ${Math.round(share * 100)}% of the largest`, `board at ${clockET(t)} ET`] }) });
           }
         }
       }

@@ -336,7 +336,7 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
         <section className="relative rounded-md border border-line bg-bg-1 p-4 pt-[9px] min-[1280px]:p-0" aria-label="GEX snapshot" data-gex-box>
           <div className="min-[1280px]:absolute min-[1280px]:inset-0 min-[1280px]:p-4 min-[1280px]:pt-[9px] min-[1280px]:pb-0">
             <GexRadial maps={MAPS} map={map} onMap={setMap} snap={snap} relevant={relevant} unit={MAP_ROOT[map]} animated={animated} fit={wide}
-              boardAt={snap ? clockOf(Math.min(snap.t + 60, limit), card.et_offset_sec) : null} />
+              boardAt={snap ? clockOf(snap.t, card.et_offset_sec) : null} />
           </div>
         </section>
         <Readings card={card} />
