@@ -4,19 +4,19 @@
   "problems": [],
   "checks": {
     "r3_replay_1440": {
-      "replayTop": 977,
-      "plotBottom": 977
+      "replayTop": 962,
+      "plotBottom": 962
     },
     "r3_replay_bottom_1440": {
       "chart": {
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 630
+        "h": 616
       },
       "radial": {
         "x": 64,
-        "y": 1116,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -24,10 +24,10 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 448
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -41,35 +41,30 @@
     },
     "r3_stack_1440": {
       "rows": [
-        "QQQ 61125,273.10ceilingoriginal role",
-        "RTH VWAP +1σ25,272.03ceilingoriginal role",
-        "VWAP25,270.45ceilingsettled, flipped ×1",
-        "Retested extreme25,264.75ceilingoriginal role",
-        "ON low25,253.00no role yet—",
-        "Retested extreme25,251.00ceilingsettled, flipped ×2",
-        "RTH VWAP25,249.90ceilingsettled, flipped ×2"
+        "Retested extreme25,337.75",
+        "Retested extreme25,329.50"
       ],
-      "head": "Stacked in the zone · 7 levelsname, price, role and state at",
+      "head": "Stacked (2)Retested extreme25,337.75Retested extreme25,329.5",
       "chart": {
         "x": 48,
-        "y": -420,
+        "y": -403,
         "w": 888,
-        "h": 630
+        "h": 616
       },
       "radial": {
         "x": 64,
-        "y": 378,
+        "y": 375,
         "w": 366,
         "h": 366
       },
       "facts": {
         "x": 1033,
-        "y": -472,
+        "y": -455,
         "w": 360,
-        "h": 448
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -89,11 +84,11 @@
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 630
+        "h": 616
       },
       "radial": {
         "x": 64,
-        "y": 1116,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -101,10 +96,10 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 448
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -129,18 +124,18 @@
       },
       "radial": {
         "x": 290,
-        "y": 1480,
+        "y": 1475,
         "w": 380,
         "h": 380
       },
       "facts": {
         "x": 39,
-        "y": 724,
+        "y": 719,
         "w": 882,
         "h": 356
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -154,35 +149,30 @@
     },
     "r3_stack_960": {
       "rows": [
-        "QQQ 61125,273.10ceilingoriginal role",
-        "RTH VWAP +1σ25,272.03ceilingoriginal role",
-        "VWAP25,270.45ceilingsettled, flipped ×1",
-        "Retested extreme25,264.75ceilingoriginal role",
-        "ON low25,253.00no role yet—",
-        "Retested extreme25,251.00ceilingsettled, flipped ×2",
-        "RTH VWAP25,249.90ceilingsettled, flipped ×2"
+        "Retested extreme25,337.75",
+        "Retested extreme25,329.50"
       ],
-      "head": "Stacked in the zone · 7 levelsname, price, role and state at",
+      "head": "Stacked (2)Retested extreme25,337.75Retested extreme25,329.5",
       "chart": {
         "x": 40,
-        "y": -1352,
+        "y": -1350,
         "w": 800,
         "h": 300
       },
       "radial": {
         "x": 290,
-        "y": -190,
+        "y": -193,
         "w": 380,
         "h": 380
       },
       "facts": {
         "x": 39,
-        "y": -946,
+        "y": -949,
         "w": 882,
         "h": 356
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -196,10 +186,7 @@
     },
     "r3_orb_hover_960": {
       "kinds": [
-        "touch",
-        "orb",
-        "orb",
-        "level"
+        "orb"
       ],
       "chart": {
         "x": 40,
@@ -209,18 +196,18 @@
       },
       "radial": {
         "x": 290,
-        "y": 1480,
+        "y": 1475,
         "w": 380,
         "h": 380
       },
       "facts": {
         "x": 39,
-        "y": 724,
+        "y": 719,
         "w": 882,
         "h": 356
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -237,11 +224,11 @@
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 630
+        "h": 616
       },
       "radial": {
         "x": 64,
-        "y": 1116,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -249,10 +236,10 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 448
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],

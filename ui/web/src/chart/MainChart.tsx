@@ -8,11 +8,11 @@
 //   one card sorted by price (no zones: the setup's zone is in the panel on the right); nothing right of the last bar
 //   (where the owner reads candle tops on the crosshair); no OHLC box; the card never covers the price axis;
 // - the axis carries only the last price and the trade's entry, stop and target tags.
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CandlestickSeries, ColorType, CrosshairMode, LineStyle, createChart, type IChartApi, type ISeriesApi, type Time, type UTCTimestamp } from "lightweight-charts";
 import { Expand, Minimize } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Half, Level, MapName } from "@/pages/review/types";
+import type { Half, Level, MapName, MapSnap } from "@/pages/review/types";
 import { clockOf, roleAt, segAt } from "./data";
 import { ReviewOverlay, RIGHT_ROOM_PX, ROLE_COLOR, type Hit, type OrbSeries, type TradeLines } from "./overlay";
 
@@ -26,6 +26,17 @@ export type ChartView = "focus" | "table";
 const CHAINS: Record<"NQ" | "ES", MapName[]> = { NQ: ["QQQ", "NDXP"], ES: ["SPY", "SPX"] };
 const VISIBLE_BARS = 150;     // bars in view when a card opens (the rest scrolls back to 18:00)
 const CARD_W = 300;           // the hover card's width
+const TIP_ITEMS = 8;          // objects in one hover card at most
+const TIP_PAD = 6;            // the hover card keeps this far inside the chart's pane
+
+/** the chart draws the ORB_TOP largest nodes (|value|, Pika and Barney together) of each ticker at each minute, from
+ * that minute's board only (owner 2026-11-16, round 4); `max` stays the whole board's, so sizes and shares are unchanged */
+export const ORB_TOP = 5;
+export function topNodes(sn: MapSnap): MapSnap {
+  if (sn.s.length <= ORB_TOP) return sn;
+  const top = [...sn.s].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]) || a[0] - b[0]).slice(0, ORB_TOP);
+  return { ...sn, s: top.sort((a, b) => a[0] - b[0]) };
+}
 
 /** a level's role timeline so far, in words (§9b item 3: hovering shows the level's role timeline for the day) */
 export function roleStory(l: Level, limit: number, off: number): string[] {
@@ -45,7 +56,7 @@ export function roleStory(l: Level, limit: number, off: number): string[] {
   return out.length ? out : ["no role yet"];
 }
 
-type Tip = { x: number; y: number; hits: Hit[] } | null;
+type Tip = { hits: Hit[] } | null;
 
 export function MainChart({ half, inst, off, clock, limit, trade, layers, onLayer, onInst, view, onView, focus = true, focusUids,
   ownZone = null, replay, minHeight = 360 }: {
@@ -61,12 +72,24 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
   const box = useRef<HTMLDivElement>(null);
   const plot = useRef<HTMLDivElement>(null);
   const api = useRef<{ chart: IChartApi; series: ISeriesApi<"Candlestick">; overlay: ReviewOverlay } | null>(null);
-  const [tip, setTip] = useState<Tip>(null);
+  // the hover card: React renders it only when the objects under the pointer change; a pointer move only writes its
+  // position to the element (`placeTip`), and the chart redraws for the hover only when the highlighted line changes
+  const [tip, setTipState] = useState<Tip>(null);
+  const tipKeyRef = useRef("");
+  const pointer = useRef({ x: 0, y: 0 });
+  const hoverRef = useRef<string | null>(null);
+  const setTip = (t: Tip) => {
+    const k = t ? t.hits.map((h) => h.key).join(",") : "";
+    if (k !== tipKeyRef.current) { tipKeyRef.current = k; setTipState(t); }
+  };
+  const setHover = (uid: string | null) => {
+    if (uid !== hoverRef.current) { hoverRef.current = uid; api.current?.overlay.set({ hover: uid }); }
+  };
   const [full, setFull] = useState(false);
   const table = view === "table";
   const bars = half.bars[inst];
   const shown = useMemo(() => bars.filter((b) => b[0] <= clock), [bars, clock]);
-  const orbs: OrbSeries[] = useMemo(() => CHAINS[inst].map((m) => ({ chain: m, snaps: half.maps[m] ?? [] })), [half, inst]);
+  const orbs: OrbSeries[] = useMemo(() => CHAINS[inst].map((m) => ({ chain: m, snaps: (half.maps[m] ?? []).map(topNodes) })), [half, inst]);
   const kings = useMemo(() => CHAINS[inst].flatMap((m) => (half.kings[m] ?? []).map((k) => [k[0], k[1], k[2], m] as [number, number, number, string])), [half, inst]);
   const lastShown = useRef<{ inst: string; n: number; first: number } | null>(null);
   // what the pointer reads (without re-subscribing)
@@ -105,13 +128,21 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
       if (!a) return;
       const right = a.overlay.lastBarRight();
       // nothing in the empty room right of the last bar (the owner reads candle tops there on the crosshair)
-      if (!p.point || (right != null && p.point.x > right)) { setTip(null); a.overlay.set({ hover: null }); return; }
+      if (!p.point || (right != null && p.point.x > right)) { setTip(null); setHover(null); return; }
       const hits = a.overlay.hitsAt(p.point.x, p.point.y);
       const lv = hits.find((h) => h.kind === "level");
-      a.overlay.set({ hover: lv ? lv.key.slice(2) : null });
-      setTip(hits.length ? { x: p.point.x, y: p.point.y, hits } : null);
+      setHover(lv ? lv.key.slice(2) : null);
+      pointer.current = { x: p.point.x, y: p.point.y };
+      setTip(hits.length ? { hits } : null);
+      placeTip();
     };
-    chart.subscribeCrosshairMove(onMove);
+    // at most one pointer update per animation frame (the chart can report several moves in one frame)
+    let pending: Parameters<typeof onMove>[0] | null = null, raf = 0;
+    const onMoveFrame = (p: Parameters<typeof onMove>[0]) => {
+      pending = p;
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; const q = pending; pending = null; if (q) onMove(q); });
+    };
+    chart.subscribeCrosshairMove(onMoveFrame);
     // the attribution link (kept: its licence) carries a native title; the panel shows hints in its own tooltip instead
     const hintTitles = () => el.querySelectorAll<HTMLElement>("[title]").forEach((n) => { n.setAttribute("data-hint", n.getAttribute("title") ?? ""); n.removeAttribute("title"); });
     hintTitles();
@@ -120,7 +151,7 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
     const onFs = () => setFull(document.fullscreenElement === box.current);
     document.addEventListener("fullscreenchange", onFs);
     // let go of the chart before removing it: its last crosshair event must not reach a removed chart
-    return () => { api.current = null; chart.unsubscribeCrosshairMove(onMove); mo.disconnect(); document.removeEventListener("fullscreenchange", onFs); chart.remove(); };
+    return () => { api.current = null; cancelAnimationFrame(raf); chart.unsubscribeCrosshairMove(onMoveFrame); mo.disconnect(); document.removeEventListener("fullscreenchange", onFs); chart.remove(); };
   }, []);
 
   // bars: the whole set on an instrument or card change, one bar at a time while the replay steps on
@@ -179,9 +210,40 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
       .sort((a, b) => b.mid - a.mid).map((x) => ({ ...x, dist: x.mid - last }));
   }, [half, inst, clock, shown]);
 
-  // the hover card: beside the pointer, never over the price axis
-  const paneW = (plot.current?.clientWidth ?? 800) - (api.current?.chart.priceScale("right").width() ?? 70);
-  const tipLeft = tip ? (tip.x + 14 + CARD_W <= paneW - 4 ? tip.x + 14 : Math.max(4, tip.x - 14 - CARD_W)) : 0;
+  // the hover card (owner 2026-11-16, round 4): measured before it is painted, then placed right or left, below or
+  // above the pointer, wherever it fits whole inside the chart's pane (never over the price axis or the time axis);
+  // a card taller than the pane shows each level's latest role events with "+n earlier" (the Table has them all), then
+  // fewer objects ("+n more here")
+  const tipEl = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState<{ cap: number; items: number; w: number; h: number; ready: boolean }>({ cap: Infinity, items: TIP_ITEMS, w: 0, h: 0, ready: false });
+  // measured again only when what the card shows changes; a pointer move just places the measured card (no re-render loop)
+  const hitsKey = tip ? tip.hits.map((h) => h.key).join(",") : "";
+  const fitRef = useRef(fit);
+  fitRef.current = fit;
+  useLayoutEffect(() => { setFit({ cap: Infinity, items: TIP_ITEMS, w: 0, h: 0, ready: false }); }, [hitsKey]);
+  useLayoutEffect(() => {
+    const el = tipEl.current, a = api.current;
+    if (!tip || !el || !a || fit.ready) return;
+    const paneH = a.chart.paneSize().height, w = el.offsetWidth, h = el.offsetHeight;
+    if (h > paneH - 2 * TIP_PAD) {
+      const longest = Math.max(0, ...Array.from(el.querySelectorAll("[data-tip-item]")).map((n) => Number(n.getAttribute("data-story") ?? 0)));
+      if (fit.cap === Infinity && longest > 1) { setFit((f) => ({ ...f, cap: Math.min(longest - 1, 4) })); return; }
+      if (fit.cap > 1 && fit.cap !== Infinity) { setFit((f) => ({ ...f, cap: f.cap - 1 })); return; }
+      if (fit.items > 1) { setFit((f) => ({ ...f, items: f.items - 1 })); return; }
+    }
+    setFit((f) => ({ ...f, w, h, ready: true }));
+  }, [tip, fit]);
+  /** put the measured card beside the pointer: right or left, below or above, wherever it fits whole in the pane */
+  function placeTip() {
+    const el = tipEl.current, a = api.current, f = fitRef.current;
+    if (!el || !a || !f.ready) return;
+    const pane = a.chart.paneSize(), gap = 14, { w, h } = f, { x, y } = pointer.current;
+    const xs = [x + gap, x - gap - w], ys = [y + gap, y - gap - h];
+    const inX = (v: number) => v >= TIP_PAD && v + w <= pane.width - TIP_PAD, inY = (v: number) => v >= TIP_PAD && v + h <= pane.height - TIP_PAD;
+    el.style.left = `${xs.find(inX) ?? Math.max(TIP_PAD, Math.min(pane.width - TIP_PAD - w, xs[0]))}px`;
+    el.style.top = `${ys.find(inY) ?? Math.max(TIP_PAD, Math.min(pane.height - TIP_PAD - h, ys[0]))}px`;
+  }
+  useLayoutEffect(() => { if (fit.ready) placeTip(); });
 
   return (
     <div ref={box} id="cf-main-chart" className={cn("relative flex h-full flex-col bg-bg-1", full && "h-screen p-3")} data-chart>
@@ -215,29 +277,32 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
       <div className="relative min-h-0 flex-1" style={{ minHeight: full ? undefined : minHeight }} onPointerLeave={() => setTip(null)}>
         <div ref={plot} className={cn("absolute inset-0", table && "invisible")} data-plot />
         {tip && !table && (
-          <div className="pointer-events-none absolute z-20 rounded-sm border border-line-strong bg-bg-3 px-3 py-2 shadow-[0_12px_32px_rgba(0,0,0,.55)]"
-            style={{ left: tipLeft, top: Math.max(6, tip.y - 18), width: CARD_W }} data-tip>
-            {tip.hits.slice(0, 8).map((h, i) => {
+          <div ref={tipEl} className="pointer-events-none absolute z-20 rounded-sm border border-line-strong bg-bg-3 px-3 py-2 shadow-[0_12px_32px_rgba(0,0,0,.55)]"
+            style={{ left: 0, top: 0, width: CARD_W, visibility: fit.ready ? "visible" : "hidden" }} data-tip>
+            {tip.hits.slice(0, fit.items).map((h, i) => {
               const lv = h.kind === "level" ? stateRef.current.levels.find((l) => `l:${l.uid}` === h.key) : null;
               const story = lv ? roleStory(lv, stateRef.current.limit, stateRef.current.off) : [];
-              const extra = story.length === 1 && story[0] === "no role yet" ? [] : story;   // the state line already says so
+              const all = story.length === 1 && story[0] === "no role yet" ? [] : story;   // the state line already says so
+              const shown = all.length > fit.cap ? all.slice(all.length - fit.cap) : all;
               return (
-                <div key={h.key} className={cn("text-[12px]", i > 0 && "mt-2 border-t border-line pt-2")} data-tip-item={h.kind}>
+                <div key={h.key} className={cn("text-[12px]", i > 0 && "mt-2 border-t border-line pt-2")} data-tip-item={h.kind} data-story={all.length}>
                   <div className="flex items-center gap-1.5"><span className="size-2 shrink-0 rounded-full" style={{ background: h.color }} aria-hidden="true" />
                     <span className="truncate font-medium text-text-1">{h.title}</span></div>
                   <div className="mt-0.5 font-mono text-text-1">{h.lines[0]}</div>
-                  {[...h.lines.slice(1), ...extra].map((t, k) => <div key={k} className="text-text-2">{t}</div>)}
+                  {h.lines.slice(1).map((t, k) => <div key={k} className="text-text-2">{t}</div>)}
+                  {all.length > shown.length && <div className="text-text-3" data-earlier>+{all.length - shown.length} earlier (all in the Table)</div>}
+                  {shown.map((t, k) => <div key={`s${k}`} className="text-text-2">{t}</div>)}
                 </div>
               );
             })}
-            {tip.hits.length > 8 && <div className="mt-2 text-[11px] text-text-3">+{tip.hits.length - 8} more here</div>}
+            {tip.hits.length > fit.items && <div className="mt-2 text-[11px] text-text-3">+{tip.hits.length - fit.items} more here</div>}
           </div>
         )}
         {table && (
           <div className="absolute inset-0 overflow-auto" data-chart-table>
             <table className="w-full border-collapse text-[12px]">
               <thead className="sticky top-0 bg-bg-1 text-left text-text-3">
-                <tr>{["Level", "Role", "State", "Band", "From price"].map((h) => <th key={h} className="eyebrow px-3 py-2 font-normal">{h}</th>)}</tr>
+                <tr>{["Level", "Role", "State", "Band", "From price", "Timeline"].map((h) => <th key={h} className="eyebrow px-3 py-2 font-normal">{h}</th>)}</tr>
               </thead>
               <tbody className="font-mono">
                 {tableRows.map(({ l, band, r, dist }) => (
@@ -247,6 +312,7 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
                     <td className="px-3 py-1.5 text-text-2">{r ? (r[2] ? (r[3] ? "provisional, crossed back" : "provisional") : r[4] ? `flipped ×${r[4]}` : "original") : "—"}</td>
                     <td className="px-3 py-1.5 text-text-2">{band![0].toFixed(2)} – {band![1].toFixed(2)}</td>
                     <td className="px-3 py-1.5 text-text-2">{dist > 0 ? "+" : dist < 0 ? "−" : ""}{Math.abs(dist).toFixed(2)}</td>
+                    <td className="px-3 py-1.5 font-sans text-text-2" data-timeline>{roleStory(l, Math.min(limit, clock + 60), off).join(" · ")}</td>
                   </tr>
                 ))}
               </tbody>

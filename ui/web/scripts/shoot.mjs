@@ -3701,7 +3701,7 @@ async function fixShots(tag, w, h, opts = {}) {
         biggest: Math.max(...s.map((x) => x.ry)), smallest: Math.min(...s.map((x) => x.ry)) }; });
     checks[`fix3_${tag}`].ovals = sh;
     if (sh.notTall) problems.push(`fix3_${tag}: ${sh.notTall} orb(s) not taller than wide`);
-    if (sh.weakWidth != null && sh.weakWidth < 0.7 * sh.spacing) problems.push(`fix3_${tag}: the weakest orbs leave wide gaps (${sh.weakWidth} px wide at ${sh.spacing} px a bar)`);
+    if (sh.weakWidth != null && sh.weakWidth < 0.5 * sh.spacing) problems.push(`fix3_${tag}: the weakest orbs leave wide gaps (${sh.weakWidth} px wide at ${sh.spacing} px a bar)`);
   }, opts);
   await rshot(`fix3_replay4x_${tag}`, w, h, "/review", async (p) => {
     await p.keyboard.press("Home"); await p.waitForTimeout(300);
@@ -3844,6 +3844,81 @@ S["4r3"] = async () => {
     });
   }
   await rshot("r3_shortcuts_1440", 1440, 900, "/review", async (p) => { await p.keyboard.press("?"); await p.waitForTimeout(500); await p.getByPlaceholder("Search shortcuts").fill("review"); await p.waitForTimeout(300); });
+};
+
+// ── stage 4, review round 4 (owner 2026-11-16) ──────────────────────────────────────────────────────────────────────
+S["4r4"] = async () => {
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    // the replay bar: buttons, speed, track, thumb and the clock on one centre line
+    await rshot(`r4_replay_${w}`, w, h, "/review", async (p) => {
+      await p.locator("[data-replay]").scrollIntoViewIfNeeded(); await p.waitForTimeout(200);
+      const r = await p.evaluate(() => { const c = (el) => { const b = el.getBoundingClientRect(); return +(b.top + b.height / 2).toFixed(1); };
+        const bar = document.querySelector("[data-replay]");
+        return { buttons: [...bar.querySelectorAll("button")].map(c), thumb: c(bar.querySelector("[data-thumb]")), track: c(bar.querySelector("[data-scrub-wrap] > div")),
+          clock: c(bar.querySelector("[data-clock-block]")), bar: c(bar) }; });
+      const all = [...r.buttons, r.thumb, r.track, r.clock];
+      const spread = Math.max(...all) - Math.min(...all);
+      checks[`r4_replay_${w}`] = { ...r, spread: +spread.toFixed(1) };
+      if (spread > 1.5) problems.push(`r4_replay_${w}: the replay bar's parts are ${spread.toFixed(1)} px off one centre line`);
+    });
+    // hover cards stay inside the pane near each corner (a long role timeline is shortened, "+n earlier")
+    await rshot(`r4_hover_corners_${w}`, w, h, "/review", async (p) => {
+      const b = await p.locator("[data-plot]").boundingBox();
+      const pane = await p.evaluate(() => window.__cfOverlay.chart.paneSize());
+      const res = [];
+      for (const [fx, fy] of [[0.1, 0.1], [0.85, 0.1], [0.1, 0.9], [0.85, 0.9], [0.5, 0.5]]) {
+        const t = await p.evaluate(([fx, fy]) => { const o = window.__cfOverlay, P = o.chart.paneSize(), right = o.lastBarRight();
+          let best = null, bd = 1e9;
+          for (const sh of o.shapes) { if (sh.shape.kind !== "h") continue; const x = Math.max(sh.shape.x0 + 1, Math.min(sh.shape.x1 - 1, P.width * fx)); if (x > right - 2 || x < 4) continue;
+            const d = Math.hypot(x - P.width * fx, sh.shape.y - P.height * fy); if (d < bd && sh.shape.y > 4 && sh.shape.y < P.height - 4) { bd = d; best = { x, y: sh.shape.y }; } }
+          return best; }, [fx, fy]);
+        if (!t) continue;
+        await p.mouse.move(b.x + t.x, b.y + t.y); await p.waitForTimeout(250);
+        const tip = await p.evaluate(() => { const e = document.querySelector("[data-tip]"); if (!e) return null; const r = e.getBoundingClientRect(), pr = document.querySelector("[data-plot]").getBoundingClientRect();
+          return { l: r.left - pr.left, t: r.top - pr.top, r: r.right - pr.left, b: r.bottom - pr.top, earlier: !!e.querySelector("[data-earlier]") }; });
+        res.push({ at: [fx, fy], tip });
+        if (tip && (tip.l < 0 || tip.t < 0 || tip.r > pane.width + 0.5 || tip.b > pane.height + 0.5)) problems.push(`r4_hover_corners_${w}: a card leaves the pane at ${fx},${fy} (${JSON.stringify(tip)})`);
+      }
+      checks[`r4_hover_corners_${w}`] = { pane, res };
+    });
+    // at most 5 orbs per ticker per minute, still vertical ovals; no crowns (they are gone from the code)
+    await rshot(`r4_orbs_${w}`, w, h, "/review", async (p) => {
+      const r = await p.evaluate(() => { const per = {}; for (const s of window.__cfOverlay.orbShapes) { const k = s.hit().key.split(":"); const id = `${k[1]}:${k[3]}`; per[id] = (per[id] ?? 0) + 1; }
+        const v = Object.values(per); return { minutes: v.length, most: Math.max(...v), notTall: window.__cfOverlay.orbShapes.filter((x) => !(x.ry > x.rx)).length }; });
+      checks[`r4_orbs_${w}`] = r;
+      if (r.most > 5 || r.notTall) problems.push(`r4_orbs_${w}: ${JSON.stringify(r)}`);
+    });
+    await rshot(`r4_stacked_${w}`, w, h, "/review", async (p) => {
+      await p.locator("[data-stack]").scrollIntoViewIfNeeded(); await p.waitForTimeout(250);
+      checks[`r4_stacked_${w}`] = await p.evaluate(() => ({ rows: [...document.querySelectorAll("[data-stack-item]")].map((e) => e.textContent), head: document.querySelector("[data-stack]").firstElementChild.textContent }));
+    });
+  }
+  await rshot("r4_table_timeline_1440", 1440, 900, "/review", async (p) => { await p.locator("[data-view=table]").click(); await p.waitForTimeout(300); });
+  // a long role timeline in a short pane: the card is shortened ("+n earlier") and stays whole inside the pane
+  await rshot("r4_hover_long_960", 960, 640, "/review", async (p) => {
+    await p.locator("[role=listitem]", { hasText: /^01/ }).click(); await p.waitForTimeout(1500);
+    // an answered card focuses its Next card button (which scrolls the page): bring the chart back into view
+    await p.evaluate(() => { document.activeElement?.blur?.(); document.querySelector("[data-chart-card]").scrollIntoView({ block: "start" }); });
+    await p.waitForTimeout(400);
+    const b = await p.locator("[data-plot]").boundingBox();
+    const pane = await p.evaluate(() => window.__cfOverlay.chart.paneSize());
+    const targets = await p.evaluate(() => { const o = window.__cfOverlay, right = o.lastBarRight(), P = o.chart.paneSize(), seen = new Set(), out = [];
+      for (const sh of o.shapes) { if (sh.shape.kind !== "h") continue; const h = typeof sh.hit === "function" ? sh.hit() : sh.hit; if (h.kind !== "level" || seen.has(h.key)) continue;
+        const x = Math.min(sh.shape.x1 - 1, right - 3); if (x < sh.shape.x0 || sh.shape.y < 6 || sh.shape.y > P.height - 6) continue; seen.add(h.key); out.push({ x, y: sh.shape.y, key: h.key }); }
+      return out; });
+    let best = null;
+    for (const t of targets) {
+      await p.mouse.move(b.x + t.x, b.y + t.y); await p.waitForTimeout(150);
+      const tip = await p.evaluate(() => { const e = document.querySelector("[data-tip]"); if (!e) return null; const r = e.getBoundingClientRect(), pr = document.querySelector("[data-plot]").getBoundingClientRect();
+        return { l: r.left - pr.left, t: r.top - pr.top, r: r.right - pr.left, b: r.bottom - pr.top, earlier: e.querySelector("[data-earlier]")?.textContent ?? null,
+          story: Math.max(0, ...[...e.querySelectorAll("[data-tip-item]")].map((x) => Number(x.getAttribute("data-story")))) }; });
+      if (!tip) continue;
+      if (tip.l < 0 || tip.t < 0 || tip.r > pane.width + 0.5 || tip.b > pane.height + 0.5) problems.push(`r4_hover_long_960: a card leaves the pane (${JSON.stringify(tip)})`);
+      if (!best || tip.story > best.story || (tip.earlier && !best.earlier)) best = { ...tip, at: t };
+    }
+    checks.r4_hover_long_960 = { pane, hovered: targets.length, longest: best };
+    if (best) await p.mouse.move(b.x + best.at.x, b.y + best.at.y); await p.waitForTimeout(300);
+  });
 };
 
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();

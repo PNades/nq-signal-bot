@@ -1,26 +1,29 @@
 {
   "stage": "4br",
   "base": "http://127.0.0.1:8733",
-  "problems": [],
+  "problems": [
+    "fix3_fps_real_1440: 95th-percentile frame 33.3 ms at 4× (60 fps = 16.7 ms)",
+    "fix3_fps_real_960: 95th-percentile frame 33.3 ms at 4× (60 fps = 16.7 ms)"
+  ],
   "checks": {
     "fix1_real_1440": {
       "esAutoScaleAfterDrag": false,
       "autoScale": true,
       "inView": 120,
       "of": 120,
-      "lastClose": 25252.25,
-      "bars": 999
+      "lastClose": 25350.75,
+      "bars": 1021
     },
     "fix1_axis_switch_real_1440": {
       "chart": {
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 64,
-        "y": 1076,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -28,10 +31,10 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -63,11 +66,11 @@
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 64,
-        "y": 1076,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -75,10 +78,10 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -91,18 +94,18 @@
       "title": "CreamFlow · Review"
     },
     "fix3_real_1440": {
-      "orbs": 496,
-      "latest": 1761057480,
-      "clock": 1761057480,
-      "limit": 1761057540,
+      "orbs": 557,
+      "latest": 1767369600,
+      "clock": 1767369600,
+      "limit": 1767369610,
       "nodeLines": 0,
       "ovals": {
-        "n": 496,
+        "n": 557,
         "notTall": 0,
         "spacing": 5.48,
-        "weakWidth": 4.5,
-        "biggest": 5.75,
-        "smallest": 3
+        "weakWidth": 3.5,
+        "biggest": 4.5,
+        "smallest": 2.5
       }
     },
     "fix3_orbs_real_1440": {
@@ -110,11 +113,11 @@
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 64,
-        "y": 1076,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -122,10 +125,10 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -138,34 +141,34 @@
       "title": "CreamFlow · Review"
     },
     "fix3_fps_real_1440": {
-      "frames": 266,
+      "frames": 251,
       "median": 16.699999999999818,
-      "p95": 16.800000000000182,
-      "over20ms": 0,
-      "max": 16.800000000000182,
+      "p95": 33.30000000000018,
+      "over20ms": 24,
+      "max": 33.5,
       "orbRedrawsWhilePlaying": 26
     },
     "fix3_replay4x_real_1440": {
       "chart": {
         "x": 48,
-        "y": -160,
+        "y": -183,
         "w": 888,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 64,
-        "y": 598,
+        "y": 595,
         "w": 366,
         "h": 366
       },
       "facts": {
         "x": 1033,
-        "y": -212,
+        "y": -235,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "10:20 ET",
+      "clock": "10:41 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -178,9 +181,9 @@
       "title": "CreamFlow · Review"
     },
     "fix5_real_1440": {
-      "chartBottom": 999,
-      "asideBottom": 999,
-      "nextRowTop": 1015,
+      "chartBottom": 1019,
+      "asideBottom": 1019,
+      "nextRowTop": 1035,
       "sideBySide": true
     },
     "fix5_fill_real_1440": {
@@ -188,11 +191,11 @@
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 64,
-        "y": 1076,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -200,10 +203,10 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -221,8 +224,8 @@
           "level",
           "level"
         ],
-        "text": "VWAP +1σ25,304.85 (band 25,292.85 – 25,316.85)ceiling, flipped ×2ceiling from 20:04crossed 22:19 → floor (provisional)flipped 22:30 → floorcrossed 23:42 → ceiling (provisional)flipped 23:55 → ceilingIB high25,304.50 (band 25,296.25 – 25,312.75)no role yet",
-        "right": 852
+        "text": "RTH VWAP +2σ25,830.18 (band 25,818.18 – 25,842.18)ceilingceiling from 09:30VWAP +2σ25,824.45 (band 25,812.45 – 25,836.45)ceilingceiling from 18:02",
+        "right": 847
       },
       "axisLeft": 936
     },
@@ -231,11 +234,11 @@
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 64,
-        "y": 1076,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -243,10 +246,10 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -266,11 +269,11 @@
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 64,
-        "y": 1076,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -278,10 +281,10 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -294,32 +297,32 @@
       "title": "CreamFlow · Review"
     },
     "fix8_real_1440": {
-      "open": "10:38 ET",
-      "home": "09:54 ET",
-      "endKey": "10:38 ET",
-      "endButton": "10:38 ET"
+      "open": "11:00 ET",
+      "home": "10:15 ET",
+      "endKey": "11:00 ET",
+      "endButton": "11:00 ET"
     },
     "fix8_end_real_1440": {
       "chart": {
         "x": 48,
-        "y": -160,
+        "y": -183,
         "w": 888,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 64,
-        "y": 598,
+        "y": 595,
         "w": 366,
         "h": 366
       },
       "facts": {
         "x": 1033,
-        "y": -212,
+        "y": -235,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -332,7 +335,7 @@
       "title": "CreamFlow · Review"
     },
     "fix7_real_1440": {
-      "sliderMin": 1760997600,
+      "sliderMin": 1767308400,
       "clockAtMin": "18:00 ET",
       "bars": 1
     },
@@ -341,11 +344,11 @@
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 64,
-        "y": 1076,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -353,7 +356,7 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
       "clock": "18:00 ET",
@@ -373,19 +376,19 @@
       "autoScale": true,
       "inView": 120,
       "of": 120,
-      "lastClose": 25252.25,
-      "bars": 999
+      "lastClose": 25350.75,
+      "bars": 1021
     },
     "fix1_axis_switch_real_1280": {
       "chart": {
         "x": 40,
         "y": 318,
         "w": 744,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 56,
-        "y": 1076,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -393,10 +396,10 @@
         "x": 881,
         "y": 266,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -428,11 +431,11 @@
         "x": 40,
         "y": 318,
         "w": 744,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 56,
-        "y": 1076,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -440,10 +443,10 @@
         "x": 881,
         "y": 266,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -456,18 +459,18 @@
       "title": "CreamFlow · Review"
     },
     "fix3_real_1280": {
-      "orbs": 496,
-      "latest": 1761057480,
-      "clock": 1761057480,
-      "limit": 1761057540,
+      "orbs": 557,
+      "latest": 1767369600,
+      "clock": 1767369600,
+      "limit": 1767369610,
       "nodeLines": 0,
       "ovals": {
-        "n": 496,
+        "n": 557,
         "notTall": 0,
         "spacing": 4.53,
-        "weakWidth": 3.5,
-        "biggest": 5.25,
-        "smallest": 2.5
+        "weakWidth": 3,
+        "biggest": 4.25,
+        "smallest": 2.25
       }
     },
     "fix3_orbs_real_1280": {
@@ -475,11 +478,11 @@
         "x": 40,
         "y": 318,
         "w": 744,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 56,
-        "y": 1076,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -487,10 +490,10 @@
         "x": 881,
         "y": 266,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -503,34 +506,34 @@
       "title": "CreamFlow · Review"
     },
     "fix3_fps_real_1280": {
-      "frames": 265,
+      "frames": 268,
       "median": 16.699999999999818,
-      "p95": 16.799999999999272,
-      "over20ms": 0,
-      "max": 16.800000000000182,
-      "orbRedrawsWhilePlaying": 26
+      "p95": 16.800000000000182,
+      "over20ms": 13,
+      "max": 33.40000000000009,
+      "orbRedrawsWhilePlaying": 27
     },
     "fix3_replay4x_real_1280": {
       "chart": {
         "x": 40,
-        "y": -210,
+        "y": -233,
         "w": 744,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 56,
-        "y": 548,
+        "y": 545,
         "w": 366,
         "h": 366
       },
       "facts": {
         "x": 881,
-        "y": -262,
+        "y": -285,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "10:20 ET",
+      "clock": "10:42 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -543,9 +546,9 @@
       "title": "CreamFlow · Review"
     },
     "fix5_real_1280": {
-      "chartBottom": 999,
-      "asideBottom": 999,
-      "nextRowTop": 1015,
+      "chartBottom": 1019,
+      "asideBottom": 1019,
+      "nextRowTop": 1035,
       "sideBySide": true
     },
     "fix5_fill_real_1280": {
@@ -553,11 +556,11 @@
         "x": 40,
         "y": 318,
         "w": 744,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 56,
-        "y": 1076,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -565,10 +568,10 @@
         "x": 881,
         "y": 266,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -586,8 +589,8 @@
           "level",
           "level"
         ],
-        "text": "VWAP +1σ25,304.85 (band 25,292.85 – 25,316.85)ceiling, flipped ×2ceiling from 20:04crossed 22:19 → floor (provisional)flipped 22:30 → floorcrossed 23:42 → ceiling (provisional)flipped 23:55 → ceilingIB high25,304.50 (band 25,296.25 – 25,312.75)no role yet",
-        "right": 701
+        "text": "RTH VWAP +2σ25,830.18 (band 25,818.18 – 25,842.18)ceilingceiling from 09:30VWAP +2σ25,824.45 (band 25,812.45 – 25,836.45)ceilingceiling from 18:02",
+        "right": 697
       },
       "axisLeft": 784
     },
@@ -596,11 +599,11 @@
         "x": 40,
         "y": 318,
         "w": 744,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 56,
-        "y": 1076,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -608,10 +611,10 @@
         "x": 881,
         "y": 266,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -631,11 +634,11 @@
         "x": 40,
         "y": 318,
         "w": 744,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 56,
-        "y": 1076,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -643,10 +646,10 @@
         "x": 881,
         "y": 266,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -659,32 +662,32 @@
       "title": "CreamFlow · Review"
     },
     "fix8_real_1280": {
-      "open": "10:38 ET",
-      "home": "09:54 ET",
-      "endKey": "10:38 ET",
-      "endButton": "10:38 ET"
+      "open": "11:00 ET",
+      "home": "10:15 ET",
+      "endKey": "11:00 ET",
+      "endButton": "11:00 ET"
     },
     "fix8_end_real_1280": {
       "chart": {
         "x": 40,
-        "y": -210,
+        "y": -233,
         "w": 744,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 56,
-        "y": 548,
+        "y": 545,
         "w": 366,
         "h": 366
       },
       "facts": {
         "x": 881,
-        "y": -262,
+        "y": -285,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -697,7 +700,7 @@
       "title": "CreamFlow · Review"
     },
     "fix7_real_1280": {
-      "sliderMin": 1760997600,
+      "sliderMin": 1767308400,
       "clockAtMin": "18:00 ET",
       "bars": 1
     },
@@ -706,11 +709,11 @@
         "x": 40,
         "y": 318,
         "w": 744,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 56,
-        "y": 1076,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -718,7 +721,7 @@
         "x": 881,
         "y": 266,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
       "clock": "18:00 ET",
@@ -738,8 +741,8 @@
       "autoScale": true,
       "inView": 120,
       "of": 120,
-      "lastClose": 25252.25,
-      "bars": 999
+      "lastClose": 25350.75,
+      "bars": 1021
     },
     "fix1_axis_switch_real_960": {
       "chart": {
@@ -750,18 +753,18 @@
       },
       "radial": {
         "x": 290,
-        "y": 1480,
+        "y": 1475,
         "w": 380,
         "h": 380
       },
       "facts": {
         "x": 39,
-        "y": 724,
+        "y": 719,
         "w": 882,
         "h": 356
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -797,18 +800,18 @@
       },
       "radial": {
         "x": 290,
-        "y": 1480,
+        "y": 1475,
         "w": 380,
         "h": 380
       },
       "facts": {
         "x": 39,
-        "y": 724,
+        "y": 719,
         "w": 882,
         "h": 356
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -821,18 +824,18 @@
       "title": "CreamFlow · Review"
     },
     "fix3_real_960": {
-      "orbs": 521,
-      "latest": 1761057480,
-      "clock": 1761057480,
-      "limit": 1761057540,
+      "orbs": 557,
+      "latest": 1767369600,
+      "clock": 1767369600,
+      "limit": 1767369610,
       "nodeLines": 0,
       "ovals": {
-        "n": 521,
+        "n": 557,
         "notTall": 0,
         "spacing": 4.9,
-        "weakWidth": 4,
-        "biggest": 5.5,
-        "smallest": 2.75
+        "weakWidth": 3,
+        "biggest": 4.25,
+        "smallest": 2.25
       }
     },
     "fix3_orbs_real_960": {
@@ -844,18 +847,18 @@
       },
       "radial": {
         "x": 290,
-        "y": 1480,
+        "y": 1475,
         "w": 380,
         "h": 380
       },
       "facts": {
         "x": 39,
-        "y": 724,
+        "y": 719,
         "w": 882,
         "h": 356
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -868,12 +871,12 @@
       "title": "CreamFlow · Review"
     },
     "fix3_fps_real_960": {
-      "frames": 282,
+      "frames": 265,
       "median": 16.699999999999818,
-      "p95": 16.700000000000728,
-      "over20ms": 0,
-      "max": 16.800000000000182,
-      "orbRedrawsWhilePlaying": 28
+      "p95": 33.29999999999927,
+      "over20ms": 15,
+      "max": 33.400000000000546,
+      "orbRedrawsWhilePlaying": 27
     },
     "fix3_replay4x_real_960": {
       "chart": {
@@ -884,18 +887,18 @@
       },
       "radial": {
         "x": 290,
-        "y": 1480,
+        "y": 1475,
         "w": 380,
         "h": 380
       },
       "facts": {
         "x": 39,
-        "y": 724,
+        "y": 719,
         "w": 882,
         "h": 356
       },
       "bar": null,
-      "clock": "10:22 ET",
+      "clock": "10:42 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -908,9 +911,9 @@
       "title": "CreamFlow · Review"
     },
     "fix5_real_960": {
-      "chartBottom": 708,
-      "asideBottom": 1405,
-      "nextRowTop": 1421,
+      "chartBottom": 703,
+      "asideBottom": 1400,
+      "nextRowTop": 1416,
       "sideBySide": false
     },
     "fix5_fill_real_960": {
@@ -922,18 +925,18 @@
       },
       "radial": {
         "x": 290,
-        "y": 1480,
+        "y": 1475,
         "w": 380,
         "h": 380
       },
       "facts": {
         "x": 39,
-        "y": 724,
+        "y": 719,
         "w": 882,
         "h": 356
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -951,8 +954,8 @@
           "level",
           "level"
         ],
-        "text": "VWAP +1σ25,304.85 (band 25,292.85 – 25,316.85)ceiling, flipped ×2ceiling from 20:04crossed 22:19 → floor (provisional)flipped 22:30 → floorcrossed 23:42 → ceiling (provisional)flipped 23:55 → ceilingIB high25,304.50 (band 25,296.25 – 25,312.75)no role yet",
-        "right": 757
+        "text": "RTH VWAP +2σ25,830.18 (band 25,818.18 – 25,842.18)ceilingceiling from 09:30VWAP +2σ25,824.45 (band 25,812.45 – 25,836.45)ceilingceiling from 18:02",
+        "right": 752
       },
       "axisLeft": 840
     },
@@ -965,18 +968,18 @@
       },
       "radial": {
         "x": 290,
-        "y": 1480,
+        "y": 1475,
         "w": 380,
         "h": 380
       },
       "facts": {
         "x": 39,
-        "y": 724,
+        "y": 719,
         "w": 882,
         "h": 356
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -1000,18 +1003,18 @@
       },
       "radial": {
         "x": 290,
-        "y": 1480,
+        "y": 1475,
         "w": 380,
         "h": 380
       },
       "facts": {
         "x": 39,
-        "y": 724,
+        "y": 719,
         "w": 882,
         "h": 356
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -1024,10 +1027,10 @@
       "title": "CreamFlow · Review"
     },
     "fix8_real_960": {
-      "open": "10:38 ET",
-      "home": "09:54 ET",
-      "endKey": "10:38 ET",
-      "endButton": "10:38 ET"
+      "open": "11:00 ET",
+      "home": "10:15 ET",
+      "endKey": "11:00 ET",
+      "endButton": "11:00 ET"
     },
     "fix8_end_real_960": {
       "chart": {
@@ -1038,18 +1041,18 @@
       },
       "radial": {
         "x": 290,
-        "y": 1480,
+        "y": 1475,
         "w": 380,
         "h": 380
       },
       "facts": {
         "x": 39,
-        "y": 724,
+        "y": 719,
         "w": 882,
         "h": 356
       },
       "bar": null,
-      "clock": "10:38 ET",
+      "clock": "11:00 ET",
       "hOverflow": false,
       "titles": 0,
       "titled": [],
@@ -1062,7 +1065,7 @@
       "title": "CreamFlow · Review"
     },
     "fix7_real_960": {
-      "sliderMin": 1760997600,
+      "sliderMin": 1767308400,
       "clockAtMin": "18:00 ET",
       "bars": 1
     },
@@ -1075,13 +1078,13 @@
       },
       "radial": {
         "x": 290,
-        "y": 1480,
+        "y": 1475,
         "w": 380,
         "h": 380
       },
       "facts": {
         "x": 39,
-        "y": 724,
+        "y": 719,
         "w": 882,
         "h": 356
       },
@@ -1112,11 +1115,11 @@
         "x": 48,
         "y": 318,
         "w": 888,
-        "h": 590
+        "h": 616
       },
       "radial": {
         "x": 64,
-        "y": 1076,
+        "y": 1096,
         "w": 366,
         "h": 366
       },
@@ -1124,7 +1127,7 @@
         "x": 1033,
         "y": 266,
         "w": 360,
-        "h": 408
+        "h": 428
       },
       "bar": null,
       "clock": "12:51 ET",
@@ -1157,13 +1160,13 @@
       },
       "radial": {
         "x": 290,
-        "y": 1488,
+        "y": 1483,
         "w": 380,
         "h": 380
       },
       "facts": {
         "x": 39,
-        "y": 732,
+        "y": 727,
         "w": 882,
         "h": 356
       },

@@ -345,3 +345,53 @@ Worth trying if you want them: 29206 (layer toggles), 35286 (full screen), 35685
    - **4× replay:** 16.7 ms at the 95th percentile at 1440, 1280 and 960 px, 0–1 frames over 20 ms.
 5. **The A key** (every level at full strength) is listed in the `?` sheet under a new Review group, with T / S /
    Ctrl+Enter / Space / ← → / Home / End / P N / L.
+
+## Review round 4 (owner 2026-11-16)
+**Evidence:**
+- [`build/stage4r4/`](build/stage4r4/) ([`checks.json`](build/stage4r4/checks.json), all passed): the replay bar, hover
+  cards near the four corners and a long role timeline in a 272-px pane, the orbs, the stacked group, the Table's
+  timeline, at 1440 and 960 px.
+- `stage4`, `stage4s`, `stage4b` and `stage4r3` re-ran clean.
+- `stage4br` passes everything except the 4× frame-time check (below). Its cut check covers every unanswered preview
+  card: nothing after its decision.
+- **The preview round was not redrawn:** you answered c01 and c02 on it (kept in `reviews/preview/`), and nothing in
+  this round needed new card data.
+
+1. **Orbs 20% smaller,** the same proportions. Every one is still taller than wide. The weakest are about 62% of a bar
+   wide (3.5 px at 5.5 px a bar), down from about 80%, so their rows are dotted rather than near-solid.
+2. **Hover cards always fit.** A card is measured before it shows, then placed right or left, below or above the
+   pointer, wherever it fits whole in the chart's pane.
+   - **Shortening:** a card taller than the pane shows each level's latest role events with "+n earlier (all in the
+     Table)", then fewer objects ("+n more here").
+   - **The Table** has a new Timeline column with the full timeline.
+   - **Checked:** near the four corners and in the middle at 1440 and 960 px, and a Daily POC with 11 role events in a
+     272-px pane ("+6 earlier"). Every card stays whole inside the pane.
+3. **No King-switch crowns.**
+4. **Stacked levels** are now a readings group like the others: "Stacked (n)", names left, prices right coloured by
+   role, a muted note only for provisional, crossed back or flipped ×n.
+5. **Replay bar** on one centre line: buttons, speed, scrubber thumb and track, and the clock text (measured: 0 px
+   apart).
+   - The scrubber is our own track, fill and thumb, over a transparent native range that keeps the keys and screen
+     reader. The pattern follows 21st.dev's Playback Scrubber 35685 and the Video Player 30231 transport; no code was
+     copied.
+   - Ticks mark 09:30 and, after the answer, the decision.
+6. **The stacked members** (see SPEC §13 Q-review-stack):
+   - **What the scorer stores:** only counts per type, not which levels.
+   - **How membership is decided:** a golden or gameplan zone counts every active level whose band overlaps it. That is
+     why c01's QQQ 611 and VWAP lines count, though their centres are outside: their bands overlap. A level zone's
+     members sit inside its union of bands.
+   - **Audit of the 60 preview cards:** the current list matches every count on 10 of 10 golden cards and 33 of 50
+     level cards. The proposed "inside, then overlapping" rule would match all 60.
+   - **Not changed:** this waits for your decision.
+7. **Top 5 nodes per ticker per minute** (QQQ and NDXP on NQ; SPX and SPY on ES), from that minute's board only. The
+   readings, radial, Table and hover shares use the whole board. Measured: at most 5 orbs per ticker-minute.
+
+**4× replay frame times:**
+- **Replay alone:** 60 fps (0–7 slow frames of about 255).
+- **With the test's scripted pointer moving across the chart:** 5–20% slow frames in most runs (95th percentile up to
+  33 ms; one run at 1280 px stayed under 16.8 ms), while step 13c held the CPU at 70–100%.
+- **Measured in that state:** the hit test takes 0.1 ms (at most 0.5), there are no long tasks, and the slow pointer
+  events spend under 1 ms in our code; the rest is rendering under load.
+- **Made cheaper this round:** the card re-renders only when its objects change, its position is set directly, the
+  chart redraws for hover only when the highlighted line changes, and pointer updates are coalesced to one per frame.
+- **Open:** I'll measure again once 13c ends.

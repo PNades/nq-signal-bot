@@ -5,10 +5,10 @@
 // - the GEX orbs across the whole chart (owner 2026-11-16, stage-4 review (3); the reference
 //   docs/design/inspiration/gex_chart_1.jpeg): at every minute, one small orb per node at its price on the chart
 //   (strike × the R in force), from the board known at that minute only, sized and lit by the node's share of that
-//   board's largest |value|; Pika gold (+), Barney orchid (−), the King the brightest;
+//   board's largest |value|; Pika gold (+), Barney orchid (−), the King the brightest; only the 5 largest nodes of
+//   each ticker at each minute are drawn (round 4), their share still of the whole board;
 // - touches with their outcome once known (● held, ✕ broke, ◌ timeout), the card's own touch as a cream ◆;
-// - the confirmed King's switches as crowns; the proposed trade (entry, stop, target from the decision on) and, once
-//   revealed, its fill and exit.
+// - the proposed trade (entry, stop, target from the decision on) and, once revealed, its fill and exit.
 // Everything is clipped at `limit` (the decision time until the owner answers) and at the replay clock. Every drawn
 // level, high / low, node orb and touch is recorded for the pointer (`hitsAt`), so hovering shows its facts and price;
 // zones, crowns and the trade lines are not (owner 2026-11-16, round 3: the setup's zone is in the panel on the right);
@@ -79,10 +79,11 @@ function sprite(rgb: number[], rx: number, ry: number, alpha: number, glow: numb
 /** an orb's half width and half height (px) for its share of the board's largest node and the bar spacing: a weak node
  * fills most of its minute's width (its row reads as a near-continuous line), every orb is taller than it is wide, and
  * both grow with the share (owner 2026-11-16, round 3; the reference docs/design/inspiration/gex_chart_1.jpeg) */
+export const ORB_SCALE = 0.8;   // round 4 (owner 2026-11-16): every orb 20% smaller, the same proportions
 export function orbSize(share: number, spacing: number): [number, number] {
   const q = Math.sqrt(Math.max(0, Math.min(1, share)));
-  const rx = Math.max(0.6, Math.min(4, spacing * 0.42 * (0.85 + 0.35 * q)));
-  const ry = Math.max(rx * 1.15, Math.min(8, rx * 1.15 + 2.6 * q));
+  const rx = Math.max(0.6, Math.min(4, spacing * 0.42 * (0.85 + 0.35 * q))) * ORB_SCALE;
+  const ry = Math.max(rx * 1.15, Math.min(8 * ORB_SCALE, rx * 1.15 + 2.6 * q * ORB_SCALE));
   return [Math.round(rx * 4) / 4, Math.round(ry * 4) / 4];
 }
 
@@ -100,7 +101,7 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
   /** each level's role-change instants (for a binary search per segment) */
   private roleTimes = new WeakMap<Level, number[]>();
   private orbShapes: { x: number; y: number; r: number; rx: number; ry: number; hit: () => Hit }[] = [];
-  private orbCache: { key: string; canvas: HTMLCanvasElement } | null = null;
+  private orbCache: { key: string; canvas: HTMLCanvasElement; src: OrbSeries[] } | null = null;
   /** frames that had to draw the orbs again (the cache missed): read by the stage-4 shoot script */
   orbRedraws = 0;
   /** each layer's drawing time (ms: orbs, the rest), the last few hundred: read by the stage-4 shoot script */
@@ -302,10 +303,10 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
     if (!this.s.layers.nodes || !this.chart || !this.series) { this.orbShapes = []; return; }
     const ts = this.chart.timeScale(), vis = ts.getVisibleLogicalRange();
     const key = [vis?.from, vis?.to, this.yOf(10000), this.yOf(20000), this.s.clock, this.s.limit, W, H, pr, this.s.barTimes.length].map(String).join("|");
-    if (this.orbCache?.key !== key || this.orbCache.canvas.dataset.src !== this.orbSrc()) {
+    if (this.orbCache?.key !== key || this.orbCache.src !== this.s.orbs) {
       this.orbRedraws++;
       const c = this.orbCache?.canvas ?? document.createElement("canvas");
-      c.width = W; c.height = H; c.dataset.src = this.orbSrc();
+      c.width = W; c.height = H;
       const g = c.getContext("2d")!;
       g.clearRect(0, 0, W, H);
       const shapes: typeof this.orbShapes = [];
@@ -340,15 +341,10 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
           }
         }
       }
-      this.orbCache = { key, canvas: c };
+      this.orbCache = { key, canvas: c, src: this.s.orbs };
       this.orbShapes = shapes;
     }
     ctx.drawImage(this.orbCache.canvas, 0, 0);
-  }
-
-  /** which boards the cached orbs were drawn from (a new card or instrument draws them again) */
-  private orbSrc(): string {
-    return this.s.orbs.map((o) => `${o.chain}:${o.snaps.length}:${o.snaps[0]?.t ?? 0}`).join(",");
   }
 
   private drawTop(ctx: CanvasRenderingContext2D, w: number, _h: number) {
@@ -373,14 +369,7 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
         title: e.own ? `This setup's touch · ${clockET(e.t)} ET` : `Touch · ${clockET(e.t)} ET`,
         lines: [fmtP(e.price), `${e.role}, ${e.dir > 0 ? "long" : "short"}`, e.own ? "outcome hidden until you answer" : e.label ? `structure: ${e.label}` : "outcome not known yet"] } });
     }
-    // King switches: crowns
-    if (this.s.layers.nodes) for (const [t, strike, px, chain] of this.s.kings) {
-      if (t > end) continue;
-      const x = this.xOf(t), y = this.yOf(px);
-      if (x == null || y == null || x < -10 || x > w + 10) continue;
-      crown(ctx, x, y - 9);
-      void strike; void chain;
-    }
+    // (no King-switch crowns: the King's orb glow shows it; owner 2026-11-16, round 4)
     // the proposed trade from the decision on, and once revealed its fill and exit
     const tr = this.s.trade;
     if (tr && this.s.clock + 60 >= tr.from) {
@@ -419,9 +408,3 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
   }
 }
 
-function crown(ctx: CanvasRenderingContext2D, x: number, y: number) {
-  ctx.fillStyle = CREAM; ctx.strokeStyle = "#111"; ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(x - 6, y + 4); ctx.lineTo(x - 6, y - 2); ctx.lineTo(x - 3, y + 1); ctx.lineTo(x, y - 4); ctx.lineTo(x + 3, y + 1); ctx.lineTo(x + 6, y - 2); ctx.lineTo(x + 6, y + 4);
-  ctx.closePath(); ctx.fill(); ctx.stroke();
-}

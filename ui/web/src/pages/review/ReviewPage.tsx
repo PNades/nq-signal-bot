@@ -335,28 +335,40 @@ function ReplayBar({ card, clock, max, playing, speed, answered, onRestart, onPl
   const span = Math.max(60, max - start);
   const atDecision = clock >= card.t.minute;
   const pct = (t: number) => `${Math.max(0, Math.min(100, ((t - start) / span) * 100))}%`;
+  const cur = Math.max(start, Math.min(max, clock));
+  // one row on one centre line (owner 2026-11-16, round 4): the transport, the speed, the scrubber, the clock. The
+  // scrubber is our own track, fill and thumb over a transparent native range input (which keeps the keys and the
+  // screen reader), in the pattern of the playback scrubbers looked at on 21st.dev (Playback Scrubber 35685, the
+  // Video Player 30231 transport); ticks mark the RTH open and, after the answer, the decision
   return (
-    <div className="flex flex-wrap items-center gap-3 border-t border-line px-3 py-2.5" data-replay>
-      <div className="flex items-center gap-1">
+    <div className="flex h-14 shrink-0 items-center gap-3 border-t border-line px-3" data-replay>
+      <div className="flex shrink-0 items-center gap-0.5">
         <IconBtn label={`Restart (${clockOf(card.t.replay_start, off)})`} keys="Home" onClick={onRestart}><RotateCcw className="size-4" /></IconBtn>
         <IconBtn label="A minute back" keys="←" onClick={() => onStep(-1)}><StepBack className="size-4" /></IconBtn>
-        <IconBtn label={playing ? "Pause" : "Play"} keys="Space" onClick={onPlay} primary>{playing ? <Pause className="size-4" /> : <Play className="size-4" />}</IconBtn>
+        <IconBtn label={playing ? "Pause" : "Play"} keys="Space" onClick={onPlay} primary>{playing ? <Pause className="size-4" /> : <Play className="size-4 translate-x-px" />}</IconBtn>
         <IconBtn label="Minute →" keys="→" onClick={() => onStep(1)}><StepForward className="size-4" /></IconBtn>
         <IconBtn label={answered ? "To the end of the revealed path" : "To the decision"} keys="End" onClick={onEnd}><ChevronsRight className="size-4" /></IconBtn>
       </div>
-      <div className="flex rounded-full border border-line-strong p-0.5" role="radiogroup" aria-label="Speed">
+      <div className="flex h-8 shrink-0 items-center rounded-full border border-line-strong p-0.5" role="radiogroup" aria-label="Speed">
         {SPEEDS.map((s) => (
           <button key={s} type="button" role="radio" aria-checked={speed === s} onClick={() => onSpeed(s)}
-            className={cn("h-6 rounded-full px-2 font-mono text-[11px]", speed === s ? "bg-caramel text-cream" : "text-text-2 hover:text-text-1")}>{s}×</button>
+            className={cn("h-6 rounded-full px-2 font-mono text-[11px] leading-none", speed === s ? "bg-caramel text-cream" : "text-text-2 hover:text-text-1")}>{s}×</button>
         ))}
       </div>
-      <div className="relative min-w-[180px] flex-1">
-        <input type="range" min={start} max={max} step={60} value={Math.max(start, Math.min(max, clock))} onChange={(e) => onSeek(Number(e.target.value))}
-          aria-label="Replay clock" aria-valuetext={`${clockOf(clock, off)} ET`} className="w-full accent-[#FFE0C2]" data-scrub />
-        {answered && <span className="pointer-events-none absolute -top-1 h-2 w-px bg-cream" style={{ left: pct(card.t.minute) }} aria-hidden="true" />}
+      <div className="relative flex h-8 min-w-[160px] flex-1 items-center" data-scrub-wrap>
+        <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-bg-3" aria-hidden="true" />
+        <div className="absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-cream/60" style={{ width: pct(cur) }} aria-hidden="true" />
+        {card.t.open > start && card.t.open < max && (
+          <span className="absolute top-1/2 h-2.5 w-px -translate-y-1/2 bg-text-3/70" style={{ left: pct(card.t.open) }} data-hint="09:30 ET, the RTH open" aria-hidden="true" />
+        )}
+        {answered && <span className="absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cream" style={{ left: pct(card.t.minute) }} aria-hidden="true" />}
+        <input type="range" min={start} max={max} step={60} value={cur} onChange={(e) => onSeek(Number(e.target.value))}
+          aria-label="Replay clock" aria-valuetext={`${clockOf(clock, off)} ET`} className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0" data-scrub />
+        <span className="pointer-events-none absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-bg-1 bg-cream shadow-[0_0_0_1px_rgba(255,224,194,.35)] peer-hover:scale-110 peer-focus-visible:ring-2 peer-focus-visible:ring-cream/60"
+          style={{ left: pct(cur) }} aria-hidden="true" data-thumb />
       </div>
-      <div className="text-right font-mono text-[12px]">
-        <div className="text-text-1" data-clock>{clockOf(clock, off)} ET</div>
+      <div className="flex shrink-0 flex-col items-end justify-center font-mono leading-tight" data-clock-block>
+        <div className="text-[13px] text-text-1" data-clock>{clockOf(clock, off)} ET</div>
         <div className={cn("text-[11px]", atDecision ? "text-cream" : "text-text-3")}>{answered ? (clock > card.t.minute ? "after the decision" : "decision " + card.t.decision_et) : atDecision ? `decision ${card.t.decision_et} · the chart stops here` : `decision at ${card.t.decision_et}`}</div>
       </div>
     </div>
@@ -409,29 +421,27 @@ function Facts({ card, clock, off }: { card: Card; clock: number; off: number })
 
 const ROLE_TEXT: Record<string, string> = { ceiling: "text-pnl-down", floor: "text-pnl-up" };
 
-/** the confluences behind "Levels stacked", as known at the decision time (owner 2026-11-16, round 3) */
+/** the confluences behind "Levels stacked", as known at the decision time (round 3), shown as a readings group like
+ * the others (round 4): the name on the left with a muted note only where it applies (provisional, crossed back,
+ * flipped ×n), the price on the right coloured by role */
 function Stacked({ stack }: { stack: NonNullable<Card["stack"]> }) {
   return (
-    <div className="mt-3 rounded-sm border border-line bg-bg-2/60 p-3" data-stack>
-      <div className="flex items-baseline justify-between gap-2">
-        <div className="text-[12px] font-medium text-text-2">Stacked in the zone · {stack.count} level{stack.count === 1 ? "" : "s"}</div>
-        <div className="text-[11px] text-text-3">name, price, role and state at the decision</div>
-      </div>
-      <table className="mt-2 w-full text-[12px]">
-        <tbody>
-          {stack.items.map((x, i) => (
-            <tr key={i} className="border-t border-line first:border-t-0" data-stack-item>
-              <td className="py-1 pr-3 text-text-1">{x.label}</td>
-              {x.missing ? <td colSpan={3} className="py-1 text-text-3">not found on the chart at the decision</td> : <>
-                <td className="py-1 pr-3 text-right font-mono text-text-1">{fmtPrice(x.price!)}{x.outside_pts ? <span className="text-text-3"> ({x.outside_pts} pts out)</span> : null}</td>
-                <td className={cn("py-1 pr-3", ROLE_TEXT[x.role ?? ""] ?? "text-text-2")}>{x.role ?? "no role yet"}</td>
-                <td className="py-1 text-text-2">{x.role == null ? "—" : x.provisional ? (x.crossed_back ? "provisional, crossed back" : "provisional") : x.flips ? `settled, flipped ×${x.flips}` : "original role"}</td>
-              </>}
-            </tr>
-          ))}
-          {stack.other > 0 && <tr className="border-t border-line"><td className="py-1 pr-3 text-text-1">Other</td><td colSpan={3} className="py-1 text-text-3">{stack.other} member{stack.other === 1 ? "" : "s"} the per-type counts don't name</td></tr>}
-        </tbody>
-      </table>
+    <div className="min-w-0" data-stack>
+      <div className="text-[12px] font-medium text-text-2">Stacked ({stack.count})</div>
+      <dl className="mt-1.5 flex flex-col gap-1 text-[12px]">
+        {stack.items.map((x, i) => {
+          const note = x.missing ? "not found" : x.provisional ? (x.crossed_back ? "provisional, crossed back" : "provisional") : x.flips ? `flipped ×${x.flips}` : null;
+          return (
+            <div key={i} className="flex items-baseline justify-between gap-2" data-stack-item>
+              <dt className="min-w-0 truncate text-text-3">{x.label}{note && <span className="text-text-3/70"> · {note}</span>}</dt>
+              <dd className={cn("shrink-0 font-mono", x.missing ? "text-text-3" : ROLE_TEXT[x.role ?? ""] ?? "text-text-1")}
+                data-hint={x.missing ? undefined : `${x.role ?? "no role yet"} at the decision · band ${fmtPrice(x.lo!)} – ${fmtPrice(x.hi!)}`}>
+                {x.missing ? "—" : fmtPrice(x.price!)}</dd>
+            </div>
+          );
+        })}
+        {stack.other > 0 && <div className="flex items-baseline justify-between gap-2"><dt className="text-text-3">Other</dt><dd className="font-mono text-text-3">×{stack.other}</dd></div>}
+      </dl>
     </div>
   );
 }
@@ -449,8 +459,8 @@ function Readings({ card }: { card: Card }) {
   return (
     <section className="rounded-md border border-line bg-bg-1 p-4" aria-label="Detector readings at the decision" data-readings>
       <div className="eyebrow">Detector readings at the decision</div>
-      {card.stack && <Stacked stack={card.stack} />}
       <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-x-6 gap-y-4">
+        {card.stack && <Stacked stack={card.stack} />}
         {groups.map(([g, rows]) => (
           <div key={g} className="min-w-0">
             <div className="text-[12px] font-medium text-text-2">{g}</div>

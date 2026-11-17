@@ -1,0 +1,528 @@
+{
+  "stage": "4r4",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "r4_replay_1440": {
+      "buttons": [
+        490.5,
+        490.5,
+        490.5,
+        490.5,
+        490.5,
+        490.5,
+        490.5,
+        490.5
+      ],
+      "thumb": 490.5,
+      "track": 490.5,
+      "clock": "11:00 ET",
+      "bar": null,
+      "spread": 0,
+      "chart": {
+        "x": 48,
+        "y": -182,
+        "w": 888,
+        "h": 616
+      },
+      "radial": {
+        "x": 64,
+        "y": 596,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": -234,
+        "w": 360,
+        "h": 428
+      },
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r4_hover_corners_1440": {
+      "pane": {
+        "height": 616,
+        "width": 888
+      },
+      "res": [
+        {
+          "at": [
+            0.1,
+            0.1
+          ],
+          "tip": {
+            "l": 102,
+            "t": 69,
+            "r": 402,
+            "b": 169,
+            "earlier": false
+          }
+        },
+        {
+          "at": [
+            0.85,
+            0.1
+          ],
+          "tip": {
+            "l": 440,
+            "t": 75,
+            "r": 740,
+            "b": 175,
+            "earlier": false
+          }
+        },
+        {
+          "at": [
+            0.1,
+            0.9
+          ],
+          "tip": {
+            "l": 102,
+            "t": 437,
+            "r": 402,
+            "b": 537,
+            "earlier": false
+          }
+        },
+        {
+          "at": [
+            0.85,
+            0.9
+          ],
+          "tip": null
+        },
+        {
+          "at": [
+            0.5,
+            0.5
+          ],
+          "tip": {
+            "l": 458,
+            "t": 310,
+            "r": 758,
+            "b": 410,
+            "earlier": false
+          }
+        }
+      ],
+      "chart": {
+        "x": 48,
+        "y": 318,
+        "w": 888,
+        "h": 616
+      },
+      "radial": {
+        "x": 64,
+        "y": 1096,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 266,
+        "w": 360,
+        "h": 428
+      },
+      "bar": null,
+      "clock": "11:00 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r4_orbs_1440": {
+      "minutes": 151,
+      "most": 5,
+      "notTall": 0,
+      "chart": {
+        "x": 48,
+        "y": 318,
+        "w": 888,
+        "h": 616
+      },
+      "radial": {
+        "x": 64,
+        "y": 1096,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 266,
+        "w": 360,
+        "h": 428
+      },
+      "bar": null,
+      "clock": "11:00 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r4_stacked_1440": {
+      "rows": [
+        "Retested extreme25,337.75",
+        "Retested extreme25,329.50"
+      ],
+      "head": "Stacked (2)",
+      "chart": {
+        "x": 48,
+        "y": -403,
+        "w": 888,
+        "h": 616
+      },
+      "radial": {
+        "x": 64,
+        "y": 375,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": -455,
+        "w": 360,
+        "h": 428
+      },
+      "bar": null,
+      "clock": "11:00 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r4_replay_960": {
+      "buttons": [
+        674.5,
+        674.5,
+        674.5,
+        674.5,
+        674.5,
+        674.5,
+        674.5,
+        674.5
+      ],
+      "thumb": 674.5,
+      "track": 674.5,
+      "clock": "11:00 ET",
+      "bar": null,
+      "spread": 0,
+      "chart": {
+        "x": 40,
+        "y": 318,
+        "w": 800,
+        "h": 300
+      },
+      "radial": {
+        "x": 290,
+        "y": 1475,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 719,
+        "w": 882,
+        "h": 356
+      },
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r4_hover_corners_960": {
+      "pane": {
+        "height": 300,
+        "width": 800
+      },
+      "res": [
+        {
+          "at": [
+            0.1,
+            0.1
+          ],
+          "tip": {
+            "l": 94,
+            "t": 41,
+            "r": 394,
+            "b": 141,
+            "earlier": false
+          }
+        },
+        {
+          "at": [
+            0.85,
+            0.1
+          ],
+          "tip": {
+            "l": 366,
+            "t": 43,
+            "r": 666,
+            "b": 143,
+            "earlier": false
+          }
+        },
+        {
+          "at": [
+            0.1,
+            0.9
+          ],
+          "tip": {
+            "l": 94,
+            "t": 154,
+            "r": 394,
+            "b": 254,
+            "earlier": false
+          }
+        },
+        {
+          "at": [
+            0.85,
+            0.9
+          ],
+          "tip": {
+            "l": 366,
+            "t": 154,
+            "r": 666,
+            "b": 254,
+            "earlier": false
+          }
+        },
+        {
+          "at": [
+            0.5,
+            0.5
+          ],
+          "tip": {
+            "l": 414,
+            "t": 158,
+            "r": 714,
+            "b": 258,
+            "earlier": false
+          }
+        }
+      ],
+      "chart": {
+        "x": 40,
+        "y": 318,
+        "w": 800,
+        "h": 300
+      },
+      "radial": {
+        "x": 290,
+        "y": 1475,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 719,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "11:00 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r4_orbs_960": {
+      "minutes": 151,
+      "most": 5,
+      "notTall": 0,
+      "chart": {
+        "x": 40,
+        "y": 318,
+        "w": 800,
+        "h": 300
+      },
+      "radial": {
+        "x": 290,
+        "y": 1475,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 719,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "11:00 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r4_stacked_960": {
+      "rows": [
+        "Retested extreme25,337.75",
+        "Retested extreme25,329.50"
+      ],
+      "head": "Stacked (2)",
+      "chart": {
+        "x": 40,
+        "y": -1350,
+        "w": 800,
+        "h": 300
+      },
+      "radial": {
+        "x": 290,
+        "y": -193,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": -949,
+        "w": 882,
+        "h": 356
+      },
+      "bar": null,
+      "clock": "11:00 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r4_table_timeline_1440": {
+      "chart": {
+        "x": 48,
+        "y": 318,
+        "w": 888,
+        "h": 616
+      },
+      "radial": {
+        "x": 64,
+        "y": 1096,
+        "w": 366,
+        "h": 366
+      },
+      "facts": {
+        "x": 1033,
+        "y": 266,
+        "w": 360,
+        "h": 428
+      },
+      "bar": null,
+      "clock": "11:00 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    },
+    "r4_hover_long_960": {
+      "pane": {
+        "height": 272,
+        "width": 800
+      },
+      "hovered": 31,
+      "longest": {
+        "l": 384,
+        "t": 27,
+        "r": 684,
+        "b": 266,
+        "earlier": "+6 earlier (all in the Table)",
+        "story": 11,
+        "at": {
+          "x": 370.1696969696968,
+          "y": 99.44848214285713,
+          "key": "l:poc_daily-2025-10-21@20251021T075300Z"
+        }
+      },
+      "chart": {
+        "x": 40,
+        "y": 132,
+        "w": 800,
+        "h": 272
+      },
+      "radial": {
+        "x": 290,
+        "y": 1246,
+        "w": 380,
+        "h": 380
+      },
+      "facts": {
+        "x": 39,
+        "y": 505,
+        "w": 882,
+        "h": 356
+      },
+      "bar": {
+        "x": 39,
+        "y": 877,
+        "w": 882,
+        "h": 294
+      },
+      "clock": "10:38 ET",
+      "hOverflow": false,
+      "titles": 0,
+      "titled": [],
+      "replay_vs_dock": false,
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Review"
+    }
+  }
+}

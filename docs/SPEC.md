@@ -1222,6 +1222,33 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   **Decided:** the every-level view stays on the A key only (no button), listed in the `?` shortcut sheet with the other
   Review keys; level names on hover and in the Table, the axis keeping only the last price, entry, stop and target
   (approved).
+- **Q-review-chart round 4 (owner 2026-11-16; built, waiting for the owner's OK):** (1) every orb 20% smaller, the same
+  proportions (vertical ovals; the weakest about 62% of a bar wide); (2) a hover card is measured before it is shown
+  and placed right or left, below or above the pointer, wherever it fits whole inside the chart's pane; a card taller
+  than the pane shows each level's latest role events with "+n earlier (all in the Table)", then fewer objects ("+n more
+  here"); the Table gains a full Timeline column; (3) no King-switch crowns; (4) the stacked levels are a readings group
+  like the others (name left, a muted note only for provisional / crossed back / flipped ×n, the price right coloured
+  by role); (5) the replay bar on one centre line (buttons, speed, scrubber, clock; measured 0 px apart), the scrubber
+  our own track, fill and thumb over a transparent native range, ticks at 09:30 and, after the answer, the decision;
+  (7) only the 5 largest nodes (|value|, Pika and Barney together) of each ticker at each minute are drawn, from that
+  minute's board only; NQ: QQQ and NDXP, ES: SPX (the SPXW chain) and SPY; the readings, the radial, the Table and the
+  hover shares keep the whole board.
+- **Q-review-stack (open; for the owner; step 14 build stage 4, round 4 (6)):** the scorer records which levels it
+  stacked only as counts (`stack_count`, `n_<sub_type>`; `founding_level_ids` holds a level zone's founding members at
+  its formation, not at the decision). How membership is decided (`features/session_features.py` `members_at`,
+  `features/zones.py`): a **level zone's** members are the levels the zone book holds at that instant (two levels join
+  when their bands overlap or their centres are within `confluence_tol`, within `max_zone_width`), and the zone's edges
+  are the union of the members' bands, so every member's band lies inside the zone; a **container's** (golden zone,
+  gameplan zone) members are every active level whose band overlaps it; the event's own retested extreme is left out
+  in both. The Review card reconstructs the members per type from the stored level bands at the decision: the current
+  rule (bands overlapping, then nearest) gives exactly the counted number on all 10 golden-zone cards of the preview
+  round and on 33 of its 50 level-zone cards (17 have more overlapping levels of a type than counted). A read-only
+  audit of a stricter rule for level zones (band inside the zone) gives the counted number on all 17 of those and on
+  43 of the 50; the other 7 are VWAP lines whose band overlaps but is not inside by a hair (the card samples a VWAP
+  band once a second, the scorer reads it at the trade). Proposed, not built (display only, no scorer change): level
+  zones "inside, then overlapping to fill the count", containers "overlapping"; the card would then match every count
+  in the preview round. Recording the counted `level_id`s in the scorer's rows would make it exact, but that changes
+  the build (after 13c, the owner's decision).
 - **Q-review-sample (step 14 build stage 4; (1)-(3), (5) and the preview rule decided by the owner 2026-11-16; (4),
   (6), (7) open):** (1) **"Setups the owner would never take"** (§8): single-level zones (stack count 1) traded against
   the day's direction so far (`with_day_direction` false), else any single-level zone, are accepted as a **stand-in**;
