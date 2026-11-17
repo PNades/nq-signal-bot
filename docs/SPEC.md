@@ -1279,6 +1279,12 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   once: of the orbs of one node (same ticker and strike) under the pointer, only the one nearest the pointer, with its
   own minute's board; moving along the row shows the other minutes; different nodes and levels under the pointer all
   show, sorted by price (`ReviewOverlay.hitsAt`).
+- **Q-review-chart round 8 (owner 2026-11-16; built, waiting for the owner's OK):** no description under the GEX
+  dial; from 1280 px the GEX box and the detector readings share one row whose height is the readings' (the GEX box
+  adds none of its own), so neither box has empty room at the bottom; the ticker switch and the dial are one group
+  centred in the GEX box under its heading (equal left / right, equal above / below); the dial's canvas is only as
+  tall as its drawing (a 240° arc open at the bottom is wider than tall), sized to the room; the ring labels (25%,
+  50%, 100%) 11 px on a dark halo. Below 1280 px the boxes stack and the GEX box keeps its own height.
 - **Preview answers deleted (owner 2026-11-16):** the 10 answers on `preview-b958` (c01–c10) were test inputs and were
   deleted (`reviews/preview/answers_preview-b958.parquet`). Nothing else reads them: only `review/store.py` (the page's
   answered state and the append of a new answer). The record of the touches the preview cards showed comes from the

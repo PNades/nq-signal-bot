@@ -4011,6 +4011,8 @@ S["4r5"] = async () => {
   await rshot("r5_replay_answered_1440", 1440, 900, "/review", async (p) => {
     await p.locator("[role=listitem]", { hasText: /^01/ }).click(); await p.waitForTimeout(1500);
     await p.evaluate(() => { document.activeElement?.blur?.(); });
+    // the preview round's test answers were deleted (owner 2026-11-16): with no answered card there is nothing to check
+    if (!(await p.locator("[data-result]").count())) { checks.r5_replay_answered_1440 = { skipped: "c01 is not answered" }; return; }
     await replayCheck(p, "r5_replay_answered_1440", true);
     const st = checks.r5_replay_answered_1440.states;
     if (!(st[2].max - st[0].min > 30 * 60)) problems.push("r5_replay_answered_1440: the slider does not extend through the revealed path");
@@ -4080,6 +4082,7 @@ S["4r6"] = async () => {
   await rshot("r6_step_answered_1440", 1440, 900, "/review", async (p) => {
     await p.locator("[role=listitem]", { hasText: /^01/ }).click(); await p.waitForTimeout(1500);
     await p.evaluate(() => { document.activeElement?.blur?.(); document.querySelector("[data-replay]").scrollIntoView({ block: "center" }); });
+    if (!(await p.locator("[data-result]").count())) { checks.r6_step_answered_1440 = { skipped: "c01 is not answered (the preview answers were deleted)" }; return; }
     await speed(p, 4); await p.keyboard.press("End"); await p.waitForTimeout(300);
     const end = await val(p);
     for (let k = 0; k < 20; k++) await back(p);
@@ -4144,6 +4147,54 @@ S["4r7"] = async () => {
       await p.mouse.move(b.x + a.x + (c.x - a.x) * 0.45, b.y + a.y); await p.waitForTimeout(300);
     });
   }
+};
+
+S["4r8"] = async () => {
+  // the GEX box and the readings (owner 2026-11-16, round 8): no description under the dial; both boxes the readings'
+  // height with no empty room at the bottom; the ticker switch and the dial centred in the GEX box
+  const measure = async (p, name) => {
+    await p.locator("[data-readings]").scrollIntoViewIfNeeded(); await p.waitForTimeout(500);
+    const r = await p.evaluate(() => {
+      const R = (e) => { const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height }; };
+      const gex = document.querySelector("[data-gex-box]"), rd = document.querySelector("[data-readings]");
+      const grid = rd.querySelector(":scope > div.grid"), area = gex.querySelector("[data-radial-area]");
+      const sw = area.querySelector("[role=radiogroup]"), dial = area.querySelector("[data-radial-dial]"), head = gex.querySelector(".eyebrow");
+      const g = R(gex), d = R(dial), s = R(sw), a = R(area), rr = R(rd), gg = R(grid);
+      return {
+        gexH: +g.h.toFixed(1), readingsH: +rr.h.toFixed(1), readingsEmpty: +(rr.b - 16 - gg.b).toFixed(1), dial: +d.w.toFixed(1),
+        pad: { left: +(d.l - g.l).toFixed(1), right: +(g.r - d.r).toFixed(1), aboveSwitch: +(s.t - a.t).toFixed(1), belowDial: +(a.b - d.b).toFixed(1),
+               boxTopToSwitch: +(s.t - g.t).toFixed(1), dialToBoxBottom: +(g.b - d.b).toFixed(1) },
+        switchCentre: +((s.l + s.r) / 2 - (g.l + g.r) / 2).toFixed(1), dialCentre: +((d.l + d.r) / 2 - (g.l + g.r) / 2).toFixed(1),
+        headBottom: +(R(head).b - g.t).toFixed(1),
+        description: /Strikes run low/.test(gex.textContent),
+      };
+    });
+    checks[name] = r;
+    if (r.description) problems.push(`${name}: the description is still under the dial`);
+    if (Math.abs(r.gexH - r.readingsH) > 1) problems.push(`${name}: box heights differ (${r.gexH} vs ${r.readingsH})`);
+    if (r.readingsEmpty > 2) problems.push(`${name}: ${r.readingsEmpty} px empty under the readings`);
+    if (Math.abs(r.pad.left - r.pad.right) > 1.5 || Math.abs(r.pad.aboveSwitch - r.pad.dialToBoxBottom) > 1.5 || Math.abs(r.switchCentre) > 1.5)
+      problems.push(`${name}: the switch and dial are not centred ${JSON.stringify(r.pad)}`);
+    if (r.pad.belowDial < 0 || r.pad.dialToBoxBottom < 12) problems.push(`${name}: the dial runs past the box (${JSON.stringify(r.pad)})`);
+    await p.locator("[data-gex-box]").screenshot({ path: path.join(OUT, `${name}_gex.png`) });
+  };
+  for (const [w, h] of [[1440, 900], [1280, 900]]) {
+    await rshot(`r8_boxes_${w}`, w, h, "/review", async (p) => measure(p, `r8_boxes_${w}`));
+    // c03: two stacked levels (c01, the first card, has seven)
+    await rshot(`r8_boxes_c03_${w}`, w, h, "/review", async (p) => {
+      await p.locator("[role=listitem]", { hasText: /^03/ }).click(); await p.waitForTimeout(1500);
+      await p.evaluate(() => document.activeElement?.blur?.());
+      await measure(p, `r8_boxes_c03_${w}`);
+    });
+  }
+  // below 1280 px the boxes stack: the GEX box keeps its own height and has no description
+  await rshot("r8_boxes_960", 960, 800, "/review", async (p) => {
+    await p.locator("[data-gex-box]").scrollIntoViewIfNeeded(); await p.waitForTimeout(400);
+    const r = await p.evaluate(() => { const g = document.querySelector("[data-gex-box]"), d = g.querySelector("[data-radial-dial]").getBoundingClientRect(), b = g.getBoundingClientRect();
+      return { dial: d.width, dialToBottom: +(b.bottom - d.bottom).toFixed(1), description: /Strikes run low/.test(g.textContent) }; });
+    checks.r8_boxes_960 = r;
+    if (r.description || r.dialToBottom < 14 || r.dialToBottom > 20) problems.push(`r8_boxes_960: ${JSON.stringify(r)}`);
+  });
 };
 
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();

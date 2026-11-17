@@ -434,3 +434,17 @@ and 960 px; `stage4`, `stage4s`, `stage4b`, `stage4r5` re-ran clean.
   pointer stepped along the row, on orbs and between two of them (12 points each): no card held a node twice, every
   card showed the orb nearest the pointer with its own minute's board, and moving along the row showed 6 different
   minutes. Other nodes and levels under the pointer still all show, sorted by price.
+
+## Review round 8 (owner 2026-11-16)
+**Evidence:** [`build/stage4r8/`](build/stage4r8/) ([`checks.json`](build/stage4r8/checks.json), all passed) at 1440
+and 1280 px (c01 with 7 stacked levels and c03 with 2) and 960 px; `stage4`, `stage4r5` re-ran clean (two checks
+that needed an answered card now record a skip: the preview answers were deleted).
+
+- **No description under the dial.**
+- **Both boxes 496 px tall**, the readings' own height; 1 px between the readings' last line and their bottom padding.
+- **Centred:** the ticker switch and the dial sit 17 px from each side and 68 px from the heading above and the box's
+  bottom edge below. Not the same on all four sides: the box is 400 px wide (the readings need the rest of the row
+  to keep three columns at 1280 px) and the readings make it 496 px tall, while the dial's drawing is wider than tall
+  (366 × 284 px), so the room left over is vertical. Equal padding all round would need a GEX box about 540 px wide,
+  which fits at 1440 px only (the readings' columns would narrow to about 236 px).
+- **Ring labels** 11 px, brighter, on a dark halo, kept inside the canvas.

@@ -16,14 +16,22 @@ const ARC_FROM = (210 * Math.PI) / 180, ARC_SWEEP = (240 * Math.PI) / 180;   // 
 const BASE = 0.36;            // the base ring, as a share of the radius
 const LABEL_SHARE = 0.25;     // labels on nodes at >= 25% of the largest (F2.4's relevance share), and the King
 const RINGS = [0.25, 0.5, 1];
+const DIAL_GAP = 12;          // px between the ticker switch and the dial
+const DIAL_MIN = 220, DIAL_MAX = 380;   // the dial's side, px
 
 interface Spoke { key: number; ang: number; share: number; v: number; king: boolean; rel: boolean }
 
+/** the dial's drawing for a width: a 240° arc open at the bottom is wider than tall, so the canvas is only as tall as
+ * the drawing (round 8: the box centres what is drawn, with no blank band inside the canvas): DIAL_TOP above the
+ * outer ring (the King's ring and the top labels), DIAL_BOTTOM under the arc's ends (the ring and strike labels) */
+const DIAL_TOP = 18, DIAL_BOTTOM = 24;
 function geometry(size: number) {
-  // the arc opens at the bottom, so its centre sits low and its radius uses the height
   const c = size / 2, R = size / 2 - 22;
-  return { c, cy: c + R * 0.22, R, r0: R * BASE };
+  const cy = DIAL_TOP + R;
+  return { c, cy, R, r0: R * BASE, h: Math.ceil(cy + R * Math.sin(ARC_FROM - Math.PI) + DIAL_BOTTOM) };
 }
+/** the widest dial whose drawing fits `height` (the inverse of geometry's h) */
+const widthForHeight = (height: number) => 2 * ((height - DIAL_TOP - DIAL_BOTTOM) / (1 + Math.sin(ARC_FROM - Math.PI)) + 22);
 /** a spoke's length grows with the square root of its share, so a dominant King doesn't flatten every other node */
 const reach = (share: number) => Math.sqrt(Math.max(0, Math.min(1, share)));
 
@@ -36,11 +44,14 @@ function spokes(snap: MapSnap, relevant: Set<number>): { list: Spoke[]; spotAng:
   return { list, spotAng: ang(snap.spot), lo, hi };
 }
 
-export function GexRadial({ maps, map, onMap, snap, relevant, unit, animated }: {
+/** `fit` (round 8, owner 2026-11-16): the box takes its height from its row (the detector readings beside it), so the
+ * dial is sized to the room left under the heading and the ticker switch, and the two are centred in it */
+export function GexRadial({ maps, map, onMap, snap, relevant, unit, animated, fit = false }: {
   maps: MapName[]; map: MapName; onMap: (m: MapName) => void; snap: MapSnap | null; relevant: Set<number>;
-  unit: "NQ" | "ES"; animated: boolean;
+  unit: "NQ" | "ES"; animated: boolean; fit?: boolean;
 }) {
-  const wrap = useRef<HTMLDivElement>(null);
+  const area = useRef<HTMLDivElement>(null);
+  const sw = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState(340);
   const [hover, setHover] = useState<(Spoke & { x: number; y: number }) | null>(null);
@@ -49,18 +60,24 @@ export function GexRadial({ maps, map, onMap, snap, relevant, unit, animated }: 
   const target = useMemo(() => (snap && snap.s.length ? spokes(snap, relevant) : null), [snap, relevant]);
 
   useEffect(() => {
-    const el = wrap.current;
+    const el = area.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setSize(Math.max(240, Math.min(380, Math.floor(el.clientWidth)))));
+    const measure = () => {
+      const w = el.clientWidth;
+      const h = fit ? widthForHeight(el.clientHeight - (sw.current?.offsetHeight ?? 28) - DIAL_GAP) : Infinity;
+      setSize(Math.max(DIAL_MIN, Math.min(DIAL_MAX, Math.floor(Math.min(w, h)))));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [fit]);
 
   useEffect(() => {
     const cv = canvas.current;
     if (!cv) return;
     const dpr = window.devicePixelRatio || 1;
-    cv.width = size * dpr; cv.height = size * dpr;
+    cv.width = size * dpr; cv.height = geometry(size).h * dpr;
     const ctx = cv.getContext("2d")!;
     const from = new Map((shown.current?.list ?? []).map((o) => [o.key, o]));
     const fromSpot = shown.current?.spotAng;
@@ -90,18 +107,18 @@ export function GexRadial({ maps, map, onMap, snap, relevant, unit, animated }: 
   };
 
   return (
-    <div className="flex flex-col gap-3" data-radial>
-      <div className="flex items-center justify-between gap-2">
-        <div className="eyebrow">GEX snapshot · at the replay clock</div>
-        <div className="flex rounded-full border border-line-strong p-0.5" role="radiogroup" aria-label="Map">
+    <div className={cn("flex flex-col", fit && "h-full")} data-radial>
+      <div className="eyebrow">GEX snapshot · at the replay clock</div>
+      {/* the ticker switch and the dial, one group centred in the room under the heading */}
+      <div ref={area} className={cn("flex flex-col items-center", fit ? "min-h-0 flex-1 justify-center" : "mt-3")} style={{ gap: DIAL_GAP }} data-radial-area>
+        <div ref={sw} className="flex rounded-full border border-line-strong p-0.5" role="radiogroup" aria-label="Map">
           {maps.map((m) => (
             <button key={m} type="button" role="radio" aria-checked={map === m} onClick={() => onMap(m)} data-map={m}
               className={cn("h-6 rounded-full px-2 font-mono text-[11px]", map === m ? "bg-caramel text-cream" : "text-text-2 hover:text-text-1")}>{m}</button>
           ))}
         </div>
-      </div>
-      <div ref={wrap} className="relative mx-auto w-full" style={{ height: size, maxWidth: 380 }}>
-        <canvas ref={canvas} style={{ width: size, height: size }} className="mx-auto block" onPointerMove={onMove} onPointerLeave={() => setHover(null)}
+      <div className="relative shrink-0" style={{ width: size, height: geometry(size).h }} data-radial-dial>
+        <canvas ref={canvas} style={{ width: size, height: geometry(size).h }} className="mx-auto block" onPointerMove={onMove} onPointerLeave={() => setHover(null)}
           role="img" aria-label={snap ? `${map} board: spot ${snap.spot}, King ${snap.king ?? "none"}` : `${map}: no board at this minute`} />
         {!snap && <div className="absolute inset-0 grid place-items-center text-[13px] text-text-3">No {map} board at this minute (boards start at 09:30).</div>}
         {hover && snap && (
@@ -113,7 +130,7 @@ export function GexRadial({ maps, map, onMap, snap, relevant, unit, animated }: 
           </div>
         )}
       </div>
-      <p className="text-[12px] leading-4 text-text-3">Strikes run low → high around the dial; a spoke reaches its share of the largest node (rings at 25%, the relevance line, 50% and 100%; square-root scale). The needle is spot. Faint: not an {unit} level at this minute.</p>
+      </div>
     </div>
   );
 }
@@ -121,8 +138,8 @@ export function GexRadial({ maps, map, onMap, snap, relevant, unit, animated }: 
 function draw(ctx: CanvasRenderingContext2D, dpr: number, size: number, list: Spoke[], spotAng: number, snap: MapSnap | null, unit: string,
   target: ReturnType<typeof spokes> | null) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, size, size);
-  const { c, cy, R, r0 } = geometry(size);
+  const { c, cy, R, r0, h } = geometry(size);
+  ctx.clearRect(0, 0, size, h);
   const out: (Spoke & { x: number; y: number; r: number })[] = [];
   if (!snap || !target) return out;
   const at = (ang: number, r: number) => [c + r * Math.cos(ang), cy - r * Math.sin(ang)] as const;
@@ -135,8 +152,15 @@ function draw(ctx: CanvasRenderingContext2D, dpr: number, size: number, list: Sp
     ctx.beginPath(); ctx.arc(c, cy, r, -ARC_FROM, -ARC_FROM + ARC_SWEEP); ctx.stroke();
   }
   ctx.setLineDash([]);
-  ctx.font = '10px "Geist Mono Variable", monospace'; ctx.fillStyle = "rgba(180,180,180,.6)"; ctx.textBaseline = "middle"; ctx.textAlign = "left";
-  for (const s of RINGS) { const [x, y] = at(ARC_FROM - ARC_SWEEP, r0 + reach(s) * (R - r0)); ctx.fillText(`${s * 100}%`, x + 4, y + 7); }
+  // the ring labels (round 8): larger, brighter and on a dark halo, so they read over the spokes
+  ctx.font = '11px "Geist Mono Variable", monospace'; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  ctx.lineWidth = 3; ctx.lineJoin = "round"; ctx.strokeStyle = "rgba(18,16,15,.92)"; ctx.fillStyle = "rgba(214,208,200,.9)";
+  for (const s of RINGS) {
+    const [x, y] = at(ARC_FROM - ARC_SWEEP, r0 + reach(s) * (R - r0));
+    const lx = Math.min(x + 4, size - 4 - ctx.measureText(`${s * 100}%`).width), ly = Math.min(y + 7, h - 7);
+    ctx.strokeText(`${s * 100}%`, lx, ly); ctx.fillText(`${s * 100}%`, lx, ly);
+  }
+  ctx.fillStyle = "rgba(180,180,180,.6)";
   // the strike scale: its ends, below the arc's two ends
   ctx.textAlign = "center"; ctx.textBaseline = "top";
   for (const k of [target.lo, target.hi]) { const [x, y] = at(k === target.lo ? ARC_FROM : ARC_FROM - ARC_SWEEP, r0); ctx.fillText(`${k}`, x, y + 8); }

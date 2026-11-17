@@ -208,6 +208,13 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
   // A: every level at full strength (the old Focus-off view, kept until the owner decides whether it goes)
   const [allLevels, setAllLevels] = useState(false);
   const [map, setMap] = useState<MapName>("QQQ");
+  // from 1280 px the GEX box sits beside the readings and takes their height (round 8)
+  const [wide, setWide] = useState(() => window.matchMedia(WIDE_QUERY).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(WIDE_QUERY), f = () => setWide(mq.matches);
+    mq.addEventListener("change", f);
+    return () => mq.removeEventListener("change", f);
+  }, []);
   const limit = answered ? card.t.reveal_end : card.t.decision;
 
   // the replay clock
@@ -320,15 +327,22 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
           </AnimatePresence>
         </aside>
       </div>
+      {/* round 8 (owner 2026-11-16): from 1280 px the row takes the detector readings' height; the GEX box adds none of
+          its own (its content sits in an absolute layer) and sizes its dial to that height, so neither box has empty
+          room at the bottom */}
       <div className="grid gap-4 min-[1280px]:grid-cols-[400px_minmax(0,1fr)]">
-        <section className="rounded-md border border-line bg-bg-1 p-4" aria-label="GEX snapshot">
-          <GexRadial maps={MAPS} map={map} onMap={setMap} snap={snap} relevant={relevant} unit={MAP_ROOT[map]} animated={animated} />
+        <section className="relative rounded-md border border-line bg-bg-1 p-4 min-[1280px]:p-0" aria-label="GEX snapshot" data-gex-box>
+          <div className="min-[1280px]:absolute min-[1280px]:inset-0 min-[1280px]:p-4 min-[1280px]:pb-0">
+            <GexRadial maps={MAPS} map={map} onMap={setMap} snap={snap} relevant={relevant} unit={MAP_ROOT[map]} animated={animated} fit={wide} />
+          </div>
         </section>
         <Readings card={card} />
       </div>
     </div>
   );
 }
+
+const WIDE_QUERY = "(min-width: 1280px)";   // Tailwind's min-[1280px], where the GEX box and the readings share a row
 
 /** the replay window starts REPLAY_WINDOW_MIN minutes before the decision's minute (never before the chart's start);
  * computed here rather than read from `t.replay_start`, which older cards stored as 45 min, clipped at the open */
