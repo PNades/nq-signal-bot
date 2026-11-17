@@ -25,7 +25,7 @@ from starlette.routing import Route
 
 from nqbot.storage import Paths
 from nqbot.accounts.presets import ARCHIVED, account_kind
-from nqbot.ui import actions, api_panel, api_performance, api_review, emergency, spa
+from nqbot.ui import actions, api_gameplan, api_panel, api_performance, api_review, emergency, spa
 from nqbot.ui.panel_store import PanelStore, PanelUnavailable
 from nqbot.ui.security import TOKEN_FIELD, TOKEN_HEADER, GuardMiddleware, new_token, token_ok
 from nqbot.ui.status import build_status
@@ -218,6 +218,8 @@ def create_app(cfg: PanelConfig) -> Starlette:
         *(api_panel.routes(store, cfg.settings, cfg.features, require_token, perf[1]) if perf else []),
         *(perf[0] if perf else []),
         *(api_review.routes(cfg.paths_fn, cfg.settings, require_token, synthetic=cfg.synthetic) if cfg.settings else []),
+        *(api_gameplan.routes(cfg.paths_fn, cfg.settings, cfg.features, require_token, synthetic=cfg.synthetic)
+          if cfg.settings and cfg.features else []),
         Route("/api/{rest:path}", api_missing, methods=["GET", "POST"]),
         Route("/{rest:path}", static, methods=["GET", "HEAD"]),
     ]

@@ -1,0 +1,156 @@
+{
+  "stage": "5b",
+  "base": "http://127.0.0.1:8735",
+  "problems": [],
+  "checks": {
+    "gameplan_not_today": {
+      "title": "Gameplan for Wed, Nov 18, 2026",
+      "badge": 1
+    },
+    "gameplan_failed": {
+      "err": "2026-03-11 fail-once.md: the parse failed: output cut off at gameplan_max_tokens (request synthetic). Nothing is retried automatically: Parse again sends it again (another paid call, up to $0.34).",
+      "button": "Parse again · up to $0.34",
+      "parsed": 0
+    },
+    "gameplan_failed_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_cost": "Parsed 2026-03-11 fail-once.md for 2026-11-18: actual cost $0.00(estimate up to $0.34)",
+    "gameplan_cost_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_blocked": {
+      "disabled": true,
+      "text": "1 review flag is still open: before 09:30 fix each one or mark it OK as parsed.",
+      "flags": 1
+    },
+    "gameplan_blocked_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_ok_confirmed": {
+      "enabled": true,
+      "status": "2026-11-18: confirmed 2026-11-17 00:20",
+      "flags": "Flags · 0 to review · 1 info · 1 marked OK as parsed"
+    },
+    "gameplan_ok_confirmed_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_more_edits": {
+      "gates": "ES > 6,812 · ES < 6,790",
+      "inval": "1m close above 24,560",
+      "prob": "40%"
+    },
+    "gameplan_more_edits_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_scenarios_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_day_picker": {
+      "open": true,
+      "focused": true,
+      "native": 0,
+      "groups": [
+        {
+          "label": "Today",
+          "days": [
+            "2026-11-17"
+          ],
+          "chips": [
+            "Tue, Nov 17 · todayconfirm again"
+          ]
+        },
+        {
+          "label": "November 2026",
+          "days": [
+            "2026-11-18"
+          ],
+          "chips": [
+            "Wed, Nov 18confirmed"
+          ]
+        }
+      ],
+      "afterKeys": "?date=2026-11-18"
+    },
+    "gameplan_day_picker_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_hidden": {
+      "status": 403,
+      "body": "{\"error\":\"2026-08-12 is in ledger months 7-12, which stay off this page until gate 16 is recorded (config/gate_record.json)\"}"
+    },
+    "gameplan_hidden_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_not_today_1280_overflow": {
+      "page": 0,
+      "entries": {
+        "scroll": 1166,
+        "client": 1166
+      }
+    },
+    "gameplan_not_today_1280": {
+      "flatH": 36,
+      "flatRight": 1260,
+      "flatFits": true,
+      "barW": 1280,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_not_today_960_overflow": {
+      "page": 0,
+      "entries": {
+        "scroll": 980,
+        "client": 846
+      }
+    },
+    "gameplan_not_today_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    }
+  }
+}

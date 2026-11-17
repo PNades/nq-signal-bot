@@ -6,7 +6,14 @@ step-9 report, step 11) reads the effective gameplan.
 
   {"date": "2026-08-18",
    "owner_confirmed": {"at": "...", "note": "..."} | null,
-   "ops": [{"path": ["zones", {"id": "S2-B-29650"}, "zone"], "value": [29650, 29700], "reason": "...", "at": "..."}]}
+   "ops": [{"path": ["zones", {"id": "S2-B-29650"}, "zone"], "value": [29650, 29700], "reason": "...", "at": "...",
+            "resolves": ["zones[S2-B-29650].zone"]}],
+   "accepted": [{"field": "date", "flag": "<the flag's text>", "at": "..."}]}
+
+An op from the Gameplan page carries `resolves`: exactly the review flags it fixes (the ones shown on the field the
+owner edited; owner 2026-11-16, build stage 5). Ops without it (the archive's, 2026-10-07) keep the older rule: a flag
+on a field the op sets, or under it, is settled. `accepted` holds the review flags the owner marked "OK as parsed",
+each matched by its field and its exact text, so a re-parse that words a flag differently shows it again.
 
 A path step is a dict key, or a {key: value} selector picking the one list item whose fields all match (keys may be
 dotted, e.g. "trigger.nq_price"). Entries are selected with `entry_selector` (owner 2026-10-07): by their label only
@@ -47,11 +54,24 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def set_value(processed_dir: Path, day: date, path: list, value: Any, reason: str) -> None:
-    """Record (or replace) the owner's value at `path`."""
+def set_value(processed_dir: Path, day: date, path: list, value: Any, reason: str,
+              resolves: list[str] | None = None) -> None:
+    """Record (or replace) the owner's value at `path`; `resolves`: the review flags this edit fixes (see the note)."""
     ov = load(processed_dir, day)
     ov["ops"] = [o for o in ov["ops"] if o["path"] != path]
-    ov["ops"].append({"path": path, "value": value, "reason": reason, "at": _now()})
+    op: dict[str, Any] = {"path": path, "value": value, "reason": reason, "at": _now()}
+    if resolves is not None:
+        op["resolves"] = list(resolves)
+    ov["ops"].append(op)
+    save(processed_dir, day, ov)
+
+
+def accept(processed_dir: Path, day: date, field: str, flag: str) -> None:
+    """The owner marks a review flag "OK as parsed" (matched by its field and exact text)."""
+    ov = load(processed_dir, day)
+    acc = [a for a in ov.get("accepted") or [] if not (a["field"] == field and a["flag"] == flag)]
+    acc.append({"field": field, "flag": flag, "at": _now()})
+    ov["accepted"] = acc
     save(processed_dir, day, ov)
 
 
@@ -146,19 +166,28 @@ def apply(doc: dict[str, Any], ov: dict[str, Any]) -> dict[str, Any]:
     """The effective gameplan: `doc` with the owner's ops applied and `owner_confirmed` set. A review flag on a field
     an override sets becomes info ("resolved by owner override"); `status` is recomputed: ok = no review flag."""
     out = copy.deepcopy(doc)
-    applied, labels = [], []
+    applied, labels, exact = [], [], set()
     for op in ov.get("ops") or []:
         lab = _apply_op(out, op)
         if lab is not None:
             applied.append(op)
-            labels.append(lab)
+            if "resolves" in op:          # a Gameplan-page edit: exactly the flags it names
+                exact.update(op["resolves"])
+            else:
+                labels.append(lab)
         else:
             out.setdefault("flags", []).append({
                 "field": "owner_override", "origin": "owner", "review": True,
                 "reason": f"override at {json.dumps(op['path'])} matches no single item of the parsed gameplan "
                           f"(owner's value {json.dumps(op['value'])}: {op['reason']})"})
+    accepted = {(a["field"], a["flag"]) for a in ov.get("accepted") or []}
     for f in out.get("flags") or []:
-        if f.get("review", True) and f.get("origin") != "owner" and _resolved(f.get("field", ""), labels):
+        if not f.get("review", True):
+            continue
+        if (f.get("field", ""), f.get("reason", "")) in accepted:
+            f["review"] = False
+            f["reason"] += " [OK as parsed: owner]"
+        elif f.get("origin") != "owner" and (f.get("field", "") in exact or _resolved(f.get("field", ""), labels)):
             f["review"] = False
             f["reason"] += " [resolved by owner override]"
     out["owner_overrides"] = applied

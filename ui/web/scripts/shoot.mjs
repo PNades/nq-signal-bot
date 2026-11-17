@@ -27,8 +27,10 @@ async function open(name, w, h, url, { js = true, reducedMotion = "no-preference
   // the raising-risk dialog comes from the server's 428 answer (the save is refused before it writes): expected
   const expected428 = name.startsWith("raise_risk");
   // the Performance shots ask for walk-forward months on purpose: the ledger guard answers 403
-  const expected403 = name.startsWith("perf_");
-  page.on("console", (m) => { if ((m.type() === "error" || m.type() === "warning") && !(aborts && m.text().includes("net::ERR_FAILED")) && !(expected428 && m.text().includes("428")) && !(expected403 && m.text().includes("403"))) problems.push(`${name}: console ${m.type()}: ${m.text()}`); });
+  const expected403 = name.startsWith("perf_") || name.startsWith("gameplan_hidden");   // months 7-12 refused on purpose
+  // the failed-parse shot makes the synthetic stand-in fail once: the server's 422 is the answer under test
+  const expected422 = name.startsWith("gameplan_failed");
+  page.on("console", (m) => { if ((m.type() === "error" || m.type() === "warning") && !(aborts && m.text().includes("net::ERR_FAILED")) && !(expected428 && m.text().includes("428")) && !(expected403 && m.text().includes("403")) && !(expected422 && m.text().includes("422"))) problems.push(`${name}: console ${m.type()}: ${m.text()}`); });
   page.on("pageerror", (e) => problems.push(`${name}: page error ${e.message}`));
   const resp = await page.goto(BASE + url, { waitUntil: "load" });
   const csp = resp?.headers()["content-security-policy"] ?? "";
@@ -4295,6 +4297,289 @@ S["4r9t"] = async () => {
 };
 // round 9 replaced round 8's layout (the switch now sits in the header): the round-8 stage runs the round-9 checks
 S["4r8"] = () => S["4r9"]();
+
+// ── stage 5: the Gameplan page (SPEC §9b item 4) ─────────────────────────────────────────────────────────────────
+// "5" runs on a --synthetic panel (an offline parser stand-in: no network, no cost; nothing reaches the owner's files);
+// "5r" reads the owner's stored gameplans on the real panel, read-only (no upload, edit or confirm).
+const GP_FIXTURE = path.resolve(here, "../../../tests/fixtures/gameplans/2026-03-11.md");
+async function gpReady(p) { await p.waitForSelector("[data-upload]", { timeout: 15000 }); await p.waitForTimeout(500); }
+async function gpOverflow(p, name) {
+  const r = await p.evaluate(() => {
+    const doc = document.documentElement, ent = document.querySelector("[data-entries]");
+    return { page: doc.scrollWidth - doc.clientWidth, entries: ent ? { scroll: ent.scrollWidth, client: ent.clientWidth } : null };
+  });
+  checks[`${name}_overflow`] = r;
+  if (r.page > 1) problems.push(`${name}: the page scrolls sideways by ${r.page} px`);
+}
+S["5"] = async () => {
+  const status = async (p) => (await p.locator("[data-status-line]").textContent()).trim();
+  for (const [w, h] of [[1440, 900], [1280, 800], [960, 800]]) {
+    await shot(`gameplan_empty_${w}`, w, h, "/gameplan", async (p) => { await gpReady(p); await gpOverflow(p, `gameplan_empty_${w}`); });
+  }
+  // the timeline: setup bands, marks, a now line only for today
+  await shot("gameplan_timeline_1440", 1440, 900, "/gameplan", async (p) => {
+    await gpReady(p);
+    const t = await p.evaluate(() => ({ bands: [...document.querySelectorAll("[data-timeline] [data-band]")].map((e) => e.getAttribute("data-band")),
+      marks: document.querySelector("[data-marks]").textContent, now: !!document.querySelector("[data-now]") }));
+    checks.gameplan_timeline = t;
+    if (!t.bands.includes("golden") || !t.bands.includes("all") || !/last entry 15:45/.test(t.marks) || !/flat by 15:59/.test(t.marks)) problems.push(`gameplan_timeline: ${JSON.stringify(t)}`);
+    await p.locator("[data-timeline]").scrollIntoViewIfNeeded();
+  });
+  // a day with a news blackout (CPI 2025-08-12 08:30) and an early close (2025-11-28)
+  await shot("gameplan_blackout_1440", 1440, 900, "/gameplan", async (p) => {
+    await gpReady(p);
+    await gpPickDay(p, "2025-08-12");
+    const b = await p.locator("[data-blackout]").allTextContents();
+    checks.gameplan_blackout = b;
+    if (!b.some((x) => /08:30 CPI.*07:59–09:30/.test(x))) problems.push(`gameplan_blackout: ${JSON.stringify(b)}`);
+    await p.locator("[data-timeline]").scrollIntoViewIfNeeded();
+  });
+  // the flow at 1440: drop the file -> estimate -> parse -> edit -> confirm
+  await shot("gameplan_estimate_1440", 1440, 900, "/gameplan", async (p) => {
+    await gpReady(p);
+    await p.locator("[data-file-input]").setInputFiles(GP_FIXTURE);
+    await p.waitForSelector("[data-estimate]", { timeout: 15000 });
+    const e = (await p.locator("[data-estimate]").textContent()).replace(/\s+/g, " ");
+    checks.gameplan_estimate = e;
+    if (!/input tokens · up to \$\d+\.\d\d/.test(e) || !/Parse · up to \$/.test(e)) problems.push(`gameplan_estimate: ${e}`);
+    await p.locator("[data-estimate]").scrollIntoViewIfNeeded();
+  });
+  await shot("gameplan_parsed_1440", 1440, 900, "/gameplan", async (p) => {
+    await gpReady(p);
+    await p.locator("[data-file-input]").setInputFiles(GP_FIXTURE);
+    await p.waitForSelector("[data-estimate]", { timeout: 15000 });
+    await p.locator("[data-parse]").click();
+    await p.waitForSelector("[data-parsed]", { timeout: 20000 });
+    await p.waitForTimeout(500);
+    const r = await p.evaluate(() => ({ entries: document.querySelectorAll("[data-entry]").length, flagged: document.querySelectorAll("[data-flagged]").length,
+      reviewTile: document.querySelector("[data-review-count]").textContent.trim(),
+      reviewListed: document.querySelectorAll("[data-flags] li.border-l-warn").length, levels: document.querySelectorAll("[data-levels] li").length }));
+    r.status = await status(p);
+    checks.gameplan_parsed = r;
+    if (!r.entries || r.levels < r.entries || String(r.reviewListed) !== r.reviewTile || !/parsed, not confirmed/.test(r.status)) problems.push(`gameplan_parsed: ${JSON.stringify(r)}`);
+    await p.locator("[data-parsed]").scrollIntoViewIfNeeded();
+  });
+  await shot("gameplan_edit_1440", 1440, 900, "/gameplan", async (p) => {
+    await gpReady(p); await p.waitForSelector("[data-parsed]");
+    const row = p.locator("[data-entry]").first();
+    const stop = row.locator("td[data-cell]").nth(4);                 // the editable cells: side, zone, trigger, ES gates, stop, targets, invalidation
+    await stop.locator("button").click(); await stop.locator("input").fill("24,577.25"); await stop.locator("input").press("Enter");
+    await p.waitForTimeout(700);
+    const after = (await stop.textContent()).trim();
+    await p.reload({ waitUntil: "load" }); await gpReady(p); await p.waitForSelector("[data-parsed]");
+    const reloaded = (await p.locator("[data-entry]").first().locator("td[data-cell]").nth(4).textContent()).trim();
+    checks.gameplan_edit = { after, reloaded };
+    if (!after.startsWith("24,577.25") || !reloaded.startsWith("24,577.25")) problems.push(`gameplan_edit: ${JSON.stringify(checks.gameplan_edit)}`);
+    await p.locator("[data-parsed]").scrollIntoViewIfNeeded();
+  });
+  await shot("gameplan_confirm_1440", 1440, 900, "/gameplan", async (p) => {
+    await gpReady(p); await p.waitForSelector("[data-confirm]"); await p.waitForTimeout(600);
+    // before 09:30 ET a confirmation needs the review flags fixed or marked OK as parsed (owner 2026-11-16)
+    for (let k = 0; k < 10 && await p.locator("[data-confirm]").isDisabled() && await p.locator("[data-flags] [data-ok-flag]").count(); k++) {
+      await Promise.all([p.waitForResponse((r) => r.url().includes("/api/gameplan/accept")), p.locator("[data-flags] [data-ok-flag]").first().click()]);
+      await p.waitForTimeout(500);
+    }
+    await p.locator("[data-confirm]").click(); await p.waitForTimeout(800);
+    const s = await status(p), panel = (await p.locator("[data-confirm-panel]").textContent()).replace(/\s+/g, " ");
+    checks.gameplan_confirm = { status: s, panel };
+    // it is after 09:30 ET while these run: saved for training only
+    const late = await p.evaluate(() => { const [h, m] = new Intl.DateTimeFormat("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()).split(":").map(Number); return h * 60 + m >= 570; });
+    if (!/confirmed \d\d:\d\d/.test(s) || (late && !/saved for training only/.test(s))) problems.push(`gameplan_confirm: ${JSON.stringify(checks.gameplan_confirm)}`);
+    await p.locator("[data-confirm-panel]").scrollIntoViewIfNeeded();
+  });
+  for (const [w, h] of [[1280, 800], [960, 800]]) {
+    await shot(`gameplan_parsed_${w}`, w, h, "/gameplan", async (p) => { await gpReady(p); await p.waitForSelector("[data-parsed]"); await gpOverflow(p, `gameplan_parsed_${w}`); await p.locator("[data-parsed]").scrollIntoViewIfNeeded(); });
+  }
+  await shot("gameplan_calm_1440", 1440, 900, "/gameplan", async (p) => { await gpReady(p); }, { reducedMotion: "reduce" });
+};
+S["5r"] = async () => {
+  // the owner's stored gameplans, read-only: the newest stored day
+  for (const [w, h] of [[1440, 900], [960, 800]]) {
+    await shot(`gameplan_real_${w}`, w, h, "/gameplan", async (p) => {
+      await gpReady(p);
+      await p.locator("[data-day-picker] button").first().click(); await p.waitForTimeout(300);
+      const days = await p.locator("[data-option-list] [role=option]").evaluateAll((o) => o.map((x) => x.getAttribute("data-value")));
+      const pick = days[1] ?? days[0];                                       // the newest stored day after today
+      await p.locator(`[data-option-list] [data-value="${pick}"]`).click(); await p.waitForTimeout(900);
+      const r = await p.evaluate(() => ({ entries: document.querySelectorAll("[data-entry]").length, status: document.querySelector("[data-status-line]").textContent.trim() }));
+      checks[`gameplan_real_${w}`] = { day: pick, ...r };
+      if (!r.entries) problems.push(`gameplan_real_${w}: no entries on ${pick}`);
+      await gpOverflow(p, `gameplan_real_${w}`);
+    });
+  }
+};
+
+// stage-5 answers (owner 2026-11-16), on the same --synthetic panel right after "5": the actual cost, a failed parse
+// that waits for another click, the not-today title, the before-09:30 rule with "OK as parsed", the new editable
+// fields, and months 7-12 refused
+/** show day d: from the Day picker when it lists d, else by the page's address (/gameplan?date=d) */
+async function gpPickDay(p, d) {
+  await p.locator("[data-day-picker] button").first().click(); await p.waitForTimeout(250);
+  const opt = p.locator(`[data-option-list] [data-value="${d}"]`);
+  if (await opt.count()) { await opt.click(); await p.waitForTimeout(800); return; }
+  await p.keyboard.press("Escape");
+  await p.goto(`${BASE}/gameplan?date=${d}`); await gpReady(p);
+}
+function gpTomorrow() {
+  const t = new Date(Date.now() + 36 * 3600e3);                             // tomorrow in New York, whatever the hour
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(t);
+}
+S["5b"] = async () => {
+  const day = gpTomorrow();
+  const fixture = { name: "2026-03-11 fail-once.md", mimeType: "text/markdown", buffer: Buffer.concat([fs.readFileSync(GP_FIXTURE), Buffer.from("\n\nA second version for the stage-5b checks.\n")]) };
+  // a failed parse: shown, never retried; another click parses it; then the actual cost
+  await shot("gameplan_failed_1440", 1440, 900, "/gameplan", async (p) => {
+    await gpReady(p); await gpPickDay(p, day);
+    const title = (await p.locator("h1").textContent()).trim(), badge = await p.locator("[data-not-today]").count();
+    checks.gameplan_not_today = { title, badge };
+    if (!/^Gameplan for /.test(title) || !badge) problems.push(`gameplan_not_today: ${JSON.stringify(checks.gameplan_not_today)}`);
+    await p.locator("[data-file-input]").setInputFiles(fixture);
+    await p.waitForSelector("[data-estimate]", { timeout: 15000 });
+    await p.locator("[data-parse]").click(); await p.waitForTimeout(1200);
+    const err = await p.locator("[data-upload-error]").textContent().catch(() => null), btnText = (await p.locator("[data-parse]").textContent()).trim();
+    checks.gameplan_failed = { err, button: btnText, parsed: await p.locator("[data-parsed]").count() };
+    if (!/Nothing is retried automatically/.test(err ?? "") || !/^Parse again · up to \$/.test(btnText)) problems.push(`gameplan_failed: ${JSON.stringify(checks.gameplan_failed)}`);
+    await p.locator("[data-upload]").scrollIntoViewIfNeeded();
+  });
+  await shot("gameplan_cost_1440", 1440, 900, "/gameplan", async (p) => {
+    await gpReady(p); await gpPickDay(p, day);
+    await p.locator("[data-file-input]").setInputFiles(fixture);          // the failed one was dropped with its page: again
+    await p.waitForSelector("[data-estimate]", { timeout: 15000 });
+    await p.locator("[data-parse]").click();
+    await p.waitForSelector("[data-parse-cost]", { timeout: 20000 });
+    const c = (await p.locator("[data-parse-cost]").textContent()).replace(/\s+/g, " ");
+    checks.gameplan_cost = c;
+    if (!/actual cost \$\d+\.\d\d/.test(c) || !/estimate up to \$\d+\.\d\d/.test(c)) problems.push(`gameplan_cost: ${c}`);
+    await p.locator("[data-upload]").scrollIntoViewIfNeeded();
+  });
+  // before 09:30 (tomorrow): Confirm waits for every review flag fixed or marked OK as parsed
+  await shot("gameplan_blocked_1440", 1440, 900, "/gameplan", async (p) => {
+    await gpReady(p); await gpPickDay(p, day); await p.waitForSelector("[data-confirm-panel]");
+    const r = { disabled: await p.locator("[data-confirm]").isDisabled(), text: await p.locator("[data-confirm-blocked]").textContent().catch(() => null),
+      flags: await p.locator("[data-review-flag]").count() };
+    checks.gameplan_blocked = r;
+    if (!r.flags || !r.disabled || !/still open/.test(r.text ?? "")) problems.push(`gameplan_blocked: ${JSON.stringify(r)}`);
+    await p.locator("[data-flags]").scrollIntoViewIfNeeded();
+  });
+  await shot("gameplan_ok_confirmed_1440", 1440, 900, "/gameplan", async (p) => {
+    await gpReady(p); await gpPickDay(p, day); await p.waitForSelector("[data-flags]");
+    await p.waitForTimeout(600);
+    for (let k = 0; k < 10 && await p.locator("[data-flags] [data-ok-flag]").count(); k++) {
+      await Promise.all([p.waitForResponse((r) => r.url().includes("/api/gameplan/accept")), p.locator("[data-flags] [data-ok-flag]").first().click()]);
+      await p.waitForTimeout(500);
+    }
+    const enabled = !(await p.locator("[data-confirm]").isDisabled());
+    await p.locator("[data-confirm]").click(); await p.waitForTimeout(800);
+    const s = (await p.locator("[data-status-line]").textContent()).trim(), panel = (await p.locator("[data-flags] .eyebrow").textContent()).trim();
+    checks.gameplan_ok_confirmed = { enabled, status: s, flags: panel };
+    if (!enabled || !/confirmed (\d{4}-\d\d-\d\d )?\d\d:\d\d$/.test(s) || !/marked OK as parsed/.test(panel)) problems.push(`gameplan_ok_confirmed: ${JSON.stringify(checks.gameplan_ok_confirmed)}`);
+    await p.locator("[data-flags]").scrollIntoViewIfNeeded();
+  });
+  // ES gates, invalidations and scenarios: the same edit layer (today's gameplan, parsed by "5")
+  await shot("gameplan_more_edits_1440", 1440, 900, "/gameplan", async (p) => {
+    await gpReady(p); await p.waitForSelector("[data-parsed]");
+    const cell = (n) => p.locator("[data-entry]").first().locator("td[data-cell]").nth(n);
+    const put = async (n, v) => { await cell(n).locator("button").first().click(); await cell(n).locator("input").fill(v); await cell(n).locator("input").press("Enter"); await p.waitForTimeout(700); };
+    await put(3, "ES > 6,812; ES < 6,790");
+    await put(6, "1m close above 24,560");
+    const sc = p.locator("[data-scenario]").first();
+    await sc.locator("[data-inline]").first().locator("button").click(); await sc.locator("input").fill("40"); await sc.locator("input").press("Enter"); await p.waitForTimeout(700);
+    const r = { gates: (await cell(3).textContent()).trim(), inval: (await cell(6).textContent()).trim(), prob: (await p.locator("[data-scenario]").first().locator("[data-inline]").first().textContent()).trim() };
+    checks.gameplan_more_edits = r;
+    if (r.gates !== "ES > 6,812 · ES < 6,790" || r.inval !== "1m close above 24,560" || r.prob !== "40%") problems.push(`gameplan_more_edits: ${JSON.stringify(r)}`);
+    await p.locator("[data-entries]").scrollIntoViewIfNeeded();
+  });
+  await shot("gameplan_scenarios_1440", 1440, 900, "/gameplan", async (p) => { await gpReady(p); await p.waitForSelector("[data-scenarios]"); await p.locator("[data-scenarios]").scrollIntoViewIfNeeded(); });
+  // the Day picker: the panel's own dropdown, today first with its state, then months newest first; keyboard-usable
+  await shot("gameplan_day_picker_1440", 1440, 900, "/gameplan", async (p) => {
+    await gpReady(p);
+    const trig = p.locator("[data-day-picker] button").first();
+    await trig.focus(); await p.keyboard.press("ArrowDown"); await p.waitForTimeout(300);
+    const r = await p.evaluate(() => {
+      const list = document.querySelector("[data-option-list]");
+      return { open: !!list, focused: document.activeElement === list, native: document.querySelectorAll("select").length,
+        groups: [...(list?.querySelectorAll("[role=group]") ?? [])].map((g) => ({ label: g.getAttribute("aria-label"), days: [...g.querySelectorAll("[role=option]")].map((o) => o.getAttribute("data-value")),
+          chips: [...g.querySelectorAll("[role=option]")].map((o) => o.textContent) })) };
+    });
+    await p.keyboard.press("ArrowDown"); await p.keyboard.press("Enter"); await p.waitForTimeout(900);
+    r.afterKeys = new URL(p.url()).search;
+    checks.gameplan_day_picker = r;
+    const months = r.groups.slice(1).map((g) => g.label);
+    const sorted = r.groups.slice(1).flatMap((g) => g.days);
+    if (!r.open || !r.focused || r.native || r.groups[0]?.label !== "Today" || !/today/.test(r.groups[0].chips[0] ?? "")
+        || sorted.join() !== [...sorted].sort().reverse().join() || !/date=/.test(r.afterKeys)) problems.push(`gameplan_day_picker: ${JSON.stringify(r)}`);
+    await trig.click(); await p.waitForTimeout(350);                      // open again for the screenshot
+  });
+  // months 7-12: refused by the server (the request is refused before any gameplan is read)
+  await shot("gameplan_hidden_1440", 1440, 900, "/gameplan", async (p) => {
+    await gpReady(p);
+    const r = await p.evaluate(async () => { const x = await fetch("/api/gameplan?date=2026-08-12"); return { status: x.status, body: await x.text() }; });
+    checks.gameplan_hidden = r;
+    if (r.status !== 403) problems.push(`gameplan_hidden: ${JSON.stringify(r)}`);
+  });
+  for (const [w, h] of [[1280, 800], [960, 800]]) {
+    await shot(`gameplan_not_today_${w}`, w, h, "/gameplan", async (p) => { await gpReady(p); await gpPickDay(p, day); await gpOverflow(p, `gameplan_not_today_${w}`); });
+  }
+};
+
+// the day switch (owner 2026-11-17), on a FRESH --synthetic panel: tomorrow gets a gameplan, today has none; switching
+// between them from the Day picker loads first, crossfades, glides the height (250 ms), keeps the scroll, never blank;
+// Calm: at once
+async function gpSwitchProbe(p) {
+  await p.evaluate(() => {
+    const main = document.getElementById("cf-main");
+    window.__sw = [];
+    const tick = () => {
+      const box = document.querySelector("[data-auto-height]");
+      window.__sw.push({ t: performance.now(), h: box ? Math.round(box.getBoundingClientRect().height) : null,
+        content: document.querySelectorAll("[data-day-content]").length, scroll: main ? main.scrollTop : null,
+        title: document.querySelector("h1")?.textContent?.trim() });
+      if (window.__sw.length < 120) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}
+async function gpSwitchTo(p, value, name, midShot) {
+  await gpSwitchProbe(p);
+  // script clicks: Playwright's own click would scroll the header's trigger into view first and spoil the scroll check
+  await p.evaluate(() => document.querySelector("[data-day-picker] button").click()); await p.waitForTimeout(250);
+  await p.evaluate((v) => document.querySelector(`[data-option-list] [data-value="${v}"]`).click(), value);
+  if (midShot) { await p.waitForTimeout(110); await p.screenshot({ path: path.join(OUT, `${name}_mid.png`) }); }
+  await p.waitForTimeout(1500);
+  const s = await p.evaluate(() => window.__sw);
+  const hs = s.map((x) => x.h).filter((x) => x != null);
+  const first = hs[0], last = hs[hs.length - 1];
+  const between = [...new Set(hs.filter((x) => (x - first) * (x - last) < 0))].length;   // strictly between the two sizes
+  const blank = s.filter((x) => x.content === 0).length;
+  const scrolls = [...new Set(s.map((x) => x.scroll))];
+  return { from: first, to: last, between, blank, scrolls, titles: [...new Set(s.map((x) => x.title))] };
+}
+S["5s"] = async () => {
+  const day = gpTomorrow();
+  const file = { name: "2026-03-11 switch.md", mimeType: "text/markdown", buffer: Buffer.concat([fs.readFileSync(GP_FIXTURE), Buffer.from("\n\nThe stage-5s copy.\n")]) };
+  await shot("gameplan_switch_setup_1440", 1440, 900, `/gameplan?date=${day}`, async (p) => {
+    await gpReady(p);
+    await p.locator("[data-file-input]").setInputFiles(file);
+    await p.waitForSelector("[data-estimate]", { timeout: 15000 });
+    await p.locator("[data-parse]").click(); await p.waitForSelector("[data-parsed]", { timeout: 20000 });
+  });
+  for (const [mode, opts] of [["full", {}], ["calm", { reducedMotion: "reduce" }]]) {
+    await shot(`gameplan_switch_${mode}_1440`, 1440, 900, "/gameplan", async (p) => {
+      await gpReady(p);
+      await p.evaluate(() => { const m = document.getElementById("cf-main"); m.scrollTop = 180; }); await p.waitForTimeout(300);
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+      const to = await gpSwitchTo(p, day, `gameplan_switch_${mode}_to_day`, mode === "full");     // none -> a gameplan (taller)
+      await p.screenshot({ path: path.join(OUT, `gameplan_switch_${mode}_with_gameplan.png`) });
+      const back = await gpSwitchTo(p, today, `gameplan_switch_${mode}_back`, mode === "full");   // a gameplan -> none (shorter)
+      checks[`gameplan_switch_${mode}`] = { to, back };
+      for (const [k, r, taller] of [["to", to, true], ["back", back, false]]) {
+        const glide = mode === "full" ? r.between >= 3 : r.between === 0;
+        if (!glide || r.blank || r.scrolls.length !== 1 || (taller ? r.to <= r.from : r.to >= r.from) || r.titles.length < 2)
+          problems.push(`gameplan_switch_${mode}_${k}: ${JSON.stringify(r)}`);
+      }
+    }, opts);
+  }
+};
 
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();
 await browser.close();

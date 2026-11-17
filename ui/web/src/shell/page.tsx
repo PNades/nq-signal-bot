@@ -1,7 +1,7 @@
 // Shared page parts (pages/shell.md): the page header (eyebrow, two-line title with the second line in cream italic,
 // subtitle), the empty state (Dot Matrix Text, a one-line message, the next action; never urgent information) and
 // skeletons shaped like the content.
-import { useInsertionEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useInsertionEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { DotMatrixText } from "@/components/ui/dot-text";
 import HalftoneWordmarkFooter from "@/components/ui/halftone-wordmark-footer";
@@ -215,6 +215,15 @@ export function AutoHeight({ children, className }: { children: ReactNode; class
   const inner = useRef<HTMLDivElement>(null);
   const [h, setH] = useState<number | null>(null);
   const [moving, setMoving] = useState(false);
+  // primed once the first measured height is set (at once): until then a change has nothing to glide from. Motion
+  // animating `height` from an unset value made the first switch after a page opened snap (owner 2026-11-17), so the
+  // glide is a CSS height transition on an explicit pixel height: FOLD_S (250 ms), the same ease-out.
+  const [primed, setPrimed] = useState(false);
+  useEffect(() => {
+    if (h === null || primed) return;
+    const id = requestAnimationFrame(() => setPrimed(true));
+    return () => cancelAnimationFrame(id);
+  }, [h, primed]);
   const last = useRef<number | null>(null);
   useLayoutEffect(() => {
     const el = inner.current;
@@ -234,14 +243,16 @@ export function AutoHeight({ children, className }: { children: ReactNode; class
     ro.observe(el);
     return () => ro.disconnect();
   }, [animated]);
+  const own = (e: React.TransitionEvent) => e.target === e.currentTarget && e.propertyName === "height";
   return (
     // Calm: no set height at all, so a new size shows in the same frame as the new content
-    <motion.div className={className} data-auto-height data-moving={moving ? "1" : "0"}
-      initial={false} animate={h === null || !animated ? undefined : { height: h }} transition={{ duration: animated ? FOLD_S : 0, ease: FOLD_EASE }}
-      onAnimationStart={() => setMoving(true)} onAnimationComplete={() => setMoving(false)}
-      style={{ overflow: moving && animated ? "hidden" : "visible", height: animated ? undefined : "auto" }}>
+    <div className={className} data-auto-height data-moving={moving ? "1" : "0"}
+      onTransitionRun={(e) => { if (own(e)) setMoving(true); }}
+      onTransitionEnd={(e) => { if (own(e)) setMoving(false); }} onTransitionCancel={(e) => { if (own(e)) setMoving(false); }}
+      style={{ overflow: moving && animated ? "hidden" : "visible", height: animated && h !== null ? h : "auto",
+        transition: animated && primed ? `height ${FOLD_S}s cubic-bezier(${FOLD_EASE.join(", ")})` : "none" }}>
       <div ref={inner} className="flow-root">{children}</div>
-    </motion.div>
+    </div>
   );
 }
 

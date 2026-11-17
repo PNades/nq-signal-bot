@@ -1317,6 +1317,27 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   fixed: when the decision falls exactly on a minute boundary with a trade stamped at that instant, the chart drew
   that minute's bar but the maps and levels stopped a minute earlier; `minute_grid` now includes that minute, read at
   the decision (none of the 60 stored preview cards has this case).
+- **Q-step14-gameplan (step 14 build stage 5, the Gameplan page; built 2026-11-16, waiting for the owner;
+  `docs/design/build_stage_5.md`):** the page as §9b item 4 describes it (status, the next session mark on the Flip-Disk
+  Matrix, the day timeline with setup windows and news blackouts, the drop zone, the parsed gameplan as an editable
+  table with flagged fields marked, scenarios, levels with tags, Confirm; the pre-open chart at step 22). As built,
+  for the owner: (1) a paid parse needs the owner's click on the button showing the worst case, within
+  `gameplan_max_usd_per_file`; above it, the CLI with `--approve-usd`; the cost is first estimated with the free
+  token count, the file staged under `<tmp_dir>/gameplan_uploads/`; (2) every stored day is viewable and replaceable
+  (Replace ticked), sealed-month gameplans included (the owner's own text only, no outcome); (3) confirming is allowed
+  with review flags left; (4) the title stays "Today's gameplan" on another day; (5) editable: per entry side, zone,
+  trigger price, stop, targets; plan-wide HVL, HVL0, regime line (each an owner override); a confirmation counts for
+  the day's trading only before 09:30 ET of that day, and an edit after it asks for a new one.
+  **Owner's answers (2026-11-16/17), built:** (1) the worst-case click is the approval within the $1.00 limit; a
+  failed parse is never retried by itself (another click sends it again); the actual cost shows after a parse;
+  (2) ledger months 7–12 are hidden (Day picker, every route) until gate 16 is recorded; (3) before 09:30 ET a
+  confirmation (for the day's trading) needs every review flag fixed or marked "OK as parsed" (kept in the overrides
+  file as `accepted`, matched by field and exact text); after 09:30 open flags are allowed; (4) another day is named in
+  the title and marked NOT TODAY; (5) ES gates, invalidations and scenarios (probability, bias, text) are editable on
+  the same override layer; a page edit records the review flags it settles (`resolves`), exactly those shown on its
+  field (the archive's ops keep the older path rule); (6) the Day picker is the panel's own dropdown, grouped by month,
+  newest first, today first with its state, keyboard-usable; no browser `<select>` is left; (7) day switches load
+  first, crossfade and glide (250 ms, Calm instant), the scroll held.
 - **Preview answers deleted (owner 2026-11-16):** the 10 answers on `preview-b958` (c01–c10) were test inputs and were
   deleted (`reviews/preview/answers_preview-b958.parquet`). Nothing else reads them: only `review/store.py` (the page's
   answered state and the append of a new answer). The record of the touches the preview cards showed comes from the

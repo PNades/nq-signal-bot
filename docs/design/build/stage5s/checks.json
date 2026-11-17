@@ -1,0 +1,87 @@
+{
+  "stage": "5s",
+  "base": "http://127.0.0.1:8735",
+  "problems": [],
+  "checks": {
+    "gameplan_switch_setup_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_switch_full": {
+      "to": {
+        "from": 430,
+        "to": 1341,
+        "between": 12,
+        "blank": 0,
+        "scrolls": [
+          180
+        ],
+        "titles": [
+          "Today's gameplan",
+          "Gameplan for Wed, Nov 18, 2026"
+        ]
+      },
+      "back": {
+        "from": 1341,
+        "to": 430,
+        "between": 14,
+        "blank": 0,
+        "scrolls": [
+          180
+        ],
+        "titles": [
+          "Gameplan for Wed, Nov 18, 2026",
+          "Today's gameplan"
+        ]
+      }
+    },
+    "gameplan_switch_full_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_switch_calm": {
+      "to": {
+        "from": 430,
+        "to": 1341,
+        "between": 0,
+        "blank": 0,
+        "scrolls": [
+          180
+        ],
+        "titles": [
+          "Today's gameplan",
+          "Gameplan for Wed, Nov 18, 2026"
+        ]
+      },
+      "back": {
+        "from": 1341,
+        "to": 430,
+        "between": 0,
+        "blank": 0,
+        "scrolls": [
+          180
+        ],
+        "titles": [
+          "Gameplan for Wed, Nov 18, 2026",
+          "Today's gameplan"
+        ]
+      }
+    },
+    "gameplan_switch_calm_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    }
+  }
+}

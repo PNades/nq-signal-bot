@@ -36,3 +36,13 @@ async function post<T>(path: string, data: unknown): Promise<T> {
     body: JSON.stringify(data),
   }));
 }
+
+/** a file as the raw request body (the Gameplan upload, SPEC §9b item 4), with the token and extra headers */
+export async function postFile<T>(path: string, file: Blob, headers: Record<string, string> = {}): Promise<T> {
+  try {
+    return await handle<T>(await fetch(path, {
+      method: "POST", cache: "no-store", body: file,
+      headers: { "Content-Type": "application/octet-stream", Accept: "application/json", "X-CF-Token": token, ...headers },
+    }));
+  } finally { for (const fn of afterPost) fn(); }
+}

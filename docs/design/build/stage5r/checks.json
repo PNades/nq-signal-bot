@@ -1,0 +1,43 @@
+{
+  "stage": "5r",
+  "base": "http://127.0.0.1:8733",
+  "problems": [],
+  "checks": {
+    "gameplan_real_1440": {
+      "day": "2026-10-06",
+      "entries": 11,
+      "status": "2026-10-06: confirmed 2026-10-07 19:59 (after 09:30 ET that day: saved for training only)",
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_real_1440_overflow": {
+      "page": 0,
+      "entries": {
+        "scroll": 1300,
+        "client": 1300
+      }
+    },
+    "gameplan_real_960": {
+      "day": "2026-10-06",
+      "entries": 11,
+      "status": "2026-10-06: confirmed 2026-10-07 19:59 (after 09:30 ET that day: saved for training only)",
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_real_960_overflow": {
+      "page": 0,
+      "entries": {
+        "scroll": 980,
+        "client": 846
+      }
+    }
+  }
+}

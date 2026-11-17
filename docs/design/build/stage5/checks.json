@@ -1,0 +1,158 @@
+{
+  "stage": "5",
+  "base": "http://127.0.0.1:8735",
+  "problems": [],
+  "checks": {
+    "gameplan_empty_1440_overflow": {
+      "page": 0,
+      "entries": null
+    },
+    "gameplan_empty_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_empty_1280_overflow": {
+      "page": 0,
+      "entries": null
+    },
+    "gameplan_empty_1280": {
+      "flatH": 36,
+      "flatRight": 1260,
+      "flatFits": true,
+      "barW": 1280,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_empty_960_overflow": {
+      "page": 0,
+      "entries": null
+    },
+    "gameplan_empty_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_timeline": {
+      "bands": [
+        "golden",
+        "all",
+        "blackout"
+      ],
+      "marks": "open 09:30golden zone from 09:45all setups from 10:00last entry 15:45flat by 15:5908:30 Retail Sales: no entries 07:59–09:30",
+      "now": false
+    },
+    "gameplan_timeline_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_blackout": [
+      "08:30 CPI: no entries 07:59–09:30"
+    ],
+    "gameplan_blackout_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_estimate": "2026-03-11.md for 2026-11-174,200 input tokens · up to $0.34 (limit $1.00 a file)CancelParse · up to $0.34",
+    "gameplan_estimate_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_parsed": {
+      "entries": 3,
+      "flagged": 0,
+      "reviewTile": "1",
+      "reviewListed": 1,
+      "levels": 5,
+      "status": "Today: parsed, not confirmed"
+    },
+    "gameplan_parsed_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_edit": {
+      "after": "24,577.25",
+      "reloaded": "24,577.25"
+    },
+    "gameplan_edit_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_confirm": {
+      "status": "Today: confirmed 00:19",
+      "panel": "Confirmed 00:19 · confirmed on the Gameplan pageOnly a gameplan confirmed before 09:30 ET on 2026-11-17 reaches that day's live trading; later, it's saved for training.Confirm again"
+    },
+    "gameplan_confirm_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_parsed_1280_overflow": {
+      "page": 0,
+      "entries": {
+        "scroll": 1166,
+        "client": 1166
+      }
+    },
+    "gameplan_parsed_1280": {
+      "flatH": 36,
+      "flatRight": 1260,
+      "flatFits": true,
+      "barW": 1280,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_parsed_960_overflow": {
+      "page": 0,
+      "entries": {
+        "scroll": 980,
+        "client": 846
+      }
+    },
+    "gameplan_parsed_960": {
+      "flatH": 36,
+      "flatRight": 944,
+      "flatFits": true,
+      "barW": 960,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    },
+    "gameplan_calm_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    }
+  }
+}

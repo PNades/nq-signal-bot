@@ -7,6 +7,7 @@ import { readFocus } from "./focus";
 import { pageFromPath } from "@/shell/pages";
 import { preloadPerformance } from "@/pages/performance/query";
 import { preloadReview } from "@/pages/review/query";
+import { preloadGameplan } from "@/pages/gameplan/GameplanPage";
 
 /** each page's own data address (the pages read their first data from the cache under these) */
 export const PAGE_URL = { home: "/api/home", accounts: "/api/accounts", settings: "/api/settings" } as const;
@@ -19,6 +20,7 @@ export function preloadPath(path: string): Promise<unknown> {
   if (id === "settings") return load(PAGE_URL.settings);
   if (id === "performance") return preloadPerformance(readFocus());
   if (id === "review") return preloadReview();
+  if (id === "gameplan") return preloadGameplan();
   return Promise.resolve();
 }
 
