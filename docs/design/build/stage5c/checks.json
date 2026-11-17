@@ -1,0 +1,20 @@
+{
+  "stage": "5c",
+  "base": "http://127.0.0.1:8735",
+  "problems": [],
+  "checks": {
+    "gameplan_conditions": {
+      "before": 0,
+      "after": 1,
+      "last": "VIX under 17, 10Y under 4.95"
+    },
+    "gameplan_conditions_1440": {
+      "flatH": 36,
+      "flatRight": 1420,
+      "flatFits": true,
+      "barW": 1440,
+      "barOverflow": false,
+      "title": "CreamFlow · Gameplan"
+    }
+  }
+}

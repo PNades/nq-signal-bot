@@ -4581,6 +4581,33 @@ S["5s"] = async () => {
   }
 };
 
+// round 2 (owner 2026-11-17), on a FRESH --synthetic panel: the plan-wide conditions are editable (add, edit), on the
+// same override layer as the other fields
+S["5c"] = async () => {
+  await shot("gameplan_conditions_1440", 1440, 900, "/gameplan", async (p) => {
+    await gpReady(p);
+    await p.locator("[data-file-input]").first().setInputFiles({ name: "2026-03-11 c.md", mimeType: "text/markdown",
+      buffer: Buffer.concat([fs.readFileSync(GP_FIXTURE), Buffer.from("\n\nThe stage-5c copy.\n")]) });
+    await p.waitForSelector("[data-estimate]", { timeout: 15000 });
+    await p.locator("[data-parse]").click(); await p.waitForSelector("[data-plan-conditions]", { timeout: 20000 });
+    const box = p.locator("[data-plan-conditions]");
+    await box.evaluate((d) => { d.open = true; }); await p.waitForTimeout(200);
+    const n0 = await p.locator("[data-plan-condition]").count();
+    await p.locator("[data-add-condition]").click();
+    await box.locator("input").fill("VIX under 16.5"); await box.locator("input").press("Enter"); await p.waitForTimeout(800);
+    await box.evaluate((d) => { d.open = true; }); await p.waitForTimeout(200);
+    const last = p.locator("[data-plan-condition]").last();
+    await last.locator("button").click(); await last.locator("input").fill("VIX under 17, 10Y under 4.95"); await last.locator("input").press("Enter");
+    await p.waitForTimeout(800);
+    await p.reload({ waitUntil: "load" }); await gpReady(p); await p.waitForSelector("[data-plan-conditions]");
+    await p.locator("[data-plan-conditions]").evaluate((d) => { d.open = true; }); await p.waitForTimeout(300);
+    const items = await p.locator("[data-plan-condition]").allTextContents();
+    checks.gameplan_conditions = { before: n0, after: items.length, last: items[items.length - 1] };
+    if (items.length !== n0 + 1 || items[items.length - 1].trim() !== "VIX under 17, 10Y under 4.95") problems.push(`gameplan_conditions: ${JSON.stringify(checks.gameplan_conditions)}`);
+    await p.locator("[data-plan-conditions]").scrollIntoViewIfNeeded();
+  });
+};
+
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();
 await browser.close();
 fs.writeFileSync(path.join(OUT, "checks.json"), JSON.stringify({ stage, base: BASE, problems, checks }, null, 2));

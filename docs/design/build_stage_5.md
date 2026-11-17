@@ -1,7 +1,42 @@
 # Step 14, build stage 5: the Gameplan page (2026-11-16)
 
 The last of five stages (plan: owner 2026-11-15; SPEC §9b item 4, §3.4, §5.6; `design-system/pages/gameplan.md`).
-Nothing is committed yet; this stops for your comments.
+**Approved by the owner 2026-11-17** after the first build and two rounds (their sections follow below); every round
+committed locally, nothing pushed yet.
+
+## Final state (2026-11-17)
+- **Server** (`src/nqbot/ui/api_gameplan.py`): the day's rules (setup windows, last entry, flat-by, an early close, the
+  news blackouts with their releases); upload to a staging folder with a free cost estimate; the paid parse only on the
+  owner's click on the worst-case button, within `gameplan_max_usd_per_file` (above it, the CLI), never retried by
+  itself, the actual cost shown after it; the same `parse_file` and gameplan lock as `nqbot gameplan`; edits as owner
+  overrides (side, zone, trigger, ES gates, stop, targets, invalidations per entry; HVL, HVL0, regime line; scenarios'
+  probability, bias and text; the plan-wide conditions), each settling exactly the review flags shown on its field;
+  "OK as parsed"; Confirm (before 09:30 ET only with no open review flag; it counts for the day's trading only then;
+  any edit or OK after it asks for a new one); ledger months 7–12 hidden until gate 16; an offline parser stand-in on
+  the synthetic panel.
+- **Page** (`ui/web/src/pages/gameplan/`): the title names another day (NOT TODAY); status, flags-to-review and the next
+  session mark on the Flip-Disk Matrix; the day timeline; the drop zone with the estimate, Parse / Parse again, Replace
+  and the actual cost; the editable entries table (flagged fields outlined with their flag and an OK-as-parsed button),
+  scenarios, plan-wide conditions, levels with tags, flags, the pre-open chart note, the Confirm bar; the panel's own
+  Day picker (grouped by month, today first with its state, keyboard-usable); day switches that load first, crossfade
+  and glide (250 ms, Calm instant), the scroll held; `/gameplan?date=…` opens a day.
+- **Shared:** `components/ui/option-picker.tsx` (no browser `<select>` left in the app), `AutoHeight` gliding from the
+  first change (explicit height, CSS transition; Performance's tab switch checked).
+- **Checks:** `ui/web/scripts/shoot.mjs` stages 5, 5b, 5c, 5s on fresh `--synthetic` panels (5r reads the owner's real
+  stored days, read-only; not run since the owner asked for synthetic-only screenshots); tests
+  `tests/test_ui_gameplan.py` (17), `tests/test_tool_guard.py`.
+
+## Open items carried forward
+1. **Step 22:** the pre-open NQ chart with the gameplan's zones; the bot's own levels in the Levels list ("bot"); the
+   live engine reads only a gameplan confirmed before 09:30 ET (it keeps that copy for the day; a later confirmation
+   or edit is saved for training only).
+2. **The local hook** `.claude/local/no_test_pipe.py` (wired in the uncommitted `.claude/settings.local.json`, owner
+   2026-10-31) checks rule 14 (e) for Bash only and is now covered by the committed hook; removing it is the owner's
+   choice (it also blocks quoted examples of a piped test run, which the new hook allows).
+3. Everything from `build_stage_4.md`'s list: 4× replay frame times after 13c; the pre-13d member record and the
+   retested-extreme age fix; the real review round after 13d, spread by month; the full suite, then push all local
+   commits, after 13c.
+
 
 **Evidence** (`ui/web/scripts/shoot.mjs`):
 - [`build/stage5/`](build/stage5/) ([`checks.json`](build/stage5/checks.json)), on a fresh `--synthetic` panel at 1440,
@@ -137,3 +172,43 @@ glide) re-ran clean with the new AutoHeight. Tests: `tests/test_ui_gameplan.py` 
      transition. Performance's tab switch glides as before (stage 3m).
    - **Also fixed:** the dropdown's focus going back to its trigger scrolled the page to the top; and opening
      `/gameplan?date=…` flashed today's data first.
+
+## Round 2 (owner 2026-11-17)
+**Evidence:** [`build/stage5c/`](build/stage5c/) (all checks passed, fresh `--synthetic` panel); tests
+`tests/test_ui_gameplan.py` (17) and `tests/test_tool_guard.py`.
+
+1. **Plan-wide conditions editable:** click one to edit it, empty it to remove it, "+ Add a condition" adds one; stored
+   as one override of the whole list (the parsed file untouched), outlined with its flag when flagged, and an edit
+   after a confirmation asks for a new one. Tested; on the synthetic panel a condition was added, edited and still
+   there after a reload.
+2. **Sealed-month read logged** in SPEC §7 rule 2b's new sealed-month access log (the 2026-09-16 gameplan, month 12,
+   opened 2026-11-16 to learn the format; nothing from it went into code, tests, reports or screenshots); from now on
+   such checks use months 1–6 or synthetic examples only (also kept in Claude Code's memory for later sessions).
+3. **PreToolUse hook** (`.claude/settings.json` → `uv run --quiet python -m nqbot.tool_guard`, on Bash and PowerShell;
+   no secrets): blocks a piped test run (rule 14 (e)) and stopping processes by name or pattern (rule 15: `taskkill
+   /IM` or `/FI`, `Stop-Process -Name`, anything piped into `Stop-Process`, `pkill`, `killall`, `kill $(pgrep …)`,
+   `xargs kill`, `wmic process … delete`, `Win32_Process … Terminate`), naming the rule; by PID stays allowed; quoted
+   text is ignored. Results on harmless examples (fed to the hook as Claude Code sends them; nothing ran):
+
+   | Verdict | Rule | Tool | Command |
+   |---|---|---|---|
+   | BLOCKED | 14 (e) | Bash | `uv run nqbot test tests/test_config.py \| tail -5` |
+   | BLOCKED | 14 (e) | Bash | `python -m pytest -q 2>&1 \| tail` |
+   | BLOCKED | 14 (e) | PowerShell | `uv run nqbot test \| Select-Object -Last 5` |
+   | BLOCKED | 15 | Bash | `taskkill //IM node.exe //F` |
+   | BLOCKED | 15 | Bash | `taskkill /F /FI "IMAGENAME eq python.exe"` |
+   | BLOCKED | 15 | PowerShell | `Stop-Process -Name python` |
+   | BLOCKED | 15 | PowerShell | `Get-Process python \| Stop-Process` |
+   | BLOCKED | 15 | Bash | `pkill -f nqbot` |
+   | BLOCKED | 15 | Bash | `killall node` |
+   | BLOCKED | 15 | Bash | `kill -9 $(pgrep -f uvicorn)` |
+   | allowed | | Bash | `uv run nqbot test tests/test_config.py` |
+   | allowed | | Bash | `uv run nqbot test \|\| echo failed` |
+   | allowed | | Bash | `grep -n "nqbot test" CLAUDE.md \| head -5` |
+   | allowed | | Bash | `taskkill //PID 1234 //T //F` |
+   | allowed | | PowerShell | `Stop-Process -Id 4321 -Force` |
+   | allowed | | Bash | `kill 1234` |
+   | allowed | | Bash | `git log --oneline \| head -3` |
+
+   Live in the session: `false && taskkill //IM zzz_no_such_process.exe //F` was refused before running with the rule-15
+   message.

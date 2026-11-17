@@ -501,11 +501,13 @@ function EditCell({ text, edit, flags, save, mono = true, options }: {
 }
 
 /** a value that turns into an input (or a select) on click: Enter saves, Esc cancels */
-function Inline({ text, edit, save, mono = true, options, wide = false }: {
+function Inline({ text, edit, save, mono = true, options, wide = false, startOpen = false, onDone }: {
   text: string; edit: string; save: (v: string) => Promise<void>; mono?: boolean; options?: string[]; wide?: boolean;
+  startOpen?: boolean; onDone?: () => void;   // an add-box: open at once, and say when it closes
 }) {
   const animated = useAnimated();
-  const [on, setOn] = useState(false);
+  const [on, setOnState] = useState(startOpen);
+  const setOn = (x: boolean) => { setOnState(x); if (!x) onDone?.(); };
   const [v, setV] = useState(edit);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -596,13 +598,34 @@ function Scenarios({ data, save }: { data: GameplanData; save: Save }) {
           </ul>
         </div>
       ))}
-      {(data.gameplan!.other_conditions ?? []).length > 0 && (
-        <details className="mt-4 text-[13px] text-text-2">
-          <summary className="cursor-pointer text-text-1">Plan-wide conditions ({data.gameplan!.other_conditions.length})</summary>
-          <ul className="mt-2 flex list-disc flex-col gap-1 pl-5">{data.gameplan!.other_conditions.map((c, i) => <li key={i}>{c}</li>)}</ul>
-        </details>
-      )}
+      <PlanConditions data={data} save={save} />
     </section>
+  );
+}
+
+/** the plan-wide conditions (owner 2026-11-17): each one editable in place (emptied: removed), one more added, all on
+ *  the same override layer (kept apart from the parsed file, outlined when flagged, a new confirmation after an edit) */
+function PlanConditions({ data, save }: { data: GameplanData; save: Save }) {
+  const items = data.gameplan!.other_conditions ?? [];
+  const flags = (data.gameplan!.flags ?? []).filter((f) => f.review !== false && f.field.startsWith("other_conditions"));
+  const [adding, setAdding] = useState(false);
+  return (
+    <details className={cn("mt-4 text-[13px] text-text-2", flags.length > 0 && "border-l-2 border-l-warn pl-2")} open={flags.length > 0 || undefined} data-plan-conditions>
+      <summary className="cursor-pointer text-text-1">Plan-wide conditions ({items.length}) · click one to edit it; empty it to remove it</summary>
+      <FlagNote flags={flags} />
+      <ul className="mt-2 flex list-disc flex-col gap-1 pl-5">
+        {items.map((c, i) => (
+          <li key={`${i}:${c}`} data-plan-condition={i}>
+            <Inline text={c} edit={c} mono={false} wide save={(v) => save("other_conditions", v, undefined, { index: i })} />
+          </li>
+        ))}
+      </ul>
+      <div className="mt-2 pl-5">
+        {adding
+          ? <Inline text="" edit="" mono={false} wide startOpen onDone={() => setAdding(false)} save={async (v) => { await save("other_conditions", v, undefined, { index: null }); setAdding(false); }} />
+          : <button type="button" className="text-[12.5px] text-cream hover:underline" onClick={() => setAdding(true)} data-add-condition>+ Add a condition</button>}
+      </div>
+    </details>
   );
 }
 

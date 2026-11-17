@@ -530,12 +530,33 @@ def routes(paths_fn: Callable[[], Paths | None], settings: dict[str, Any], featu
         if doc is None:
             return _err(404, f"no gameplan for {day.isoformat()}")
         field = str(body.get("field") or "")
+        reason = (str(body.get("reason") or "").strip() or "edited on the Gameplan page")[:300]
+        if field == "other_conditions":
+            # the plan-wide conditions (owner 2026-11-17): one item edited (`index`), emptied (removed) or added (no
+            # index); stored as one override of the whole list, so a re-parse never loses it
+            items = [str(x) for x in (doc.get("other_conditions") or [])]
+            text = str(body.get("value") or "").strip()[:1000]
+            idx = body.get("index")
+            if idx is None:
+                if not text:
+                    return _err(422, "an empty condition isn't added")
+                items.append(text)
+            elif isinstance(idx, int) and 0 <= idx < len(items):
+                if text:
+                    items[idx] = text
+                else:
+                    items.pop(idx)
+            else:
+                return _err(404, "no such condition (reload the page)")
+            resolves = sorted({f.get("field", "") for f in doc.get("flags") or []
+                               if f.get("review", True) and f.get("field", "").startswith("other_conditions")})
+            ov.set_value(store.processed_dir, day, ["other_conditions"], items, reason, resolves=resolves)
+            return _ok(payload(store, day))
         scen_field = field.removeprefix("scenario.") if field.startswith("scenario.") else None
         try:
             value = edit_value(scen_field or field, body.get("value"))
         except (ValueError, TypeError) as e:
             return _err(422, str(e))
-        reason = (str(body.get("reason") or "").strip() or "edited on the Gameplan page")[:300]
         if field in PLAN_FIELDS:
             path: list[Any] = list(PLAN_FIELDS[field])
             resolves = review_flags_for(doc, field)

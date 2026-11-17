@@ -324,3 +324,32 @@ def test_ledger_months_7_to_12_stay_off_the_page_until_gate_16(paths, monkeypatc
     monkeypatch.setattr(guard, "gates_passed", lambda *a, **k: frozenset({"16"}))
     assert sealed.isoformat() in c.get("/api/gameplan").json()["days"]
     assert c.get("/api/gameplan", params={"date": sealed.isoformat()}).status_code == 200
+
+
+def test_the_plan_wide_conditions_are_editable(paths, monkeypatch):
+    # owner 2026-11-17: edited in place, emptied to remove, added; one override of the whole list (kept apart from the
+    # parsed file); an edit after the confirmation asks for a new one
+    wall = {"t": datetime(2026, 3, 11, 9, 40, tzinfo=ET)}
+    monkeypatch.setattr(ov, "_now", lambda: wall["t"].isoformat())
+    c, _, _, j = _parsed_on(paths, DAY, datetime(2026, 3, 11, 9, 40, tzinfo=ET))
+    d = DAY.isoformat()
+    before = list(j["gameplan"]["other_conditions"] or [])
+    r = c.post("/api/gameplan/edit", json={"date": d, "field": "other_conditions", "index": None, "value": "VIX under 16.5"}, headers=TOKEN)
+    assert r.status_code == 200, r.text
+    assert r.json()["gameplan"]["other_conditions"] == [*before, "VIX under 16.5"]
+    n = len(before)
+    r = c.post("/api/gameplan/edit", json={"date": d, "field": "other_conditions", "index": n, "value": "VIX under 17"}, headers=TOKEN)
+    assert r.json()["gameplan"]["other_conditions"][-1] == "VIX under 17"
+    assert c.post("/api/gameplan/edit", json={"date": d, "field": "other_conditions", "index": None, "value": "  "},
+                  headers=TOKEN).status_code == 422
+    assert c.post("/api/gameplan/edit", json={"date": d, "field": "other_conditions", "index": 99, "value": "x"},
+                  headers=TOKEN).status_code == 404
+    parsed = json.loads((Path(paths.data_dir) / "processed" / "gameplans" / f"{d}.json").read_text(encoding="utf-8"))
+    assert (parsed.get("other_conditions") or []) == before                  # the parsed file is untouched
+    ops = ov.load(Path(paths.data_dir) / "processed" / "gameplans", DAY)["ops"]
+    assert [o["path"] for o in ops] == [["other_conditions"]]                 # one override of the whole list
+    assert c.post("/api/gameplan/confirm", json={"date": d}, headers=TOKEN).status_code == 200
+    wall["t"] = datetime(2026, 3, 11, 9, 50, tzinfo=ET)
+    r = c.post("/api/gameplan/edit", json={"date": d, "field": "other_conditions", "index": n, "value": ""}, headers=TOKEN)
+    assert r.json()["gameplan"]["other_conditions"] == before                 # emptied: removed
+    assert r.json()["status"]["state"] == "changed"
