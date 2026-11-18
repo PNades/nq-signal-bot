@@ -78,7 +78,7 @@ export function ShortcutsDialog({ groups, open, onOpenChange, animated = true, t
                   <X className="size-4" aria-hidden="true" />
                 </button>
               </div>
-              <div className="flex items-center gap-2 border-b border-line-strong px-4 py-2.5">
+              <div className="flex items-center gap-2 border-b border-line-strong px-4 py-2.5 focus-within:border-cream">
                 <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search shortcuts" aria-label="Search shortcuts"
                   className="w-full bg-transparent text-[13px] text-text-1 placeholder:text-text-3 focus:outline-none" />
               </div>

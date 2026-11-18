@@ -1,0 +1,591 @@
+{
+  "stage": "u1",
+  "base": "http://127.0.0.1:8735",
+  "problems": [],
+  "checks": {
+    "u1_focus_mouse_1440_after": {
+      "tag": "INPUT",
+      "outline": "none 3px",
+      "boxShadow": "none",
+      "focusedBorder": "rgb(255, 224, 194)",
+      "unfocusedBorder": "rgb(72, 72, 72)",
+      "vsUnfocused": 7.27,
+      "vsBackground": 14.08,
+      "box": {
+        "x": 133,
+        "y": 521,
+        "w": 409,
+        "h": 32
+      }
+    },
+    "u1_focus_keys_1440_after": {
+      "tag": "INPUT",
+      "outline": "none 3px",
+      "boxShadow": "none",
+      "focusedBorder": "rgb(255, 224, 194)",
+      "unfocusedBorder": "rgb(72, 72, 72)",
+      "vsUnfocused": 7.27,
+      "vsBackground": 14.08,
+      "box": {
+        "x": 133,
+        "y": 521,
+        "w": 409,
+        "h": 32
+      }
+    },
+    "u1_crumb_1440_/accounts_after": {
+      "text": "CREAMFLOW / ACCOUNTS",
+      "wordmark": 28,
+      "crumb": 27.25,
+      "name": 26.75,
+      "crumbVsWordmark": -0.75,
+      "crumbVsName": 0.5,
+      "inkBoxVsWordmark": 2,
+      "baselines": [
+        34,
+        31.5,
+        30.5
+      ],
+      "gapFromWordmark": 17
+    },
+    "u1_crumb_1440_/settings_after": {
+      "text": "CREAMFLOW / SETTINGS",
+      "wordmark": 28,
+      "crumb": 27.25,
+      "name": 26.75,
+      "crumbVsWordmark": -0.75,
+      "crumbVsName": 0.5,
+      "inkBoxVsWordmark": 2,
+      "baselines": [
+        34,
+        31.5,
+        30.5
+      ],
+      "gapFromWordmark": 17
+    },
+    "u1_crumb_1440_/performance_after": {
+      "text": "CREAMFLOW / PERFORMANCE",
+      "wordmark": 28,
+      "crumb": 27.25,
+      "name": 26.75,
+      "crumbVsWordmark": -0.75,
+      "crumbVsName": 0.5,
+      "inkBoxVsWordmark": 2,
+      "baselines": [
+        34,
+        31.5,
+        30.5
+      ],
+      "gapFromWordmark": 17
+    },
+    "u1_crumb_1440_/review_after": {
+      "text": "CREAMFLOW / REVIEW",
+      "wordmark": 28,
+      "crumb": 27.25,
+      "name": 26.75,
+      "crumbVsWordmark": -0.75,
+      "crumbVsName": 0.5,
+      "inkBoxVsWordmark": 2,
+      "baselines": [
+        34,
+        31.5,
+        30.5
+      ],
+      "gapFromWordmark": 17
+    },
+    "u1_crumb_1440_/gameplan_after": {
+      "text": "CREAMFLOW / GAMEPLAN",
+      "wordmark": 28,
+      "crumb": 27.25,
+      "name": 26.75,
+      "crumbVsWordmark": -0.75,
+      "crumbVsName": 0.5,
+      "inkBoxVsWordmark": 2,
+      "baselines": [
+        34,
+        31.5,
+        30.5
+      ],
+      "gapFromWordmark": 17
+    },
+    "u1_crumb_1440_/accounts/mffur1_after": {
+      "text": "CREAMFLOW / ACCOUNTS",
+      "wordmark": 28,
+      "crumb": 27.25,
+      "name": 26.75,
+      "crumbVsWordmark": -0.75,
+      "crumbVsName": 0.5,
+      "inkBoxVsWordmark": 2,
+      "baselines": [
+        34,
+        31.5,
+        30.5
+      ],
+      "gapFromWordmark": 17
+    },
+    "u1_focus_mouse_1280_after": {
+      "tag": "INPUT",
+      "outline": "none 3px",
+      "boxShadow": "none",
+      "focusedBorder": "rgb(255, 224, 194)",
+      "unfocusedBorder": "rgb(72, 72, 72)",
+      "vsUnfocused": 7.27,
+      "vsBackground": 14.08,
+      "box": {
+        "x": 60,
+        "y": 521,
+        "w": 409,
+        "h": 32
+      }
+    },
+    "u1_focus_keys_1280_after": {
+      "tag": "INPUT",
+      "outline": "none 3px",
+      "boxShadow": "none",
+      "focusedBorder": "rgb(255, 224, 194)",
+      "unfocusedBorder": "rgb(72, 72, 72)",
+      "vsUnfocused": 7.27,
+      "vsBackground": 14.08,
+      "box": {
+        "x": 60,
+        "y": 521,
+        "w": 409,
+        "h": 32
+      }
+    },
+    "u1_crumb_1280_/accounts_after": {
+      "text": "CREAMFLOW / ACCOUNTS",
+      "wordmark": 28,
+      "crumb": 27.25,
+      "name": 26.75,
+      "crumbVsWordmark": -0.75,
+      "crumbVsName": 0.5,
+      "inkBoxVsWordmark": 2,
+      "baselines": [
+        34,
+        31.5,
+        30.5
+      ],
+      "gapFromWordmark": 17
+    },
+    "u1_crumb_1280_/settings_after": {
+      "text": "CREAMFLOW / SETTINGS",
+      "wordmark": 28,
+      "crumb": 27.25,
+      "name": 26.75,
+      "crumbVsWordmark": -0.75,
+      "crumbVsName": 0.5,
+      "inkBoxVsWordmark": 2,
+      "baselines": [
+        34,
+        31.5,
+        30.5
+      ],
+      "gapFromWordmark": 17
+    },
+    "u1_crumb_1280_/performance_after": {
+      "text": "CREAMFLOW / PERFORMANCE",
+      "wordmark": 28,
+      "crumb": 27.25,
+      "name": 26.75,
+      "crumbVsWordmark": -0.75,
+      "crumbVsName": 0.5,
+      "inkBoxVsWordmark": 2,
+      "baselines": [
+        34,
+        31.5,
+        30.5
+      ],
+      "gapFromWordmark": 17
+    },
+    "u1_crumb_1280_/review_after": {
+      "text": "CREAMFLOW / REVIEW",
+      "wordmark": 28,
+      "crumb": 27.25,
+      "name": 26.75,
+      "crumbVsWordmark": -0.75,
+      "crumbVsName": 0.5,
+      "inkBoxVsWordmark": 2,
+      "baselines": [
+        34,
+        31.5,
+        30.5
+      ],
+      "gapFromWordmark": 17
+    },
+    "u1_crumb_1280_/gameplan_after": {
+      "text": "CREAMFLOW / GAMEPLAN",
+      "wordmark": 28,
+      "crumb": 27.25,
+      "name": 26.75,
+      "crumbVsWordmark": -0.75,
+      "crumbVsName": 0.5,
+      "inkBoxVsWordmark": 2,
+      "baselines": [
+        34,
+        31.5,
+        30.5
+      ],
+      "gapFromWordmark": 17
+    },
+    "u1_crumb_1280_/accounts/mffur1_after": {
+      "text": "CREAMFLOW / ACCOUNTS",
+      "wordmark": 28,
+      "crumb": 27.25,
+      "name": 26.75,
+      "crumbVsWordmark": -0.75,
+      "crumbVsName": 0.5,
+      "inkBoxVsWordmark": 2,
+      "baselines": [
+        34,
+        31.5,
+        30.5
+      ],
+      "gapFromWordmark": 17
+    },
+    "u1_bell_after": {
+      "separators": [
+        {
+          "where": "bell",
+          "ctx": "AUTO · FULL",
+          "left": 9.5,
+          "right": 10,
+          "diff": -0.5
+        },
+        {
+          "where": "bell",
+          "ctx": "bell check.md · cost $0.00 · check it, the",
+          "left": 4.5,
+          "right": 4,
+          "diff": 0.5
+        },
+        {
+          "where": "bell",
+          "ctx": "bell check.md · cost $0.00 · check it, the",
+          "left": 4,
+          "right": 4,
+          "diff": 0
+        },
+        {
+          "where": "bell",
+          "ctx": "SYNTHETIC DATA · nqbot ui --synthetic · not",
+          "left": 12,
+          "right": 12.5,
+          "diff": -0.5
+        },
+        {
+          "where": "bell",
+          "ctx": "SYNTHETIC DATA · nqbot ui --synthetic · not",
+          "left": 12,
+          "right": 12,
+          "diff": 0
+        },
+        {
+          "where": "bell",
+          "ctx": "Wed, Nov 18 · today",
+          "left": 10.5,
+          "right": 10,
+          "diff": 0.5
+        },
+        {
+          "where": "bell",
+          "ctx": "bell check.md · 3 entries · 0 edits",
+          "left": 4.5,
+          "right": 4,
+          "diff": 0.5
+        },
+        {
+          "where": "bell",
+          "ctx": "bell check.md · 3 entries · 0 edits",
+          "left": 4,
+          "right": 4,
+          "diff": 0
+        },
+        {
+          "where": "bell",
+          "ctx": "NOV 2026WED · EASTERN",
+          "left": 12,
+          "right": 12,
+          "diff": 0
+        },
+        {
+          "where": "bell",
+          "ctx": "d: 2026-11-18 bell check.md · cost $0.00 · check it, the",
+          "left": 4.5,
+          "right": 4.5,
+          "diff": 0
+        },
+        {
+          "where": "bell",
+          "ctx": "d: 2026-11-18 bell check.md · cost $0.00 · check it, the",
+          "left": 4,
+          "right": 4,
+          "diff": 0
+        },
+        {
+          "where": "bell",
+          "ctx": "Wed 18 Nov · 18:50:55 ET",
+          "left": 9.5,
+          "right": 9.5,
+          "diff": 0
+        },
+        {
+          "where": "bell",
+          "ctx": "·",
+          "left": 8.5,
+          "right": 9,
+          "diff": -0.5
+        }
+      ],
+      "dotsAtLineStart": 0
+    },
+    "u1_separators_after": [
+      {
+        "where": "account editor (unsaved bar) 1440",
+        "ctx": "AUTO · FULL",
+        "left": 9.5,
+        "right": 10,
+        "diff": -0.5
+      },
+      {
+        "where": "account editor (unsaved bar) 1440",
+        "ctx": "SYNTHETIC DATA · nqbot ui --synthetic · not",
+        "left": 12,
+        "right": 12.5,
+        "diff": -0.5
+      },
+      {
+        "where": "account editor (unsaved bar) 1440",
+        "ctx": "SYNTHETIC DATA · nqbot ui --synthetic · not",
+        "left": 12,
+        "right": 12,
+        "diff": 0
+      },
+      {
+        "where": "account editor (unsaved bar) 1440",
+        "ctx": "· account",
+        "left": 6,
+        "right": 6,
+        "diff": 0
+      },
+      {
+        "where": "account editor (unsaved bar) 1440",
+        "ctx": "· evaluation",
+        "left": 4.5,
+        "right": 4.5,
+        "diff": 0
+      },
+      {
+        "where": "account editor (unsaved bar) 1440",
+        "ctx": "1/3 · cap $333.33",
+        "left": 11,
+        "right": 11.5,
+        "diff": -0.5
+      },
+      {
+        "where": "account editor (unsaved bar) 1440",
+        "ctx": "·",
+        "left": 6.5,
+        "right": 6.5,
+        "diff": 0
+      },
+      {
+        "where": "account editor (unsaved bar) 1440",
+        "ctx": "NOV 2026WED · EASTERN",
+        "left": 12,
+        "right": 12,
+        "diff": 0
+      },
+      {
+        "where": "/accounts 1440",
+        "ctx": "3 accounts · D:\\nqbot\\data\\panel",
+        "left": 10.5,
+        "right": 10.5,
+        "diff": 0
+      },
+      {
+        "where": "/accounts 1440",
+        "ctx": "MFFU Rapid EOD 25k · evaluation",
+        "left": 4,
+        "right": 4,
+        "diff": 0
+      },
+      {
+        "where": "/accounts 1440",
+        "ctx": "MFFU Builder 25k · evaluation",
+        "left": 4,
+        "right": 4,
+        "diff": 0
+      },
+      {
+        "where": "/accounts 1440",
+        "ctx": "CreamFlow · NQLocal control panel · 12",
+        "left": 12,
+        "right": 12.5,
+        "diff": -0.5
+      },
+      {
+        "where": "/accounts 1440",
+        "ctx": "Local control panel · 127.0.0.1",
+        "left": 12.5,
+        "right": 12.5,
+        "diff": 0
+      },
+      {
+        "where": "/performance 1440",
+        "ctx": "Max DD · close to close−$0012345678",
+        "left": 9.5,
+        "right": 9.5,
+        "diff": 0
+      },
+      {
+        "where": "/performance 1440",
+        "ctx": "Max DD · intraday−$0012345678901234",
+        "left": 10,
+        "right": 10.5,
+        "diff": -0.5
+      },
+      {
+        "where": "/performance 1440",
+        "ctx": "NQ · MFFU Rapid EOD 25k",
+        "left": 9,
+        "right": 9,
+        "diff": 0
+      },
+      {
+        "where": "/performance 1440",
+        "ctx": "Development · months 1–6 (backtest)",
+        "left": 9.5,
+        "right": 9,
+        "diff": 0.5
+      },
+      {
+        "where": "/review 1440",
+        "ctx": "At this point · 10:12 ET",
+        "left": 12,
+        "right": 12,
+        "diff": 0
+      },
+      {
+        "where": "/review 1440",
+        "ctx": "2026-01-14 · c01",
+        "left": 9.5,
+        "right": 10,
+        "diff": -0.5
+      },
+      {
+        "where": "/review 1440",
+        "ctx": "ision 10:12:40At this point · 10:12 ET2026-01-14 · c01Se",
+        "left": 4,
+        "right": 4,
+        "diff": 0
+      },
+      {
+        "where": "/review 1440",
+        "ctx": "23.00 pts · far edge + buffer",
+        "left": 11.5,
+        "right": 11.5,
+        "diff": 0
+      },
+      {
+        "where": "/review 1440",
+        "ctx": "46.00 pts · level",
+        "left": 11.5,
+        "right": 11,
+        "diff": 0.5
+      },
+      {
+        "where": "/gameplan 1440",
+        "ctx": "Wed, Nov 18 · today",
+        "left": 10.5,
+        "right": 10,
+        "diff": 0.5
+      },
+      {
+        "where": "/gameplan 1440",
+        "ctx": ".md, .pdf, .docx · nothing is parsed or paid ",
+        "left": 4,
+        "right": 4,
+        "diff": 0
+      },
+      {
+        "where": "/performance 1280 (bottom)",
+        "ctx": "Development · months 1–6 (backtest)",
+        "left": 1,
+        "right": 0.5,
+        "diff": 0.5
+      },
+      {
+        "where": "/gameplan 1280",
+        "ctx": ".md, .pdf, .docx · nothing is parsed or paid ",
+        "left": 4,
+        "right": 4.5,
+        "diff": -0.5
+      },
+      {
+        "where": "bell",
+        "ctx": "bell check.md · cost $0.00 · check it, the",
+        "left": 4.5,
+        "right": 4,
+        "diff": 0.5
+      },
+      {
+        "where": "bell",
+        "ctx": "bell check.md · cost $0.00 · check it, the",
+        "left": 4,
+        "right": 4,
+        "diff": 0
+      },
+      {
+        "where": "bell",
+        "ctx": "bell check.md · 3 entries · 0 edits",
+        "left": 4.5,
+        "right": 4,
+        "diff": 0.5
+      },
+      {
+        "where": "bell",
+        "ctx": "bell check.md · 3 entries · 0 edits",
+        "left": 4,
+        "right": 4,
+        "diff": 0
+      },
+      {
+        "where": "bell",
+        "ctx": "d: 2026-11-18 bell check.md · cost $0.00 · check it, the",
+        "left": 4.5,
+        "right": 4.5,
+        "diff": 0
+      },
+      {
+        "where": "bell",
+        "ctx": "d: 2026-11-18 bell check.md · cost $0.00 · check it, the",
+        "left": 4,
+        "right": 4,
+        "diff": 0
+      },
+      {
+        "where": "bell",
+        "ctx": "Wed 18 Nov · 18:50:55 ET",
+        "left": 9.5,
+        "right": 9.5,
+        "diff": 0
+      },
+      {
+        "where": "bell",
+        "ctx": "·",
+        "left": 8.5,
+        "right": 9,
+        "diff": -0.5
+      },
+      {
+        "where": "/ 1440",
+        "ctx": "1–6 open a page · Ctrl K search",
+        "left": 9.5,
+        "right": 9,
+        "diff": 0.5
+      }
+    ],
+    "u1_separators_uneven_after": []
+  }
+}

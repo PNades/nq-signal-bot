@@ -100,6 +100,16 @@ body {
   color: var(--color-text-3);
 }
 :focus-visible { outline: 2px solid var(--color-cream); outline-offset: 2px; }
+/* text and number fields (owner 2026-11-18): no outline, for the mouse or the keyboard; the field's own border turns
+   cream instead (full cream: 7.1:1 against the unfocused border, 13:1 against the field), the only focus indicator.
+   Buttons, switches, tabs, sliders and checkboxes keep the keyboard-only ring above. Unlayered, so it beats it. */
+input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="button"]):not([type="submit"]):focus-visible,
+textarea:focus-visible { outline: none; }
+/* text and number fields (owner 2026-11-18): no outline, for the mouse or the keyboard; the field's own border turns
+   cream instead (full cream: 7.1:1 against the unfocused border, 13:1 against the field), the only focus indicator.
+   Buttons, switches, tabs, sliders and checkboxes keep the keyboard-only ring above. Unlayered, so it beats it. */
+input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="button"]):not([type="submit"]):focus-visible,
+textarea:focus-visible { outline: none; }
 
 /* ── App-wide additions for the real panel (step 14) ───────────────────────────────────────────────────────── */
 /* z-index scale (design-system/pages/shell.md): base 0, sticky 10, sidebar 20, topbar 30, popover 40, dialog 50,

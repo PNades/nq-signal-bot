@@ -75,7 +75,7 @@ export function TradesTable({ query, label }: { query: string; label: string }) 
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-3">
-        <label className="flex h-8 w-64 items-center gap-2 rounded-sm border border-line-strong bg-bg-2 px-2.5 text-text-3 focus-within:border-cream/60">
+        <label className="flex h-8 w-64 items-center gap-2 rounded-sm border border-line-strong bg-bg-2 px-2.5 text-text-3 focus-within:border-cream">
           <Search className="size-3.5" aria-hidden="true" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by date, account, direction" aria-label="Filter trades" className="cf-bare-focus w-full bg-transparent text-[13px] text-text-1 outline-none placeholder:text-text-3" />
         </label>

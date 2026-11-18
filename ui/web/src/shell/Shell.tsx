@@ -58,7 +58,9 @@ export function TopBar({ pageName, status, connected, onEffects, onNavigate, onO
       <button type="button" onClick={() => onNavigate("home")} className="flex shrink-0 items-center gap-2 pr-1" aria-label="CreamFlow, open Home">
         <LogoMark size={24} /><Wordmark className="hidden text-[23px] min-[1100px]:inline" />
       </button>
-      <div className="eyebrow hidden min-w-0 truncate min-[1180px]:block"><span className="text-text-2">CREAMFLOW</span> / {pageName.toUpperCase()}</div>
+      {/* 1 px down and 1 px right (owner 2026-11-18): the middle of its capitals then sits between the wordmark's and
+          the account name's letter middles (0.75 / 0.5 px), and it is 17 px from the wordmark; relative, so nothing moves */}
+      <div className="eyebrow relative left-px top-px hidden min-w-0 truncate min-[1180px]:block" data-crumb><span className="text-text-2">CREAMFLOW</span> / {pageName.toUpperCase()}</div>
       <AccountSwitcher accounts={status?.accounts ?? []} summary={status?.accounts_all ?? null} focus={focus} onFocus={onFocus} animated={animated}
         onManage={() => onNavigate("accounts")} onAdd={() => onOpenPath("/accounts/new")} />
       <div className="ml-auto flex shrink-0 items-center gap-2.5">

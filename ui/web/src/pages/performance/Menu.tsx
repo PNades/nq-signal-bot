@@ -57,7 +57,7 @@ export function Menu<T extends string>({ value, options, onChange, icon, label, 
             className={cn("absolute z-40 mt-1 w-[min(270px,calc(100vw-32px))] overflow-hidden rounded-md border border-line-strong bg-bg-3 shadow-[0_12px_32px_rgba(0,0,0,.55)]", align === "center" ? "left-1/2 -translate-x-1/2" : align === "left" ? "left-0" : "right-0")}
             data-menu-box>
             {searchable && (
-              <label className="flex items-center gap-2 border-b border-line-strong px-3 py-1.5" data-menu-search>
+              <label className="flex items-center gap-2 border-b border-line-strong px-3 py-1.5 focus-within:border-cream" data-menu-search>
                 <Search className="size-3.5 shrink-0 text-text-3" aria-hidden="true" />
                 <input ref={field} value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${label.toLowerCase()}s`} aria-label={`Search ${label.toLowerCase()}s`}
                   onKeyDown={(e) => { if (e.key === "Enter" && shown[0]) { e.preventDefault(); onChange(shown[0].id); setOpen(false); } }}

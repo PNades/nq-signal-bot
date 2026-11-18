@@ -5,6 +5,7 @@
 // is present, FLAT ALL is one line and fully visible, and nothing in the top bar overflows.
 import { chromium } from "playwright";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -4608,8 +4609,215 @@ S["5c"] = async () => {
   });
 };
 
+// ── UI polish round 1 (owner 2026-11-18): field focus, "·" separators, the top-bar breadcrumb ─────────────────────
+// CF_TAG=before|after names the files, so the same measurements run before and after the changes. Ink is measured in
+// the screenshot's own pixels (2x density, so to half a CSS pixel); close-ups are taken at 3x.
+const U1_TAG = process.env.CF_TAG ?? "now";
+async function u1Page(w, h, url, dsf = 2) {
+  const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: "dark", deviceScaleFactor: dsf });
+  const page = await ctx.newPage();
+  page.on("pageerror", (e) => problems.push(`u1 ${url}: page error ${e.message}`));
+  await page.goto(BASE + url);
+  await page.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); } catch {} });
+  await page.reload({ waitUntil: "load" }); await page.waitForTimeout(1500);
+  return { ctx, page, dsf };
+}
+/** ink columns / rows of a clip (CSS px), from the screenshot itself (decoded here: the panel's CSP refuses data:
+ *  images in the page): ink = far from the clip's most common colour */
+const U1_PNG = createRequire(import.meta.url)("playwright-core/lib/utilsBundle").PNG;
+async function u1Ink(page, dsf, clip) {
+  const png = U1_PNG.sync.read(await page.screenshot({ clip, animations: "disabled" }));
+  const { width: W, height: H, data: d } = png;
+  const count = new Map();
+  for (let i = 0; i < d.length; i += 4) { const k = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2]; count.set(k, (count.get(k) ?? 0) + 1); }
+  const bg = [...count.entries()].sort((a, b) => b[1] - a[1])[0][0], br = bg >> 16, bgG = (bg >> 8) & 255, bb = bg & 255;
+  const ink = (x, y) => { const i = (y * W + x) * 4; return Math.abs(d[i] - br) + Math.abs(d[i + 1] - bgG) + Math.abs(d[i + 2] - bb) > 90; };
+  const cols = [], rows = [], rowCount = [];
+  for (let x = 0; x < W; x++) { let v = false; for (let y = 0; y < H; y++) if (ink(x, y)) { v = true; break; } cols.push(v); }
+  for (let y = 0; y < H; y++) { let n = 0; for (let x = 0; x < W; x++) if (ink(x, y)) n++; rows.push(n > 0); rowCount.push(n); }
+  return { cols, rows, rowCount, dsf };
+}
+const u1Runs = (a) => { const r = []; let s = -1; a.forEach((v, i) => { if (v && s < 0) s = i; if (!v && s >= 0) { r.push([s, i - 1]); s = -1; } }); if (s >= 0) r.push([s, a.length - 1]); return r; };
+
+/** every visible "·" on the page: the ink gap to its left and right neighbours (CSS px) */
+async function u1Separators(page, dsf, where) {
+  const spots = await page.evaluate(() => {
+    const out = [];
+    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const t = n.textContent; let i = t.indexOf("·");
+      while (i >= 0) {
+        const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 1);
+        const b = r.getBoundingClientRect();
+        const el = n.parentElement, cs = el && getComputedStyle(el);
+        if (b.width > 0 && b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth && cs && cs.visibility !== "hidden" && Number(cs.opacity) > 0.2) {
+          const ctx = (el.closest("[data-unsaved],[data-topbar],button,li,td,p,div,span") ?? el).textContent.replace(/\s+/g, " ").trim();
+          const at = ctx.indexOf("·");
+          out.push({ x: b.left, y: b.top, w: b.width, h: b.height, ctx: ctx.slice(Math.max(0, at - 28), at + 28) });
+        }
+        i = t.indexOf("·", i + 1);
+      }
+    }
+    return out;
+  });
+  const res = [];
+  for (const s of spots) {
+    const vw = page.viewportSize().width;
+    const x0 = Math.max(0, Math.floor(s.x - 40)), x1 = Math.min(vw, Math.ceil(s.x + s.w + 40));
+    const clip = { x: x0, y: Math.max(0, Math.floor(s.y)), width: x1 - x0, height: Math.max(2, Math.ceil(s.h)) };
+    const ink = await u1Ink(page, dsf, clip);
+    const runs = u1Runs(ink.cols).map(([a, b]) => [a / dsf + x0, (b + 1) / dsf + x0]);
+    const mid = s.x + s.w / 2;
+    const di = runs.findIndex(([a, b]) => a <= mid + 1 && b >= mid - 1);
+    if (di < 0) continue;
+    const L = runs[di - 1], R = runs[di + 1];
+    if (!L || !R) continue;
+    const gl = +(runs[di][0] - L[1]).toFixed(2), gr = +(R[0] - runs[di][1]).toFixed(2);
+    res.push({ where, ctx: s.ctx, left: gl, right: gr, diff: +(gl - gr).toFixed(2) });
+  }
+  return res;
+}
+
+S["u1"] = async () => {
+  const acct = (await (await fetch(BASE + "/api/accounts")).json()).accounts?.[0]?.account?.name ?? (await (await fetch(BASE + "/api/accounts")).json()).accounts?.[0]?.name;
+  const sepAll = [];
+  for (const [w, h] of [[1440, 900], [1280, 800]]) {
+    // 1. focus: click into a field and type; then tab into one with the keyboard
+    for (const how of ["mouse", "keys"]) {
+      const { ctx, page, dsf } = await u1Page(w, h, `/accounts/${encodeURIComponent(acct)}`);
+      let target;
+      if (how === "mouse") {
+        target = page.locator("[data-account-form] input:not([type=range]):not([type=checkbox]):not([type=file])").first();
+        await target.click(); await page.keyboard.press("End"); await page.keyboard.type("1"); await page.waitForTimeout(500);
+      } else {
+        await page.mouse.move(5, 300);
+        for (let k = 0; k < 60; k++) { await page.keyboard.press("Tab"); if (await page.evaluate(() => document.activeElement?.tagName === "INPUT" && !["range", "checkbox", "file"].includes(document.activeElement.type))) break; }
+        await page.waitForTimeout(300);
+        target = page.locator(":focus");
+      }
+      const m = await page.evaluate(() => {
+        const el = document.activeElement, box = el.closest(".rounded-sm.border, [class*='border']") ?? el;
+        const fieldBox = el.className.includes("border") ? el : el.parentElement;
+        const cs = getComputedStyle(el), fb = getComputedStyle(fieldBox);
+        // an unfocused field of the same kind beside it
+        const others = [...document.querySelectorAll("[data-account-form] input")].filter((x) => x !== el && x.offsetParent);
+        const other = others.find((x) => x.type === el.type) ?? others[0];
+        const ob = other ? getComputedStyle(other.className.includes("border") ? other : other.parentElement) : null;
+        const rgb = (s) => { const m = s.match(/[\d.]+/g).map(Number); return { r: m[0], g: m[1], b: m[2], a: m[3] ?? 1 }; };
+        const bgOf = (e) => { for (let x = e; x; x = x.parentElement) { const c = getComputedStyle(x).backgroundColor; const v = rgb(c); if (v.a > 0.5) return v; } return { r: 17, g: 17, b: 17, a: 1 }; };
+        const over = (c, b) => ({ r: c.r * c.a + b.r * (1 - c.a), g: c.g * c.a + b.g * (1 - c.a), b: c.b * c.a + b.b * (1 - c.a) });
+        const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+        const ratio = (a, b) => { const x = lum(a), y = lum(b); return +((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)).toFixed(2); };
+        const bgc = bgOf(fieldBox.parentElement);
+        const focused = over(rgb(fb.borderTopColor), bgc), unfocused = ob ? over(rgb(ob.borderTopColor), bgc) : null;
+        const r = fieldBox.getBoundingClientRect();
+        return { tag: el.tagName, outline: `${cs.outlineStyle} ${cs.outlineWidth}`, boxShadow: cs.boxShadow, focusedBorder: fb.borderTopColor, unfocusedBorder: ob?.borderTopColor,
+          vsUnfocused: unfocused ? ratio(focused, unfocused) : null, vsBackground: ratio(focused, bgc), box: { x: r.x, y: r.y, w: r.width, h: r.height } };
+      });
+      checks[`u1_focus_${how}_${w}_${U1_TAG}`] = m;
+      const pad = 14;
+      await page.screenshot({ path: path.join(OUT, `focus_${how}_${w}_${U1_TAG}.png`), clip: { x: Math.max(0, m.box.x - pad), y: Math.max(0, m.box.y - pad), width: m.box.w + 2 * pad, height: m.box.h + 2 * pad } });
+      if (how === "mouse") {
+        // 2. the unsaved-changes bar (the edit above made one)
+        const bar = page.locator("[data-unsaved]");
+        await bar.waitFor({ timeout: 5000 }).catch(() => {});
+        if (await bar.count()) {
+          await page.waitForTimeout(400);
+          await bar.screenshot({ path: path.join(OUT, `unsaved_bar_${w}_${U1_TAG}.png`) });
+          sepAll.push(...(await u1Separators(page, dsf, `account editor (unsaved bar) ${w}`)));
+        }
+      }
+      await ctx.close();
+    }
+    // 3. the breadcrumb on every page: vertical centres of the wordmark, the breadcrumb and the account name (ink), and
+    // the gap from the wordmark to the breadcrumb
+    for (const url of ["/accounts", "/settings", "/performance", "/review", "/gameplan", `/accounts/${encodeURIComponent(acct)}`]) {
+      const { ctx, page, dsf } = await u1Page(w, h, url);
+      const rects = await page.evaluate(() => {
+        const bar = document.querySelector("[data-topbar]");
+        const wm = bar.querySelector(".font-display"), crumb = bar.querySelector(".eyebrow > span"), crumbAll = bar.querySelector(".eyebrow");
+        const name = [...bar.querySelectorAll("[data-account-switcher] span.font-mono")].find((s) => !s.className.includes("text-[") && s.textContent.trim().length > 2);
+        const R = (e) => { const r = e.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
+        return { wm: R(wm), crumb: R(crumb), crumbAll: R(crumbAll), name: name ? R(name) : null, text: crumbAll.textContent };
+      });
+      // the body of the letters: from the first row as dense as 45% of the densest (the x-height for lowercase, the cap
+      // height for capitals: ascenders alone are thin) to the last ink row (the baseline: these words have no descenders)
+      const center = async (r) => {
+        // the element's own text box only (a wider band would catch the account button's border lines)
+        const y0 = Math.floor(r.y), clip = { x: Math.floor(r.x), y: y0, width: Math.ceil(r.w), height: Math.ceil(r.y + r.h) - y0 };
+        const ink = await u1Ink(page, dsf, clip); const rr = u1Runs(ink.rows); if (!rr.length) return null;
+        const max = Math.max(...ink.rowCount), bodyTop = ink.rowCount.findIndex((n) => n >= 0.45 * max);
+        const top = rr[0][0] / dsf + y0, bot = (rr[rr.length - 1][1] + 1) / dsf + y0, body = bodyTop / dsf + y0;
+        return { top, bot, mid: +((body + bot) / 2).toFixed(2), inkMid: +((top + bot) / 2).toFixed(2), baseline: bot };
+      };
+      const wmC = await center(rects.wm), crC = await center(rects.crumb), nmC = rects.name ? await center(rects.name) : null;
+      // horizontal: the wordmark's last ink column to the breadcrumb's first
+      const hclip = { x: Math.floor(rects.wm.x), y: 8, width: Math.ceil(rects.crumbAll.x + 40 - rects.wm.x), height: 36 };
+      const hi = await u1Ink(page, dsf, hclip); const runs = u1Runs(hi.cols).map(([a, b]) => [a / dsf + hclip.x, (b + 1) / dsf + hclip.x]);
+      const wmEnd = Math.max(...runs.filter(([a]) => a < rects.wm.x + rects.wm.w + 1).map(([, b]) => b));
+      const crStart = Math.min(...runs.filter(([a]) => a >= rects.crumbAll.x - 1).map(([a]) => a));
+      checks[`u1_crumb_${w}_${url}_${U1_TAG}`] = { text: rects.text, wordmark: wmC?.mid, crumb: crC?.mid, name: nmC?.mid,
+        crumbVsWordmark: wmC && crC ? +(crC.mid - wmC.mid).toFixed(2) : null, crumbVsName: nmC && crC ? +(crC.mid - nmC.mid).toFixed(2) : null,
+        inkBoxVsWordmark: wmC && crC ? +(crC.inkMid - wmC.inkMid).toFixed(2) : null, baselines: [wmC?.baseline, crC?.baseline, nmC?.baseline],
+        gapFromWordmark: +(crStart - wmEnd).toFixed(2) };
+      if (url === "/accounts" || url === "/gameplan") {
+        const cl = { x: 0, y: 0, width: Math.min(w, Math.ceil((rects.name ? rects.name.x + rects.name.w : rects.crumbAll.x + rects.crumbAll.w) + 60)), height: 52 };
+        const c3 = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: "dark", deviceScaleFactor: 3 });
+        const p3 = await c3.newPage(); await p3.goto(BASE + url); await p3.evaluate(() => { try { sessionStorage.setItem("creamflow.splashShown", "1"); } catch {} });
+        await p3.reload({ waitUntil: "load" }); await p3.waitForTimeout(1200);
+        await p3.screenshot({ path: path.join(OUT, `crumb_${url.replace(/\W+/g, "_")}_${w}_${U1_TAG}.png`), clip: cl });
+        await c3.close();
+      }
+      // separators on this page (and the top bar's, the date block's, the footer's when in view)
+      sepAll.push(...(await u1Separators(page, dsf, `${url} ${w}`)));
+      await page.evaluate(() => { const m = document.getElementById("cf-main"); if (m) m.scrollTop = m.scrollHeight; }); await page.waitForTimeout(500);
+      sepAll.push(...(await u1Separators(page, dsf, `${url} ${w} (bottom)`)));
+      await ctx.close();
+    }
+  }
+  // the notifications (synthetic panel only: a synthetic gameplan parse makes one): its separators, and none at a line
+  // start (owner 2026-11-18)
+  {
+    const { ctx, page, dsf } = await u1Page(1440, 900, "/gameplan");
+    if ((await (await page.request.get(BASE + "/api/status")).json()).synthetic) {
+      await page.locator("[data-file-input]").first().setInputFiles({ name: "bell check.md", mimeType: "text/markdown",
+        buffer: Buffer.concat([fs.readFileSync(GP_FIXTURE), Buffer.from(`\n\nThe stage-u1 copy ${Date.now()}.\n`)]) });
+      await page.waitForSelector("[data-estimate]", { timeout: 15000 });
+      if (await page.locator("[data-replace]").count()) await page.locator("[data-replace]").check();
+      await page.locator("[data-parse]").click(); await page.waitForSelector("[data-parse-cost]", { timeout: 20000 }); await page.waitForTimeout(600);
+      await page.locator("[data-bell]").click(); await page.waitForSelector("[data-bell-panel]"); await page.waitForTimeout(600);
+      const seps = await u1Separators(page, dsf, "bell");
+      const lineStarts = await page.evaluate(() => {
+        const panel = document.querySelector("[data-bell-panel]"), w = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT); let n0 = 0;
+        for (let n = w.nextNode(); n; n = w.nextNode()) {
+          let i = n.textContent.indexOf("·");
+          while (i >= 0) {
+            const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 1); const q = r.getBoundingClientRect();
+            const box = n.parentElement.getBoundingClientRect();
+            if (q.left - box.left < 2 && n.textContent.slice(0, i).trim()) n0++;     // a dot at its line's left edge
+            i = n.textContent.indexOf("·", i + 1);
+          }
+        }
+        return n0;
+      });
+      checks[`u1_bell_${U1_TAG}`] = { separators: seps, dotsAtLineStart: lineStarts };
+      if (lineStarts) problems.push(`u1_bell: ${lineStarts} separator(s) start a line`);
+      sepAll.push(...seps.filter((s) => s.where === "bell"));
+      await page.locator("[data-bell-panel]").screenshot({ path: path.join(OUT, `bell_1440_${U1_TAG}.png`) });
+    }
+    await ctx.close();
+  }
+  // separators on Home
+  { const { ctx, page, dsf } = await u1Page(1440, 900, "/"); await page.waitForTimeout(4000); sepAll.push(...(await u1Separators(page, dsf, "/ 1440"))); await ctx.close(); }
+  const seen = new Set(), uniq = [];
+  for (const s of sepAll) { const k = `${s.ctx}|${s.left}|${s.right}`; if (!seen.has(k)) { seen.add(k); uniq.push(s); } }
+  checks[`u1_separators_${U1_TAG}`] = uniq;
+  checks[`u1_separators_uneven_${U1_TAG}`] = uniq.filter((s) => Math.abs(s.diff) > 1);
+};
+
 await (S[stage] ?? (() => { throw new Error(`no shots for stage ${stage}`); }))();
 await browser.close();
-fs.writeFileSync(path.join(OUT, "checks.json"), JSON.stringify({ stage, base: BASE, problems, checks }, null, 2));
+// stage u1 runs twice (before / after the change): each run keeps its own file
+fs.writeFileSync(path.join(OUT, stage === "u1" ? `checks_${process.env.CF_TAG || "after"}.json` : "checks.json"), JSON.stringify({ stage, base: BASE, problems, checks }, null, 2));
 console.log(problems.length ? `PROBLEMS (${problems.length}):\n` + problems.join("\n") : "all checks passed");
 console.log(`screenshots: ${OUT}`);

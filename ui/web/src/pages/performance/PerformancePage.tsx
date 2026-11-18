@@ -112,8 +112,8 @@ function DateRange({ start, end, onChange, animated }: { start: string | null; e
           <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: animated ? 0.14 : 0 }}
             className="absolute right-0 z-40 mt-1 w-[280px] rounded-md border border-line-strong bg-bg-3 p-3 shadow-[0_12px_32px_rgba(0,0,0,.55)]" data-date-range>
             <div className="grid grid-cols-2 gap-2">
-              <label className="text-[12px] text-text-2">From<input type="date" value={s} onChange={(ev) => setS(ev.target.value)} className="mt-1 h-8 w-full rounded-sm border border-line-strong bg-bg-2 px-2 font-mono text-[12px] text-text-1" /></label>
-              <label className="text-[12px] text-text-2">To<input type="date" value={e} onChange={(ev) => setE(ev.target.value)} className="mt-1 h-8 w-full rounded-sm border border-line-strong bg-bg-2 px-2 font-mono text-[12px] text-text-1" /></label>
+              <label className="text-[12px] text-text-2">From<input type="date" value={s} onChange={(ev) => setS(ev.target.value)} className="mt-1 h-8 w-full rounded-sm border border-line-strong bg-bg-2 px-2 font-mono text-[12px] text-text-1 focus:border-cream" /></label>
+              <label className="text-[12px] text-text-2">To<input type="date" value={e} onChange={(ev) => setE(ev.target.value)} className="mt-1 h-8 w-full rounded-sm border border-line-strong bg-bg-2 px-2 font-mono text-[12px] text-text-1 focus:border-cream" /></label>
             </div>
             <div className="mt-3 flex justify-end gap-2">
               <button type="button" onClick={() => { onChange(null, null); setOpen(false); }} className="h-8 rounded-sm border border-line-strong px-2.5 text-[12.5px] text-text-2 hover:text-text-1">All dates</button>

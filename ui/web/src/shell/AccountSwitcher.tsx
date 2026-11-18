@@ -250,7 +250,7 @@ export function AccountSwitcher({ accounts, summary = null, focus, onFocus, onMa
                 <span className="font-mono text-[11px] text-text-3">↑↓ move · Enter focus · Esc close</span>
               </div>
               {searching && (
-                <label className="flex items-center gap-2 border-b border-line-strong px-4 py-2" data-switcher-search>
+                <label className="flex items-center gap-2 border-b border-line-strong px-4 py-2 focus-within:border-cream" data-switcher-search>
                   <Search className="size-3.5 shrink-0 text-text-3" aria-hidden="true" />
                   <input ref={search} value={query} onChange={(e) => { setQuery(e.target.value); setActive(-1); }} placeholder={`Search ${accounts.length} accounts`}
                     aria-label="Search accounts" aria-controls="sw-list" spellCheck={false} autoComplete="off"

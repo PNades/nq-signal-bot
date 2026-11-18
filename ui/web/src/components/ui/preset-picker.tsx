@@ -47,7 +47,7 @@ export function PresetPicker({ presets, value, onPick, onDelete, placeholder = "
       </button>
       {open && (
         <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-[40] overflow-hidden rounded-md border border-line-strong bg-bg-3 shadow-[0_12px_32px_rgba(0,0,0,.55)]">
-          <div className="flex items-center gap-2 border-b border-line-strong px-3">
+          <div className="flex items-center gap-2 border-b border-line-strong px-3 focus-within:border-cream">
             <Search className="size-3.5 text-text-3" aria-hidden="true" />
             <input autoFocus value={query} onChange={(e) => { setQuery(e.target.value); setIdx(0); }} placeholder="Filter presets" aria-label="Filter presets"
               aria-controls={`${uid}-list`} aria-activedescendant={filtered[idx] ? `${uid}-${filtered[idx].id}` : undefined}

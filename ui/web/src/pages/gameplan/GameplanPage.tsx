@@ -453,7 +453,7 @@ function Parsed({ data, onChange }: { data: GameplanData; onChange: (d: Gameplan
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" aria-label="Confirmation note"
-            className="h-9 w-[220px] rounded-sm border border-line-strong bg-bg-inset px-3 text-[13px] text-text-1 placeholder:text-text-3" />
+            className="h-9 w-[220px] rounded-sm border border-line-strong bg-bg-inset px-3 text-[13px] text-text-1 placeholder:text-text-3 focus:border-cream" />
           <button type="button" className={btn.primary} onClick={() => void confirm()} disabled={busy || blocked} data-confirm>
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{data.status.state === "confirmed" ? "Confirm again" : "Confirm gameplan"}
           </button>
@@ -524,7 +524,7 @@ function Inline({ text, edit, save, mono = true, options, wide = false, startOpe
         ) : (
           <input autoFocus value={v} disabled={busy} onChange={(e) => setV(e.target.value)} onBlur={() => !busy && setOn(false)}
             onKeyDown={(e) => { if (e.key === "Enter") void commit(); if (e.key === "Escape") { setV(edit); setOn(false); } }}
-            className={cn("h-8 w-full min-w-[120px] rounded-sm border border-cream/60 bg-bg-inset px-2 text-[13px] text-text-1", mono && "font-mono")} />
+            className={cn("h-8 w-full min-w-[120px] rounded-sm border border-line-strong bg-bg-inset px-2 text-[13px] text-text-1 focus:border-cream", mono && "font-mono")} />
         )
       ) : (
         <button type="button" onClick={() => { setV(edit); setOn(true); }} className={cn("text-left hover:text-cream", mono && "font-mono", text === "—" ? "text-text-3" : "text-text-1")}>{text}</button>

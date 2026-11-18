@@ -1363,6 +1363,14 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   answered state and the append of a new answer). The record of the touches the preview cards showed comes from the
   preview round's card files (`preview_touches`), not from the answers, so they stay excluded from every real round:
   9,446 touches before and after, identical (test `test_deleting_preview_answers_keeps_their_touches_excluded`).
+- **Q-ui-polish-1 (owner 2026-11-18; UI polish round 1, built 2026-11-18, waiting for the owner's review;
+  `docs/design/build_ui_polish_1.md`):** (1) text and number fields have no focus outline, for the mouse or the
+  keyboard; the field's own border turns full cream (7.3:1 against the unfocused border), the only focus indicator;
+  buttons, switches, tabs and the other controls keep their keyboard-only ring; (2) every "·" separator has equal
+  space on both sides measured from the visible text edges (the unsaved-changes bar's dot is its own element; the
+  synthetic strip lost its backticks; a notification's " · " never starts a line); 35 measured, all within 0.5 px;
+  (3) the top bar's breadcrumb 1 px down and 1 px right: its letters' middle sits between the wordmark's and the
+  account name's (0.75 / 0.5 px), the same on every page at 1280 and 1440.
 - **Q-review-sample (step 14 build stage 4; (1)-(3), (5) and the preview rule decided by the owner 2026-11-16; (4),
   (6), (7) open; the month spread decided 2026-11-16, below):** **Real rounds by month (owner 2026-11-16; built,
   `sampler.month_quotas` / `sample_by_month`, tests `test_month_quotas_follow_the_sessions` and

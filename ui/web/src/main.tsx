@@ -267,7 +267,7 @@ function App() {
       {/* a page change whose data takes longer than ~300 ms: a thin line under the top bar (it never moves the layout) */}
       <div className="relative z-[29] h-0"><BusyBar busy={navBusy} animated={animated} label="Loading the page" className="top-0" data-nav-loading /></div>
       {status?.synthetic && (
-        <div className="flex h-6 shrink-0 items-center justify-center bg-caramel font-mono text-[11px] tracking-[0.12em] text-cream" data-synthetic>SYNTHETIC DATA · `nqbot ui --synthetic` · nothing here is a result</div>
+        <div className="flex h-6 shrink-0 items-center justify-center bg-caramel font-mono text-[11px] tracking-[0.12em] text-cream" data-synthetic>SYNTHETIC DATA · nqbot ui --synthetic · nothing here is a result</div>
       )}
     </>
   );

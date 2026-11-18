@@ -34,7 +34,7 @@ export function Field({ label, htmlFor, unit, help, issues = [], children, class
   );
 }
 
-const inputBase = "h-8 w-full rounded-sm border bg-bg-2 px-2.5 text-[13.5px] text-text-1 outline-none placeholder:text-text-3 focus:border-cream/70";
+const inputBase = "h-8 w-full rounded-sm border bg-bg-2 px-2.5 text-[13.5px] text-text-1 outline-none placeholder:text-text-3 focus:border-cream";
 
 export function TextInput({ id, value, onChange, placeholder, invalid, mono = false, disabled }: {
   id?: string; value: string; onChange: (v: string) => void; placeholder?: string; invalid?: boolean; mono?: boolean; disabled?: boolean;
@@ -49,7 +49,7 @@ export function NumberInput({ id, value, onChange, unit, scale = 1, step, invali
 }) {
   const shown = value == null ? "" : String(Math.round(value * scale * 1e6) / 1e6);
   return (
-    <div className={cn("flex h-8 items-center rounded-sm border bg-bg-2 focus-within:border-cream/70", invalid ? "border-crit" : "border-line-strong", disabled && "opacity-60")}>
+    <div className={cn("flex h-8 items-center rounded-sm border bg-bg-2 focus-within:border-cream", invalid ? "border-crit" : "border-line-strong", disabled && "opacity-60")}>
       {unit === "$" && <span className="pl-2.5 font-mono text-[12px] text-text-3">$</span>}
       <input id={id} inputMode="decimal" value={shown} placeholder={placeholder} disabled={disabled} step={step}
         onChange={(e) => {

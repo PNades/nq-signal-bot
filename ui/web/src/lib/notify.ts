@@ -37,10 +37,13 @@ function save() { try { sessionStorage.setItem(KEY, JSON.stringify(notes.slice(-
 function emit() { save(); listeners.forEach((l) => l()); }
 let seq = 0;
 
+/** a "·" separator never starts a line (owner 2026-11-18): the space before it doesn't break */
+export const keepSeps = (s: string) => s.replace(/ ·(?= )/g, "\u00a0·");
+
 export function notify(n: { kind: NoteKind; title: string; text?: string; source?: string; banner?: boolean; id?: string }): string {
   const id = n.id ?? `n${Date.now().toString(36)}${(seq++).toString(36)}`;
   notes = [...notes.filter((x) => x.id !== id), {
-    id, kind: n.kind, title: n.title, text: n.text ?? "", at: new Date().toISOString(), source: n.source ?? "panel",
+    id, kind: n.kind, title: keepSeps(n.title), text: keepSeps(n.text ?? ""), at: new Date().toISOString(), source: n.source ?? "panel",
     banner: n.banner ?? true, dismissed: false, read: false,
   }].slice(-HISTORY_MAX);
   emit();

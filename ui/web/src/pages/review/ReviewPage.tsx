@@ -563,7 +563,7 @@ function AnswerPanel({ round, card, animated, onAnswered }: { round: string; car
       <label className="eyebrow mt-3 block" htmlFor="cf-reason">Why <span className="normal-case tracking-normal text-text-3">(one or two sentences, required)</span></label>
       <textarea id="cf-reason" ref={reason} rows={3} value={d.reason} onChange={(e) => set({ reason: e.target.value })} maxLength={600}
         placeholder="e.g. Held the ON high twice already; the King sits right above."
-        className="mt-1.5 w-full resize-none rounded-md border border-line-strong bg-bg-1 px-3 py-2 text-[13px] leading-5 text-text-1 placeholder:text-text-3 focus:border-cream/60 focus:outline-none" data-reason />
+        className="mt-1.5 w-full resize-none rounded-md border border-line-strong bg-bg-1 px-3 py-2 text-[13px] leading-5 text-text-1 placeholder:text-text-3 focus:border-cream focus:outline-none" data-reason />
       <button type="button" onClick={() => setMore((m) => !m)} aria-expanded={more}
         className="mt-1.5 inline-flex h-7 items-center gap-1 rounded-full pr-2 text-[12px] text-text-2 hover:text-text-1">
         <ChevronDown className={cn("size-4 transition-transform", more && "rotate-180")} aria-hidden="true" />Optional: entry, stop, target, confidence
@@ -622,7 +622,7 @@ function PriceField({ label, value, onChange, placeholder }: { label: string; va
     <label className="flex flex-col gap-1.5">
       <span className="eyebrow">{label}</span>
       <input inputMode="decimal" value={value} onChange={(e) => onChange(e.target.value.replace(/[^0-9.]/g, ""))} placeholder={placeholder}
-        className="h-8 w-full rounded-md border border-line-strong bg-bg-1 px-2.5 font-mono text-[13px] text-text-1 placeholder:text-text-3 focus:border-cream/60 focus:outline-none" />
+        className="h-8 w-full rounded-md border border-line-strong bg-bg-1 px-2.5 font-mono text-[13px] text-text-1 placeholder:text-text-3 focus:border-cream focus:outline-none" />
     </label>
   );
 }

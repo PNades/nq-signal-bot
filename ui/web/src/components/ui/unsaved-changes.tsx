@@ -48,8 +48,13 @@ export function UnsavedChanges({ open, count, saving, error, blocked, onSave, on
           className="fixed inset-x-0 z-[45] mx-auto flex w-fit max-w-[calc(100vw-32px)] items-center gap-3 rounded-full border border-line-strong bg-bg-3 py-1.5 pl-4 pr-1.5 text-[13px] shadow-[0_12px_32px_rgba(0,0,0,.55)]"
           style={{ bottom: BAR_BOTTOM.low }}>
           <Icon className={cn("size-4 shrink-0", error || blocked ? "text-crit" : saving ? "animate-spin text-text-2" : count ? "text-warn" : "text-text-2")} aria-hidden="true" />
-          <span className="whitespace-nowrap text-text-1">{label}</span>
-          {note && <span className="hidden whitespace-nowrap text-text-3 min-[1200px]:inline">· {note}</span>}
+          {/* the dot is its own element (owner 2026-11-18) in a group with its own gap, so the space is the same on both
+              sides of it, about as wide as around the app's other separators */}
+          <span className="flex items-center gap-1.5">
+            <span className="whitespace-nowrap text-text-1">{label}</span>
+            {note && <span className="hidden text-text-3 min-[1200px]:inline" aria-hidden="true" data-sep>·</span>}
+            {note && <span className="hidden whitespace-nowrap text-text-3 min-[1200px]:inline">{note}</span>}
+          </span>
           <span className="ml-2 flex items-center gap-1.5">
             <button type="button" onClick={onReset} disabled={saving || count === 0} data-reset
               data-hint="Undo every unsaved change and stay here"
