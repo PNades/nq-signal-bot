@@ -33,6 +33,12 @@ stored trades; writes nothing the build reads. Development months only (§7 rule
 session per chunk in its own process (`nqbot step13 reactions-day D`), then the report (`nqbot step13
 reactions-report`): `<reports_dir>/step13/reactions.md`, `reactions_widths.png`, `reactions_nodes.png`,
 `proposed_widths.json`.
+
+**Node rows on other development months (owner 2026-11-20, pre-13d; Q-step13a-2 (5), Q-maprole):** `nqbot step13
+reactions-plan --months 5-6` (stored in `<data_dir>/jobs/step13a_reactions/months.json`) runs the same measurement on
+those sessions of the current plan's build (13d's) and ends with `reactions-report --months 5-6`: the Skylit node
+rows only, `<reports_dir>/step13/reactions_nodes_months_5-6.md|json|png` (report only, nothing frozen; the months 1-4
+widths report and `proposed_widths.json` are never written by it). Months 7-12 are refused.
 """
 
 from __future__ import annotations
@@ -203,6 +209,35 @@ def params(f: dict) -> dict[str, Any]:
 
 def params_digest(p: dict) -> str:
     return hashlib.sha256(json.dumps(p, sort_keys=True).encode()).hexdigest()[:10]
+
+
+def months_file(env: Env) -> Path:
+    return env.paths.data_dir / "jobs" / JOB / "months.json"
+
+
+def check_months(months) -> tuple[int, ...]:
+    ms = tuple(sorted(set(int(m) for m in months)))
+    bad = [m for m in ms if m not in months_mod.DEVELOPMENT]
+    if not ms or bad:
+        raise Refused(f"ledger months {list(ms)}: reactions run on development months 1-6 only (§7 rule 2b)")
+    return ms
+
+
+def job_months(env: Env) -> tuple[int, ...]:
+    """The months the job measures: `reactions-plan --months` (default 1-4, the widths)."""
+    p = months_file(env)
+    ms = tuple(json.loads(p.read_text(encoding="utf-8"))["months"]) if p.exists() else WIDTH_MONTHS
+    return check_months(ms)
+
+
+def set_job_months(env: Env, months) -> tuple[int, ...]:
+    ms = check_months(months)
+    atomic_write_json(months_file(env), {"months": list(ms)})
+    return ms
+
+
+def _label(ms: tuple[int, ...]) -> str:
+    return f"{ms[0]}-{ms[-1]}" if list(ms) == list(range(ms[0], ms[-1] + 1)) else "_".join(map(str, ms))
 
 
 def build_doc(env: Env) -> dict[str, Any]:
@@ -628,7 +663,7 @@ def _markdown(rows, nodes, start, p, q, nd, key, days, png_w, png_n, f, fallback
               "- Every hour of the CME day counts (events exist overnight); the RTH-only figure is shown beside, and a "
               f"difference of more than {100 * RTH_DIFF_SHARE:.0f}% or a different width is flagged.",
               "- QQQ / SPY node rows cover months 1-4 here; months 5-6 come with the step-13d full-window build (report "
-              "only, nothing frozen from them).",
+              "only, nothing frozen from them: `step13 reactions-plan --months 5-6`, `reactions_nodes_months_5-6.md`).",
               "- The VWAP lines and bands are read once a second (the line after each second's last trade).",
               "- An approach whose reaction window overlaps a damaged RTH stretch (§3.2) is left out.", ""]
     return "\n".join(lines) + "\n"
@@ -669,7 +704,7 @@ def _plot_widths(path: Path, rows, start, proposed, p, q) -> None:
     atomic_write_bytes(path, buf.getvalue())
 
 
-def _plot_nodes(path: Path, nodes, p, q, nd_pick) -> None:
+def _plot_nodes(path: Path, nodes, p, q, nd_pick, months_label: str = "1-4") -> None:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -690,12 +725,14 @@ def _plot_nodes(path: Path, nodes, p, q, nd_pick) -> None:
         if chain == "NDXP":
             for c in NDXP_CHOICES[:-1]:
                 ax.axvline(c, color="#888888", linestyle="--", linewidth=1, label="±10 / ±15" if c == 10 else None)
-        ax.set_title(f"{chain} nodes (reacted {s['reacted']:,})" + (f": proposed ±{nd_pick}" if chain == "NDXP" else ""),
+        ax.set_title(f"{chain} nodes (reacted {s['reacted']:,})"
+                     + (f": proposed ±{nd_pick}" if chain == "NDXP" and nd_pick is not None else ""),
                      fontsize=10)
         ax.set_xlabel(f"reaction distance past the mapped strike ({unit})", fontsize=8)
         ax.tick_params(labelsize=7)
         ax.legend(fontsize=7, frameon=False)
-    fig.suptitle("Skylit node reaction distances, months 1-4 (the last bar holds everything ≥ 2 × band)", fontsize=11)
+    fig.suptitle(f"Skylit node reaction distances, months {months_label} (the last bar holds everything ≥ 2 × band)",
+                 fontsize=11)
     fig.tight_layout()
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=110)
@@ -705,11 +742,65 @@ def _plot_nodes(path: Path, nodes, p, q, nd_pick) -> None:
 
 # --- the job --------------------------------------------------------------------------------------------------------
 
+def node_report(env: Env, months) -> Path:
+    """`nqbot step13 reactions-report --months 5-6`: the Skylit node rows on those development months of the current
+    plan's build (owner 2026-11-20; Q-step13a-2 (5), Q-maprole: report only, nothing frozen)."""
+    ms = check_months(months)
+    doc = build_doc(env)
+    if not set(ms) <= set(doc["months"]):
+        raise Refused(f"the feature-build plan covers ledger months {doc['months']}, not {list(ms)}")
+    key = doc["key"]
+    p = params(env.features)
+    q = p["react_width_q"]
+    qk = f"{q:g}"
+    days = [d for d in (date.fromisoformat(x) for x in doc["sessions"]) if months_mod.month_index(d, env.settings) in ms]
+    for d in days:
+        months_mod.require_development(d, env.settings)
+    t = load_days(env, key, p, days)
+    nodes = {g: summarize(t, g, q) for g in ("qqq_node", "ndxp_node", "spy_node", "spx_node")}
+    for g, s in nodes.items():
+        dd = reading_d_dists(t, g, underlying=True)
+        s["q_under_d"] = float(np.quantile(dd, q)) if len(dd) else None
+    lab = _label(ms)
+    out_dir = report_dir(env)
+    png = out_dir / f"reactions_nodes_months_{lab}.png"
+    _plot_nodes(png, nodes, p, q, None, lab)
+    lines = [f"# Step 13a node reaction rows, months {lab} (build {key}, {len(days)} sessions)", "",
+             "Owner 2026-11-20 (pre-13d; SPEC §13 Q-step13a-2 (5), Q-maprole): the months 1-4 rows are in "
+             "`reactions.md` (13a's build); these are the same measurement (F5.14 reading B with the return rule) on "
+             f"months {lab} of build {key}. Report only: no band is frozen from them (the NDXP band stays "
+             f"±{p['node_band']['NDXP']:g}, QQQ ±{p['node_band']['QQQ']:g}).", "",
+             f"| Map | Approaches | Reactions used | No return | Near misses | q0.5 pts | q{qk} pts | q0.9 pts | "
+             f"q{qk} underlying $ | q{qk} RTH only $ | Reading D q{qk} $ | Band (underlying) | Flag |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for g, s in nodes.items():
+        chain = {"qqq_node": "QQQ", "ndxp_node": "NDXP", "spy_node": "SPY", "spx_node": "SPX"}[g]
+        uq = None if s["q_under"] is None else s["q_under"][qk]
+        uq_rth = None if s["q_under_rth"] is None else s["q_under_rth"][qk]
+        lines.append(f"| {chain} | {s['approaches']:,} | {s['reacted']:,} | {s['no_return']:,} | {s['near_misses']:,} | "
+                     f"{_fmt(s['q']['0.5'])} | {_fmt(s['q'][qk])} | {_fmt(s['q']['0.9'])} | {_fmt(uq)} | "
+                     f"{_fmt(uq_rth)} | {_fmt(s.get('q_under_d'))} | ±{p['node_band'][chain]:g} | "
+                     f"{'few' if s['reacted'] < MIN_REACTED else ''} |")
+    lines += ["", f"![nodes]({png.name})", ""]
+    atomic_write_json(out_dir / f"reactions_nodes_months_{lab}.json",
+                      {"build_key": key, "months": list(ms), "sessions": len(days), "params": p,
+                       "nodes": {g: {k: v for k, v in s.items() if k not in ("dist", "rth", "under")}
+                                 for g, s in nodes.items()}})
+    path = out_dir / f"reactions_nodes_months_{lab}.md"
+    atomic_write_text(path, "\n".join(lines) + "\n")
+    env.echo(f"report {path}")
+    return path
+
+
 def chunk_ids(env: Env) -> list[str]:
     doc = build_doc(env)
-    days = [d for d in doc["sessions"] if months_mod.month_index(date.fromisoformat(d), env.settings) in WIDTH_MONTHS]
+    ms = job_months(env)
+    if not set(ms) <= set(doc["months"]):
+        raise Refused(f"the feature-build plan covers ledger months {doc['months']}, not {list(ms)}")
+    days = [d for d in doc["sessions"] if months_mod.month_index(date.fromisoformat(d), env.settings) in ms]
     tag = f"{doc['key']}_{params_digest(params(env.features))}"
-    return [f"r:{d}:{tag}" for d in days] + [f"{REPORT_CHUNK}:{tag}"]
+    end = f"{REPORT_CHUNK}:{tag}" if ms == WIDTH_MONTHS else f"nodes{_label(ms)}:{tag}"
+    return [f"r:{d}:{tag}" for d in days] + [end]
 
 
 class ReactionsJob:
@@ -740,6 +831,9 @@ class ReactionsJob:
         env = self._env(ctx)
         if chunk_id.startswith(REPORT_CHUNK + ":"):
             report(env)
+            return None
+        if chunk_id.startswith("nodes"):
+            node_report(env, job_months(env))
             return None
         _, d, _tag = chunk_id.split(":")
         if day_file(env, build_doc(env)["key"], params(env.features), date.fromisoformat(d)).exists():

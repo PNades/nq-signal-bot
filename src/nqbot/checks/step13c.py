@@ -278,12 +278,13 @@ def _mem_ok(running: int) -> bool:
     return running == 0 or mb is None or mb / 1024 >= RAM_RESERVE_GB + EST_CHILD_GB
 
 
-def run_pool(env: Env, ctx, tasks: list[tuple[str, list[str]]], workers: int) -> None:
+def run_pool(env: Env, ctx, tasks: list[tuple[str, list[str]]], workers: int, log_name: str = JOB) -> None:
     """Short `nqbot <argv>` children, up to `workers` at once as memory allows; a failed child stops the chunk
-    (status failures) once the running ones end; a stop (clock, request, SSD) starts no new child."""
+    (status failures) once the running ones end; a stop (clock, request, SSD) starts no new child. Child logs under
+    `<log_dir>/<log_name>/pool` (another job using the pool keeps its own, pre-13d `step13_rescore`)."""
     from nqbot.jobs.runner import StopChunk
 
-    logs = env.paths.log_dir / JOB / "pool"
+    logs = env.paths.log_dir / log_name / "pool"
     logs.mkdir(parents=True, exist_ok=True)
     pending = list(tasks)
     running: list[tuple[str, subprocess.Popen, Any, Path]] = []

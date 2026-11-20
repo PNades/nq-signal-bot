@@ -1167,12 +1167,15 @@ def _add_step13(sub: argparse._SubParsersAction) -> None:
     s13.add_parser("jump-plot", help="the 2025-11-18 weekly POC jump plot with the fixed legend (Q-step12b (e))")
     s13.add_parser("check-report", help="the report from the chunks done so far")
     # step 13a (owner 2026-11-09/10, SPEC §13 Q-dryrun13 (3), Q-step13a): the reaction-distance report
-    s13.add_parser("reactions-plan", help="step 13a: record the reaction job's chunks (months 1-4 sessions of the "
-                                          "feature-build plan, then the report; then: nqbot run step13a_reactions)")
+    p = s13.add_parser("reactions-plan", help="step 13a: record the reaction job's chunks (months 1-4 sessions of the "
+                                              "feature-build plan, then the report; then: nqbot run step13a_reactions)")
+    p.add_argument("--months", default=None, help="pre-13d (owner 2026-11-20): other development months, e.g. 5-6: "
+                                                  "the node rows only (reactions_nodes_months_5-6.md)")
     p = s13.add_parser("reactions-day", help="step 13a: one session's approaches from its level timelines (the job "
                                              "runs this in its own process)")
     p.add_argument("date", type=_date)
-    s13.add_parser("reactions-report", help="step 13a: the widths proposal, charts and tables (reactions.md)")
+    p = s13.add_parser("reactions-report", help="step 13a: the widths proposal, charts and tables (reactions.md)")
+    p.add_argument("--months", default=None, help="other development months (e.g. 5-6): the node rows only")
     # step 13b (owner 2026-11-10, SPEC §13 Q-step13b): smoke run, counts, slippage, labeler, budget
     p = s13.add_parser("events-day", help="step 13b: the engine stage and the labeler on one development session, "
                                           "twice, with times, pairs, disk and the extrapolation (events_day_<D>.md)")
@@ -1213,6 +1216,12 @@ def _add_step13(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--allow-new", action="append", default=[], metavar="COLUMN",
                    help="a column B may add (e.g. stack_level_ids); it must appear in B")
     s13.add_parser("labels-report", help="step 13b: the labels report (identity check, RR bands, time, disk)")
+    p = s13.add_parser("rescore-plan", help="pre-13d (owner 2026-11-20): 13c's execution winners against their "
+                                            "runners-up on build K's months 1-4: the label sets (then: nqbot run "
+                                            "step13_rescore --until HH:MM)")
+    p.add_argument("--build-key", required=True, help="the corrected build (13d's), complete on months 1-4")
+    s13.add_parser("rescore-report", help="pre-13d: score the re-score plan's comparisons (rescore_exec_<K>.md); the "
+                                          "job's last chunk runs this")
     s13.add_parser("budget", help="step 13b: the step-13 budget re-estimated from the measured months 1-4 rebuild")
 
 
@@ -1223,6 +1232,7 @@ def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
     from nqbot.checks import step13 as s13
     from nqbot.checks import step13a as s13a
     from nqbot.checks import step13b as s13b
+    from nqbot.checks import step13_rescore as s13r
     from nqbot.checks import step13c as s13c
     from nqbot.checks.step8b import CheckRefused, Env
     from nqbot.config import load_features
@@ -1277,15 +1287,27 @@ def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
             return 0 if ok else 1
         elif args.check == "labels-report":
             print(s13b.labels_report(env))
+        elif args.check == "rescore-plan":
+            plan = s13r.rescore_plan(env, args.build_key)
+            for name, x in plan["sets"].items():
+                print(f"  {name}: labels {x['label_key']}, overrides {x['overrides'] or 'none'}")
+            print(f"{s13r.JOB}: {len(plan['sets'])} label set(s), {len(plan['comparisons'])} comparisons on build "
+                  f"{plan['build_key']}; run: uv run nqbot run {s13r.JOB} --until HH:MM")
+        elif args.check == "rescore-report":
+            print(s13r.score(env, s13r.load_plan(env)))
         elif args.check == "budget":
             print(s13b.budget(env))
         elif args.check == "reactions-plan":
+            s13a.set_job_months(env, fb.parse_months(args.months) if args.months else s13a.WIDTH_MONTHS)
             done, total = record_plan(paths, s13a.JOB, s13a.chunk_ids(env))
             print(f"{s13a.JOB}: {done}/{total} chunks done; run: uv run nqbot run {s13a.JOB} --until HH:MM")
         elif args.check == "reactions-day":
             s13a.reactions_day(env, args.date)
         elif args.check == "reactions-report":
-            s13a.report(env)
+            if args.months and tuple(fb.parse_months(args.months)) != s13a.WIDTH_MONTHS:
+                s13a.node_report(env, fb.parse_months(args.months))
+            else:
+                s13a.report(env)
         elif args.check == "check-plan":
             if args.redo:
                 gone = s13.redo(paths, [r.strip() for r in args.redo.split(",") if r.strip()])
@@ -1298,8 +1320,8 @@ def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
             s13.jump_plot(env)
         else:
             s13.report(env)
-    except (s13.Refused, s13a.Refused, s13b.Refused, s13c.TuneRefused, fb.BuildRefused, sb.Refused, CheckRefused,
-            NotDevelopmentMonth) as e:
+    except (s13.Refused, s13a.Refused, s13b.Refused, s13c.TuneRefused, s13r.RescoreRefused, fb.BuildRefused,
+            sb.Refused, CheckRefused, NotDevelopmentMonth) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
     return 0

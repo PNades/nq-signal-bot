@@ -10,6 +10,7 @@ from nqbot.checks.step8b_disloc import DislocationsJob
 from nqbot.checks.step13 import CheckJob as Step13CheckJob
 from nqbot.checks.step13a import ReactionsJob
 from nqbot.checks.step13b import LabelsJob, SlippageJob
+from nqbot.checks.step13_rescore import RescoreJob
 from nqbot.checks.step13c import TuneJob
 from nqbot.checks.step8b_gate import GateJob
 from nqbot.clients.databento_pull import DatabentoPullJob
@@ -42,6 +43,8 @@ JOBS: dict[str, Callable[[], Job]] = {
     "step13_labels": LabelsJob,  # step 13b: pairs, fills and paths on months 1-4 (plan: nqbot step13 labels-plan)
     # step 13c (owner 2026-11-14, SPEC §13 Q-step13c): the tuning rows 1-14, builds two at a time, labels, scores
     "step13_tune": TuneJob,  # plan: nqbot step13 tune-plan
+    # pre-13d (owner 2026-11-20): 13c's execution winners against their runners-up on the corrected build, months 1-4
+    "step13_rescore": RescoreJob,  # plan: nqbot step13 rescore-plan --build-key K
 }
 
 

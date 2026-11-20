@@ -215,3 +215,59 @@ def test_overshoot_without_a_return_is_a_break():
     assert wiggle[0]["excluded"] == "no_return"
     # without the return rule (hold_ns None) the same path counts at 20
     assert _run([(0, 130.0), (10, 115.0), (20, 80.0), (30, 90.0)], hold_ns=None)[0]["dist"] == 20.0
+
+
+# --- node rows on months 5-6 (owner 2026-11-20, pre-13d; Q-step13a-2 (5), Q-maprole) --------------------------------
+
+def _env13a(tmp_path, f):
+    return SimpleNamespace(features=f, settings={}, echo=lambda *_: None,
+                           paths=SimpleNamespace(reports_dir=tmp_path / "reports", data_dir=tmp_path / "data"))
+
+
+def test_node_rows_on_months_5_6_write_their_own_report_only(tmp_path, monkeypatch):
+    from nqbot.config import load_features
+
+    f = load_features()
+    rows = []
+    for g in ("qqq_node", "ndxp_node", "spy_node", "spx_node"):
+        rows += [{"group": g, "reacted": True, "dist_pts": float(d), "rth": True, "underlying_per_pt": 0.5,
+                  "instrument": "ES" if g in ("spy_node", "spx_node") else "NQ"} for d in range(25)]
+    t = _table(rows)
+    env = _env13a(tmp_path, f)
+    month = {"2026-02-10": 5, "2026-03-10": 6, "2025-10-07": 1, "2026-04-07": 7}
+    monkeypatch.setattr(r, "build_doc", lambda e: {"key": "k13d", "months": list(range(1, 13)),
+                                                   "sessions": list(month)})
+    monkeypatch.setattr(r.months_mod, "month_index", lambda d, s: month[d.isoformat()])
+    monkeypatch.setattr(r.months_mod, "require_development", lambda d, s: None)
+    seen = {}
+    monkeypatch.setattr(r, "load_days", lambda e, key, p, days: seen.update(days=days) or t)
+    path = r.node_report(env, [5, 6])
+    assert [d.isoformat() for d in seen["days"]] == ["2026-02-10", "2026-03-10"]     # months 5-6 only, never 7
+    assert path.name == "reactions_nodes_months_5-6.md"
+    md = path.read_text(encoding="utf-8")
+    assert "| QQQ | 25 | 25 |" in md and "Report only" in md and "(build k13d, 2 sessions)" in md
+    out = tmp_path / "reports" / "step13"
+    assert (out / "reactions_nodes_months_5-6.png").exists() and (out / "reactions_nodes_months_5-6.json").exists()
+    assert not (out / "reactions.md").exists() and not (out / "proposed_widths.json").exists()   # widths untouched
+
+
+def test_the_job_months_default_to_1_4_and_refuse_7_12(tmp_path, monkeypatch):
+    from nqbot.config import load_features
+
+    env = _env13a(tmp_path, load_features())
+    month = {"2025-10-07": 1, "2026-02-10": 5, "2026-03-10": 6, "2026-04-07": 7}
+    monkeypatch.setattr(r, "build_doc", lambda e: {"key": "k13d", "months": list(range(1, 13)),
+                                                   "sessions": list(month)})
+    monkeypatch.setattr(r.months_mod, "month_index", lambda d, s: month[d.isoformat()])
+    assert r.job_months(env) == r.WIDTH_MONTHS
+    ids = r.chunk_ids(env)
+    assert ids[0].startswith("r:2025-10-07:") and ids[-1].startswith("report:") and len(ids) == 2
+    assert r.set_job_months(env, [6, 5]) == (5, 6)
+    ids = r.chunk_ids(env)
+    assert [x.split(":")[1] for x in ids[:-1]] == ["2026-02-10", "2026-03-10"] and ids[-1].startswith("nodes5-6:")
+    for bad in ([7], [5, 6, 7], [12], []):
+        with pytest.raises(r.Refused, match="development months 1-6 only"):
+            r.set_job_months(env, bad)
+    monkeypatch.setattr(r, "build_doc", lambda e: {"key": "k14", "months": [1, 2, 3, 4], "sessions": ["2025-10-07"]})
+    with pytest.raises(r.Refused, match=r"not \[5, 6\]"):
+        r.chunk_ids(env)
