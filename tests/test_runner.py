@@ -167,8 +167,11 @@ def test_effective_max_workers(monkeypatch):
 def test_status_estimates_nights_left(settings, paths, log, clock, monkeypatch):
     monkeypatch.setattr(runner_mod, "_peak_gb", lambda: 1.25)
     run(DummyJob(10, 3600), settings, paths, log, clock, until_min=150)  # 2 chunks fit, 8 left
-    lines = job_lines(paths)
-    assert lines == ["dummy: 2/10 chunks done, p90 chunk 3600s, ~8.0 h left, ~4 night(s) left, peak 1.2 GB RAM"]
+    lines = job_lines(paths, now=clock.now())
+    # owner 2026-11-19 (Q-status-eta): a nightly job (22:00 to --until 00:30) fits 2 one-hour chunks a night, so the
+    # 8 left take the nights from 10-04 to 10-07
+    assert lines == ["dummy: 2/10 chunks done, p90 chunk 3600s, ~8.0 h left, ~4 night(s) left, finishes ~Thu "
+                     "2026-10-08 00:00 ET, peak 1.2 GB RAM"]
 
 
 class Replanned(DummyJob):

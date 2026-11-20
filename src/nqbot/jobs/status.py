@@ -8,31 +8,45 @@ import statistics
 import shutil
 from datetime import datetime
 
+from nqbot.jobs import estimate as est
 from nqbot.jobs.lock import ALL_LOCKS, holder_dead_here, holders
 from nqbot.jobs.runner import p90, plan_progress, read_pool_progress
 from nqbot.storage import GB, Paths
 
 
-def job_lines(paths: Paths) -> list[str]:
+def job_lines(paths: Paths, now: datetime | None = None) -> list[str]:
+    from nqbot.jobs.queue import read_queue
+
+    now = now or datetime.now(est.ET)
     jobs_dir = paths.data_dir / "jobs"
+    queue = set(read_queue(paths))
     lines = []
     for spath in sorted(jobs_dir.glob("*/state.json")) if jobs_dir.exists() else []:
         with open(spath, encoding="utf-8") as f:
             state = json.load(f)
+        name = spath.parent.name
         done = state.get("done", {})
         n_done, total = plan_progress(state)
         left = total - n_done
+        line = f"{name}: {n_done}/{total} chunks done"
+        # owner 2026-11-19 (SPEC §13 Q-status-eta): the 13c driver and the feature builds by what their chunks are
+        queued = name in queue or (name in est.BUILD_SLOTS and est.TUNE_JOB in queue)
+        special = _special_estimate(paths, jobs_dir, name, state, now, queued) if left else None
         chunk_p90 = p90([d["sec"] for d in done.values()])
-        line = f"{spath.parent.name}: {n_done}/{total} chunks done"
-        if left and chunk_p90:
+        if special:
+            line += special
+        elif left and chunk_p90:
             hours_left = left * chunk_p90 / 3600
             line += f", p90 chunk {chunk_p90:.0f}s, ~{hours_left:.1f} h left"
             window_h = _last_window_hours(state)
             if window_h:
                 line += f", ~{math.ceil(hours_left / window_h)} night(s) left"
+            fin = est.plain_finish(state, chunk_p90 / 3600, left, now, queued)
+            if fin:
+                line += f", {fin}"
         elif not left:
             line += " (complete)"
-        pool = read_pool_progress(paths, spath.parent.name) if left else {}
+        pool = read_pool_progress(paths, name) if left else {}
         if pool.get("pass_total") and int(pool.get("pass_done") or 0) < int(pool["pass_total"]):
             # owner 2026-11-13 review: pass 2 is one chunk of many sessions, so "0/1 chunks" hid its progress
             line += f"; pass {pool.get('pass')}: {pool['pass_done']}/{pool['pass_total']} sessions done"
@@ -41,6 +55,30 @@ def job_lines(paths: Paths) -> list[str]:
             line += f", peak {max(peaks):.1f} GB RAM"
         lines.append(line)
     return lines or ["no jobs yet"]
+
+
+def _read(path) -> dict:
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _special_estimate(paths: Paths, jobs_dir, name: str, state: dict, now: datetime, queued: bool) -> str | None:
+    """The 13c driver's and the feature builds' own estimates (`jobs/estimate.py`); None: the plain one. Display only:
+    an estimate that can't be made says so instead of stopping `nqbot status`."""
+    try:
+        if name == est.TUNE_JOB:
+            plan = _read(jobs_dir / name / "tune.json")
+            return est.tune_line(state, plan, _read(jobs_dir / name / "winners.json"), now, queued) if plan else None
+        if name in est.BUILD_SLOTS:
+            other = next(s for s in est.BUILD_SLOTS if s != name)
+            return est.build_line(state, _read(jobs_dir / other / "state.json") or None,
+                                  read_pool_progress(paths, name), now, queued)
+    except (KeyError, ValueError, TypeError, ZeroDivisionError) as e:
+        return f"; estimate unavailable ({type(e).__name__}: {e})"
+    return None
 
 
 def lock_lines(paths: Paths) -> list[str]:

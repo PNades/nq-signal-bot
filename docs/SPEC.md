@@ -1308,6 +1308,23 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   `SessionFeatures._candidates`, `session_levels.retests_from_touches` counting the age like `expired`). Readings for
   the owner: an equal weekly high/low on a later day keeps the first print's day (the earlier session, so it expires
   sooner); the retested extreme's `level_id` keeps the registry session's date (identity only).
+- **Q-status-eta (owner 2026-11-19, a pre-13d item; display only, outside both keys; built on the local branch
+  `pre-13d`, not merged):** `nqbot status` estimates the time left and a finish date the way the jobs run
+  (`jobs/estimate.py`): (1) **two builds at once:** each remaining `step13_tune` chunk is priced from the measured
+  chunks of its own kind: a chunk of two builds at once, a single build alone (a row with three challengers, r01–r04,
+  r06, r14a, r14b, ends with one; measured on 13c ≈ 5.5 h alone vs ≈ 7.6 h for two), labels per label set to make
+  (exec rows: r12 4 sets, r13 9; row 14 none unless `node_relevance_top_n` 5 won row 9), a score; a feature build by
+  pass (pass-1 sessions, pass-2 wall time per session), from its own chunks run the way it runs now, alone or while
+  the other build slot ran; (2) **the daily stop:** the stop at the last run's `--until`, the restart gap measured
+  from past clock stops (07:30 → 07:35: 5 min; 5 min assumed for a queued job not yet stopped; a nightly job's window
+  complement otherwise), a chunk under the p90 rule waits for the restart, a 13c build doesn't start in the last 10
+  min (`step13c.MIN_MINUTES_LEFT`), and a chunk a stop splits redoes the measured extra (13c: a resumed build's two
+  pieces against a clean one, median ≥ 0; a pass-2 pool: one median session); (3) **a finish date** (ET, to the
+  minute) from the remaining chunks laid out on that schedule, "if run again" when the job is neither queued nor
+  running. Only chunks that ran in one piece are measured (a run's first chunk is a resumed one if the run before
+  spent more than 5 min after its last finished chunk; a run that finished nothing adds its time to the next). Other
+  jobs keep the p90 line and gain the finish date. First reading (2026-11-20 00:10): 13c's last 13 chunks ≈ 28.6 h,
+  finish ≈ Sat 2026-11-21 05:00 ET.
 - **Q-review-chart round 5 (owner 2026-11-16; built, waiting for the owner's OK):** (1) the readings' Nodes group no
   longer shows "Pika nodes (+)", "Barney nodes (−)" and "Pika member" (display only: the detector still computes them,
   the scorer still reads them; cards stored earlier are filtered when served); the groups sit on one grid (checked on

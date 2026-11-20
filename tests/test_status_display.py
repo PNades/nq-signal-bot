@@ -137,5 +137,5 @@ def test_the_display_code_is_outside_the_build_key():
     """The labels key's code digest reads only labeler/*.py and clients/mbp1.py (labeler/params.py)."""
     from nqbot.checks import feature_build
 
-    for f in ("jobs/status.py", "jobs/queue.py"):
+    for f in ("jobs/status.py", "jobs/queue.py", "jobs/estimate.py"):
         assert not any(f == p or f.startswith(p.rstrip("/") + "/") for p in feature_build.CODE_PARTS)
