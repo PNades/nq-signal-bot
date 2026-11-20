@@ -786,14 +786,19 @@ class SessionFeatures:
                 "yesterday_day_type": None if eod is None else eod["day_type"]}
 
     def _candidates(self) -> list:
-        """F3.8 candidates from today's registry: session highs/lows (ON, PDH/PDL, prior RTH, prior week, IB)."""
+        """F3.8 candidates from today's registry: session highs/lows (ON, PDH/PDL, prior RTH, prior week, IB). Each
+        ages from the session its extreme printed in (owner 2026-11-16, SPEC §13 Q-review-stack (c), `features_version`
+        40): PDH/PDL and prior RTH the session before, prior week its own day of the previous week, ON and IB today;
+        its identity (`cid`) stays the registry session's."""
+        printed = getattr(self.c.cs_nq, "print_session", None) or {}
         out = []
         for x in self.nq_levels.values():
             if x.key in sl.HIGHS_LOWS_TYPES:
                 b = x.band.at(int(x.band.start_ns))
                 if b is not None:
                     p = (b[0] + b[1]) / 2
-                    out.append(sl.Candidate(p, x.sub_type, self.day, f"{x.sub_type}-{self.day.isoformat()}-{p:g}"))
+                    out.append(sl.Candidate(p, x.sub_type, printed.get(x.sub_type, self.day),
+                                            f"{x.sub_type}-{self.day.isoformat()}-{p:g}"))
         return out
 
 

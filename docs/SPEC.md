@@ -1303,6 +1303,11 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   window or across the roll) left out; 1,284 of the 10,365 touches at zones with a retested extreme had an affected one
   in the zone at the touch (band overlap, an upper bound), of which 43 single-level zones (the touch would go), the rest
   keep the touch with one member fewer.
+  **Built 2026-11-19 on the local branch `pre-13d` (owner's request; not merged, applied to no build;
+  `features_version` 40):** feature_spec F3.8 "As built" (`chart_levels._week_with` / `_print_sessions`,
+  `SessionFeatures._candidates`, `session_levels.retests_from_touches` counting the age like `expired`). Readings for
+  the owner: an equal weekly high/low on a later day keeps the first print's day (the earlier session, so it expires
+  sooner); the retested extreme's `level_id` keeps the registry session's date (identity only).
 - **Q-review-chart round 5 (owner 2026-11-16; built, waiting for the owner's OK):** (1) the readings' Nodes group no
   longer shows "Pika nodes (+)", "Barney nodes (−)" and "Pika member" (display only: the detector still computes them,
   the scorer still reads them; cards stored earlier are filtered when served); the groups sit on one grid (checked on

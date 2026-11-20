@@ -84,6 +84,36 @@ def test_retested_extreme_ages_out():
     assert session_levels.expired(lv, DAY, sessions, lookback=3)
 
 
+def test_a_prior_rth_extreme_ages_from_the_session_it_printed_in():
+    # owner 2026-11-16, SPEC §13 Q-review-stack (c), card 10 of preview-b958: the 2025-10-23 RTH low, a candidate as
+    # 10-24's prior RTH low. Counted from 10-23, 11-07 is the 11th session: past lookback 10, no level; counted from
+    # the registry session 10-24 (the old rule) it was the 10th and made one
+    sessions = [date(2025, 10, d) for d in (22, 23, 24, 27, 28, 29, 30, 31)] + \
+               [date(2025, 11, d) for d in (3, 4, 5, 6, 7)]
+    today = date(2025, 11, 7)
+    held = [{"price": 24_999.0, "t_resolved": 5, "label": "held"}]
+    printed = session_levels.Candidate(24_999.0, "prior_rth_low", date(2025, 10, 23), "prior_rth_low-2025-10-24-24999")
+    assert session_levels.retests_from_touches([printed], held, today, sessions, 4, 10) == []
+    registry = session_levels.Candidate(24_999.0, "prior_rth_low", date(2025, 10, 24), "prior_rth_low-2025-10-24-24999")
+    out = session_levels.retests_from_touches([registry], held, today, sessions, 4, 10)
+    assert len(out) == 1 and out[0].level_id == "retested_extreme-prior_rth_low-2025-10-24-24999"
+    # one session earlier it is the 10th: made, its identity the registry session's, and it ages from 10-23
+    out = session_levels.retests_from_touches([printed], held, date(2025, 11, 6), sessions, 4, 10)
+    assert len(out) == 1 and out[0].session == date(2025, 10, 23)
+    assert out[0].level_id == "retested_extreme-prior_rth_low-2025-10-24-24999"
+    assert session_levels.expired(out[0], today, sessions, 10) and not session_levels.expired(
+        out[0], date(2025, 11, 6), sessions, 10)
+
+
+def test_the_age_counts_a_print_session_outside_the_list_too():
+    # the lookback is counted like `expired`: sessions after the print session up to today, whatever the list holds
+    sessions = [date(2026, 3, d) for d in (3, 4, 5, 6)]
+    held = [{"price": 100.0, "t_resolved": 5, "label": "held"}]
+    c = session_levels.Candidate(100.0, "pdh_pdl", date(2026, 3, 2))            # not in the list
+    assert session_levels.retests_from_touches([c], held, DAY, sessions, 4, 4)
+    assert session_levels.retests_from_touches([c], held, DAY, sessions, 4, 3) == []
+
+
 # --- F3.2b / F3.12 -------------------------------------------------------------------------------------------
 
 def tick(p):

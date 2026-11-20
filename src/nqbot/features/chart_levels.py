@@ -139,6 +139,9 @@ class ChartSession:
         self.opening = None
         self.prev_prof = None
         self.prev_naked_at_start = False
+        # F3.8: the session each carried high/low printed in, by sub-type (owner 2026-11-16, SPEC §13 Q-review-stack
+        # (c)); ON and IB extremes print today and are not listed
+        self.print_session: dict[str, date] = {}
         if root == "NQ":
             self._build_nq()
         else:
@@ -304,6 +307,7 @@ class ChartSession:
             wk = c.prev_week.get("week", "")
             self._const(f"prior_week_high-{wk}", "prior_week_high", c.prev_week["high"], self.start_ns, True)
             self._const(f"prior_week_low-{wk}", "prior_week_low", c.prev_week["low"], self.start_ns, True)
+        self.print_session = _print_sessions(c, d)
         # F3.6 / F10 opening range, IB high/low
         self.opening = orm.OpeningRange.build(tape, self.bars_1m, f, self.inp.cal)
         for lv in self.opening.ib_levels:
@@ -500,6 +504,36 @@ def ib_width(tape: Tape, features: dict) -> float | None:
     return float(p.max() - p.min()) if len(p) else None
 
 
+def _week_with(week: dict | None, day: str, high: float, low: float) -> dict:
+    """The running week's high and low with the session each printed in (`high_day`, `low_day`; F3.8, owner
+    2026-11-16, SPEC §13 Q-review-stack (c)): a new extreme takes today's session; an equal one keeps the session that
+    printed it first."""
+    if week is None:
+        return {"high": high, "low": low, "high_day": day, "low_day": day}
+    out = dict(week)
+    if high > week["high"]:
+        out["high"], out["high_day"] = high, day
+    if low < week["low"]:
+        out["low"], out["low_day"] = low, day
+    return out
+
+
+def _print_sessions(c: CarryState, today: date) -> dict[str, date]:
+    """F3.8 (owner 2026-11-16, SPEC §13 Q-review-stack (c)): the session in which each carried high/low printed: PDH /
+    PDL and the prior RTH high / low the previous session, a prior-week high / low its own day of the previous week. A
+    carry from older code without the weekly days gives today (the registry session, the rule before the correction)."""
+    out: dict[str, date] = {}
+    if c.prev_day:
+        out["pdh"] = out["pdl"] = date.fromisoformat(c.prev_day["day"])
+    if c.prev_rth:
+        out["prior_rth_high"] = out["prior_rth_low"] = date.fromisoformat(c.prev_rth["day"])
+    if c.prev_week:
+        for side in ("high", "low"):
+            iso = c.prev_week.get(f"{side}_day")
+            out[f"prior_week_{side}"] = date.fromisoformat(iso) if iso else today
+    return out
+
+
 def fold_session(carry: CarryState, tape: Tape, features: dict, cal: dict | None, *, dropped: bool = False,
                  single_prints: list | None = None, weekly_end_volume: dict | None = None,
                  retest_candidates: list | None = None, level_alias: dict | None = None) -> None:
@@ -517,8 +551,7 @@ def fold_session(carry: CarryState, tape: Tape, features: dict, cal: dict | None
         carry.rth = carry.rth[-RTH_KEEP:]
     if s["high"] is not None:
         carry.prev_day = {"day": d.isoformat(), "high": s["high"], "low": s["low"]}
-        carry.week = ({"high": s["high"], "low": s["low"]} if carry.week is None else
-                      {"high": max(carry.week["high"], s["high"]), "low": min(carry.week["low"], s["low"])})
+        carry.week = _week_with(carry.week, d.isoformat(), s["high"], s["low"])
     carry.prev_rth = None if s["rth_high"] is None else {"day": d.isoformat(), "high": s["rth_high"], "low": s["rth_low"]}
     if weekly_end_volume is None:
         weekly_end_volume = dict(carry.weekly_volume)

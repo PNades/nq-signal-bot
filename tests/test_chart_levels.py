@@ -105,6 +105,44 @@ def test_start_and_fold_session_roll_and_week():
     assert not cl.start_session(c2, date(2026, 3, 10), "NQM6", 0.0)
 
 
+def test_the_week_keeps_the_session_each_extreme_printed_in():
+    # F3.8 (owner 2026-11-16, SPEC §13 Q-review-stack (c)): a new extreme takes its session, an equal one keeps the
+    # first; across a roll the days stay and the prices shift; the next week's prior-week levels carry them
+    w = cl._week_with(None, "2026-03-09", 100.0, 90.0)
+    w = cl._week_with(w, "2026-03-10", 105.0, 92.0)                  # new high Tuesday, low stays Monday
+    w = cl._week_with(w, "2026-03-11", 105.0, 90.0)                  # equal high and low: the first print stays
+    w = cl._week_with(w, "2026-03-12", 101.0, 85.0)                  # new low Thursday
+    assert w == {"high": 105.0, "low": 85.0, "high_day": "2026-03-10", "low_day": "2026-03-12"}
+    c = CarryState("NQ", contract="NQH6", week=dict(w), week_start_ns=st.week_start_ns(date(2026, 3, 12)))
+    c.shift(10.0)
+    assert (c.week["high"], c.week["high_day"]) == (115.0, "2026-03-10")
+    cl.start_session(c, date(2026, 3, 16), "NQH6", 0.0)              # Monday: the week becomes the prior week
+    assert c.prev_week["high_day"] == "2026-03-10" and c.prev_week["low_day"] == "2026-03-12"
+
+
+def test_fold_session_records_the_weekly_print_days():
+    c = CarryState("NQ", contract="NQM6", week_start_ns=st.week_start_ns(date(2026, 3, 9)))
+    t1 = synthetic_tape(date(2026, 3, 9), symbol="NQM6", start=20_200.0)
+    cl.fold_session(c, t1, load_features(), None, single_prints=[])
+    assert c.week["high_day"] == c.week["low_day"] == "2026-03-09"
+    t2 = synthetic_tape(date(2026, 3, 10), symbol="NQM6", start=21_000.0, seed=3)   # far above: a new high only
+    cl.fold_session(c, t2, load_features(), None, single_prints=[])
+    assert c.week["high_day"] == "2026-03-10" and c.week["low_day"] == "2026-03-09"
+
+
+def test_carried_highs_lows_know_their_print_session(built):
+    # PDH/PDL and the prior RTH printed the session before, the prior week on its own day; ON/IB are not listed
+    _, cs = built
+    assert cs.print_session["pdh"] == cs.print_session["pdl"] == date(2026, 3, 5)
+    assert cs.print_session["prior_rth_high"] == date(2026, 3, 5)
+    assert cs.print_session["prior_week_high"] == DAY                # carry_for's prior week has no days: today
+    c = carry_for()
+    c.prev_week = {**c.prev_week, "high_day": "2026-02-24", "low_day": "2026-02-27"}
+    ps_ = cl._print_sessions(c, DAY)
+    assert ps_["prior_week_high"] == date(2026, 2, 24) and ps_["prior_week_low"] == date(2026, 2, 27)
+    assert not {"on_high", "on_low", "ib_high", "ib_low"} & set(ps_)
+
+
 def _strip(d):
     return {k: v for k, v in d.items()}
 

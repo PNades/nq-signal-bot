@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, time
 from types import SimpleNamespace
 
@@ -106,3 +107,19 @@ def test_es_at_level_after_nq_left_does_not_count():
     nq_points = [(at(9, 50), 180.0), (at(10, 0), 199.0), (at(10, 0, 10), 190.0)]
     fake, e = es_case(es_points, nq_points)
     assert SessionFeatures._es_at_level(fake, e, at(10, 0, 30))["es_at_level"] is False
+
+
+def test_retest_candidates_age_from_their_print_session():
+    # F3.8 (owner 2026-11-16, SPEC §13 Q-review-stack (c), features_version 40): today's highs/lows become candidates
+    # dated by the session their extreme printed in; ON / IB today; the identity stays the registry session's
+    tape = tape_of([(at(10, 0), 100.0), (at(10, 1), 100.0)])
+    lv = {u: replace(level(tape, u, st_, "session_hl", 99, 101), key=key) for u, st_, key in
+          (("pdh-x", "pdh", "pdh_pdl"), ("prior_rth_low-x", "prior_rth_low", "prior_rth"),
+           ("prior_week_high-x", "prior_week_high", "prior_week"), ("on_high-x", "on_high", "on_extreme"),
+           ("vwap-x", "vwap18", "vwap"))}
+    printed = {"pdh": date(2026, 3, 19), "prior_rth_low": date(2026, 3, 19), "prior_week_high": date(2026, 3, 11)}
+    fake = SimpleNamespace(nq_levels=lv, day=DAY, c=SimpleNamespace(cs_nq=SimpleNamespace(print_session=printed)))
+    got = {c.type: c for c in SessionFeatures._candidates(fake)}
+    assert set(got) == {"pdh", "prior_rth_low", "prior_week_high", "on_high"}
+    assert got["pdh"].session == date(2026, 3, 19) and got["prior_week_high"].session == date(2026, 3, 11)
+    assert got["on_high"].session == DAY and got["pdh"].cid == "pdh-2026-03-20-100"

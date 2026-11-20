@@ -8,7 +8,10 @@
   week, IB) of the last `retest_lookback_sessions` sessions; it becomes a `retested_extreme` level once a touch in a
   later session came within `retest_tol_ticks` of it and that touch's structure label resolved *held* (known at the
   resolution time); it ends `retest_lookback_sessions` sessions after its own session, crossed or not (owner
-  2026-10-31, SPEC §13 Q-step11b (1)). The touches and labels come from the event builder (part 3).
+  2026-10-31, SPEC §13 Q-step11b (1)). Its own session is the one its extreme **printed** in (owner 2026-11-16, SPEC
+  §13 Q-review-stack (c)): PDH/PDL and prior RTH the session before the registry session, a prior-week extreme its own
+  day of the previous week, ON and IB their own session; candidates and levels both age from it. The touches and
+  labels come from the event builder (part 3).
 """
 
 from __future__ import annotations
@@ -71,14 +74,15 @@ def retests_from_touches(candidates: list[Candidate], touches: list[dict[str, An
                          sessions: list[date], tol_ticks: int, lookback: int) -> list[Retested]:
     """Retested-extreme levels created today by held touches (each touch {'price', 't_resolved', 'label'}): a
     candidate from an earlier session within the lookback whose price the touch came within tol ticks of."""
-    order = sorted(sessions)
-    pos = {d: k for k, d in enumerate(order)}
     out, seen = [], set()
+    # the candidate's age in sessions after the one its extreme printed in, counted like `expired` (owner 2026-11-16,
+    # SPEC §13 Q-review-stack (c): a print session is any session of the list, not only a registry session)
+    age = {c: sum(1 for d in sessions if c.session < d <= today) for c in candidates}
     for t in sorted(touches, key=lambda x: x["t_resolved"]):
         if t.get("label") != "held":
             continue
         for c in candidates:
-            if c.session >= today or (today in pos and c.session in pos and pos[today] - pos[c.session] > lookback):
+            if c.session >= today or age[c] > lookback:
                 continue
             if abs(t["price"] - c.price) <= tol_ticks * TICK + 1e-9:
                 lid = (f"retested_extreme-{c.cid}" if c.cid else
