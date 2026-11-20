@@ -637,7 +637,7 @@ class FeatureBuildJob:
         ctx.log.info("%s: report %s", self.name, path)
 
 
-# --- the report (§7 rule 2b: months 7-12 as counts only) --------------------------------------------------------
+# --- the report (§7 rule 2b: months 7-12 as build progress only) --------------------------------------------------------
 
 def report_file(env: Env, slot: int = 1) -> Path:
     return env.paths.reports_dir / "step11" / ("feature_build.md" if slot == 1 else f"feature_build_{slot}.md")
@@ -665,12 +665,19 @@ def write_report(env: Env, doc: dict[str, Any], slot: int = 1) -> Path:
                 dev_rows.append((d, p2))
     lines = [f"# Feature build (step 11 part 3), key {key}", "",
              f"features_version {doc['features_version']}, build version {doc['build_version']}; outputs under "
-             f"`{fb.out_dir(env, key)}`. Months 7-12 are counts only (§7 rule 2b: walk-forward and sealed months appear "
-             "in no report until they are scored).", "",
+             f"`{fb.out_dir(env, key)}`. Months 7-12 appear only as build progress, in one line: sessions and passes "
+             "done, never events, rows, dates, values or outcomes (§7 rule 2b; owner 2026-11-20).", "",
              "| ledger month | sessions | pass 1 done | pass 2 done | events | rows |", "|---|---|---|---|---|---|"]
-    for k in sorted(per_month):
+    late = {"sessions": 0, "p1": 0, "p2": 0}
+    for k in sorted(per_month, key=lambda x: (x is None, x or 0)):
         m = per_month[k]
-        lines.append(f"| {k} | {m['sessions']} | {m['p1']} | {m['p2']} | {m['events']} | {m['rows']} |")
+        if k in months_mod.DEVELOPMENT:
+            lines.append(f"| {k} | {m['sessions']} | {m['p1']} | {m['p2']} | {m['events']} | {m['rows']} |")
+        else:
+            for x in late:
+                late[x] += m[x]
+    if late["sessions"]:
+        lines.append(f"| 7-12 | {late['sessions']} | {late['p1']} | {late['p2']} | not shown | not shown |")
     lines += ["", "## Development months (1-6), by session", "",
               "| session | events | tradeable | held | broke | timeout | day type | build s | total s | Skylit |",
               "|---|---|---|---|---|---|---|---|---|---|"]

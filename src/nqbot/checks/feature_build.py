@@ -16,8 +16,9 @@ passes as in §11:
   and the EOD day type: outcomes, never read as features), and asserts its end state equals the next checkpoint.
 Files go under `<data_dir>/processed/features/v<features_version>_<key>/`. A failing session stops the run cleanly
 (status `failures`, the session and its error in the log; the owner looks before it resumes). The report
-`<reports_dir>/step11/feature_build.md` names dates and values for months 1-6 only; months 7-12 appear as counts
-(sessions, events, rows), never dates, values or outcomes (§7 rule 2b).
+`<reports_dir>/step11/feature_build.md` names dates and values for months 1-6 only; months 7-12 appear only as build
+progress in one line (sessions, passes done), never events, rows, dates, values or outcomes (§7 rule 2b; owner
+2026-11-20).
 `nqbot step11 build-day D` (a development day) is the one-day smoke run: warm-up replay, the session built twice from
 the same state (determinism), timings and memory, report `<reports_dir>/step11/build_day_<D>.md`.
 """

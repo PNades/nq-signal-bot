@@ -79,7 +79,8 @@ def test_report_lists_development_dates_only(env):
     doc = fb.make_plan(env, [6, 7, 8], batch=4)
     key = doc["key"]
     for d in days:
-        atomic_write_json(fb.summary_file(env, key, d), {"pass2": {"events": 10, "rows": 10, "tradeable": 3,
+        n = 10 if d.month == 3 else 7_777   # a walk-forward month's count would show
+        atomic_write_json(fb.summary_file(env, key, d), {"pass2": {"events": n, "rows": n, "tradeable": 3,
                                                                    "labels": {"held": 6, "broke": 3, "timeout": 1},
                                                                    "day_type": "range", "build_sec": 1, "total_sec": 2,
                                                                    "skylit": "ok"}})
@@ -88,8 +89,13 @@ def test_report_lists_development_dates_only(env):
         if d.month == 3:
             assert d.isoformat() in text
         else:
-            assert d.isoformat() not in text, f"{d} (a walk-forward month) must appear as a count only"
-    assert "| 7 |" in text and "| 8 |" in text
+            assert d.isoformat() not in text, f"{d} (a walk-forward month) must appear as progress only"
+    # owner 2026-11-20: months 7-12 as one progress line (sessions, passes done), never events or rows
+    late = sum(1 for d in days if d.month != 3)
+    assert "| 7 |" not in text and "| 8 |" not in text
+    assert f"| 7-12 | {late} | 0 | {late} | not shown | not shown |" in text
+    assert "7777" not in text and "7,777" not in text and str(7_777 * late) not in text
+    assert "| 6 |" in text
 
 
 def test_write_rows_float32_and_nulls(tmp_path):

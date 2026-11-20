@@ -4,13 +4,14 @@
 - `events-day D`: the smoke run on one development day: the engine stage and the labeler on one session built from a
   carry-only warm-up, twice (determinism), with time, peak memory, decision points, pairs by style x order type x RR
   band, disk per folder and the labeler time, extrapolated to months 1-4 and to the 251-session window;
-- `counts`: the reports the months 1-4 build makes possible before the labeler: style-(c) firings per event (more than
+- `counts`: the reports a build makes possible before the labeler, on its development months only (months 1-6, never
+  7-12; owner 2026-11-20: months 1-4 on the 13c baseline, months 1-6 on the 13d build): style-(c) firings per event (more than
   `FIRINGS_ALERT` stops the labeler until the owner OKs it, Q-step13b (2)), the flip checkpoint (Q-flipretest), the
   golden-zone counts (Q-fibvariants / Q-gzsplit) and the 13d build counts (Q-dryrun13 (9));
 - job `step13_slippage` (`slippage-plan`, `slippage-day D`, `slippage-report`): the `exit_slippage_ticks` measurement
   from `mbp-1` (§12 step 13) and the `be_offset_ticks` re-check (Q-dryrun13 (14b));
 - job `step13_labels` (`labels-plan [--firings-ok] [--set k=v]`, `labels-day D`, `labels-report`): the labeler
-  (`labeler/`), its own key, the low-RR extension's identity check on every session and the RR-band counts;
+  (`labeler/`) on the slot-1 build's development months (months 1-6, never 7-12; owner 2026-11-20), its own key, the low-RR extension's identity check on every session and the RR-band counts;
 - `budget`: the step-13 budget re-estimated from the measured months 1-4 rebuild (Q-step12, Q-step13plan (7)).
 """
 
@@ -61,9 +62,28 @@ def build_doc(env: Env) -> dict[str, Any]:
     return doc
 
 
-def sessions_14(env: Env, doc: dict) -> list[date]:
+def sessions_in(env: Env, doc: dict, months) -> list[date]:
+    """The plan's sessions in ledger `months` (by the ledger, from the session list alone: no file is opened)."""
     return [date.fromisoformat(d) for d in doc["sessions"]
-            if months_mod.month_index(date.fromisoformat(d), env.settings) in MONTHS_14]
+            if months_mod.month_index(date.fromisoformat(d), env.settings) in months]
+
+
+def sessions_14(env: Env, doc: dict) -> list[date]:
+    return sessions_in(env, doc, MONTHS_14)
+
+
+def sessions_dev(env: Env, doc: dict) -> list[date]:
+    """The plan's development sessions (months 1-6, §7 rule 2b; owner 2026-11-20): `counts` and `labels-plan` never
+    reach months 7-12, whatever months the build covers. Each day is checked against the ledger once more."""
+    days = sessions_in(env, doc, months_mod.DEVELOPMENT)
+    for d in days:
+        months_mod.require_development(d, env.settings)
+    return days
+
+
+def dev_months(env: Env, days: list[date]) -> str:
+    ms = sorted({months_mod.month_index(d, env.settings) for d in days})
+    return f"{ms[0]}-{ms[-1]}" if ms and ms == list(range(ms[0], ms[-1] + 1)) else ", ".join(map(str, ms)) or "none"
 
 
 def out_dir(env: Env, doc: dict) -> Path:
@@ -79,10 +99,15 @@ def day_summary(env: Env, doc: dict, day: date) -> dict:
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
 
-def built_days(env: Env, doc: dict) -> list[date]:
+def built_among(env: Env, doc: dict, days: list[date]) -> list[date]:
     base = out_dir(env, doc)
-    return [d for d in sessions_14(env, doc) if "pass2" in day_summary(env, doc, d)
+    return [d for d in days if "pass2" in day_summary(env, doc, d)
             and (base / "decisions" / f"{d.isoformat()}.parquet").exists()]
+
+
+def built_days(env: Env, doc: dict) -> list[date]:
+    """The built months 1-4 sessions (13c's tuning set, Q-step13c; slippage and budget)."""
+    return built_among(env, doc, sessions_14(env, doc))
 
 
 def _read(path: Path) -> list[dict]:
@@ -125,11 +150,11 @@ def labels_plan(env: Env, firings_ok: bool = False, overrides: dict | None = Non
     from nqbot.labeler import params as lp
 
     doc = build_doc(env)
-    days = sessions_14(env, doc)
-    missing = [d for d in days if d not in set(built_days(env, doc))]
+    days = sessions_dev(env, doc)   # months 1-6 of the build, never 7-12 (owner 2026-11-20)
+    missing = [d for d in days if d not in set(built_among(env, doc, days))]
     if missing:
-        raise Refused(f"the months 1-4 build {doc['key']} is not complete ({len(missing)} sessions without pass 2, "
-                      f"first {missing[0]}): finish `nqbot run feature_build` first")
+        raise Refused(f"the months {dev_months(env, days)} of build {doc['key']} are not complete ({len(missing)} "
+                      f"sessions without pass 2, first {missing[0]}): finish `nqbot run feature_build` first")
     worst = max((day_summary(env, doc, d)["pass2"].get("firings_c_max", 0) for d in days), default=0)
     if worst > FIRINGS_ALERT and not firings_ok:
         raise Refused(f"an event has {worst} style-(c) firings (> {FIRINGS_ALERT}): the owner reads the examples in "
@@ -681,8 +706,10 @@ def _hold(evs: list[dict]) -> tuple[int, str, str, str]:
 
 
 def counts(env: Env) -> Path:
+    """`counts.md` on the build's built development sessions: months 1-6 at most, never 7-12 (owner 2026-11-20)."""
     doc = build_doc(env)
-    days = built_days(env, doc)
+    days = built_among(env, doc, sessions_dev(env, doc))
+    span = dev_months(env, days)
     base = out_dir(env, doc)
     events, levels, decisions_c = [], [], []
     summaries = {}
@@ -692,9 +719,9 @@ def counts(env: Env) -> Path:
         levels += _read(base / "level_events" / f"{iso}.parquet")
         decisions_c += [x for x in _read(base / "decisions" / f"{iso}.parquet") if x["style"] == "c"]
         summaries[iso] = day_summary(env, doc, d).get("pass2", {})
-    lines = [f"# Step 13b counts on months 1-4 (build {doc['key']}, {len(days)} sessions)", "",
-             "Counts and structure-label hold rates only (no pair outcome, no model): development months 1-4 (§7 rule "
-             "2b).", ""]
+    lines = [f"# Step 13b counts on months {span} (build {doc['key']}, {len(days)} sessions)", "",
+             f"Counts and structure-label hold rates only (no pair outcome, no model): development months {span} only "
+             "(§7 rule 2b; never months 7-12, whatever the build covers).", ""]
     # 1. firings
     fc = Counter(e["n_firings_c"] for e in events if not e["damage_drop"])
     worst = sorted((e for e in events if e["n_firings_c"] > FIRINGS_ALERT), key=lambda e: -e["n_firings_c"])
@@ -762,8 +789,8 @@ def counts(env: Env) -> Path:
                 rows.append((title, k, which, f"{n:,}" + (" ⚑" if n < SMALL_BUCKET else ""), h, b, t))
     lines += _table(rows, ["split", "bucket", "events", "n", "held", "broke", "timeout"])
     # 4. the 13d build counts
-    lines += ["", "## 4. Build counts (coded for 13d, Q-dryrun13 (9); months 1-4 here, months 1-6 from the 13d build)",
-              ""]
+    lines += ["", f"## 4. Build counts (coded for 13d, Q-dryrun13 (9); months {span} here, months 1-6 from the 13d "
+              "build)", ""]
     zd = [d for d, s in summaries.items() if s.get("zone_diff_any")]
     lines.append(f"- Sessions with any zone difference from the candidate-time fix (Q-step12a (1)): {len(zd)} of "
                  f"{len(summaries)}" + (f" ({', '.join(zd[:12])}{' ...' if len(zd) > 12 else ''})" if zd else ""))
