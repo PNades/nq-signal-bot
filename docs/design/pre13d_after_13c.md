@@ -12,7 +12,8 @@ Branch `pre-13d` (local only, not pushed, not merged), on top of `main` at a76e2
 | 9ccee87 | owner 2026-11-20: `step13 counts` and `labels-plan` on months 1-6, never 7-12; the build report shows months 7-12 as progress only (Q-pre13d-months) | changes (a docstring in `checks/feature_build.py`) | 40 |
 | a221a4a | this doc (second version), SPEC, feature_spec F3.8, Status | - | - |
 | 6a3a956 | owner 2026-11-20: the re-score command (job `step13_rescore`, section 8); `step13 reactions-plan` / `reactions-report --months 5-6` (the months 5-6 node rows, section 7b) | unchanged (outside both keys) | 40 |
-| (next) | this doc (third version): sections 7b, 8, 9, 10; SPEC, Status | - | - |
+| c2047f9 | this doc (third version): sections 7b, 8, 9, 10; SPEC, Status | - | - |
+| (next) | owner 2026-11-20: the stop floor is a setting (`stop_floor_vol` in settings.yaml, read by the labeler; section 6); this doc, SPEC, Status | unchanged (outside the build key; the labels key's code changes) | 40 |
 
 Item 1 is its own commit so the comparison builds **exactly** item 1 on the configuration the 13c baseline
 b958fe6e42aa was built with (no build code changed between the 13c pin b6f7d1d and a76e2ad: only
@@ -82,7 +83,22 @@ stop and show the owner the report (a day-summary field that is neither a count 
 
 The owner reads `<reports_dir>/step13/tune/tune_summary.md` and approves; the winners are written into
 `config/features.yaml` / `config/settings.yaml` with `frozen_from: months 1-4` (one commit with the owner's OK; the
-13d build refuses run-time overrides). Then:
+13d build refuses run-time overrides).
+
+Row 13's winner goes into `config/settings.yaml` through the settings alone, whichever floor wins (the labeler reads
+the floor from `stop_floor_vol` since the pre-13d branch; no override is left anywhere):
+- `stop_buffer:` row 13's winning buffer;
+- floor **fixed**: `stop_floor_vol: null` (as committed now) and `stop_buffer_floor` unchanged;
+- floor **vol**: `stop_floor_vol:` the `override` object of `<reports_dir>/step13/tune/volfloor/volfloor.json`, copied
+  exactly (its `window_min` and each source's `min` and `k`, e.g. `{window_min: 15, QQQ: {min: m, k: k}}`);
+  `stop_buffer_floor` stays as it is (the sources the fit doesn't name keep their fixed floor).
+
+Either way the build key doesn't move (both settings are outside it); the labels key does, as it should. The labeler
+checks the value when it reads it (a window of at least 1 minute, a `min` and `k` of at least 0 per source), so a
+mistyped floor stops `labels-plan` with an error rather than labelling. To see the floor the labeler will use before
+committing (`None` = fixed):
+`uv run python -c "from nqbot.config import load_settings as s, load_features as f; from nqbot.labeler import params as lp; print(lp.params(s(), f()).stop_floor_vol)"`.
+Then:
 
 ```
 uv run nqbot test               # full suite on the new HEAD: PYTEST EXIT CODE: 0
@@ -183,9 +199,10 @@ What it does:
 - It uses its own cache (`<data_dir>/jobs/step13_rescore/cache`), so 13c's cache isn't touched.
 - Each label set is labelled once: equal points share a set, and the committed winners' set is the build's own
   settings.
-- `stop_floor_vol` isn't a setting the labeler reads: the command takes the committed floor as fixed and adds the
-  vol-floor fit (`<reports_dir>/step13/tune/volfloor/volfloor.json`) as an override wherever a point uses it. If row 13 picks the
-  vol floor, how the committed configuration carries it is step 6's to settle; the command doesn't depend on it.
+- The committed floor is read from the settings (`stop_floor_vol`, section 6). A point on the vol floor carries the
+  fit's `override` (`<reports_dir>/step13/tune/volfloor/volfloor.json`), a point on the fixed floor carries `null`;
+  either is an override only where it differs from the committed floor. With step 6 done, the winners' set is the
+  committed configuration itself.
 
 The owner decides what a reversed sign means, e.g. keep the 13c winner unless the runner-up is better with its
 interval above 0. A change would be one config commit and moves no build, because the execution settings are outside
@@ -254,7 +271,8 @@ plus labels; the owner is asked before any.
 ## 10. Open (the owner decides)
 
 - Row 13's runner-ups for section 8 are read when `rescore-plan` runs (13c still running row 13 at this writing).
-- How a vol-floor winner of row 13 is committed (section 8; step 6).
+- Done (owner 2026-11-20): row 13's winning floor is committed through the settings either way (`stop_floor_vol`,
+  section 6).
 - Done on the branch: `step13 counts` and `labels-plan` on months 1-6 (9ccee87; this corrects the first version of
   this doc: `counts` had read months 1-4 only, never months 7-12, so the gap was months 5-6 missing, not months 7-12
   leaking); the re-score command and the months 5-6 node rows (6a3a956); the build report's months 7-12 progress line
