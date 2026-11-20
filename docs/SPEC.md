@@ -1308,6 +1308,9 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   `SessionFeatures._candidates`, `session_levels.retests_from_touches` counting the age like `expired`). Readings for
   the owner: an equal weekly high/low on a later day keeps the first print's day (the earlier session, so it expires
   sooner); the retested extreme's `level_id` keeps the registry session's date (identity only).
+  **Owner 2026-11-20:** both readings approved; a carry without the weekly print days (a checkpoint from code before
+  `features_version` 40) stops with a clear error (`chart_levels.CarryTooOld`, raised when the week is folded or the
+  prior week's print sessions are read; the CLI prints it as a refusal), never the old rule (built on `pre-13d`).
 - **Q-status-eta (owner 2026-11-19, a pre-13d item; display only, outside both keys; built on the local branch
   `pre-13d`, not merged):** `nqbot status` estimates the time left and a finish date the way the jobs run
   (`jobs/estimate.py`): (1) **two builds at once:** each remaining `step13_tune` chunk is priced from the measured
@@ -1325,6 +1328,18 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   spent more than 5 min after its last finished chunk; a run that finished nothing adds its time to the next). Other
   jobs keep the p90 line and gain the finish date. First reading (2026-11-20 00:10): 13c's last 13 chunks ≈ 28.6 h,
   finish ≈ Sat 2026-11-21 05:00 ET.
+- **Q-pre13d-months (owner 2026-11-20, pre-13d; outside both keys except one docstring; built on the local branch
+  `pre-13d`, not merged):** 13d is the full-window build (months 1–12, §12 step 13: "13d the full-window build with the
+  winners and the months 1–6 count reports"), and nothing shown from it includes months 7–12. (a) `step13 counts`
+  reads the build's development sessions only (`step13b.sessions_dev`: months 1–6 by the ledger, each checked by
+  `require_development` before any file is opened); it read months 1–4 before (`sessions_14`), never 7–12, so on the
+  13d build it now reports months 1–6 (on a months 1–4 build, months 1–4 as before). (b) `labels-plan` (job
+  `step13_labels`) labels the slot-1 build's months 1–6, never 7–12 (months 7–12 neither enter the plan nor hold it up;
+  the labeler refuses a non-development day as before); 13c's months 1–4 tuning set (`sessions_14`, `built_days`,
+  `labels_plan_for`) is unchanged. (c) The feature-build report (`<reports_dir>/step11/feature_build.md`) shows months
+  7–12 only as one progress line (sessions, pass 1 and pass 2 done), no longer their events and rows per month (the
+  docstring of `checks/feature_build.py`, inside the build key, says so: the key changes with the branch's other
+  changes anyway). Tests: `tests/test_step13b_dev_months.py`, `tests/test_feature_build.py`.
 - **Q-review-chart round 5 (owner 2026-11-16; built, waiting for the owner's OK):** (1) the readings' Nodes group no
   longer shows "Pika nodes (+)", "Barney nodes (−)" and "Pika member" (display only: the detector still computes them,
   the scorer still reads them; cards stored earlier are filtered when served); the groups sit on one grid (checked on
