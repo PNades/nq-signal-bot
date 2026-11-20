@@ -1073,7 +1073,7 @@ def _run_step11(args: argparse.Namespace, settings, paths, log) -> int:
                 print(f"refused: {e}", file=sys.stderr)
                 return EXIT_REFUSED
     except (LedgerMissing, NotDevelopmentMonth, step11.Refused, step11.cl.RollSpreadMissing,
-            step11.BoardsRefused) as e:
+            step11.cl.CarryTooOld, step11.BoardsRefused) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
     return 0
@@ -1178,12 +1178,13 @@ def _add_step13(sub: argparse._SubParsersAction) -> None:
                                           "twice, with times, pairs, disk and the extrapolation (events_day_<D>.md)")
     p.add_argument("date", type=_date)
     s13.add_parser("counts", help="step 13b: style-(c) firings, the flip checkpoint, golden-zone counts and the 13d "
-                                  "build counts from the months 1-4 build (counts.md)")
+                                  "build counts from the slot-1 build's months 1-6 at most, never 7-12 (counts.md)")
     s13.add_parser("slippage-plan", help="step 13b: record the slippage job's chunks (then: nqbot run step13_slippage)")
     p = s13.add_parser("slippage-day", help="step 13b: one session's stop slippage from mbp-1 (the job runs this)")
     p.add_argument("date", type=_date)
     s13.add_parser("slippage-report", help="step 13b: the exit_slippage_ticks proposal and the be_offset_ticks re-check")
-    p = s13.add_parser("labels-plan", help="step 13b: the labeler's plan and key (then: nqbot run step13_labels)")
+    p = s13.add_parser("labels-plan", help="step 13b: the labeler's plan and key on the slot-1 build's months 1-6 at "
+                                           "most, never 7-12 (then: nqbot run step13_labels)")
     p.add_argument("--firings-ok", action="store_true", help="the owner has read the style-(c) firing examples "
                                                               "(more than 5 on an event; owner 2026-11-10)")
     p.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE",
@@ -1310,7 +1311,7 @@ def _run_features(args: argparse.Namespace, settings, paths, log) -> int:
     from nqbot.checks import session_build as sb
     from nqbot.checks.step8b import CheckRefused, Env
     from nqbot.config import load_features
-    from nqbot.features.chart_levels import RollSpreadMissing
+    from nqbot.features.chart_levels import CarryTooOld, RollSpreadMissing
     from nqbot.features.session_features import NotWired
     from nqbot.months import LedgerMissing
 
@@ -1326,7 +1327,8 @@ def _run_features(args: argparse.Namespace, settings, paths, log) -> int:
             if args.action == "build-warmup":
                 return fb.build_warmup_cmd(env)
             return fb.build_day_cmd(env, args.date, args.pass_no)
-    except (fb.BuildRefused, sb.Refused, NotWired, LedgerMissing, RollSpreadMissing, CheckRefused) as e:
+    except (fb.BuildRefused, sb.Refused, NotWired, LedgerMissing, RollSpreadMissing, CarryTooOld,
+            CheckRefused) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
 

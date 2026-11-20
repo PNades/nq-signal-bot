@@ -504,12 +504,27 @@ def ib_width(tape: Tape, features: dict) -> float | None:
     return float(p.max() - p.min()) if len(p) else None
 
 
+class CarryTooOld(ValueError):
+    """A carried week without the session each extreme printed in: a checkpoint from code before `features_version`
+    40 (owner 2026-11-20, SPEC §13 Q-review-stack (c)). Refused, never aged by the old rule."""
+
+
+def _require_print_days(week: dict, what: str, day: str) -> None:
+    missing = [k for k in ("high_day", "low_day") if not week.get(k)]
+    if missing:
+        raise CarryTooOld(
+            f"{day}: the carried {what} has no {' / '.join(missing)} (the session its high / low printed in): the "
+            f"checkpoint was written by code before features_version 40, so retested prior-week extremes can't be "
+            f"aged from their print session (F3.8). Re-plan and rebuild from the warm-up with the current code.")
+
+
 def _week_with(week: dict | None, day: str, high: float, low: float) -> dict:
     """The running week's high and low with the session each printed in (`high_day`, `low_day`; F3.8, owner
     2026-11-16, SPEC §13 Q-review-stack (c)): a new extreme takes today's session; an equal one keeps the session that
-    printed it first."""
+    printed it first. A week without the days (older code) raises `CarryTooOld`."""
     if week is None:
         return {"high": high, "low": low, "high_day": day, "low_day": day}
+    _require_print_days(week, "week", day)
     out = dict(week)
     if high > week["high"]:
         out["high"], out["high_day"] = high, day
@@ -521,16 +536,16 @@ def _week_with(week: dict | None, day: str, high: float, low: float) -> dict:
 def _print_sessions(c: CarryState, today: date) -> dict[str, date]:
     """F3.8 (owner 2026-11-16, SPEC §13 Q-review-stack (c)): the session in which each carried high/low printed: PDH /
     PDL and the prior RTH high / low the previous session, a prior-week high / low its own day of the previous week. A
-    carry from older code without the weekly days gives today (the registry session, the rule before the correction)."""
+    carry from older code without the weekly days raises `CarryTooOld` (owner 2026-11-20: never the old rule)."""
     out: dict[str, date] = {}
     if c.prev_day:
         out["pdh"] = out["pdl"] = date.fromisoformat(c.prev_day["day"])
     if c.prev_rth:
         out["prior_rth_high"] = out["prior_rth_low"] = date.fromisoformat(c.prev_rth["day"])
     if c.prev_week:
+        _require_print_days(c.prev_week, "prior week", today.isoformat())
         for side in ("high", "low"):
-            iso = c.prev_week.get(f"{side}_day")
-            out[f"prior_week_{side}"] = date.fromisoformat(iso) if iso else today
+            out[f"prior_week_{side}"] = date.fromisoformat(c.prev_week[f"{side}_day"])
     return out
 
 

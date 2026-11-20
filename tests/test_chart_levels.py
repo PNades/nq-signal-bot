@@ -36,7 +36,8 @@ def carry_for(day=DAY):
     c.rth = rth
     c.prev_day = {"day": "2026-03-05", "high": 20_150.0, "low": 19_850.0}
     c.prev_rth = {"day": "2026-03-05", "high": 20_120.0, "low": 19_880.0}
-    c.prev_week = {"week": "2026-02-22", "high": 20_400.0, "low": 19_600.0}
+    c.prev_week = {"week": "2026-02-22", "high": 20_400.0, "low": 19_600.0, "high_day": "2026-02-24",
+                   "low_day": "2026-02-26"}
     c.week_start_ns = st.week_start_ns(day)
     c.weekly_anchor_ns = st.week_start_ns(day)
     c.weekly_volume = {str(int(round(p / 0.25))): 10.0 for p in np.arange(19_950, 20_050, 0.25)}
@@ -135,12 +136,34 @@ def test_carried_highs_lows_know_their_print_session(built):
     _, cs = built
     assert cs.print_session["pdh"] == cs.print_session["pdl"] == date(2026, 3, 5)
     assert cs.print_session["prior_rth_high"] == date(2026, 3, 5)
-    assert cs.print_session["prior_week_high"] == DAY                # carry_for's prior week has no days: today
+    assert cs.print_session["prior_week_high"] == date(2026, 2, 24)
+    assert cs.print_session["prior_week_low"] == date(2026, 2, 26)
     c = carry_for()
-    c.prev_week = {**c.prev_week, "high_day": "2026-02-24", "low_day": "2026-02-27"}
+    c.prev_week = {**c.prev_week, "high_day": "2026-02-23", "low_day": "2026-02-27"}
     ps_ = cl._print_sessions(c, DAY)
-    assert ps_["prior_week_high"] == date(2026, 2, 24) and ps_["prior_week_low"] == date(2026, 2, 27)
+    assert ps_["prior_week_high"] == date(2026, 2, 23) and ps_["prior_week_low"] == date(2026, 2, 27)
     assert not {"on_high", "on_low", "ib_high", "ib_low"} & set(ps_)
+
+
+@pytest.mark.parametrize("missing", [("high_day",), ("low_day",), ("high_day", "low_day")])
+def test_a_carry_without_the_weekly_print_days_stops_with_a_clear_error(missing):
+    # owner 2026-11-20 (SPEC §13 Q-review-stack (c)): a checkpoint from code before features_version 40 is refused,
+    # never aged by the old rule (the registry session)
+    c = carry_for()
+    c.prev_week = {k: v for k, v in c.prev_week.items() if k not in missing}
+    with pytest.raises(cl.CarryTooOld, match="features_version 40") as e:
+        cl._print_sessions(c, DAY)
+    assert all(k in str(e.value) for k in missing) and "prior week" in str(e.value)
+    with pytest.raises(cl.CarryTooOld):
+        session(synthetic_tape(DAY), c)
+    # the running week from an old checkpoint is refused at the next fold, before it could become a prior week
+    old_week = {"high": 20_100.0, "low": 19_900.0}
+    with pytest.raises(cl.CarryTooOld, match="carried week"):
+        cl._week_with(old_week, "2026-03-10", 20_200.0, 19_800.0)
+    c2 = CarryState("NQ", contract="NQM6", week=dict(old_week), week_start_ns=st.week_start_ns(date(2026, 3, 9)))
+    with pytest.raises(cl.CarryTooOld):
+        cl.fold_session(c2, synthetic_tape(date(2026, 3, 10), symbol="NQM6"), load_features(), None,
+                        single_prints=[])
 
 
 def _strip(d):
