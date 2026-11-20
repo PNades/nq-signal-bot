@@ -6,10 +6,13 @@ the reads). Run-time overrides (13c: e.g. one `stop_buffer` or `entry_ttl_sec` v
 are part of the key.
 
 `stop_floor_vol` (owner 2026-11-08, SPEC §13 Q13-vol, Q-step13c): the volatility-scaled stop floor that row 13 of the
-step-13 tuning compares with the fixed `stop_buffer_floor`. It is not a setting: None (off) unless a labels plan sets
-it (`--set stop_floor_vol=...`): {"window_min": 15, "<source>": {"min": m, "k": k}, ...}. A stop beyond a level of
-that source then uses max(m, k x the mean high-low range of the 1-minute NQ bars completed in the last `window_min`
-clock minutes before `decision_ts`) in place of the source's fixed floor (m alone when no bar completed in the window).
+step-13 tuning compares with the fixed `stop_buffer_floor`. A setting since owner 2026-11-20 (pre-13d), so the
+configuration alone decides the floor: `null` = the fixed `stop_buffer_floor` for every source (the labels every build
+had before; `tests/test_labeler_floor_setting.py`), or {"window_min": 15, "<source>": {"min": m, "k": k}, ...}. A stop
+beyond a level of a named source then uses max(m, k x the mean high-low range of the 1-minute NQ bars completed in the
+last `window_min` clock minutes before `decision_ts`) in place of the source's fixed floor (m alone when no bar
+completed in the window). A labels plan may still override it (`--set stop_floor_vol=...`, as 13c's row 13 does; `null`
+there forces the fixed floor); the setting and the same override give the same labels key.
 """
 
 from __future__ import annotations
@@ -26,9 +29,8 @@ from nqbot.labeler.costs import Costs
 SETTING_KEYS = ("order_latency_sec", "default_risk_usd", "max_entry_slip_ticks", "exit_slippage_ticks",
                 "default_commission_per_micro_rt", "entry_ttl_sec", "stop_buffer", "stop_buffer_floor",
                 "max_target_candidates", "pair_build_min_rr", "pair_ext_min_rr", "pair_ext_max_zones", "baseline_rr",
-                "be_trigger", "be_offset_ticks")
+                "be_trigger", "be_offset_ticks", "stop_floor_vol")
 FEATURE_KEYS = ("stop_merge_ticks", "tune_grids_13")   # tune_grids_13: only execution.entry_order_type
-STOP_FLOOR_VOL_OFF = None   # Q13-vol: off unless a labels plan's override sets it (never read from the settings)
 BE_NAMES = {"none": "none", "first_structure": "fs"}
 
 
@@ -62,8 +64,7 @@ class LabelParams:
 def params(settings: dict, features: dict, overrides: dict | None = None, extension: bool = True) -> LabelParams:
     s = {k: copy.deepcopy(settings[k]) for k in SETTING_KEYS}
     ot = copy.deepcopy(features["tune_grids_13"]["execution"]["entry_order_type"])
-    raw = {**s, "stop_merge_ticks": features["stop_merge_ticks"], "entry_order_types": ot,
-           "stop_floor_vol": STOP_FLOOR_VOL_OFF}
+    raw = {**s, "stop_merge_ticks": features["stop_merge_ticks"], "entry_order_types": ot}
     for k, v in (overrides or {}).items():
         top, _, sub = k.partition(".")     # `a.b=v` sets one entry of a mapping (e.g. entry_ttl_sec.c=30)
         if top not in raw or (sub and not (isinstance(raw[top], dict) and sub in raw[top])):
@@ -91,7 +92,8 @@ def params(settings: dict, features: dict, overrides: dict | None = None, extens
 
 
 def _check_vol_floor(v) -> dict | None:
-    """The `stop_floor_vol` override, checked (Q13-vol): None (off), or a window and one {min, k} per level source."""
+    """The `stop_floor_vol` setting or override, checked (Q13-vol): None (the fixed floor), or a window and one {min, k}
+    per level source."""
     if v is None:
         return None
     if not isinstance(v, dict) or int(v.get("window_min") or 0) < 1:

@@ -358,6 +358,8 @@ def stop_over(env: Env, row: prog.Row, base: dict[str, Any], floor: str, buf: An
         if fit is None:
             raise TuneRefused(f"no volatility-scaled floor fit ({vol_fit_file(env)}): chunk r00:volfloor first")
         out["stop_floor_vol"] = fit["override"]
+    elif env.settings.get("stop_floor_vol") is not None:   # pre-13d: the floor is a setting; "fixed" forces it off
+        out["stop_floor_vol"] = None
     return out
 
 

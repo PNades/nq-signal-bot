@@ -72,6 +72,12 @@ stop_buffer_floor: {QQQ: 4.25, NDXP: 6.50, chart: 0}  # NQ pts, per source of th
                                   # = the larger of its five-day ndxp-select p95s (every board 5.752, crossings 6.446; k
                                   # with FRED's 10-16 close) rounded up to a tick: 6.50 (owner 2026-10-23; was 6.25 from
                                   # 5.61 / 6.18 with 10-19's k a day stale); chart levels no mapping floor
+stop_floor_vol: null              # the stop floor's form (owner 2026-11-20, pre-13d; §13 Q13-vol, Q-step13c): null = the
+                                  # fixed stop_buffer_floor above for every source; or the volatility-scaled floor for the
+                                  # sources it names, {window_min: 15, QQQ: {min: m, k: k}}: a stop beyond such a level
+                                  # uses max(m, k x the mean high-low of the 1-minute NQ bars completed in the last
+                                  # window_min minutes before the decision) in place of its fixed floor; the labeler reads
+                                  # it (labels key, outside the build key); step 13c row 13 picks, step 6 commits it here
 entry_order_type:            # start values per entry style (§5.5b); frozen on months 1-4
   a: marketable_limit
   b: marketable_limit

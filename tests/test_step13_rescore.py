@@ -58,6 +58,20 @@ def test_points_come_from_13cs_records_as_overrides_of_the_committed_settings(en
     assert by["r13_buffer"]["winner"]["order_types"] == {"c": "stop_limit", "d": "marketable_limit"}
 
 
+def test_a_committed_vol_floor_is_read_from_the_settings(env):
+    # step 6 committed row 13's vol floor and buffer (owner 2026-11-20: the floor is a setting): the winners are the
+    # committed configuration's own floor, the fixed runner-up forces it off
+    _records(env)
+    env.settings["stop_floor_vol"] = VOL
+    env.settings["stop_buffer"] = env.settings["stop_buffer"] + 2
+    sets, _ = rs.comparisons(env)
+    assert rs.committed(env)["stop_floor_vol"] == VOL
+    assert rs.overrides_of(env, sets["winners"]) == {"entry_ttl_sec.c": 120}
+    assert rs.overrides_of(env, sets["r13_floor_runner_up"]) == {"entry_ttl_sec.c": 120,
+                                                                "stop_buffer": env.settings["stop_buffer"] - 2,
+                                                                "stop_floor_vol": None}
+
+
 def test_equal_points_are_one_label_set(env):
     # both r12 runners-up differ from the winners only by order type: their set is the winners'
     s = env.settings

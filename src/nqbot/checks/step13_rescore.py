@@ -63,11 +63,11 @@ def report_base(env: Env, key: str) -> Path:
 # --- the points --------------------------------------------------------------------------------------------------------
 
 def committed(env: Env) -> dict[str, Any]:
-    """The committed configuration's execution settings (the labeler reads no floor from it: `stop_floor_vol` is a
-    labels-plan override only, `labeler.params.STOP_FLOOR_VOL_OFF`)."""
+    """The committed configuration's execution settings, the floor included (`stop_floor_vol`: null = fixed, a
+    setting the labeler reads since owner 2026-11-20)."""
     s = env.settings
     return {"entry_ttl_sec.c": s["entry_ttl_sec"]["c"], "entry_ttl_sec.d": s["entry_ttl_sec"]["d"],
-            "stop_buffer": s["stop_buffer"], "stop_floor_vol": None}
+            "stop_buffer": s["stop_buffer"], "stop_floor_vol": s["stop_floor_vol"]}
 
 
 def overrides_of(env: Env, point: dict[str, Any]) -> dict[str, Any]:
