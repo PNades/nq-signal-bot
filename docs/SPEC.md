@@ -1280,6 +1280,16 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   `stack_count` / `n_<sub_type>`), so the real rounds show exact members. It adds a record only and changes no
   feature value: proved by building the same sessions before and after and comparing every build file (all
   existing columns equal; only the new column added). Not built now: no scorer or build change while 13c runs.
+  **Built 2026-11-19 on the local branch `pre-13d` (owner's request; not merged, applied to no build):** the column
+  `stack_level_ids` (the counted members' `level_id`s, sorted, one per member, so its length is `stack_count`;
+  `SessionFeatures._makeup`) in the touch and decision rows; an id column, never a model input
+  (`tuning.structure_inputs.ID_COLS`); the Review card lists exactly those members when a build has it (`rule`
+  "recorded"), the display rule only for older builds. The proof is `nqbot step13 compare-builds A B --allow-new
+  stack_level_ids` (`checks/build_compare.py`, read-only, development months only): every per-session build file of B
+  against A's (all of A's columns equal, nulls and NaN equal, file metadata not compared; only the allowed column
+  added and it must appear; pass-1 checkpoints equal; day summaries equal without their `*_sec` timings), run after
+  13c on a month-1 build at this commit against the 13c baseline b958fe6e42aa (the month-1 files of a month-1 plan
+  equal the months 1–4 build's, Q-step13b (f) (2) proof).
   (c) **Pre-13d item, retested-extreme age (owner 2026-11-16; a correction that changes features: `features_version`
   bump; not built now, no scorer or build change while 13c runs):** F3.8's "`retest_lookback_sessions` sessions after
   E's own session" counts from the session in which the extreme **printed**, not the session in which it was a

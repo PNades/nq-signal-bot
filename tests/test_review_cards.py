@@ -231,6 +231,35 @@ def test_stacked_members_prefer_bands_inside_a_level_zone(day):
     assert sorted(x["fit"] for x in two["items"] if x["label"].startswith("IB")) == ["inside", "overlapping"]
 
 
+def test_recorded_stack_members_are_listed_exactly(day):
+    # pre-13d (owner 2026-11-16, SPEC §13 Q-review-stack (b)): a build that records the counted members
+    # (`stack_level_ids`) shows exactly those levels, even an outside one the display rule would never pick; an id the
+    # chart can't find is listed as missing; the count is the record's length
+    dd, specs = day
+    s = specs[1]
+    dec = next(d for d in dd.decisions if d["decision_id"] == s["decision_id"])
+    lo, hi = float(dec["zone_lo"]), float(dec["zone_hi"])
+    base = next(r for r in dd.levels if r["uid"] == "pdh")
+
+    def lvl(uid, b_lo, b_hi):
+        return {**{k: v for k, v in base.items() if not k.startswith("_")}, "uid": uid, "level_id": uid, "key": uid,
+                "sub_type": "ib_high", "lo": [b_lo], "hi": [b_hi]}
+
+    wide, narrow, far = lvl("ib_wide", 21350, 21382), lvl("ib_narrow", 21370, 21378), lvl("ib_far", 21390, 21400)
+    dd2 = cd.DayData(**{**dd.__dict__, "levels": [*dd.levels, wide, narrow, far]})
+    row = {**dd.rows[s["decision_id"]], "n_ib_high": 2, "stack_count": 3,
+           "stack_level_ids": ["ib_far", "ib_wide", "gone_level"]}
+    out = cd.stack_payload(dd2, row, int(dec["decision_ts"]), lo, hi, level_zone=True)
+    assert out["rule"] == "recorded" and out["count"] == 3 and out["other"] == 0
+    got = {x["level_id"]: x for x in out["items"]}
+    assert set(got) == {"ib_far", "ib_wide", "gone_level"}
+    assert got["ib_far"]["fit"] == "outside" and got["ib_wide"]["fit"] == "overlapping"
+    assert got["gone_level"]["missing"] is True
+    # an older build without the record keeps the display rule
+    old = {k: v for k, v in row.items() if k != "stack_level_ids"}
+    assert cd.stack_payload(dd2, old, int(dec["decision_ts"]), lo, hi, level_zone=True)["rule"] == "inside first"
+
+
 def test_the_hidden_node_readings_are_not_shown(card):
     # round 5 (owner 2026-11-16): display only; stored cards that still carry them are filtered when served
     from nqbot.review import store as rs

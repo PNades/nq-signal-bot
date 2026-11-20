@@ -279,6 +279,9 @@ def test_the_synthetic_day_exercises_the_engine(full):
     # step 13-0: the corrections are exercised
     assert sf.touch_stats["own_arms"] > 0, "a post-cross retest armed by its member's own re-arm"
     assert all(r["touch_idx"] >= 0 for r in rows) and any(r["founding_level_ids"] for r in rows)
+    # pre-13d (SPEC §13 Q-review-stack (b)): the recorded members are exactly the counted ones
+    assert all(len(r["stack_level_ids"]) == r["stack_count"] for r in rows)
+    assert any(len(r["stack_level_ids"]) > 1 for r in rows)
 
 
 def test_the_variant_day_exercises_the_corrections(full_var):

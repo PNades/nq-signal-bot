@@ -53,6 +53,9 @@ def test_makeup_king_and_weekly_poc():
     assert out["stack_count"] == 2 and out["king_present"] is True and out["gatekeeper_present"] is False
     assert out["n_qqq_node"] == 1 and out["n_poc_weekly"] == 1 and out["n_poc_daily"] == 0
     assert out["largest_pct_of_king"] == 1.0 and out["n_node_king"] == 1 and out["n_post_cross"] == 0
+    # pre-13d (SPEC §13 Q-review-stack (b)): the counted members are recorded, one entry each, sorted
+    assert out["stack_level_ids"] == ["poc_weekly-w", "qqq_node-x-600"]
+    assert SessionFeatures._makeup(fake, [], at(10, 0, 30))["stack_level_ids"] == []
 
 
 def test_day_memory_counts_resolved_labels():

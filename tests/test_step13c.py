@@ -263,6 +263,8 @@ def test_the_structure_inputs_leave_out_ids_prices_day_type_gameplan_and_outcome
               ("king_present", "bool"), ("label", "string"), ("with_day_direction", "numeric"), ("tradeable", "bool")]
     num, cat = si.input_columns(schema)
     assert num == ["zone_width", "king_present", "with_day_direction"] and cat == ["role"]
+    # the recorded stack members (pre-13d, Q-review-stack (b)) are an id column, never an input, whatever its type
+    assert si.excluded("stack_level_ids") and si.input_columns([("stack_level_ids", "string")]) == ([], [])
 
 
 # --- the row program (Q-step13plan (1)) --------------------------------------------------------------------------------

@@ -3,8 +3,8 @@ minus the day-type input"; owner 2026-11-14, SPEC §13 Q-step13c).
 
 The touch rows (`touches/<D>.parquet`, `SessionFeatures.row(event, touch)`) hold every structure-model input plus
 identity, time and price columns. The model uses every column of the rows except:
-- identity and time: the ids, the day, `ts` / `t`, the touching trade's index, the founding members and `tradeable`
-  (a filter, not an input);
+- identity and time: the ids, the day, `ts` / `t`, the touching trade's index, the founding members, the counted
+  stack members (`stack_level_ids`, a record, SPEC §13 Q-review-stack (b)) and `tradeable` (a filter, not an input);
 - absolute prices (not comparable across days; the rows carry the same information as distances): the touch and last
   price, the zone's and the golden zone's edges, the fib prices, the VWAP values and each map's King strike;
 - `dt_*`: the day-type model's own inputs at t (the structure model gets the day type only as P(trend), left out at
@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Iterable
 
 ID_COLS = frozenset({"event_id", "zone_id", "touch_group_id", "day", "ts", "t", "touch_idx", "founding_level_ids",
-                     "tradeable"})
+                     "stack_level_ids", "tradeable"})   # stack_level_ids: the counted members (Q-review-stack (b))
 PRICE_COLS = frozenset({"touch_price", "price", "touch_zone_lo", "touch_zone_hi", "zone_lo", "zone_hi", "vwap18",
                         "vwap0930", "or_shallow_band_lo", "or_shallow_band_hi", "or_deep_band_lo", "or_deep_band_hi",
                         "or_shallow_band", "or_deep_band", "or_fib_prices"})

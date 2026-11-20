@@ -549,7 +549,11 @@ class SessionFeatures:
         return out
 
     def _makeup(self, members: list, t: int) -> dict[str, Any]:
-        out: dict[str, Any] = {"stack_count": len(members)}
+        # the counted members themselves (owner 2026-11-16, SPEC §13 Q-review-stack (b)): a record beside the counts
+        # (an id column, never a model input: `tuning.structure_inputs.ID_COLS`), so a review card shows exactly the
+        # levels the counts were made from; one entry per member, so its length is `stack_count`
+        out: dict[str, Any] = {"stack_count": len(members),
+                               "stack_level_ids": sorted(str(m.level_id) for m in members)}
         for st_ in NQ_SUBTYPES:
             out[f"n_{st_}"] = sum(1 for m in members if m.sub_type == st_)
         out["n_post_cross"] = 0

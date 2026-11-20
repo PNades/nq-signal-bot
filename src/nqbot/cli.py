@@ -1204,6 +1204,13 @@ def _add_step13(sub: argparse._SubParsersAction) -> None:
     p = s13.add_parser("vol-floor-day", help="step 13c: one session's QQQ crossings and trailing volatility for the "
                                              "Q13-vol re-fit (the driver runs this)")
     p.add_argument("date", type=_date)
+    p = s13.add_parser("compare-builds", help="pre-13d (owner 2026-11-19): every build file of build B against build "
+                                              "A's for B's finished sessions (read-only, development months; "
+                                              "compare_builds_<A>_<B>.md, exit 1 on any difference)")
+    p.add_argument("key_a", help="the reference build key (e.g. b958fe6e42aa)")
+    p.add_argument("key_b", help="the build to check")
+    p.add_argument("--allow-new", action="append", default=[], metavar="COLUMN",
+                   help="a column B may add (e.g. stack_level_ids); it must appear in B")
     s13.add_parser("labels-report", help="step 13b: the labels report (identity check, RR bands, time, disk)")
     s13.add_parser("budget", help="step 13b: the step-13 budget re-estimated from the measured months 1-4 rebuild")
 
@@ -1257,6 +1264,16 @@ def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
             print(s13c.summary(env, s13c.load_plan(env)))
         elif args.check == "vol-floor-day":
             print(s13c.volfloor_day(env, args.date))
+        elif args.check == "compare-builds":
+            from nqbot.checks import build_compare as bc
+
+            try:
+                path, ok = bc.report(env, args.key_a, args.key_b, args.allow_new)
+            except bc.CompareRefused as e:
+                print(f"refused: {e}", file=sys.stderr)
+                return 2
+            print(f"{'PASS' if ok else 'FAIL'}: {path}")
+            return 0 if ok else 1
         elif args.check == "labels-report":
             print(s13b.labels_report(env))
         elif args.check == "budget":

@@ -541,12 +541,18 @@ def stack_payload(dd: DayData, row: dict[str, Any], t: int, lo: float, hi: float
     lies inside the zone come first, then those overlapping it (a VWAP band sampled once a second can straddle an edge
     by a hair), then the nearest; a container's (golden zone, gameplan zone) members are every level whose band
     overlaps it: overlapping first, then the nearest. Each item says how it fits (`fit`: inside / overlapping /
-    outside)."""
+    outside).
+
+    A build that records the counted members (`stack_level_ids`, owner 2026-11-16, SPEC §13 Q-review-stack (b); builds
+    from the pre-13d change on) lists exactly those levels (`rule` "recorded"); the rule above is only for older
+    builds."""
     from nqbot.features.session_features import NQ_SUBTYPES
 
     comp = {st: int(row.get(f"n_{st}") or 0) for st in NQ_SUBTYPES}
     total = int(row.get("stack_count") or 0)
     steps = _steps_by_uid(dd)
+    if row.get("stack_level_ids") is not None:
+        return _recorded_stack(dd, list(row["stack_level_ids"]), t, lo, hi, steps)
     items: list[dict[str, Any]] = []
     for st, n in comp.items():
         if n <= 0:
@@ -576,6 +582,39 @@ def stack_payload(dd: DayData, row: dict[str, Any], t: int, lo: float, hi: float
     other = total - sum(comp.values())
     items.sort(key=lambda x: -(x.get("price") or -1e18))
     return {"count": total, "items": items, "other": max(0, other), "rule": "inside first" if level_zone else "overlapping"}
+
+
+def _recorded_stack(dd: DayData, ids: list[str], t: int, lo: float, hi: float, steps: dict) -> dict[str, Any]:
+    """The stack from the scorer's own record (`stack_level_ids`): each id's level as known at t (a level_id held by
+    several pieces: the piece with a band at t, nearest the zone); an id the chart can't find is listed as missing."""
+    by_id: dict[str, list[dict[str, Any]]] = {}
+    for r in dd.levels:
+        if r.get("instrument") == "NQ":
+            by_id.setdefault(str(r.get("level_id")), []).append(r)
+    mid = (lo + hi) / 2
+    items: list[dict[str, Any]] = []
+    for lid in ids:
+        found = []
+        for r in by_id.get(str(lid), []):
+            _prep(r)
+            b = band_at(r, t)
+            if b is not None:
+                found.append((abs((b[0] + b[1]) / 2 - mid), r["uid"], r, b))
+        if not found:
+            items.append({"label": str(lid), "missing": True, "level_id": str(lid)})
+            continue
+        _, _, r, b = min(found, key=lambda x: x[:2])
+        gap = max(0.0, b[0] - hi, lo - b[1])
+        inside = b[0] >= lo - 1e-9 and b[1] <= hi + 1e-9
+        step = roles.role_at(steps.get(r["uid"], []), t)
+        items.append({"label": level_label(r), "price": rnd((b[0] + b[1]) / 2), "lo": rnd(b[0]), "hi": rnd(b[1]),
+                      "role": step.role if step else None, "provisional": bool(step and step.provisional),
+                      "crossed_back": bool(step and step.broken_back), "flips": step.flips if step else 0,
+                      "outside_pts": rnd(gap) if gap > 0 else None,
+                      "fit": "inside" if inside else ("overlapping" if gap == 0 else "outside"),
+                      "level_id": str(lid)})
+    items.sort(key=lambda x: -(x.get("price") or -1e18))
+    return {"count": len(ids), "items": items, "other": 0, "rule": "recorded"}
 
 
 def members_at(dd: DayData, t: int, lo: float, hi: float) -> list[str]:
@@ -702,7 +741,7 @@ def _stack_columns() -> tuple[str, ...]:
     return ("stack_count", *(f"n_{st}" for st in NQ_SUBTYPES))
 
 
-FEATURE_COLUMNS = ("founding_level_ids", "primary_member_type", "with_day_direction", *READING_COLUMNS, *_stack_columns())
+FEATURE_COLUMNS = ("founding_level_ids", "stack_level_ids", "primary_member_type", "with_day_direction", *READING_COLUMNS, *_stack_columns())
 
 
 def feature_rows(build_dir, iso: str, decisions: list[dict[str, Any]], decision_ids: set[str]) -> dict[str, dict[str, Any]]:
