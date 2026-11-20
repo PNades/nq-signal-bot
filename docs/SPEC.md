@@ -1340,6 +1340,23 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   7–12 only as one progress line (sessions, pass 1 and pass 2 done), no longer their events and rows per month (the
   docstring of `checks/feature_build.py`, inside the build key, says so: the key changes with the branch's other
   changes anyway). Tests: `tests/test_step13b_dev_months.py`, `tests/test_feature_build.py`.
+  **Owner 2026-11-20 (second round):** (1) the build report's months 7–12 progress line stays. (2) **The execution
+  re-score** (`docs/design/pre13d_after_13c.md` section 8; built on `pre-13d`, outside both keys): job
+  `step13_rescore` (`step13 rescore-plan --build-key K`, `nqbot run step13_rescore`, `step13 rescore-report`) scores
+  13c's row-12 winners (per style) and row-13 winner against their runners-up (row 13: the next buffer on the same
+  floor, and the other floor at its best buffer) on build K's months 1–4, with 13c's method (frozen events, one bar per
+  fold over all events, single-style policies), as the runner-up's excess net R per month over the winner with its
+  95% day-block interval; each point is absolute execution settings, labelled as overrides of the committed
+  configuration (equal points once); its own cache; nothing written to the configuration or to 13c's records; report
+  `<reports_dir>/step13/tune/rescore_exec_<K>.md`. (3) **The no-rebuild estimate for r04, r05c, r11** (read-only,
+  months 1–4, 13c's stored builds and cached predictions and picks; `<reports_dir>/step13/age_fix_estimate.md`): 13c's
+  comparisons reproduced exactly; every filled trade whose zone held a retested extreme the print-session age removes
+  that day (6–13% of each value's trades) dropped from every value's run, the rows re-picked: no winner changes (r04 2,
+  r05c 0, r11 10; r11's lead +0.17 → +0.28), so no rebuild re-check. (4) **The months 5–6 node reaction rows**
+  (Q-step13a-2 (5), Q-maprole): `step13 reactions-plan --months 5-6` and `nqbot run step13a_reactions` measure them
+  on the current build (13d's) into `<reports_dir>/step13/reactions_nodes_months_5-6.md|json|png`, report only; the
+  months 1–4 widths report is never rewritten by it; months 7–12 refused. Placed after the 13d build, with the counts
+  and the months 1–6 labels (the sequence doc, section 7b).
 - **Q-review-chart round 5 (owner 2026-11-16; built, waiting for the owner's OK):** (1) the readings' Nodes group no
   longer shows "Pika nodes (+)", "Barney nodes (−)" and "Pika member" (display only: the detector still computes them,
   the scorer still reads them; cards stored earlier are filtered when served); the groups sit on one grid (checked on
