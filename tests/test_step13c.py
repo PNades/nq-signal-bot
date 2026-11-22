@@ -5,6 +5,7 @@ cross-validation's embargo, the row program, the volatility-scaled stop floor an
 
 from __future__ import annotations
 
+import copy
 from dataclasses import replace
 from datetime import date, time
 
@@ -25,7 +26,19 @@ from nqbot.tuning import structure_inputs as si
 from nqbot.tuning import volfloor as vf
 from nqbot.tuning.data import Build
 
-S, F = load_settings(), load_features()
+def start_13c(settings: dict, features: dict) -> tuple[dict, dict]:
+    """13c's start configuration: the committed one before after-13c step 6 wrote the winners in (owner 2026-11-21,
+    SPEC §13 Q-step13c (e): `sweep_max_depth` 15 -> 10, `sweep_reclaim_bars` 3 -> 2, `entry_ttl_sec` c 60 -> 120,
+    `entry_order_type` d limit -> marketable_limit). The driver's program is defined on its start values (row 12 needs
+    one start ttl for (c) and (d)), so the 13c tests keep them rather than the committed winners."""
+    s, f = copy.deepcopy(settings), copy.deepcopy(features)
+    s["entry_ttl_sec"] = {**s["entry_ttl_sec"], "c": 60, "d": 60}
+    s["entry_order_type"] = {**s["entry_order_type"], "c": "stop_limit", "d": "limit"}
+    f["sweep_max_depth"], f["sweep_reclaim_bars"] = 15, 3
+    return s, f
+
+
+S, F = start_13c(load_settings(), load_features())
 DAY = date(2026, 1, 15)
 NS = st.NS
 

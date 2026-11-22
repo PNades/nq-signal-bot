@@ -21,8 +21,11 @@ VOL = {"window_min": 15, "qqq_node": {"min": 4.0, "k": 0.5}}
 
 
 def _records(env, *, r12=None, r13=None, vv=None):
-    """13c's winners, row 13's report and the vol-floor fit, as 13c writes them."""
+    """13c's winners, row 13's report and the vol-floor fit, as 13c writes them, on 13c's start settings (the
+    committed ones before after-13c step 6)."""
     s = env.settings
+    s["entry_ttl_sec"] = {**s["entry_ttl_sec"], "c": 60, "d": 60}
+    s["entry_order_type"] = {**s["entry_order_type"], "c": "stop_limit", "d": "limit"}
     start_buf = s["stop_buffer"]
     w12 = r12 or {"value": {"c": ["stop_limit", 120], "d": ["marketable_limit", s["entry_ttl_sec"]["d"]]},
                   "lead": {"c": {"next_best": ["stop_limit", 300], "lead": 0.05, "lo": -5.1, "hi": 5.21},
@@ -59,16 +62,17 @@ def test_points_come_from_13cs_records_as_overrides_of_the_committed_settings(en
 
 
 def test_a_committed_vol_floor_is_read_from_the_settings(env):
-    # step 6 committed row 13's vol floor and buffer (owner 2026-11-20: the floor is a setting): the winners are the
-    # committed configuration's own floor, the fixed runner-up forces it off
+    # step 6 committed row 13's vol floor and buffer (owner 2026-11-20: the floor is a setting) and row 12's ttl (c)
+    # 120 (owner 2026-11-21): the winners are the committed configuration itself, the fixed runner-up forces it off
     _records(env)
     env.settings["stop_floor_vol"] = VOL
     env.settings["stop_buffer"] = env.settings["stop_buffer"] + 2
+    env.settings["entry_ttl_sec"]["c"] = 120
     sets, _ = rs.comparisons(env)
     assert rs.committed(env)["stop_floor_vol"] == VOL
-    assert rs.overrides_of(env, sets["winners"]) == {"entry_ttl_sec.c": 120}
-    assert rs.overrides_of(env, sets["r13_floor_runner_up"]) == {"entry_ttl_sec.c": 120,
-                                                                "stop_buffer": env.settings["stop_buffer"] - 2,
+    assert rs.overrides_of(env, sets["winners"]) == {}
+    assert rs.overrides_of(env, sets["r12_runners_up"]) == {"entry_ttl_sec.c": 300, "entry_ttl_sec.d": 10}
+    assert rs.overrides_of(env, sets["r13_floor_runner_up"]) == {"stop_buffer": env.settings["stop_buffer"] - 2,
                                                                 "stop_floor_vol": None}
 
 

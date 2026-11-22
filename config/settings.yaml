@@ -64,8 +64,8 @@ flat_retry_min: 11
 flat_alert_sec: 30
 unknown_alert_min: 5
 webhook_timeout_sec: 5
-entry_ttl_sec: {a: 5, b: 5, c: 60, d: 60}   # per entry style; start values approved 2026-10-05, frozen on months 1-4 (step 13/19)
-stop_buffer: 5                    # NQ pts start; frozen at step 13 (F16.4); approved 2026-10-05 (feature_spec F15)
+entry_ttl_sec: {a: 5, b: 5, c: 120, d: 60}  # per entry style; start values approved 2026-10-05; c, d FROZEN frozen_from months 1-4 (owner 2026-11-21, step 13c row 12, SPEC §13 Q-step13c (e): c 60 -> 120, re-checked by the step-8 re-score; d 60 kept); a, b at step 19
+stop_buffer: 5                    # NQ pts; FROZEN frozen_from months 1-4 (owner 2026-11-21, step 13c row 13, SPEC §13 Q-step13c (e)): the start value kept; approved 2026-10-05 (feature_spec F15)
 stop_buffer_floor: {QQQ: 4.25, NDXP: 6.50, chart: 0}  # NQ pts, per source of the level a stop sits beyond (§6.2, F7);
                                   # FROZEN (owner 2026-10-19, §13 Q8b-frozen; step 8b, recordings 10-09 to 10-19, findings
                                   # R15/R16): QQQ = the gate's crossing p95 4.046 rounded up to a tick; NDXP (QQQ x k N=20)
@@ -77,12 +77,13 @@ stop_floor_vol: null              # the stop floor's form (owner 2026-11-20, pre
                                   # sources it names, {window_min: 15, QQQ: {min: m, k: k}}: a stop beyond such a level
                                   # uses max(m, k x the mean high-low of the 1-minute NQ bars completed in the last
                                   # window_min minutes before the decision) in place of its fixed floor; the labeler reads
-                                  # it (labels key, outside the build key); step 13c row 13 picks, step 6 commits it here
-entry_order_type:            # start values per entry style (§5.5b); frozen on months 1-4
-  a: marketable_limit
+                                  # it (labels key, outside the build key); step 13c row 13 picks, step 6 commits it here;
+                                  # FROZEN frozen_from months 1-4 (owner 2026-11-21, row 13, Q-step13c (e)): null, the fixed floor kept
+entry_order_type:            # start values per entry style (§5.5b); c, d FROZEN frozen_from months 1-4 (owner 2026-11-21, step 13c
+  a: marketable_limit         # row 12, SPEC §13 Q-step13c (e)): c stop_limit kept, d limit -> marketable_limit; a, b at step 19
   b: marketable_limit
   c: stop_limit
-  d: limit
+  d: marketable_limit
 enabled_entry_styles: [c, d]     # (a)/(b) are built at step 19 (order flow); step 20 decides whether they stay
 style_tie_ev_r: 0.05
 max_target_candidates: 10

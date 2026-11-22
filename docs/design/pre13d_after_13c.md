@@ -13,7 +13,9 @@ Branch `pre-13d` (local only, not pushed, not merged), on top of `main` at a76e2
 | a221a4a | this doc (second version), SPEC, feature_spec F3.8, Status | - | - |
 | 6a3a956 | owner 2026-11-20: the re-score command (job `step13_rescore`, section 8); `step13 reactions-plan` / `reactions-report --months 5-6` (the months 5-6 node rows, section 7b) | unchanged (outside both keys) | 40 |
 | c2047f9 | this doc (third version): sections 7b, 8, 9, 10; SPEC, Status | - | - |
-| (next) | owner 2026-11-20: the stop floor is a setting (`stop_floor_vol` in settings.yaml, read by the labeler; section 6); this doc, SPEC, Status | unchanged (outside the build key; the labels key's code changes) | 40 |
+| a972e3c | owner 2026-11-20: the stop floor is a setting (`stop_floor_vol` in settings.yaml, read by the labeler; section 6) | unchanged (outside the build key; the labels key's code changes) | 40 |
+| 6c07dd5 | this doc (fourth version), SPEC, Status | - | - |
+| (next) | owner 2026-11-21, step 6: the 13c winners into features.yaml / settings.yaml (`zone_proximity` 5 kept, `sweep_max_depth` 10, `sweep_reclaim_bars` 2, `entry_ttl_sec` c 120, `entry_order_type` d marketable_limit, `stop_buffer` 5 and `stop_floor_vol` null kept; SPEC §13 Q-step13c (e)); SPEC, Status | changes (features.yaml) | 40 |
 
 Item 1 is its own commit so the comparison builds **exactly** item 1 on the configuration the 13c baseline
 b958fe6e42aa was built with (no build code changed between the 13c pin b6f7d1d and a76e2ad: only

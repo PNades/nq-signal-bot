@@ -25,7 +25,11 @@ from nqbot.labeler import params as lp
 from tests.test_labeler import at, dp, meta
 from tests.test_touches_labels import DAY
 
-S, F = load_settings(), load_features()
+from tests.test_step13c import start_13c
+
+# the settings the golden digests were taken on (the code before the floor setting, 2026-11-20): 13c's start
+# configuration, the committed one until after-13c step 6 wrote the winners in (entry_ttl_sec c 120, owner 2026-11-21)
+S, F = start_13c(load_settings(), load_features())
 VOL = {"window_min": 15, "QQQ": {"min": 2.79, "k": 0.195}}     # the shape `tuning.volfloor` writes as `override`
 
 DIGEST_DEFAULT = "30883e6ca93fa3246fe7484fe57fdcdf0506eb69c320426098eba1296b70c6dc"
