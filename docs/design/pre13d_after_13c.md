@@ -15,7 +15,9 @@ Branch `pre-13d` (local only, not pushed, not merged), on top of `main` at a76e2
 | c2047f9 | this doc (third version): sections 7b, 8, 9, 10; SPEC, Status | - | - |
 | a972e3c | owner 2026-11-20: the stop floor is a setting (`stop_floor_vol` in settings.yaml, read by the labeler; section 6) | unchanged (outside the build key; the labels key's code changes) | 40 |
 | 6c07dd5 | this doc (fourth version), SPEC, Status | - | - |
-| (next) | owner 2026-11-21, step 6: the 13c winners into features.yaml / settings.yaml (`zone_proximity` 5 kept, `sweep_max_depth` 10, `sweep_reclaim_bars` 2, `entry_ttl_sec` c 120, `entry_order_type` d marketable_limit, `stop_buffer` 5 and `stop_floor_vol` null kept; SPEC §13 Q-step13c (e)); SPEC, Status | changes (features.yaml) | 40 |
+| d432866 | owner 2026-11-21, step 6: the 13c winners into features.yaml / settings.yaml (`zone_proximity` 5 kept, `sweep_max_depth` 10, `sweep_reclaim_bars` 2, `entry_ttl_sec` c 120, `entry_order_type` d marketable_limit, `stop_buffer` 5 and `stop_floor_vol` null kept; SPEC §13 Q-step13c (e)); SPEC, Status | changes (features.yaml) | 40 |
+| f73484b | owner 2026-11-22: the knock-on check job `step13_buildcheck` (`step13 buildcheck-plan` / `buildcheck-report`: r04 at 2 against 3 on months 1-4 under the final settings, 13c's method on (c)); section 8's re-score adds r12 (c)'s start point (`r12_c_start`: 120 against 60 and 300) | unchanged (outside both keys) | 40 |
+| (next) | the knock-on result: `sweep_reclaim_bars` stays 2 (+2.12 [−3.19, +7.05] R/month on (c); SPEC §13 Q-step13c (e) (4)); this doc, SPEC, Status | - | - |
 
 Item 1 is its own commit so the comparison builds **exactly** item 1 on the configuration the 13c baseline
 b958fe6e42aa was built with (no build code changed between the 13c pin b6f7d1d and a76e2ad: only
