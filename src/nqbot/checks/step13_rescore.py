@@ -3,7 +3,8 @@ their runners-up on the corrected build (13d's, `features_version` 40), months 1
 and labels keys; nothing is written to the configuration.
 
 The compared points come from 13c's records (`<data_dir>/jobs/step13_tune/winners.json` and row 13's report):
-- row 12, per style: the winner (order type, `entry_ttl_sec`) against its next-best point;
+- row 12, per style: the winner (order type, `entry_ttl_sec`) against its next-best point; for style (c) also against
+  13c's start point (stop_limit, 60) (owner 2026-11-22: 120 is checked against both 60 and 300);
 - row 13: the winner (floor, `stop_buffer`) against the next-best buffer on the same floor, and against the other
   floor at its best buffer (the floor decision).
 Every point is written as absolute execution settings (`entry_ttl_sec.c`, `entry_ttl_sec.d`, `stop_buffer`,
@@ -38,6 +39,7 @@ JOB = "step13_rescore"
 MONTHS = s13b.MONTHS_14            # 13c's tuning months
 EXEC_KEYS = ("entry_ttl_sec.c", "entry_ttl_sec.d", "stop_buffer", "stop_floor_vol")
 STYLES = ("c", "d")
+START_CHECK_STYLES = ("c",)       # owner 2026-11-22: r12 (c)'s winner also against 13c's start point (row 12's report)
 
 
 class RescoreRefused(Exception):
@@ -83,6 +85,14 @@ def _r13_report(env: Env) -> dict[str, Any]:
     return json.loads(hits[0].read_text(encoding="utf-8"))
 
 
+def _r12_report(env: Env) -> dict[str, Any]:
+    hits = sorted(s13c.rep_dir(env).glob("r12_*.json"))
+    if len(hits) != 1:
+        raise RescoreRefused(f"row 12's report: expected one r12_*.json in {s13c.rep_dir(env)}, found {len(hits)} "
+                             "(13c must have scored row 12)")
+    return json.loads(hits[0].read_text(encoding="utf-8"))
+
+
 def _floor_setting(env: Env, floor: str) -> dict | None:
     if floor == "fixed":
         return None
@@ -118,6 +128,18 @@ def comparisons(env: Env) -> tuple[dict[str, dict], list[dict[str, Any]]]:
                       "winner": {"set": "winners", "order_types": {s: ot_win[s]}, "label": list(w12["value"][s])},
                       "runner": {"set": "r12_runners_up", "order_types": {s: run12[s][0]}, "label": list(run12[s])},
                       "lead_13c": w12["lead"][s]})
+    rep12 = _r12_report(env)     # 13c's start points (the committed configuration carries the winners since step 6)
+    for s in START_CHECK_STYLES:
+        st = list(rep12["styles"][s]["start"])          # [order type, ttl]
+        if list(st) == list(w12["value"][s]):
+            continue                       # the winner is the start point: nothing to check
+        name = f"r12_{s}_start"
+        sets[name] = {**win, f"entry_ttl_sec.{s}": st[1]}
+        pt = next((x for x in rep12["styles"][s]["points"] if list(x["value"]) == list(w12["value"][s])), None)
+        comps.append({"id": name, "row": "r12", "styles": [s],
+                      "winner": {"set": "winners", "order_types": {s: ot_win[s]}, "label": list(w12["value"][s])},
+                      "runner": {"set": name, "order_types": {s: st[0]}, "label": list(st)},
+                      "lead_13c": None if pt is None else {"lead": pt["diff"], "lo": pt["lo"], "hi": pt["hi"]}})
     comps.append({"id": "r13_buffer", "row": "r13", "styles": list(STYLES),
                   "winner": {"set": "winners", "order_types": ot_win, "label": [floor, buf]},
                   "runner": {"set": "r13_buffer_runner_up", "order_types": ot_win,

@@ -171,12 +171,13 @@ Nothing is re-tuned.
 | row | decision | winner | runner-up | 13c lead [95%] |
 |---|---|---|---|---|
 | r12 (c) | order type x `entry_ttl_sec` | stop_limit, 120 | stop_limit, 300 | +0.05 [-5.10, +5.21] |
+| r12 (c) start (owner 2026-11-22) | order type x `entry_ttl_sec` | stop_limit, 120 | stop_limit, 60 (13c's start point) | +3.48 [-0.81, +7.50] |
 | r12 (d) | order type x `entry_ttl_sec` | marketable_limit, 60 | marketable_limit, 10 | +0.00 [-1.96, +2.05] |
 | r13 | `stop_buffer` x floor | from r13's report (running) | from r13's report | from r13's report |
 
 Labels needed on K13d, months 1-4 (`labels_plan_for`, about 11 min a set):
 - the committed winners: one set;
-- r12's runners-up: one set (`entry_ttl_sec.c` 300 with `entry_ttl_sec.d` 10). Each style is scored on its own pairs,
+- r12's runners-up: one set (`entry_ttl_sec.c` 300 with `entry_ttl_sec.d` 10); and (owner 2026-11-22) (c)'s start point, `entry_ttl_sec.c` 60, its own set and comparison `r12_c_start`, from row 12's report. Each style is scored on its own pairs,
   so one labeler run serves both;
 - r13's runner-up: one set, at its `stop_buffer` and floor.
 

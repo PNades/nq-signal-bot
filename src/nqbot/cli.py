@@ -1222,6 +1222,14 @@ def _add_step13(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--build-key", required=True, help="the corrected build (13d's), complete on months 1-4")
     s13.add_parser("rescore-report", help="pre-13d: score the re-score plan's comparisons (rescore_exec_<K>.md); the "
                                           "job's last chunk runs this")
+    p = s13.add_parser("buildcheck-plan", help="after 13c (owner 2026-11-22): a 13c build row's start value against a "
+                                               "challenger, both months 1-4 builds under the committed settings, "
+                                               "13c's method (then: nqbot run step13_buildcheck --until HH:MM)")
+    p.add_argument("--row", required=True, help="the 13c row (e.g. r04)")
+    p.add_argument("--start", required=True, help="the start value's build key")
+    p.add_argument("--challenger", required=True, help="the challenger's build key")
+    s13.add_parser("buildcheck-report", help="after 13c: score the build-check plan (buildcheck_<row>_<K1>_<K2>.md); "
+                                             "the job's last chunk runs this")
     s13.add_parser("budget", help="step 13b: the step-13 budget re-estimated from the measured months 1-4 rebuild")
 
 
@@ -1232,6 +1240,7 @@ def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
     from nqbot.checks import step13 as s13
     from nqbot.checks import step13a as s13a
     from nqbot.checks import step13b as s13b
+    from nqbot.checks import step13_buildcheck as s13k
     from nqbot.checks import step13_rescore as s13r
     from nqbot.checks import step13c as s13c
     from nqbot.checks.step8b import CheckRefused, Env
@@ -1295,6 +1304,11 @@ def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
                   f"{plan['build_key']}; run: uv run nqbot run {s13r.JOB} --until HH:MM")
         elif args.check == "rescore-report":
             print(s13r.score(env, s13r.load_plan(env)))
+        elif args.check == "buildcheck-plan":
+            for line in s13k.describe_plan(s13k.buildcheck_plan(env, args.row, args.start, args.challenger)):
+                print(line)
+        elif args.check == "buildcheck-report":
+            print(s13k.score(env, s13k.load_plan(env)))
         elif args.check == "budget":
             print(s13b.budget(env))
         elif args.check == "reactions-plan":
@@ -1320,8 +1334,8 @@ def _run_step13(args: argparse.Namespace, settings, paths, log) -> int:
             s13.jump_plot(env)
         else:
             s13.report(env)
-    except (s13.Refused, s13a.Refused, s13b.Refused, s13c.TuneRefused, s13r.RescoreRefused, fb.BuildRefused,
-            sb.Refused, CheckRefused, NotDevelopmentMonth) as e:
+    except (s13.Refused, s13a.Refused, s13b.Refused, s13c.TuneRefused, s13r.RescoreRefused, s13k.BuildCheckRefused,
+            fb.BuildRefused, sb.Refused, CheckRefused, NotDevelopmentMonth) as e:
         print(f"refused: {e}", file=sys.stderr)
         return EXIT_REFUSED
     return 0

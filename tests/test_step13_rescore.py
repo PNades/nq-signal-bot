@@ -38,6 +38,10 @@ def _records(env, *, r12=None, r13=None, vv=None):
            "vol_vs_fixed": vv or {"diff": 2.5, "lo": 0.4, "hi": 4.0, "fixed_buffer": start_buf,
                                   "vol_buffer": w13["value"]["stop_buffer"]}}
     atomic_write_json(s13c.rep_dir(env) / "r13_stop_buffer_stop_floor.json", rep)
+    c_win = w12["value"]["c"]                     # row 12's report: 13c's start point and the (c) winner's excess over it
+    atomic_write_json(s13c.rep_dir(env) / "r12_entry_order_type_entry_ttl_sec.json",
+                      {"styles": {"c": {"start": ["stop_limit", 60],
+                                        "points": [{"value": c_win, "diff": 3.48, "lo": -0.81, "hi": 7.5}]}}})
     atomic_write_json(s13c.vol_fit_file(env), {"override": VOL})
     return w12, w13
 
@@ -46,7 +50,7 @@ def test_points_come_from_13cs_records_as_overrides_of_the_committed_settings(en
     _records(env)
     s = env.settings
     sets, comps = rs.comparisons(env)
-    assert set(sets) == {"winners", "r12_runners_up", "r13_buffer_runner_up", "r13_floor_runner_up"}
+    assert set(sets) == {"winners", "r12_runners_up", "r13_buffer_runner_up", "r13_floor_runner_up", "r12_c_start"}
     assert rs.overrides_of(env, sets["winners"]) == {"entry_ttl_sec.c": 120, "stop_buffer": s["stop_buffer"] + 2,
                                                     "stop_floor_vol": VOL}          # ttl (d) = the committed one
     assert rs.overrides_of(env, sets["r12_runners_up"]) == {"entry_ttl_sec.c": 300, "entry_ttl_sec.d": 10,
@@ -54,6 +58,8 @@ def test_points_come_from_13cs_records_as_overrides_of_the_committed_settings(en
     assert sets["r13_buffer_runner_up"]["stop_buffer"] == s["stop_buffer"] + 4
     # the floor decision: the other floor (fixed: no override) at its own best buffer (the committed one here)
     assert rs.overrides_of(env, sets["r13_floor_runner_up"]) == {"entry_ttl_sec.c": 120}
+    # owner 2026-11-22: (c)'s winner also against 13c's start point, stop_limit 60 (the committed ttl here)
+    assert rs.overrides_of(env, sets["r12_c_start"]) == {"stop_buffer": s["stop_buffer"] + 2, "stop_floor_vol": VOL}
     by = {c["id"]: c for c in comps}
     assert by["r12_c"]["styles"] == ["c"] and by["r12_c"]["runner"]["order_types"] == {"c": "stop_limit"}
     assert by["r12_d"]["winner"]["order_types"] == {"d": "marketable_limit"}
@@ -74,16 +80,37 @@ def test_a_committed_vol_floor_is_read_from_the_settings(env):
     assert rs.overrides_of(env, sets["r12_runners_up"]) == {"entry_ttl_sec.c": 300, "entry_ttl_sec.d": 10}
     assert rs.overrides_of(env, sets["r13_floor_runner_up"]) == {"stop_buffer": env.settings["stop_buffer"] - 2,
                                                                 "stop_floor_vol": None}
+    assert rs.overrides_of(env, sets["r12_c_start"]) == {"entry_ttl_sec.c": 60}      # 120 committed: 60 is the override
+
+
+def test_r12_cs_winner_is_also_compared_with_13cs_start_point(env):
+    # owner 2026-11-22: 120 is checked against both 300 (the runner-up) and 60 (13c's start point)
+    _records(env)
+    _, comps = rs.comparisons(env)
+    by = {c["id"]: c for c in comps}
+    c = by["r12_c_start"]
+    assert c["styles"] == ["c"] and c["row"] == "r12"
+    assert c["winner"] == {"set": "winners", "order_types": {"c": "stop_limit"}, "label": ["stop_limit", 120]}
+    assert c["runner"] == {"set": "r12_c_start", "order_types": {"c": "stop_limit"}, "label": ["stop_limit", 60]}
+    assert c["lead_13c"] == {"lead": 3.48, "lo": -0.81, "hi": 7.5}       # 120's 13c excess over 60
+    assert "r12_d_start" not in by                                        # (c) only, as the owner asked
+
+
+def test_a_missing_row_12_report_is_refused(env):
+    _records(env)
+    (s13c.rep_dir(env) / "r12_entry_order_type_entry_ttl_sec.json").unlink()
+    with pytest.raises(rs.RescoreRefused, match="row 12"):
+        rs.comparisons(env)
 
 
 def test_equal_points_are_one_label_set(env):
     # both r12 runners-up differ from the winners only by order type: their set is the winners'
-    s = env.settings
-    ttl = s["entry_ttl_sec"]
+    ttl = {"c": 60, "d": 60}                      # 13c's start ttls, which `_records` sets as the committed ones
     _records(env, r12={"value": {"c": ["stop_limit", ttl["c"]], "d": ["limit", ttl["d"]]},
                        "lead": {"c": {"next_best": ["limit", ttl["c"]]}, "d": {"next_best": ["stop_limit", ttl["d"]]}}})
     sets, comps = rs.comparisons(env)
     assert "r12_runners_up" not in sets
+    assert "r12_c_start" not in sets and "r12_c_start" not in {c["id"] for c in comps}   # (c)'s winner is the start
     assert all(c["runner"]["set"] == "winners" for c in comps if c["row"] == "r12")
 
 
@@ -109,7 +136,7 @@ def test_the_plan_checks_the_build_and_reads_months_1_to_4_only(env, monkeypatch
     monkeypatch.setattr(s13c, "build_complete", lambda env_, key, days: True)
     plan = rs.rescore_plan(env, "k13d")
     assert plan["sessions"] == [d for d in _doc(range(1, 5))["sessions"]]          # months 1-4 of a 1-12 build
-    assert len(plan["sets"]) == 4 and len({x["label_key"] for x in plan["sets"].values()}) == 4
+    assert len(plan["sets"]) == 5 and len({x["label_key"] for x in plan["sets"].values()}) == 5
     assert rs.chunk_ids(plan) == ["labels:k13d", "score:k13d"]
     assert rs.load_plan(env)["build_key"] == "k13d"
     assert rs.label_targets(plan)[0] == ("k13d", plan["sets"]["winners"]["overrides"])

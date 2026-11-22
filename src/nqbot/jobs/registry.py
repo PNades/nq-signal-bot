@@ -10,6 +10,7 @@ from nqbot.checks.step8b_disloc import DislocationsJob
 from nqbot.checks.step13 import CheckJob as Step13CheckJob
 from nqbot.checks.step13a import ReactionsJob
 from nqbot.checks.step13b import LabelsJob, SlippageJob
+from nqbot.checks.step13_buildcheck import BuildCheckJob
 from nqbot.checks.step13_rescore import RescoreJob
 from nqbot.checks.step13c import TuneJob
 from nqbot.checks.step8b_gate import GateJob
@@ -45,6 +46,7 @@ JOBS: dict[str, Callable[[], Job]] = {
     "step13_tune": TuneJob,  # plan: nqbot step13 tune-plan
     # pre-13d (owner 2026-11-20): 13c's execution winners against their runners-up on the corrected build, months 1-4
     "step13_rescore": RescoreJob,  # plan: nqbot step13 rescore-plan --build-key K
+    "step13_buildcheck": BuildCheckJob,  # after 13c (owner 2026-11-22): plan: nqbot step13 buildcheck-plan
 }
 
 
