@@ -14,7 +14,7 @@ import { Expand, Minimize } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Half, Level, MapName, MapSnap } from "@/pages/review/types";
 import { clockOf, roleAt, segAt } from "./data";
-import { ReviewOverlay, RIGHT_ROOM_PX, ROLE_COLOR, type Hit, type OrbSeries, type TradeLines } from "./overlay";
+import { DEV_VA_COLOR, ReviewOverlay, RIGHT_ROOM_PX, ROLE_COLOR, type Hit, type OrbSeries, type TradeLines } from "./overlay";
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 export const LAYERS = [
@@ -118,7 +118,7 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
       borderDownColor: "#9AA8F0", wickUpColor: "rgba(239,230,210,.75)", wickDownColor: "rgba(132,148,230,.85)",
       priceLineVisible: false, lastValueVisible: true,
     });
-    const overlay = new ReviewOverlay({ clock: 0, limit: 0, barTimes: [], levels: [], zones: [], touches: [], kings: [], orbs: [], trade: null, layers: {}, hover: null,
+    const overlay = new ReviewOverlay({ clock: 0, limit: 0, barTimes: [], levels: [], zones: [], touches: [], kings: [], orbs: [], trade: null, devVa: null, layers: {}, hover: null,
       focusUids: new Set(), ownZone: null, focus: false });
     series.attachPrimitive(overlay);
     api.current = { chart, series, overlay };
@@ -194,7 +194,7 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
   useEffect(() => {
     api.current?.overlay.set({ clock, limit, levels: half.levels[inst], zones: inst === "NQ" ? half.zones : [],
       touches: inst === "NQ" ? half.events : [], kings, orbs,
-      trade: inst === "NQ" ? trade : null, layers, focus: focus && inst === "NQ", focusUids: focusUids ?? new Set(), ownZone });
+      trade: inst === "NQ" ? trade : null, devVa: inst === "NQ" ? half.dev_va ?? null : null, layers, focus: focus && inst === "NQ", focusUids: focusUids ?? new Set(), ownZone });
   }, [half, inst, clock, limit, orbs, kings, trade, layers, focus, focusUids, ownZone]);
 
   const toggleFull = () => {
@@ -208,6 +208,18 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
     return half.levels[inst].map((l) => ({ l, band: segAt(l, clock), r: roleAt(l.roles, clock) }))
       .filter((x) => x.band).map((x) => ({ ...x, mid: (x.band![0] + x.band![1]) / 2 }))
       .sort((a, b) => b.mid - a.mid).map((x) => ({ ...x, dist: x.mid - last }));
+  }, [half, inst, clock, shown]);
+  // the developing VAH / VAL at the clock (no role, no timeline), listed above the levels in the Table
+  const devRows = useMemo(() => {
+    const dv = inst === "NQ" ? half.dev_va : undefined, last = shown[shown.length - 1]?.[4] ?? 0;
+    if (!dv) return [];
+    const out: { k: "vah" | "val"; name: string; p: number; dist: number }[] = [];
+    for (const k of ["vah", "val"] as const) {
+      let s: (typeof dv)[typeof k][number] | undefined;
+      for (const x of dv[k]) { if (x[0] <= clock) s = x; else break; }
+      if (s && clock < s[1]) out.push({ k, name: k === "vah" ? "dev VAH" : "dev VAL", p: s[2], dist: s[2] - last });
+    }
+    return out;
   }, [half, inst, clock, shown]);
 
   // the hover card (owner 2026-11-16, round 4): measured before it is painted, then placed right or left, below or
@@ -305,6 +317,16 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
                 <tr>{["Level", "Role", "State", "Band", "From price", "Timeline"].map((h) => <th key={h} className="eyebrow px-3 py-2 font-normal">{h}</th>)}</tr>
               </thead>
               <tbody className="font-mono">
+                {devRows.map(({ k, name, p, dist }) => (
+                  <tr key={`devva-${k}`} className="border-t border-line" data-devva-row={k}>
+                    <td className="px-3 py-1.5" style={{ color: DEV_VA_COLOR }}>{name}</td>
+                    <td className="px-3 py-1.5 text-text-3">—</td>
+                    <td className="px-3 py-1.5 text-text-2">developing</td>
+                    <td className="px-3 py-1.5 text-text-2">{p.toFixed(2)}</td>
+                    <td className="px-3 py-1.5 text-text-2">{dist > 0 ? "+" : dist < 0 ? "−" : ""}{Math.abs(dist).toFixed(2)}</td>
+                    <td className="px-3 py-1.5 font-sans text-text-2" data-timeline>today's value area, as of the clock</td>
+                  </tr>
+                ))}
                 {tableRows.map(({ l, band, r, dist }) => (
                   <tr key={l.uid} className="border-t border-line">
                     <td className="px-3 py-1.5 text-text-1">{l.label}</td>

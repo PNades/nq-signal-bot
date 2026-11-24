@@ -290,3 +290,42 @@ def test_cut_check_finds_nothing_later_on_the_served_cards_and_catches_a_planted
     card["pre"]["bars"]["ES"].append([card["t"]["minute"] + 120, 1, 1, 1, 1])
     f.write_text(json.dumps(card), encoding="utf-8")
     assert rs.cut_check(paths, "r1", settings)["bad"] == {"c02": {"bars": 1}}
+
+
+def test_a_round_sidecar_is_merged_when_served_hidden_until_the_answer_and_cut_checked(round_on_disk):
+    # owner 2026-11-24 (display only): today's developing VAH / VAL and the value readings come from the round's
+    # sidecar `extras/<card>.json`; the card files are untouched; its later half goes out only with the answer
+    import json
+
+    from nqbot.review import cards as cd
+
+    paths, settings = round_on_disk
+    rd = rs.round_dir(paths, "r1")
+    f = rd / "cards" / "c02.json"
+    before = f.read_bytes()
+    card = json.loads(before)
+    T, M = card["t"]["decision"], card["t"]["minute"]
+    ex = {"version": 1, "card": "c02", "decision_id": card["decision_id"],
+          "pre": {"dev_va": {"vah": [[M - 60, M + 60, 21420.0]], "val": [[M - 60, M + 60, 21380.0]]}},
+          "post": {"dev_va": {"vah": [[M, M + 600, 21425.0]], "val": [[M, M + 600, 21375.0]]}},
+          "readings": cd.value_readings({"daily_in_vah_zone": True, "daily_in_val_zone": False, "daily_va_depth": 0.25})}
+    (rd / rs.EXTRAS_DIR).mkdir(exist_ok=True)
+    (rd / rs.EXTRAS_DIR / "c02.json").write_text(json.dumps(ex), encoding="utf-8")
+    c = client(paths)
+    got = c.get("/api/review/card", params={"round": "r1", "card": "c02"}).json()
+    assert got["pre"]["dev_va"] == ex["pre"]["dev_va"] and "post" not in got
+    assert [r["value"] for r in got["readings"] if r["label"] == "Daily value"] == ["VAH zone · 0.25"]
+    r = rs.cut_check(paths, "r1", settings)
+    assert not r["bad"] and r["dev_va"] == 5
+    assert f.read_bytes() == before                                   # the card file is never written
+    # a line after the decision fails the check
+    late = {**ex, "pre": {"dev_va": {"vah": [[T + 60, T + 120, 21420.0]], "val": []}}}
+    (rd / rs.EXTRAS_DIR / "c02.json").write_text(json.dumps(late), encoding="utf-8")
+    assert rs.cut_check(paths, "r1", settings)["bad"] == {"c02": {"dev_va": 1}}
+    (rd / rs.EXTRAS_DIR / "c02.json").write_text(json.dumps(ex), encoding="utf-8")
+    # after the answer the whole line comes back
+    res = c.post("/api/review/answer", json={"round": "r1", "card": "c02", **GOOD}, headers=H).json()
+    assert res["card"]["post"]["dev_va"] == ex["post"]["dev_va"]
+    # a sidecar for another decision is refused, not shown
+    (rd / rs.EXTRAS_DIR / "c03.json").write_text(json.dumps({**ex, "card": "c03"}), encoding="utf-8")
+    assert c.get("/api/review/card", params={"round": "r1", "card": "c03"}).status_code == 404

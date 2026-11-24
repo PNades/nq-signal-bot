@@ -307,14 +307,96 @@ def load_round(paths: Paths, rid: str) -> dict[str, Any]:
 
 
 def load_card(paths: Paths, rid: str, cid: str, settings: dict[str, Any]) -> dict[str, Any]:
+    """A stored card, with its sidecar (`extras/<card>.json`, `write_extras`) merged in when there is one."""
+    from nqbot.review.cards import merge_extras
+
     if not CARD_ID.match(cid or ""):
         raise ReviewRefused(f"bad card id {cid!r}")
-    f = round_dir(paths, rid) / "cards" / f"{cid}.json"
+    rd = round_dir(paths, rid)
+    f = rd / "cards" / f"{cid}.json"
     if not f.is_file():
         raise ReviewRefused(f"no card {cid} in round {rid}")
     card = json.loads(f.read_text(encoding="utf-8"))
     require_development(date.fromisoformat(card["day"]), settings)   # §7 rule 2b, on every read
+    ex = rd / EXTRAS_DIR / f"{cid}.json"
+    if ex.is_file():
+        try:
+            card = merge_extras(card, json.loads(ex.read_text(encoding="utf-8")))
+        except ValueError as e:
+            raise ReviewRefused(str(e)) from e
     return card
+
+
+# ── a round's sidecar: today's developing value area and the value readings (owner 2026-11-24, display only) ────────
+
+EXTRAS_DIR = "extras"
+
+
+def write_extras(env, rid: str, echo=print) -> dict[str, Any]:
+    """Write `extras/<card>.json` for every card of round `rid` (`cards.card_extras`): read-only on the build and the
+    stored trades, the card files untouched. Each card's developing VAH / VAL at its stored row's time is checked
+    against that row (VAH = price − `daily_dist_vah`, VAL = price − `daily_dist_val`): the lines come from the same
+    profile the build stored. Also counted, for the owner: the style-(c) cards whose value readings would read
+    differently from the touch row (their readings come from the decision point's own row, like every other reading)."""
+    import pyarrow.parquet as pq
+
+    from nqbot.checks import feature_build as fb
+    from nqbot.clients.databento_store import read_records
+    from nqbot.features import session_tape as st
+    from nqbot.review import cards as cd
+
+    meta = load_round(env.paths, rid)
+    rd = round_dir(env.paths, rid)
+    build_dir = fb.out_dir(env, meta["build_key"])
+    by_day: dict[str, list[dict[str, Any]]] = {}
+    for c in meta["cards"]:
+        by_day.setdefault(c["day"], []).append(c)
+    want = (*cd.VALUE_COLUMNS, "t", "price")
+    written, row_ok, row_bad, c_cards, c_differ = 0, 0, [], 0, []
+    for iso, cs in sorted(by_day.items()):
+        day = date.fromisoformat(iso)
+        require_development(day, env.settings)
+        lv_meta = json.loads((pq.read_metadata(build_dir / "levels" / f"{iso}.parquet").metadata or {}).get(b"nqbot", b"{}"))
+        sym = lv_meta.get("nq_symbol")
+        p = env.db.raw_path("trades", sym, day) if sym else None
+        if p is None or not p.exists():
+            raise ReviewRefused(f"{iso}: no stored NQ trades ({sym})")
+        tape = st.Tape.from_records(day, read_records(p), sym)
+        prof = cd.daily_profile(tape, day, env.features["profile_update_sec"], st.rth_close_ns(day, env.cal))
+        decisions = pq.read_table(build_dir / "decisions" / f"{iso}.parquet",
+                                  columns=["decision_id", "event_id", "style"]).to_pylist()
+        ids = {c["decision_id"] for c in cs}
+        rows = cd.feature_rows(build_dir, iso, decisions, ids, want)
+        touch = {r["event_id"]: r for r in pq.read_table(build_dir / "touches" / f"{iso}.parquet",
+                                                          columns=["event_id", *want]).to_pylist()}
+        style = {d["decision_id"]: d for d in decisions if d["decision_id"] in ids}
+        for c in cs:
+            card = json.loads((rd / "cards" / f"{c['id']}.json").read_text(encoding="utf-8"))
+            row = rows.get(c["decision_id"])
+            if row is None:
+                raise ReviewRefused(f"{c['id']}: no stored row for {c['decision_id']}")
+            snap = prof.at(int(row["t"]))
+            ok = snap is not None and row.get("daily_dist_vah") is not None and \
+                abs((row["price"] - row["daily_dist_vah"]) - snap.vah) < 1e-6 and \
+                abs((row["price"] - row["daily_dist_val"]) - snap.val) < 1e-6
+            if ok:
+                row_ok += 1
+            else:
+                row_bad.append(c["id"])
+            if style[c["decision_id"]]["style"] != "d":
+                c_cards += 1
+                tr = touch.get(style[c["decision_id"]]["event_id"]) or {}
+                if cd.value_readings(tr) != cd.value_readings(row):
+                    c_differ.append(c["id"])
+            atomic_write_text(rd / EXTRAS_DIR / f"{c['id']}.json",
+                              json.dumps(cd.card_extras(card, tape, prof, row), separators=(",", ":")))
+            written += 1
+        echo(f"  {iso}: {len(cs)} card(s)")
+        del tape, prof
+    echo(f"round {rid}: {written} sidecar(s) in {rd / EXTRAS_DIR}; the developing VAH/VAL equal the stored row on "
+         f"{row_ok}/{written}{'' if not row_bad else ' (differ: ' + ', '.join(row_bad) + ')'}; style-(c) cards whose "
+         f"touch row would read differently: {len(c_differ)} of {c_cards}{'' if not c_differ else ' (' + ', '.join(c_differ) + ')'}")
+    return {"written": written, "row_ok": row_ok, "row_bad": row_bad, "c_cards": c_cards, "c_differ": c_differ}
 
 
 def read_answers(paths: Paths, rid: str) -> dict[str, dict[str, Any]]:
@@ -348,12 +430,14 @@ def cut_problems(pub: dict[str, Any]) -> dict[str, int]:
     """§8: what a card as sent before its answer (`public_card(card, None)`) shows from after its decision time T, per
     kind (all 0 = clean): the hidden fields, bars after T's minute, level steps / role changes / markers, zone points,
     touches (or the card's own touch with a label), map snapshots after T's minute or applied after T, King switches,
-    and a stacked list that doesn't add up to the scorer's count. Times are the card's own (s)."""
+    and a stacked list that doesn't add up to the scorer's count; the developing VAH / VAL (the sidecar's) after T.
+    Times are the card's own (s)."""
     T, M = int(pub["t"]["decision"]), int(pub["t"]["minute"])
     pre = pub.get("pre") or {}
     lv = [x for k in ("NQ", "ES") for x in (pre.get("levels") or {}).get(k) or []]
     st = pub.get("stack") or {}
     return {
+        "dev_va": sum(s[0] > T for segs in (pre.get("dev_va") or {}).values() for s in segs),
         "hidden": sum(k in pub for k in ("post", "outcome", "stratum", "why")) + (pub["t"].get("reveal_end") is not None),
         "bars": sum(b[0] > M for k in ("NQ", "ES") for b in (pre.get("bars") or {}).get(k) or []),
         "levels": sum(x[0] > T for l in lv for x in (*l.get("segs", []), *l.get("roles", []), *l.get("marks", []))),
@@ -372,19 +456,20 @@ def cut_check(paths: Paths, rid: str, settings: dict[str, Any]) -> dict[str, Any
     ans = read_answers(paths, rid)
     bad: dict[str, dict[str, int]] = {}
     rules: dict[str, int] = {}
-    checked = 0
+    checked = dev_va = 0
     for c in m["cards"]:
         if c["id"] in ans:
             continue
         pub = public_card(load_card(paths, rid, c["id"], settings), None)
         checked += 1
+        dev_va += "dev_va" in (pub.get("pre") or {})
         n = cut_problems(pub)
         if any(n.values()):
             bad[c["id"]] = {k: v for k, v in n.items() if v}
         rule = str((pub.get("stack") or {}).get("rule") or "none")
         rules[rule] = rules.get(rule, 0) + 1
     return {"round": rid, "cards": len(m["cards"]), "checked": checked, "answered": len(ans), "bad": bad,
-            "stack_rules": rules}
+            "stack_rules": rules, "dev_va": dev_va}
 
 
 def correct(verdict: str, r: float | None) -> bool | None:

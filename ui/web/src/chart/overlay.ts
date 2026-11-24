@@ -8,14 +8,18 @@
 //   board's largest |value|; Pika gold (+), Barney orchid (−), the King the brightest; only the 5 largest nodes of
 //   each ticker at each minute are drawn (round 4), their share still of the whole board;
 // - touches with their outcome once known (● held, ✕ broke, ◌ timeout), the card's own touch as a cream ◆;
-// - the proposed trade (entry, stop, target from the decision on) and, once revealed, its fill and exit.
+// - the proposed trade (entry, stop, target from the decision on) and, once revealed, its fill and exit;
+// - today's developing daily VAH and VAL (owner 2026-11-24, display only): lines only (no zones), in teal, a colour no
+//   other line, band, orb or marker uses; no label on the chart or the axis; hovering shows "dev VAH" / "dev VAL" and
+//   the price. Each minute's value is the profile as of that minute's close (the decision's minute: as of the decision),
+//   like the levels; under the Lines layer; never faded by Focus (they are context, not the setup's levels).
 // Everything is clipped at `limit` (the decision time until the owner answers) and at the replay clock. Every drawn
 // level, high / low, node orb and touch is recorded for the pointer (`hitsAt`), so hovering shows its facts and price;
 // zones, crowns and the trade lines are not (owner 2026-11-16, round 3: the setup's zone is in the panel on the right);
 // nothing is written on the price axis except the trade's and the last price's own tags (MainChart).
 import type { CanvasRenderingTarget2D } from "fancy-canvas";
 import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, Logical, PrimitivePaneViewZOrder, SeriesAttachedParameter, Time } from "lightweight-charts";
-import type { Level, MapSnap, Touch, Zone } from "@/pages/review/types";
+import type { DevVa, Level, MapSnap, Touch, Zone } from "@/pages/review/types";
 import { roleAt } from "./data";
 
 export interface TradeLines { from: number; entry: number | null; stop: number; target: number; dir: number; fill?: { t: number; px: number } | null; exit?: { t: number; px: number; result: string } | null }
@@ -30,6 +34,8 @@ export interface OverlayState {
   kings: [number, number, number, string][];  // t, strike, chart price, chain
   orbs: OrbSeries[];
   trade: TradeLines | null;
+  /** today's developing VAH / VAL (NQ only; null without a sidecar) */
+  devVa: DevVa | null;
   layers: Record<string, boolean>;
   hover: string | null;   // a level uid under the pointer (drawn brighter)
   /** the setup's own levels and zone (drawn at full strength); with `focus` on, every other one is faint context */
@@ -48,6 +54,10 @@ const CONTEXT_ALPHA = 0.28;      // levels outside the setup, with Focus on
 const CONTEXT_ZONE_ALPHA = 0.14; // zones outside the setup (they stack, so quieter than the lines)
 const PIKA = [242, 185, 80], BARNEY = [221, 155, 224], CREAM = "#FFE0C2";
 const MARK = { held: "#5FD39B", broke: "#FF4F4F", timeout: "#B4B4B4" };
+/** the developing VAH / VAL: teal (hue 186°), apart from the floor / held green (150°), the info and candle blues
+ * (221-230°), the Pika gold, the Barney orchid, the reds, the greys and the cream */
+export const DEV_VA_COLOR = "#2CC4D6";
+const DEV_VA_NAME = { vah: "dev VAH", val: "dev VAL" } as const;
 export const RIGHT_ROOM_PX = 72;  // empty room right of the last bar (the owner reads candle tops there)
 const HIT_PX = 4;                // the pointer's tolerance for lines and markers
 const fmtP = (p: number) => p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -177,7 +187,7 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
         },
       }),
     });
-    return [view("bottom", (c, w, h) => this.drawZones(c, w, h)), view("normal", (c, w, h) => this.drawLevels(c, w, h)), view("top", (c, w, h) => this.drawTop(c, w, h), true)];
+    return [view("bottom", (c, w, h) => this.drawZones(c, w, h)), view("normal", (c, w, h) => { this.drawLevels(c, w, h); this.drawDevVa(c, w); }), view("top", (c, w, h) => this.drawTop(c, w, h), true)];
   }
 
   private pattern(ctx: CanvasRenderingContext2D, color: string): CanvasPattern | null {
@@ -301,6 +311,33 @@ export class ReviewOverlay implements ISeriesPrimitive<Time> {
         else { ctx.moveTo(x, y - 4.5); ctx.lineTo(x + 4.5, y); ctx.lineTo(x, y + 4.5); ctx.lineTo(x - 4.5, y); ctx.closePath(); if (name === "flip") ctx.fill(); else ctx.stroke(); }
         ctx.globalAlpha = 1;
       }
+    }
+  }
+
+  /** the developing VAH / VAL: one solid teal path each, up to the clock and the limit, on screen only */
+  private drawDevVa(ctx: CanvasRenderingContext2D, w: number) {
+    const dv = this.s.devVa;
+    if (!dv || !this.s.layers.lines) return;
+    const end = this.end(), [vf, vt] = this.visibleTimes();
+    for (const k of ["vah", "val"] as const) {
+      const segs = dv[k], hot = this.s.hover === `devva:${k}`;
+      ctx.strokeStyle = DEV_VA_COLOR; ctx.lineWidth = hot ? 2 : 1.25; ctx.setLineDash([]); ctx.globalAlpha = 1;
+      let open = false, lastY: number | null = null;
+      for (const s of segs) {
+        if (s[0] >= end || s[0] > vt) break;
+        if (s[1] < vf) continue;
+        const t1 = Math.min(end, s[1]), x0 = this.xOf(s[0]), x1 = this.xOf(t1), y = this.yOf(s[2]);
+        if (x0 == null || x1 == null || y == null || x1 < 0 || x0 > w) { if (open) { ctx.stroke(); open = false; } continue; }
+        const yy = Math.round(y) + 0.5;
+        // a step to the new value at the minute it changed (the line stays one line)
+        if (!open) { ctx.beginPath(); ctx.moveTo(x0, yy); open = true; } else if (lastY !== yy) ctx.lineTo(x0, yy);
+        ctx.lineTo(x1, yy);
+        lastY = yy;
+        const price = s[2];
+        this.shapes.push({ shape: { kind: "h", x0, x1, y }, hit: { key: `l:devva:${k}`, kind: "level", price, color: DEV_VA_COLOR,
+          title: DEV_VA_NAME[k], lines: [fmtP(price)] } });
+      }
+      if (open) ctx.stroke();
     }
   }
 

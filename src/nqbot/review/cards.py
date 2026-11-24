@@ -528,6 +528,100 @@ def readings(row: dict[str, Any]) -> list[dict[str, str]]:
     return out
 
 
+# ── today's developing value area and the value readings (owner 2026-11-24; display only, SPEC §13 Q-step14b) ────────
+# Not stored in the cards drawn before: a round's sidecar `extras/<card>.json` (`store.write_extras`) carries them and
+# the store merges them in when it serves a card (`merge_extras`), so the card files stay as they are. The lines are
+# the developing daily profile's VAH and VAL (F3.2-F3.3: from 18:00 ET of the CME day, recomputed at the profile
+# instants, each known at its instant), rebuilt with the bot's own code from the stored trades and read the way the
+# levels are (`level_segments`: each minute as of its close, the decision's own minute as of the decision); the
+# readings are the card's stored row as it is (no recomputing, no distances).
+VALUE_COLUMNS = ("daily_in_vah_zone", "daily_in_val_zone", "daily_va_depth", "daily_dist_vah", "daily_dist_val",
+                 "daily_va_direction_fit", "weekly_in_vah_zone", "weekly_in_val_zone", "weekly_va_depth",
+                 "weekly_dist_vah", "weekly_dist_val")
+VALUE_GROUP = "Regime"
+EXTRAS_VERSION = 1
+
+
+def value_text(row: dict[str, Any], prof: str) -> str:
+    """F3.3 from the stored row: "VAH zone · 0.42" / "VAL zone · 0.17" / "inside"; between two profile instants a price
+    past the last instant's profile high (low) is in neither zone (F3.3 Between instants): "above the profile high" /
+    "below the profile low", told apart from "inside" by the stored distances' signs only."""
+    in_vah, in_val = row.get(f"{prof}_in_vah_zone"), row.get(f"{prof}_in_val_zone")
+    if in_vah is None and in_val is None:
+        return "—"
+    depth = _f(row.get(f"{prof}_va_depth"))
+    for flag, name in ((in_vah, "VAH zone"), (in_val, "VAL zone")):
+        if flag:
+            return name if depth is None else f"{name} · {depth:.2f}"
+    dh, dl = _f(row.get(f"{prof}_dist_vah")), _f(row.get(f"{prof}_dist_val"))
+    if dh is not None and dh > 0:
+        return "above the profile high"
+    if dl is not None and dl < 0:
+        return "below the profile low"
+    return "inside"
+
+
+def value_readings(row: dict[str, Any]) -> list[dict[str, str]]:
+    return [{"group": VALUE_GROUP, "label": "Daily value", "value": value_text(row, "daily")},
+            {"group": VALUE_GROUP, "label": "Weekly value", "value": value_text(row, "weekly")},
+            {"group": VALUE_GROUP, "label": "Trade fits value", "value": _fmt(row.get("daily_va_direction_fit"), "bool")}]
+
+
+def daily_profile(tape: st.Tape, day: date, update_sec: int, end_ns: int):
+    """The developing daily profile of the session (F3.2), as the build makes it (`chart_levels._build_nq`: anchored at
+    18:00 ET, instants every `profile_update_sec`); LVNs are not needed for the value area."""
+    from nqbot.features import profile as pf
+
+    start = st.cme_start_ns(day)
+    return pf.DevelopingProfile.build("daily", tape, start, start, end_ns, int(update_sec), None)
+
+
+def dev_va_segments(prof, grid: list[tuple[int, int]]) -> dict[str, list[list[float]]]:
+    """{"vah": [[from (s), to (s), price]], "val": [...]}: the profile's VAH / VAL as known at each minute's sample time
+    (the last profile instant at or before it), merged while unchanged."""
+    out: dict[str, list[list[float]]] = {"vah": [], "val": []}
+    for m, s in grid:
+        snap = prof.at(s)
+        if snap is None:
+            continue
+        for k, segs in out.items():
+            p = rnd(getattr(snap, k))
+            if segs and segs[-1][1] == sec(m) and segs[-1][2] == p:
+                segs[-1][1] = sec(m) + 60
+            else:
+                segs.append([sec(m), sec(m) + 60, p])
+    return out
+
+
+def card_extras(card: dict[str, Any], tape: st.Tape, prof, row: dict[str, Any]) -> dict[str, Any]:
+    """A card's sidecar: the developing VAH / VAL over its two halves (the same minute grids as `card_payload`) and the
+    three value readings from its stored row."""
+    t = card["t"]
+    T = int(t["decision_ns"])
+    chart0, tm, reveal_end = int(t["chart_start"]) * NS, int(t["minute"]) * NS, int(t["reveal_end"]) * NS
+    return {"version": EXTRAS_VERSION, "card": card["id"], "decision_id": card["decision_id"],
+            "pre": {"dev_va": dev_va_segments(prof, minute_grid(chart0, T, tape))},
+            "post": {"dev_va": dev_va_segments(prof, minute_grid(tm, reveal_end, tape))},
+            "readings": value_readings(row)}
+
+
+def merge_extras(card: dict[str, Any], ex: dict[str, Any]) -> dict[str, Any]:
+    """The card with its sidecar: `dev_va` in each half it has, the value readings after the last Regime line."""
+    if ex.get("decision_id") != card.get("decision_id"):
+        raise ValueError(f"extras for {ex.get('decision_id')} don't belong to card {card.get('id')} ({card.get('decision_id')})")
+    out = dict(card)
+    for h in ("pre", "post"):
+        if isinstance(card.get(h), dict) and h in ex:
+            out[h] = {**card[h], "dev_va": ex[h]["dev_va"]}
+    if "readings" in card:
+        new = list(ex.get("readings") or [])
+        names = {r.get("label") for r in new}
+        rs = [r for r in card["readings"] if not (r.get("group") == VALUE_GROUP and r.get("label") in names)]   # once
+        at = max((i for i, r in enumerate(rs) if r.get("group") == VALUE_GROUP), default=len(rs) - 1) + 1
+        out["readings"] = rs[:at] + new + rs[at:]
+    return out
+
+
 def stack_payload(dd: DayData, row: dict[str, Any], t: int, lo: float, hi: float, level_zone: bool = True) -> dict[str, Any]:
     """The confluences behind "Levels stacked" (owner 2026-11-16, stage-4 review round 3), as known at the decision time
     t: the scorer's own count per level type at that decision point (`stack_count`, `n_<sub_type>`,
@@ -744,7 +838,8 @@ def _stack_columns() -> tuple[str, ...]:
 FEATURE_COLUMNS = ("founding_level_ids", "stack_level_ids", "primary_member_type", "with_day_direction", *READING_COLUMNS, *_stack_columns())
 
 
-def feature_rows(build_dir, iso: str, decisions: list[dict[str, Any]], decision_ids: set[str]) -> dict[str, dict[str, Any]]:
+def feature_rows(build_dir, iso: str, decisions: list[dict[str, Any]], decision_ids: set[str],
+                 columns: tuple[str, ...] = FEATURE_COLUMNS) -> dict[str, dict[str, Any]]:
     """The pair scorer's inputs of each decision point, by decision_id: a style-(c) point's own row
     (`decision_rows/`, keyed by decision_id), a style-(d) point's = its event's touch row (`touches/`, keyed by
     event_id: (d) decides at the touch, `events/build.py`)."""
@@ -759,7 +854,7 @@ def feature_rows(build_dir, iso: str, decisions: list[dict[str, Any]], decision_
             continue
         f = build_dir / sub / f"{iso}.parquet"
         have = set(pq.read_schema(f).names)
-        cols = [key] + [c for c in dict.fromkeys(FEATURE_COLUMNS) if c in have and c != key]
+        cols = [key] + [c for c in dict.fromkeys(columns) if c in have and c != key]
         for r in pq.read_table(f, columns=cols).to_pylist():
             if r[key] in ids:
                 out[r[key] if key == "decision_id" else d_events[r[key]]] = r

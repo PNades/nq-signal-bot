@@ -359,3 +359,69 @@ def test_the_card_cuts_at_the_decision_like_the_decision(day, which):
     assert any(b[2] >= p_after for b in post)                             # ... it is in the revealed path
     if which == "c_boundary":
         assert T % cd.MIN_NS == 0 and pre[-1][5] >= 1                     # a one-trade bar starting at T itself
+
+
+# ── today's developing value area and the value readings (owner 2026-11-24, display only) ─────────────────────────
+
+def test_the_value_readings_read_the_stored_row_as_it_is():
+    row = {"daily_in_vah_zone": True, "daily_in_val_zone": False, "daily_va_depth": 0.4219, "daily_dist_vah": 3.0,
+           "daily_dist_val": 40.0, "daily_va_direction_fit": True, "weekly_in_vah_zone": False,
+           "weekly_in_val_zone": False, "weekly_va_depth": None, "weekly_dist_vah": -5.0, "weekly_dist_val": 12.0}
+    got = cd.value_readings(row)
+    assert [(r["group"], r["label"], r["value"]) for r in got] == [
+        ("Regime", "Daily value", "VAH zone · 0.42"), ("Regime", "Weekly value", "inside"),
+        ("Regime", "Trade fits value", "yes")]
+    v = lambda **kw: cd.value_text({**{f"daily_{k}": None for k in ("in_vah_zone", "in_val_zone", "va_depth",
+                                                                    "dist_vah", "dist_val")}, **kw}, "daily")
+    assert v(daily_in_vah_zone=False, daily_in_val_zone=True, daily_va_depth=0.1749) == "VAL zone · 0.17"
+    assert v(daily_in_vah_zone=True, daily_in_val_zone=False, daily_va_depth=0.0) == "VAH zone · 0.00"
+    # between two profile instants a price past the last instant's high / low is in neither zone (F3.3)
+    assert v(daily_in_vah_zone=False, daily_in_val_zone=False, daily_dist_vah=12.0, daily_dist_val=50.0) == "above the profile high"
+    assert v(daily_in_vah_zone=False, daily_in_val_zone=False, daily_dist_vah=-50.0, daily_dist_val=-1.0) == "below the profile low"
+    assert v() == "—"
+    assert cd.value_readings({"daily_va_direction_fit": False})[2]["value"] == "no"
+    assert cd.value_readings({})[2]["value"] == "—"
+
+
+def test_the_developing_value_area_is_the_profile_as_of_each_minute_and_stops_at_the_decision(day, card):
+    dd, _ = day
+    tape, T = dd.tapes["NQ"], int(card["t"]["decision_ns"])
+    prof = cd.daily_profile(tape, dd.day, 60, dd.close_ns)
+    ex = cd.card_extras(card, tape, prof, {})
+    pre = ex["pre"]["dev_va"]
+    assert pre["vah"] and pre["val"]
+    assert all(s[0] <= T // cd.NS for k in pre for s in pre[k])
+    for m, s in cd.minute_grid(int(card["t"]["chart_start"]) * cd.NS, T, tape):
+        snap = prof.at(s)
+        if snap is None:
+            continue
+        for k in ("vah", "val"):
+            seg = next(g for g in pre[k] if g[0] <= m // cd.NS < g[1])
+            assert seg[2] == cd.rnd(getattr(snap, k))
+        assert snap.val <= snap.vah
+    # the decision's own minute is read at the decision: nothing after T changes the pre half
+    cut = tape.cut(T)
+    assert cd.card_extras(card, cut, cd.daily_profile(cut, dd.day, 60, dd.close_ns), {})["pre"] == ex["pre"]
+    # the post half runs from the decision's minute to the revealed end
+    post = ex["post"]["dev_va"]
+    assert post["vah"][0][0] == card["t"]["minute"] and post["vah"][-1][1] >= card["t"]["reveal_end"]
+
+
+def test_the_sidecar_merges_into_the_card_and_leaves_the_rest_as_it_is(day, card):
+    dd, _ = day
+    tape = dd.tapes["NQ"]
+    ex = cd.card_extras(card, tape, cd.daily_profile(tape, dd.day, 60, dd.close_ns),
+                        {"daily_in_vah_zone": False, "daily_in_val_zone": True, "daily_va_depth": 0.5,
+                         "daily_va_direction_fit": True})
+    merged = cd.merge_extras(card, ex)
+    assert merged["pre"]["dev_va"] == ex["pre"]["dev_va"] and merged["post"]["dev_va"] == ex["post"]["dev_va"]
+    assert {k: v for k, v in merged["pre"].items() if k != "dev_va"} == card["pre"]
+    labels = [(r["group"], r["label"]) for r in merged["readings"]]
+    i = labels.index(("Regime", "NDXP regime (net)"))
+    assert labels[i + 1:i + 4] == [("Regime", "Daily value"), ("Regime", "Weekly value"), ("Regime", "Trade fits value")]
+    assert [r for r in merged["readings"] if r["label"] not in ("Daily value", "Weekly value", "Trade fits value")] == card["readings"]
+    rest = lambda c: {k: v for k, v in c.items() if k not in ("pre", "post", "readings")}
+    assert rest(merged) == rest(card) and set(merged) == set(card)
+    assert cd.merge_extras(merged, ex) == merged            # merged once, however often
+    with pytest.raises(ValueError):
+        cd.merge_extras(card, {**ex, "decision_id": "another"})

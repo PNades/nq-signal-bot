@@ -1,7 +1,7 @@
 // Joining a card's two halves (SPEC §8): `post` (sent only after the answer) replaces everything from the decision
 // minute on (its first bar is that minute whole, replacing the partial one) and brings the full lists of touches and
 // King switches. Plus the small lookups the chart and the radial share.
-import type { Card, Half, Level, MapName, MapSnap, RoleRow, Zone } from "@/pages/review/types";
+import type { Card, DevVa, Half, Level, MapName, MapSnap, RoleRow, Zone } from "@/pages/review/types";
 
 export function joined(card: Card): Half {
   const pre = card.pre, post = card.post;
@@ -25,12 +25,18 @@ export function joined(card: Card): Half {
     }
     return [...out.values()];
   };
+  const devVa = (): DevVa | undefined => {
+    if (!pre.dev_va && !post.dev_va) return undefined;
+    const one = (k: keyof DevVa) => [...(pre.dev_va?.[k] ?? []).filter((s) => s[0] < m), ...(post.dev_va?.[k] ?? [])];
+    return { vah: one("vah"), val: one("val") };
+  };
   const maps = {} as Record<MapName, MapSnap[]>;
   for (const k of Object.keys(pre.maps) as MapName[]) maps[k] = [...pre.maps[k].filter((s) => s.t < m), ...(post.maps[k] ?? [])];
   return {
     bars: { NQ: [...pre.bars.NQ.filter((b) => b[0] < m), ...post.bars.NQ], ES: [...pre.bars.ES.filter((b) => b[0] < m), ...post.bars.ES] },
     levels: { NQ: levels("NQ"), ES: levels("ES") },
     zones: zones(),
+    dev_va: devVa(),
     events: post.events,
     maps,
     kings: post.kings,

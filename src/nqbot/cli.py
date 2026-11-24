@@ -1017,6 +1017,10 @@ def _add_review(sub) -> None:
     cc = rv_sub.add_parser("cut-check", help="§8: check that no card of a round not answered yet shows anything after "
                                             "its decision time, as the panel serves it (exit 1 if one does)")
     cc.add_argument("round")
+    ex = rv_sub.add_parser("extras", help="write a round's sidecar (owner 2026-11-24, display only): today's developing "
+                                          "VAH/VAL lines and the value readings, from the stored build and trades; "
+                                          "the card files untouched")
+    ex.add_argument("round")
 
 
 def _run_review(args: argparse.Namespace, settings, paths, log) -> int:
@@ -1039,13 +1043,21 @@ def _run_review(args: argparse.Namespace, settings, paths, log) -> int:
             print(f"refused: {e}", file=sys.stderr)
             return EXIT_REFUSED
         print(f"{r['round']}: {r['checked']} of {r['cards']} cards checked ({r['answered']} answered, not checked); "
-              f"stacked lists: {', '.join(f'{k} {v}' for k, v in sorted(r['stack_rules'].items()))}")
+              f"stacked lists: {', '.join(f'{k} {v}' for k, v in sorted(r['stack_rules'].items()))}; "
+              f"developing VAH/VAL on {r['dev_va']}")
         for cid, n in r["bad"].items():
             print(f"  {cid}: after the decision: {n}")
         print("PASS: no card shows anything after its decision time" if not r["bad"]
               else f"FAIL: {len(r['bad'])} card(s) show later data")
         return 0 if not r["bad"] else 1
     env = Env(settings=settings, features=load_features(), paths=paths, log=log, cal=cal_mod.load())
+    if args.action == "extras":
+        try:
+            rs.write_extras(env, args.round)
+        except (rs.ReviewRefused, NotDevelopmentMonth) as e:
+            print(f"refused: {e}", file=sys.stderr)
+            return EXIT_REFUSED
+        return 0
     if args.action == "restack":
         try:
             rs.restack_round(env, args.round)

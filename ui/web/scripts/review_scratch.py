@@ -3,7 +3,7 @@
     uv run python ui/web/scripts/review_scratch.py serve --round preview-b958 --port 8735
     uv run python ui/web/scripts/review_scratch.py cleanup <scratch dir>
 
-`serve` copies the round's `round.json` and cards (never its answers) into a fresh folder under the SSD's tmp
+`serve` copies the round's `round.json`, cards and sidecar (never its answers) into a fresh folder under the SSD's tmp
 folder (`<tmp_dir>/review_check_<time>/data/reviews/rounds/scratch-<round>/`, a real-round layout, so it is never
 under any `reviews/preview/`), prints that folder, and serves the panel on `--port` with its data root there: a
 throwaway answer given on that panel lands in the scratch folder only. `cleanup` removes such a folder (refusing any
@@ -45,6 +45,8 @@ def serve(round_id: str, port: int) -> None:
     sid = f"scratch-{round_id}"[:64]
     dst = scratch / "data" / "reviews" / "rounds" / sid
     shutil.copytree(src / "cards", dst / "cards")
+    if (src / rs.EXTRAS_DIR).is_dir():          # the round's sidecar (developing VAH / VAL, value readings)
+        shutil.copytree(src / rs.EXTRAS_DIR, dst / rs.EXTRAS_DIR)
     meta = json.loads((src / "round.json").read_text(encoding="utf-8"))
     meta.update(id=sid, preview=False, scratch_of=round_id)
     (dst / "round.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")

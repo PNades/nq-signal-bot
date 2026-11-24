@@ -227,12 +227,28 @@ def synthetic_day(seed: int = 7, day: date = DAY) -> tuple[cd.DayData, list[dict
     return dd, cardspecs
 
 
+PROFILE_UPDATE_SEC = 60   # the synthetic day's profile instants (the committed `profile_update_sec`)
+
+
+def synthetic_extras(dd: cd.DayData, card: dict[str, Any]) -> dict[str, Any]:
+    """A synthetic card's sidecar (`cards.card_extras`): the developing daily VAH / VAL from the synthetic tape, and the
+    daily value readings from that profile at the decision (F3.3, `profile.va_features`; the weekly ones left null)."""
+    from nqbot.features import profile as pf
+
+    tape = dd.tapes["NQ"]
+    prof = cd.daily_profile(tape, dd.day, PROFILE_UPDATE_SEC, dd.close_ns)
+    T = int(card["t"]["decision_ns"])
+    va = pf.va_features(prof.at(T), float(tape.last_price_at(T)), int(card["setup"]["direction"]))
+    return cd.card_extras(card, tape, prof, {f"daily_{k}": v for k, v in va.items()})
+
+
 def synthetic_round(seed: int = 7) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     dd, specs = synthetic_day(seed)
     from nqbot.review import sampler as smp
 
     why = {"spread": smp.WHY_SPREAD, "lost": smp.WHY_LOST, "never take": smp.WHY_NEVER}
     cards = [cd.card_payload(dd, s["id"], s["decision_id"], s["pair_id"], s["stratum"], why[s["stratum"]]) for s in specs]
+    cards = [cd.merge_extras(c, synthetic_extras(dd, c)) for c in cards]
     meta = {"id": "synthetic", "build_key": "synthetic", "labels_key": "synthetic", "synthetic": True,
             "created": None, "months": [4],
             "cards": [{"id": c["id"], "day": c["day"], "decision_id": c["decision_id"], "pair_id": c["pair_id"],
