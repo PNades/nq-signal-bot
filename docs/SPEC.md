@@ -1447,6 +1447,17 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   answered state and the append of a new answer). The record of the touches the preview cards showed comes from the
   preview round's card files (`preview_touches`), not from the answers, so they stay excluded from every real round:
   9,446 touches before and after, identical (test `test_deleting_preview_answers_keeps_their_touches_excluded`).
+- **Q-ui-polish-2 (owner 2026-11-24; UI polish round 2, built 2026-11-24, waiting for the owner's review;
+  `docs/design/build_ui_polish_2.md`):** (1) every info icon is an `InfoTip` button: hover opens its box, moving off
+  the icon and the box closes it, a click pins it, a click outside or Esc closes it; no outline after a mouse click,
+  the keyboard keeps its ring; (2) the figures' font stays Geist Mono until the owner picks from four bundled
+  alternatives (A Geist, B IBM Plex Mono, C JetBrains Mono, D Instrument Sans; tabular figures), behind a new
+  `--font-num` token; (3) the calendar's arrows centred on their figures, the stats on one untruncated line each,
+  five a row only where they fit; (4) the day panel's trades on two lines each, nothing overlapping at 960 / 1280 /
+  1440; (5) the Monte Carlo pass-rate legend at a fixed gap under its title, with or without the extra line;
+  (6) Gameplan: the timeline axis inset so 08:00 has room, the Status tile's lines evenly spaced; (7) the main
+  chart's wheel / trackpad zoom about 2.5× the library's per trackpad gesture, a mouse notch ×1.13 (from ×1.10),
+  centred on the pointer, never showing anything past the replay position.
 - **Q-ui-polish-1 (owner 2026-11-18; UI polish round 1, built 2026-11-18, waiting for the owner's review;
   `docs/design/build_ui_polish_1.md`):** (1) text and number fields have no focus outline, for the mouse or the
   keyboard; the field's own border turns full cream (7.3:1 against the unfocused border), the only focus indicator;

@@ -14,6 +14,7 @@ import { Expand, Minimize } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Half, Level, MapName, MapSnap } from "@/pages/review/types";
 import { clockOf, roleAt, segAt } from "./data";
+import { attachWheelZoom } from "./wheelZoom";
 import { DEV_VA_COLOR, ReviewOverlay, RIGHT_ROOM_PX, ROLE_COLOR, type Hit, type OrbSeries, type TradeLines } from "./overlay";
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -112,7 +113,11 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
         horzLine: { color: "rgba(255,224,194,.4)", style: LineStyle.Dashed, labelBackgroundColor: css("--color-bg-3") },
       },
       localization: { priceFormatter: (p: number) => p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
+      // the wheel and trackpad zoom is ours (wheelZoom.ts, owner 2026-11-24): further per trackpad gesture, a mouse notch
+      // still comfortable; drag, axis drag and touch pinch stay the library's
+      handleScale: { mouseWheel: false },
     });
+    const detachZoom = attachWheelZoom(chart, el);
     const series = chart.addSeries(CandlestickSeries, {
       upColor: css("--color-candle-up"), downColor: css("--color-candle-down"), borderUpColor: css("--color-candle-up"),
       borderDownColor: "#9AA8F0", wickUpColor: "rgba(239,230,210,.75)", wickDownColor: "rgba(132,148,230,.85)",
@@ -151,7 +156,7 @@ export function MainChart({ half, inst, off, clock, limit, trade, layers, onLaye
     const onFs = () => setFull(document.fullscreenElement === box.current);
     document.addEventListener("fullscreenchange", onFs);
     // let go of the chart before removing it: its last crosshair event must not reach a removed chart
-    return () => { api.current = null; cancelAnimationFrame(raf); chart.unsubscribeCrosshairMove(onMoveFrame); mo.disconnect(); document.removeEventListener("fullscreenchange", onFs); chart.remove(); };
+    return () => { api.current = null; detachZoom(); cancelAnimationFrame(raf); chart.unsubscribeCrosshairMove(onMoveFrame); mo.disconnect(); document.removeEventListener("fullscreenchange", onFs); chart.remove(); };
   }, []);
 
   // bars: the whole set on an instrument or card change, one bar at a time while the replay steps on

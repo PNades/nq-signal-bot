@@ -10,6 +10,9 @@
   --font-display: "Instrument Serif", Georgia, serif;
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+  /* the figures' font (owner 2026-11-24, UI polish round 2): the calendar's and the Monte Carlo panels' values. Geist
+     Mono until the owner picks one of the alternatives; always tabular figures (`font-num` sets them too). */
+  --font-num: "Geist Mono Variable", ui-monospace, monospace;
 
   --color-bg-0: #111111;
   --color-bg-1: #18181b;
@@ -123,6 +126,7 @@ textarea:focus-visible { outline: none; }
 .cf-skeleton { background: var(--color-bg-3); border-radius: var(--radius-sm); animation: cf-skeleton 1.6s ease-in-out infinite; }
 [data-effects="calm"] .cf-skeleton { animation: none; opacity: .7; }
 .cf-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.font-num { font-variant-numeric: tabular-nums; }
 .cf-noscrollbar { scrollbar-width: none; }
 .cf-noscrollbar::-webkit-scrollbar { display: none; }
 /* the static splash from boot.css hides once the app has mounted */

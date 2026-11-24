@@ -52,7 +52,7 @@ function Ring({ parts, center, sub, animated, size = 124 }: { parts: Part[]; cen
         })}
       </svg>
       <div className="absolute inset-0 grid place-content-center text-center">
-        <div className="font-mono text-[19px] font-medium leading-none tabular-nums text-text-1" data-ring-value>{center}</div>
+        <div className="font-num text-[19px] font-medium leading-none tabular-nums text-text-1" data-ring-value>{center}</div>
         <div className="mt-1.5 font-mono text-[9px] uppercase tracking-[0.05em] text-text-3">{sub}</div>
       </div>
     </div>
@@ -89,7 +89,7 @@ function Legend({ parts }: { parts: Part[] }) {
       {parts.map((x) => (
         <div key={x.label} className="flex items-center gap-2 whitespace-nowrap font-mono text-[12px]" data-legend-row>
           <span className="size-2 shrink-0 rounded-full" style={{ background: x.color }} />
-          <span className="text-text-3">{x.label}</span><span className="tabular-nums text-text-1">{p(x.v)}</span>
+          <span className="text-text-3">{x.label}</span><span className="font-num tabular-nums text-text-1">{p(x.v)}</span>
         </div>
       ))}
     </div>
@@ -156,7 +156,7 @@ function Stat({ label, value, r, max, fmt, caption, hint, tone = "gold", cls, vi
     <Card animated={animated} className="flex flex-col" data-metric={label} data-hint={hint}>
       <div className={LABEL}>{label}</div>
       <div className="mt-2 flex h-6 items-center gap-4" data-stat-row>
-        <div className={cn("shrink-0 font-mono text-[20px] font-medium leading-none tabular-nums text-text-1", cls)} data-stat-value>{value}</div>
+        <div className={cn("shrink-0 font-num text-[20px] font-medium leading-none tabular-nums text-text-1", cls)} data-stat-value>{value}</div>
         <div className="min-w-0 flex-1" data-stat-visual>
           {visual ?? (r ? <RangeBar r={r} max={max ?? Math.max(1, (r.hi ?? 0) * 1.1)} min={Math.min(0, r.lo ?? 0)} tone={tone} /> : <div className="h-2" />)}
         </div>
@@ -179,7 +179,7 @@ function Layout({ variant, head, main, stats, animated, ...rest }: {
           <div data-hint={head.hint}>
             <div className={LABEL}>{head.label}</div>
             <div className="mt-2 flex items-baseline gap-3">
-              <span className="font-mono text-[34px] font-medium leading-none tabular-nums text-text-1" data-ring-value>{head.center}</span>
+              <span className="font-num text-[34px] font-medium leading-none tabular-nums text-text-1" data-ring-value>{head.center}</span>
               <span className="font-mono text-[10px] uppercase tracking-[0.05em] text-text-3">{head.sub}</span>
             </div>
             <div className="mt-4"><Partition parts={head.parts} animated={animated} /></div>
@@ -197,7 +197,7 @@ function Layout({ variant, head, main, stats, animated, ...rest }: {
         <Card animated={animated} className="flex items-center gap-5" data-hint={head.hint} data-head-card="">
           <div className="flex min-w-0 flex-1 flex-col self-stretch">
             <div className={LABEL}>{head.label}</div>
-            <div className="mt-3 flex flex-1 flex-col justify-center"><Legend parts={head.parts} />{head.side && <div className="mt-2 font-mono text-[11px] text-text-3">{head.side}</div>}</div>
+            <div className="mt-4 flex flex-col gap-2.5" data-head-body><Legend parts={head.parts} />{head.side && <div className="font-mono text-[11px] text-text-3" data-head-side>{head.side}</div>}</div>
           </div>
           <Ring parts={head.parts} center={head.center} sub={head.sub} animated={animated} />
         </Card>
@@ -224,7 +224,7 @@ export function AccountPanels({ f, horizon, variant, animated }: { f: AcctFan; h
     <>
       <div className={LABEL}>Where it stands today</div>
       <div className="flex flex-1 flex-col justify-center" data-main-body>{goal !== null ? <Position floor={st.floor} goal={goal} goalLabel={evaluation ? "target" : "payout line"} balance={st.balance} animated={animated} />
-        : <div className="font-mono text-[22px] text-text-1">{money0(st.balance)}</div>}</div>
+        : <div className="font-num text-[22px] text-text-1">{money0(st.balance)}</div>}</div>
     </>
   );
   const days = (r: Range | null | undefined) => (r && r.median !== null ? `${r.median} day${r.median === 1 ? "" : "s"}` : "—");
@@ -263,7 +263,7 @@ export function PlanPanels({ n, luck, horizon, variant, animated, feesChip }: { 
         <span className={LABEL}>{n.net_cash !== null ? "Net cash" : sharePct ? `Your ${sharePct}% of payouts` : "Payouts to you"} · median</span>{feesChip}
       </div>
       <div className="flex flex-1 flex-col justify-center" data-main-body>
-      <div className={cn("font-mono text-[34px] font-medium leading-none tabular-nums", (cash?.median ?? 0) >= 0 ? "text-pnl-up" : "text-pnl-down")} data-hero>
+      <div className={cn("font-num text-[34px] font-medium leading-none tabular-nums", (cash?.median ?? 0) >= 0 ? "text-pnl-up" : "text-pnl-down")} data-hero>
         {cash?.median != null ? money0(cash.median) : "—"}</div>
       <div className="mt-3">
         <RangeBar r={cash ?? { median: null, lo: null, hi: null }} max={Math.max(1, (cash?.hi ?? 0) * 1.05)} min={Math.min(0, cash?.lo ?? 0)} tone="ok" />

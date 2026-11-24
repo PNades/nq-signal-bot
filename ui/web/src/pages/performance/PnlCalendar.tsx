@@ -17,6 +17,18 @@ const MONTH_NAME = new Intl.DateTimeFormat("en-US", { month: "long", year: "nume
 const SHORT = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 const LONG = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const d12 = (iso: string) => new Date(iso + "T12:00:00Z");
+/** a separator dot between the parts of one value (spaced by its flex row's gap, never by typed spaces) */
+const Dot = () => <span className="text-text-3/70" aria-hidden="true">·</span>;
+/** a signed amount: its arrow centred on the figures' height (not on the text baseline, where it sat low), then the
+ * amount; colour is never alone (§9b): the sign and the arrow say it too */
+function Signed({ v, text, className }: { v: number; text: string; className?: string }) {
+  return (
+    <span className={cn("inline-flex items-center gap-1 whitespace-nowrap", pnlClass(v), className)}>
+      {arrow(v) && <span className="inline-block translate-y-[-0.04em] text-[0.58em] leading-none" aria-hidden="true">{arrow(v)}</span>}
+      <span>{text}</span>
+    </span>
+  );
+}
 const ymAdd = (ym: string, n: number) => { const [y, m] = ym.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`; };
 
 /** The calendar's data address; `month` null = the selection's latest month (the page loads it before an account switch
@@ -57,8 +69,17 @@ export function PnlCalendar({ account, phase = "all", plan = null, unit, animate
   const months = data.months;
   const go = (step: number) => { setDir(step); setYm(ymAdd(ym, step)); };
   const h = data.header;
-  const stat = (lab: string, body: React.ReactNode) => (
-    <div className="min-w-0 border-line-strong/50 px-4 first:pl-0 [&:not(:first-child)]:border-l"><div className="eyebrow">{lab}</div><div className="mt-1 truncate font-mono text-[17px]">{body}</div></div>
+  // the month's stats (owner 2026-11-24, round 2): the main figure large, its parts smaller and muted beside it, on
+  // one line that never truncates; five in a row with rules between them where the card is wide enough (a container
+  // query, so it follows the card, not the window), else three and two (or two a row) without rules
+  const stat = (lab: string, main: React.ReactNode, rest?: React.ReactNode) => (
+    <div className="min-w-0 border-line-strong/50 @[1000px]/stats:px-5 @[1000px]/stats:first:pl-0 @[1000px]/stats:[&:not(:first-child)]:border-l" data-stat>
+      <div className="eyebrow">{lab}</div>
+      <div className="mt-1.5 flex h-6 items-center gap-2 whitespace-nowrap">
+        <span className="font-num text-[17px] leading-6 text-text-1">{main}</span>
+        {rest && <span className="flex items-center gap-1.5 text-[13px] text-text-2">{rest}</span>}
+      </div>
+    </div>
   );
   return (
     <div className="relative" data-cal>
@@ -72,12 +93,14 @@ export function PnlCalendar({ account, phase = "all", plan = null, unit, animate
       {data.notice && (
         <p className="mb-3 rounded-sm border border-info/40 bg-info/10 px-3 py-2 text-[13px] text-text-1" role="note" data-cal-notice>{data.notice.reason}</p>
       )}
-      <div className="mb-4 grid grid-cols-2 gap-y-3 min-[1100px]:grid-cols-5">
-        {stat("Monthly P&L", h.value === null ? "—" : <span className={pnlClass(h.value)}><span className="mr-1 text-[.7em]">{arrow(h.value)}</span>{fmt(h.value)}</span>)}
-        {stat("Trading days", <>{h.trading_days}d · <span className="text-pnl-up">{h.green_days} green</span> · <span className="text-pnl-down">{h.red_days} red</span></>)}
-        {stat("Trades", <>{h.trades} · <span className="text-pnl-up">{h.wins}W</span> · <span className="text-pnl-down">{h.losses}L</span></>)}
-        {stat("Best day", h.best ? <span className={pnlClass(h.best.value)}>{arrow(h.best.value)} {fmt(h.best.value)} · {SHORT.format(d12(h.best.date))}</span> : "—")}
-        {stat("Worst day", h.worst ? <span className={pnlClass(h.worst.value)}>{arrow(h.worst.value)} {fmt(h.worst.value)} · {SHORT.format(d12(h.worst.date))}</span> : "—")}
+      <div className="@container/stats mb-5">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-4 @[640px]/stats:grid-cols-3 @[1000px]/stats:grid-cols-5 @[1000px]/stats:gap-x-0" data-cal-stats>
+          {stat("Monthly P&L", h.value === null ? "—" : <Signed v={h.value} text={fmt(h.value)} />)}
+          {stat("Trading days", `${h.trading_days} days`, <><span className="text-pnl-up">{h.green_days} green</span><Dot /><span className="text-pnl-down">{h.red_days} red</span></>)}
+          {stat("Trades", h.trades, <><span className="text-pnl-up">{h.wins} W</span><Dot /><span className="text-pnl-down">{h.losses} L</span></>)}
+          {stat("Best day", h.best ? <Signed v={h.best.value} text={fmt(h.best.value)} /> : "—", h.best ? SHORT.format(d12(h.best.date)) : undefined)}
+          {stat("Worst day", h.worst ? <Signed v={h.worst.value} text={fmt(h.worst.value)} /> : "—", h.worst ? SHORT.format(d12(h.worst.date)) : undefined)}
+        </div>
       </div>
       <div className="grid grid-cols-6 gap-2 pb-1.5 text-center text-[12px] text-text-2">{["Mon", "Tue", "Wed", "Thu", "Fri", "Week"].map((d) => <div key={d}>{d}</div>)}</div>
       <div className="relative overflow-hidden">
@@ -99,28 +122,27 @@ export function PnlCalendar({ account, phase = "all", plan = null, unit, animate
                         onMouseEnter={(e) => { if (!has) return; const r = e.currentTarget.getBoundingClientRect(), p = (e.currentTarget.closest("[data-cal]") as HTMLElement).getBoundingClientRect(); setHover({ cell: c, x: r.left - p.left + r.width / 2, y: r.top - p.top }); }}
                         onMouseLeave={() => setHover(null)}
                         className={cn(
-                          "flex h-[92px] flex-col items-center justify-center gap-0.5 rounded-md border text-center transition-[border-color,transform] duration-150",
+                          "flex h-[96px] min-w-0 flex-col items-center justify-center gap-1 rounded-md border px-1.5 text-center transition-[border-color,transform] duration-150",
                           !has && "border-line-strong/40 bg-transparent",
                           has && c.sign === 1 && "border-pnl-up/25 bg-pnl-up/[.09] hover:border-pnl-up/60",
                           has && c.sign === -1 && "border-pnl-down/25 bg-pnl-down/[.09] hover:border-pnl-down/60",
                           has && c.sign === 0 && "border-line-strong/60 bg-bg-2 hover:border-text-3",
                           has && animated && "hover:-translate-y-0.5",
                         )}>
-                        <span className="text-[13px] text-text-2">{Number(c.date.slice(8))}</span>
+                        <span className="text-[12.5px] leading-4 text-text-2">{Number(c.date.slice(8))}</span>
                         {has && <>
-                          <span className={cn("font-mono text-[15px]", pnlClass(v))}><span className="mr-0.5 text-[.7em]">{arrow(v)}</span>{fmt(v)}</span>
-                          <span className="text-[11.5px] text-text-3">{c.trades} trade{c.trades > 1 ? "s" : ""}</span>
-                          <span className="text-[11.5px]"><span className="text-pnl-up">{c.wins} W</span><span className="text-text-3"> · </span><span className="text-pnl-down">{c.losses} L</span></span>
+                          <Signed v={v} text={fmt(v)} className="font-num text-[15px] leading-5" />
+                          <span className="flex items-center gap-1.5 text-[11.5px] leading-4"><span className="text-text-3">{c.trades} trade{c.trades > 1 ? "s" : ""}</span><Dot /><span className="text-pnl-up">{c.wins} W</span><span className="text-pnl-down">{c.losses} L</span></span>
                         </>}
                       </button>
                     );
                   })}
-                  <div className="flex h-[92px] flex-col items-center justify-center gap-0.5 rounded-md border border-line-strong/60 bg-bg-1 text-center" data-week>
-                    <span className="text-[12px] text-text-2">{SHORT.format(d12(inMonth[0].date))} – {SHORT.format(d12(inMonth[inMonth.length - 1].date)).split(" ")[1]}</span>
+                  <div className="flex h-[96px] min-w-0 flex-col items-center justify-center gap-1 rounded-md border border-line-strong/60 bg-bg-1 px-1.5 text-center" data-week>
+                    <span className="text-[12px] leading-4 text-text-2">{SHORT.format(d12(inMonth[0].date))} – {SHORT.format(d12(inMonth[inMonth.length - 1].date)).split(" ")[1]}</span>
                     {w.week.trades ? <>
-                      <span className={cn("font-mono text-[15px]", pnlClass(w.week.value ?? 0))}><span className="mr-0.5 text-[.7em]">{arrow(w.week.value ?? 0)}</span>{fmt(w.week.value ?? 0)}</span>
-                      <span className="text-[11.5px] text-text-3">{w.week.days_traded} days · {w.week.trades} trades</span>
-                      <span className="text-[11.5px]"><span className="text-pnl-up">{w.week.wins} W</span> · <span className="text-pnl-down">{w.week.losses} L</span> · <span className="text-text-1">{w.week.win_rate === null ? "—" : `${Math.round(w.week.win_rate * 100)}%`}</span></span>
+                      <Signed v={w.week.value ?? 0} text={fmt(w.week.value ?? 0)} className="font-num text-[15px] leading-5" />
+                      <span className="flex items-center gap-1.5 text-[11.5px] leading-4 text-text-3"><span>{w.week.days_traded} days</span><Dot /><span>{w.week.trades} trades</span></span>
+                      <span className="flex items-center gap-1.5 text-[11.5px] leading-4"><span className="text-pnl-up">{w.week.wins} W</span><span className="text-pnl-down">{w.week.losses} L</span><Dot /><span className="text-text-1">{w.week.win_rate === null ? "—" : `${Math.round(w.week.win_rate * 100)}%`}</span></span>
                     </> : <span className="text-[12px] text-text-3">No trades</span>}
                   </div>
                 </div>
@@ -145,16 +167,28 @@ export function PnlCalendar({ account, phase = "all", plan = null, unit, animate
               <button type="button" aria-label="Close" onClick={() => setOpen(null)} className="grid size-8 place-items-center rounded-sm border border-line-strong text-text-2 hover:text-text-1"><X className="size-4" /></button>
             </div>
             {!open.trades ? <Skeleton className="mt-4 h-32" /> : (
-              <table className="mt-4 w-full text-[12.5px]">
-                <thead className="text-left text-text-3"><tr><th className="py-1 font-normal">Time</th><th className="font-normal">Account</th><th className="font-normal">Dir</th><th className="font-normal">Style</th><th className="font-normal">Size</th><th className="text-right font-normal">Entry → exit</th><th className="text-right font-normal">Net</th><th className="text-right font-normal">R</th></tr></thead>
-                <tbody className="font-mono">{open.trades.map((t) => (
-                  <tr key={t.id} className="border-t border-line-strong/40">
-                    <td className="py-1.5">{t.time.slice(0, 5)}</td><td>{t.account}</td><td>{t.direction}</td><td>({t.style})</td><td className="font-sans text-text-2">{t.size}</td>
-                    <td className="text-right text-text-2">{t.entry.toFixed(2)} → {t.exit.toFixed(2)}</td>
-                    <td className={cn("text-right", pnlClass(t.net_usd))}>{money(t.net_usd)}</td><td className={cn("text-right", pnlClass(t.r))}>{rr(t.r)}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
+              // owner 2026-11-24 (round 2): each trade on two lines, its time, direction and style over its account, size
+              // and prices, the net and R on the right; nothing shares or overflows a column at any width
+              <>
+                <div className="mt-4 flex items-baseline justify-between border-b border-line-strong/40 pb-2 text-[12px] text-text-3">
+                  <span>{open.trades.length} trade{open.trades.length === 1 ? "" : "s"}</span><span>net · R</span>
+                </div>
+                <ul className="flex flex-col" data-day-trades>{open.trades.map((t) => (
+                  <li key={t.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 border-b border-line-strong/40 py-2.5" data-day-trade>
+                    <div className="flex min-w-0 items-center gap-2 text-[13px]">
+                      <span className="font-num text-text-1">{t.time.slice(0, 5)}</span>
+                      <span className={t.direction === "long" ? "text-pnl-up" : "text-pnl-down"}>{t.direction}</span>
+                      <span className="text-text-2">({t.style})</span>
+                    </div>
+                    <span className={cn("text-right font-num text-[13px]", pnlClass(t.net_usd))}>{money(t.net_usd)}</span>
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-text-2">
+                      <span>{t.account}</span><Dot /><span>{t.size}</span><Dot />
+                      <span className="whitespace-nowrap font-num">{t.entry.toFixed(2)} → {t.exit.toFixed(2)}</span>
+                    </div>
+                    <span className={cn("text-right font-num text-[12px]", pnlClass(t.r))}>{rr(t.r)}</span>
+                  </li>
+                ))}</ul>
+              </>
             )}
           </motion.aside>
         )}

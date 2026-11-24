@@ -10,7 +10,8 @@
 // id 35059): drag the window, pull to zoom, a "zoomed" readout; adapted to MASTER.md tokens. The draw-out (DRAW_S,
 // click or any key skips, Calm draws it whole) as before.
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Check, Info, X } from "lucide-react";
+import { Check, X } from "lucide-react";
+import { InfoTip } from "@/components/ui/info-tip";
 import { money, money0 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { LifeEvent, LifeKind, McFan, StageName } from "./types";
@@ -38,7 +39,7 @@ export function ChartHeader({ kicker, title, right, hint }: { kicker: string; ti
   return (
     <div className="flex h-[64px] items-end gap-4" data-chart-header>
       <div className="min-w-0 flex-1">
-        <div className="eyebrow flex min-w-0 items-center gap-1.5"><span className="truncate" data-hint={kicker}>{kicker}</span>{hint && <Info className="size-3 shrink-0 text-text-3" aria-label={hint} data-hint={hint} tabIndex={0} />}</div>
+        <div className="eyebrow flex min-w-0 items-center gap-1.5"><span className="truncate" data-hint={kicker}>{kicker}</span>{hint && <InfoTip text={hint} />}</div>
         <div className="mt-1 truncate font-display text-[22px] leading-7 text-text-1">{title}</div>
       </div>
       {right && <div className="flex shrink-0 items-center gap-2">{right}</div>}

@@ -111,10 +111,10 @@ export function GameplanPage() {
         {data.empty && <p className="rounded-md border border-warn/50 bg-bg-1 px-4 py-3 text-[13.5px] text-warn">{data.empty}</p>}
         <div className="grid gap-4 min-[1100px]:grid-cols-[1fr_1fr_1.15fr]" data-kpis>
           <Tile label="Status" hint="Only a gameplan confirmed before 09:30 ET is used for that day's live trading">
-            <div className={cn("text-[20px] font-medium", st.tone === "ok" ? "text-ok" : st.tone === "warn" ? "text-warn" : "text-text-1")}>
+            <div className={cn("mt-1 text-[20px] font-medium leading-7", st.tone === "ok" ? "text-ok" : st.tone === "warn" ? "text-warn" : "text-text-1")} data-status-value>
               {data.status.state === "none" ? "No gameplan" : data.status.state === "parsed" ? "Not confirmed" : data.status.state === "changed" ? "Confirm again" : `Confirmed ${confAt(data.status, data.date)}`}
             </div>
-            <div className="mt-1 text-[12.5px] text-text-2">{data.gameplan ? `${data.gameplan.source.file} · ${data.gameplan.zones.length} entries · ${data.edits.length} edit${data.edits.length === 1 ? "" : "s"}` : "Drop the morning's file below"}</div>
+            <div className="mt-2.5 text-[12.5px] leading-[18px] text-text-2" data-status-sub>{data.gameplan ? `${data.gameplan.source.file} · ${data.gameplan.zones.length} entries · ${data.edits.length} edit${data.edits.length === 1 ? "" : "s"}` : "Drop the morning's file below"}</div>
           </Tile>
           <Tile label="Flags to review" hint="Review flags need your look; info flags only say something is missing or follows a rule">
             <div className={cn("font-mono text-[28px] leading-8", review.length ? "text-warn" : "text-text-1")} data-review-count>{data.gameplan ? review.length : "—"}</div>
@@ -219,6 +219,9 @@ function Timeline({ rules, nowMin }: { rules: Rules; nowMin: number | null }) {
           {!rules.trading_day && <span className="text-warn">not a trading day</span>}
         </div>
       </div>
+      {/* the axis is inset from the card's edges (owner 2026-11-24, round 2): every hour label, 08:00 too, sits centred on its
+          tick with room to spare; the axis's end (16:15) has a tick and no label (it would crowd 16:00) */}
+      <div className="px-5" data-timeline-axis>
       <svg viewBox={`0 0 ${W} ${H}`} className="mt-3 block h-[92px] w-full" preserveAspectRatio="none" role="img"
         aria-label={`Setups ${w.golden_zone_from} golden zone, ${w.all_setups_from} all, last entry ${w.last_entry}, flat by ${w.flat_by}`}>
         <defs>
@@ -245,9 +248,10 @@ function Timeline({ rules, nowMin }: { rules: Rules; nowMin: number | null }) {
       </svg>
       {/* the labels as HTML (crisp at every width; the SVG stretches) */}
       <div className="relative mt-1 h-4 font-mono text-[11px] text-text-3">
-        {ticks.filter((m) => m % 60 === 0 || m === TL_TO).map((m) => (
-          <span key={m} className="absolute -translate-x-1/2" style={{ left: `${(x(m) / W) * 100}%` }}>{`${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`}</span>
+        {ticks.filter((m) => m % 60 === 0).map((m) => (
+          <span key={m} className="absolute -translate-x-1/2" style={{ left: `${(x(m) / W) * 100}%` }} data-tick-label>{`${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`}</span>
         ))}
+      </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-[12.5px] text-text-2" data-marks>
         <span>open <b className="font-mono font-normal text-text-1">{w.rth_open}</b></span>
