@@ -29,6 +29,9 @@ MARKER_NAMES = ("cross", "flip", "reclaim")   # §9b item 3: a marker at each cr
 IGNORED = frozenset({"armed", "prov_armed", "break_start", "back_start", "resume_start", "swept", "swept_back",
                      "resume_swept"})
 ROLE_FROM_PRICE = frozenset({"natural_role", "formation_role", "return_role"})
+# a node level judged at the end of a block (F2.4, `LevelState._block_edge`) records its event as `<name>_at_block_end`;
+# it is the same event (as `features/node_levels.py` reads it; step 14b, 2026-11-23)
+BLOCK_END_SUFFIX = "_at_block_end"
 
 
 def opposite(role: str) -> str:
@@ -54,7 +57,7 @@ def timeline(events: Iterable[Sequence]) -> list[RoleStep]:
     flips = 0
     out: list[RoleStep] = []
     for _, ev in evs:
-        t, name = ev[0], ev[1]
+        t, name = ev[0], base_name(ev[1])
         if name in ROLE_FROM_PRICE:
             given = ev[2] if len(ev) > 2 else None
             if given not in (CEILING, FLOOR):
@@ -89,6 +92,10 @@ def timeline(events: Iterable[Sequence]) -> list[RoleStep]:
     return out
 
 
+def base_name(name: str) -> str:
+    return name.removesuffix(BLOCK_END_SUFFIX)
+
+
 def role_at(steps: list[RoleStep], t: int) -> RoleStep | None:
     """The step in force at `t` (None before the first role)."""
     best = None
@@ -102,4 +109,4 @@ def role_at(steps: list[RoleStep], t: int) -> RoleStep | None:
 
 def markers(events: Iterable[Sequence]) -> list[tuple[int, str]]:
     """The cross / flip / reclaim instants of one level, in time order."""
-    return sorted((int(e[0]), e[1]) for e in events if e[1] in MARKER_NAMES)
+    return sorted((int(e[0]), base_name(e[1])) for e in events if base_name(e[1]) in MARKER_NAMES)

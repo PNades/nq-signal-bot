@@ -58,6 +58,7 @@ class SyntheticRounds:
             row = {**c, "answered": a is not None, "verdict": a and a["verdict"], "correct": a and a["correct"]}
             if a is None:
                 row.pop("stratum", None)
+                row.pop("why", None)
             rows.append(row)
         return {"id": rid, "build_key": meta.get("build_key"), "labels_key": meta.get("labels_key"),
                 "created": meta.get("created"), "months": meta.get("months"), "n": len(rows), "answered": len(ans),

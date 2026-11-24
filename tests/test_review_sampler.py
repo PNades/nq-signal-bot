@@ -103,3 +103,30 @@ def test_month_quotas_follow_the_sessions():
     assert smp.month_quotas({1: 1, 2: 1, 3: 1}, 2) == {1: 1, 2: 1, 3: 0}   # ties: the earlier month
     assert smp.month_quotas({1: 0, 2: 5}, 4) == {1: 0, 2: 4}
     assert smp.month_quotas({1: 3}, 0) == {1: 0}
+
+
+def test_a_real_round_keeps_the_round_shares_when_split_by_month():
+    # step 14b (2026-11-23): 20% lost and 10% never take are the round's, split over the months by their quotas;
+    # NEVER_MIN applied per month would give 6 x 3 = 18 never-take cards in a round of 100
+    sess = {1: 23, 2: 19, 3: 22, 4: 20, 5: 19, 6: 22}
+    rng = random.Random(5)
+    cands = []
+    for m in sess:
+        for i in range(300):
+            k = m * 1000 + i
+            stack = rng.choice([1, 1, 2, 3, 4])
+            c = cand(k, day=f"m{m}-{i % sess[m]:02d}", stack=stack, style=rng.choice("cd"),
+                     minute=rng.randrange(570, 960), lost=rng.random() < 0.5,
+                     never=stack == 1 and rng.random() < 0.3, weak=stack == 1)
+            cands.append(c)
+    picks, rep = smp.sample_by_month(cands, 100, 1, lambda d: int(d[1]), sess)
+    strata = [p.stratum for p in picks]
+    assert len(picks) == 100
+    assert strata.count("lost") == 20 and strata.count("never take") == 10
+    assert sum(v["lost"] for v in rep.values()) == 20 and sum(v["never_take"] for v in rep.values()) == 10
+    assert all(v["cards"] == v["quota"] for v in rep.values())
+    per_day = {}
+    for p in picks:
+        per_day[p.cand.day] = per_day.get(p.cand.day, 0) + 1
+    assert max(per_day.values()) <= smp.MAX_PER_DAY
+    assert smp.strata_counts(100) == (20, 10) and smp.strata_counts(60) == (12, 6) and smp.strata_counts(10) == (2, 3)

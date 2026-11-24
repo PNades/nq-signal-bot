@@ -118,7 +118,10 @@ function Progress({ answered, n, correct, animated }: { answered: number; n: num
         <div className="eyebrow">Answered</div>
         <div className="mt-1 font-mono text-[12px] text-text-2">{correct} agreed with the outcome</div>
       </div>
-      <FlipDiskDisplay text={text} rows={9} animated={animated} className="w-[170px]" label={`${answered} of ${n} cards answered, ${correct} agreed with the outcome`} />
+      {/* 34 px a character: "07/60" keeps its 170 px, "07/100" (step 14b's 100 cards) keeps the same disk size */}
+      <div style={{ width: 34 * text.length }}>
+        <FlipDiskDisplay text={text} rows={9} animated={animated} className="w-full" label={`${answered} of ${n} cards answered, ${correct} agreed with the outcome`} />
+      </div>
     </div>
   );
 }
@@ -197,7 +200,8 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
   const half = useMemo(() => joined(card), [card]);
   const answered = card.answer != null && card.post != null;
   const tMin = card.t.minute;
-  const maxClock = answered ? card.t.reveal_end - (card.t.reveal_end % 60 === 0 ? 60 : card.t.reveal_end % 60) : tMin;
+  const revealEnd = card.t.reveal_end ?? card.t.decision;   // sent only with the answer
+  const maxClock = answered ? revealEnd - (revealEnd % 60 === 0 ? 60 : revealEnd % 60) : tMin;
   const [clock, setClock] = useState(tMin);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
@@ -215,7 +219,7 @@ function CardView({ round, card, animated, onAnswered, onNext, onLater, onPrev }
     mq.addEventListener("change", f);
     return () => mq.removeEventListener("change", f);
   }, []);
-  const limit = answered ? card.t.reveal_end : card.t.decision;
+  const limit = answered ? revealEnd : card.t.decision;
 
   // the replay clock
   const timer = useRef<number | null>(null);

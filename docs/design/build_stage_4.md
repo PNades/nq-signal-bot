@@ -39,8 +39,9 @@ review rounds (their sections follow below, in order); every round committed loc
 2. **Pre-13d (SPEC §13 Q-review-stack (b), (c)):** the scorer records which levels it counted (a record only, proven by
    comparing the build files before and after); the retested-extreme age fix (age from the session the extreme
    printed; `features_version` bump; estimate: 142 of 2,265 level-days, 43 touches gone, 1,284 lose a member).
-3. **The real review round** waits for 13d's months 1–6 build: spread by month in proportion to the sessions,
-   excluding the preview touches (`nqbot review round-new --build-key <key> --labels-key <key>`).
+3. **The real review round:** done 2026-11-23 (step 14b): `r20261123-ba2b9d-s1`, 100 cards from build ba2b9d4c6a70 /
+   labels 5d179409bf74, months 1–6, preview touches left out, `nqbot review cut-check` PASS on all 100 (SPEC §13
+   Q-step14b).
 4. **Push:** the full suite, then push all local commits, after 13c finishes.
 
 **Evidence** (`ui/web/scripts/shoot.mjs`):

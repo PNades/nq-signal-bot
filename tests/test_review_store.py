@@ -249,10 +249,44 @@ def test_a_real_round_is_spread_by_month_after_the_preview_exclusion(paths, monk
     assert months.count(1) == 4 and months.count(5) == 2        # 6 x 4/6 and 6 x 2/6
     assert not {c["day"] for c in real["cards"]} & set(m1[:2])  # nothing from the excluded touches
     assert real["excluded_preview_touches"] == 10
-    assert real["by_month"]["1"] == {"sessions": 4, "quota": 4, "candidates": 10, "cards": 4}
+    assert {k: real["by_month"]["1"][k] for k in ("sessions", "quota", "candidates", "cards")} ==         {"sessions": 4, "quota": 4, "candidates": 10, "cards": 4}
     # without the quotas (the plain sampler on the same pool) month 5 takes more than its share
     from nqbot.review import sampler as smp
 
     keep, _ = rs.exclude_seen(cands, seen)
     plain = smp.sample(keep, 6, 1)
     assert sum(p.cand.day in m5 for p in plain) > 2
+
+
+def test_cut_check_finds_nothing_later_on_the_served_cards_and_catches_a_planted_one(round_on_disk):
+    # step 14b (2026-11-23): `nqbot review cut-check` reads every unanswered card as the API serves it; the revealed
+    # path's end (exit + 15 min) is not sent before the answer
+    import copy
+    import json
+
+    paths, settings = round_on_disk
+    c = client(paths)
+    for cid in ("c01", "c02", "c03", "c04", "c05"):
+        got = c.get("/api/review/card", params={"round": "r1", "card": cid}).json()
+        assert got["t"]["reveal_end"] is None
+        assert not any(rs.cut_problems(got).values()), cid
+    assert c.get("/api/review").json()["round"]["cards"][0].get("why") is None
+    r = rs.cut_check(paths, "r1", settings)
+    assert r["checked"] == 5 and not r["bad"]
+    pub = rs.public_card(rs.load_card(paths, "r1", "c01", settings), None)
+    late = copy.deepcopy(pub)
+    late["pre"]["bars"]["NQ"].append([late["t"]["minute"] + 60, 1, 1, 1, 1])
+    late["pre"]["events"].append({"t": late["t"]["decision"] + 1, "dir": 1, "own": False, "label": None})
+    assert rs.cut_problems(late)["bars"] == 1 and rs.cut_problems(late)["touches"] == 1
+    assert rs.cut_problems({**pub, "outcome": {}})["hidden"] == 1
+    # an answered card is shown whole and left out of the check
+    assert c.post("/api/review/answer", json={"round": "r1", "card": "c01", **GOOD}, headers=H).status_code == 200
+    assert c.get("/api/review/card", params={"round": "r1", "card": "c01"}).json()["t"]["reveal_end"] is not None
+    r = rs.cut_check(paths, "r1", settings)
+    assert r["checked"] == 4 and r["answered"] == 1 and not r["bad"]
+    # a card file with a bar after the decision fails the check
+    f = rs.round_dir(paths, "r1") / "cards" / "c02.json"
+    card = json.loads(f.read_text(encoding="utf-8"))
+    card["pre"]["bars"]["ES"].append([card["t"]["minute"] + 120, 1, 1, 1, 1])
+    f.write_text(json.dumps(card), encoding="utf-8")
+    assert rs.cut_check(paths, "r1", settings)["bad"] == {"c02": {"bars": 1}}

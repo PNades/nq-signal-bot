@@ -210,7 +210,7 @@ def draw_round(env, build_key: str, labels_key: str, n: int, seed: int, rid: str
         for m, v in rep.items():
             short = f" (short by {v['quota'] - v['cards']})" if v["cards"] < v["quota"] else ""
             echo(f"  month {m}: {v['sessions']} sessions, quota {v['quota']}, {v['candidates']} candidates, "
-                 f"{v['cards']} cards{short}")
+                 f"{v['cards']} cards{short} ({v['lost']} lost, {v['never_take']} never take)")
     echo(f"{len(cands)} candidates over {len(days)} development sessions; {len(picks)} cards")
     rid = rid or f"{'p' if preview else 'r'}{datetime.now().strftime('%Y%m%d')}-{build_key[:6]}-s{seed}"
     by_day: dict[str, list[tuple[int, smp.Pick]]] = {}
@@ -335,8 +335,56 @@ def public_card(card: dict[str, Any], answer: dict[str, Any] | None) -> dict[str
         card = {**card, "readings": [r for r in card["readings"] if r.get("label") not in HIDDEN_READING_LABELS]}
     if answer is None:
         hidden = {"post", "outcome", "stratum", "why"}
-        return {**{k: v for k, v in card.items() if k not in hidden}, "answer": None}
+        out = {k: v for k, v in card.items() if k not in hidden}
+        # the revealed path's end is the exit (or the structure label) + 15 min: it would tell how long the trade
+        # lasted (step 14b, 2026-11-23), so it is sent only with the answer
+        if isinstance(out.get("t"), dict):
+            out["t"] = {**out["t"], "reveal_end": None}
+        return {**out, "answer": None}
     return {**card, "answer": answer}
+
+
+def cut_problems(pub: dict[str, Any]) -> dict[str, int]:
+    """§8: what a card as sent before its answer (`public_card(card, None)`) shows from after its decision time T, per
+    kind (all 0 = clean): the hidden fields, bars after T's minute, level steps / role changes / markers, zone points,
+    touches (or the card's own touch with a label), map snapshots after T's minute or applied after T, King switches,
+    and a stacked list that doesn't add up to the scorer's count. Times are the card's own (s)."""
+    T, M = int(pub["t"]["decision"]), int(pub["t"]["minute"])
+    pre = pub.get("pre") or {}
+    lv = [x for k in ("NQ", "ES") for x in (pre.get("levels") or {}).get(k) or []]
+    st = pub.get("stack") or {}
+    return {
+        "hidden": sum(k in pub for k in ("post", "outcome", "stratum", "why")) + (pub["t"].get("reveal_end") is not None),
+        "bars": sum(b[0] > M for k in ("NQ", "ES") for b in (pre.get("bars") or {}).get(k) or []),
+        "levels": sum(x[0] > T for l in lv for x in (*l.get("segs", []), *l.get("roles", []), *l.get("marks", []))),
+        "zones": sum(p[0] > T for z in pre.get("zones") or [] for p in z.get("pts") or []),
+        "touches": sum(e["t"] > T or (e.get("own") and e.get("label") is not None) for e in pre.get("events") or []),
+        "maps": sum(m["t"] > M or m.get("tb", 0) > T for v in (pre.get("maps") or {}).values() for m in v),
+        "kings": sum(k[0] > T for v in (pre.get("kings") or {}).values() for k in v),
+        "stack": int(not st or len(st.get("items") or []) + int(st.get("other") or 0) != int(st.get("count") or 0)),
+    }
+
+
+def cut_check(paths: Paths, rid: str, settings: dict[str, Any]) -> dict[str, Any]:
+    """`cut_problems` on every card of round `rid` not answered yet, read the way the API serves it (`load_card`,
+    which re-checks the month, then `public_card`); with the stacked list's rule per card."""
+    m = load_round(paths, rid)
+    ans = read_answers(paths, rid)
+    bad: dict[str, dict[str, int]] = {}
+    rules: dict[str, int] = {}
+    checked = 0
+    for c in m["cards"]:
+        if c["id"] in ans:
+            continue
+        pub = public_card(load_card(paths, rid, c["id"], settings), None)
+        checked += 1
+        n = cut_problems(pub)
+        if any(n.values()):
+            bad[c["id"]] = {k: v for k, v in n.items() if v}
+        rule = str((pub.get("stack") or {}).get("rule") or "none")
+        rules[rule] = rules.get(rule, 0) + 1
+    return {"round": rid, "cards": len(m["cards"]), "checked": checked, "answered": len(ans), "bad": bad,
+            "stack_rules": rules}
 
 
 def correct(verdict: str, r: float | None) -> bool | None:

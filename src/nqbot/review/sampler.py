@@ -24,6 +24,9 @@ to each month's sessions (`month_quotas`, largest remainder), each month's share
 candidates, after the preview exclusion (`store.exclude_seen`): the exclusion empties most of the sessions a preview
 card showed, so without the quotas the months it never touched would take a larger share (`sample_by_month`). A month
 with fewer free candidates than its quota gives what it has; the shortfall is reported, not moved to another month.
+The lost and never-take shares are the round's (2026-11-23, step 14b): `round(n x LOST_SHARE)` and
+`max(NEVER_MIN, round(n x NEVER_SHARE))` for the whole round, split over the months by their card quotas (largest
+remainder), so `NEVER_MIN` is not applied once per month (it would make 100 cards over six months 18% never-take).
 """
 
 from __future__ import annotations
@@ -126,8 +129,10 @@ def choose_events(decisions: Iterable[dict[str, Any]]) -> dict[str, dict[str, An
 
 
 def sample(cands: list[Candidate], n: int = DEFAULT_N, seed: int = 1, *, lost_share: float = LOST_SHARE,
-           never_share: float = NEVER_SHARE, never_min: int = NEVER_MIN, max_per_day: int = MAX_PER_DAY) -> list[Pick]:
-    """The round's cards (see the module note), shuffled."""
+           never_share: float = NEVER_SHARE, never_min: int = NEVER_MIN, max_per_day: int = MAX_PER_DAY,
+           n_lost: int | None = None, n_never: int | None = None) -> list[Pick]:
+    """The round's cards (see the module note), shuffled. `n_lost` / `n_never` set the two strata's counts directly
+    (a month's share of a real round's, `sample_by_month`); otherwise they come from the shares."""
     rng = random.Random(seed)
     pool = sorted(cands, key=lambda c: (c.day, c.decision_ts, c.decision_id))
     rng.shuffle(pool)
@@ -144,8 +149,8 @@ def sample(cands: list[Candidate], n: int = DEFAULT_N, seed: int = 1, *, lost_sh
         picks.append(Pick(c, stratum, why))
 
     n = max(0, min(n, len(pool)))
-    n_lost = round(n * lost_share)
-    n_never = min(n - n_lost, max(never_min, round(n * never_share))) if n else 0
+    n_lost, n_never = (strata_counts(n, lost_share, never_share, never_min) if n_lost is None or n_never is None
+                       else (min(n, n_lost), min(n - min(n, n_lost), n_never)))
     for c in [c for c in pool if c.lost and not c.never_take]:
         if sum(p.stratum == "lost" for p in picks) >= n_lost:
             break
@@ -175,6 +180,13 @@ def sample(cands: list[Candidate], n: int = DEFAULT_N, seed: int = 1, *, lost_sh
     return picks
 
 
+def strata_counts(n: int, lost_share: float = LOST_SHARE, never_share: float = NEVER_SHARE,
+                  never_min: int = NEVER_MIN) -> tuple[int, int]:
+    """(lost, never take) cards in a round of n."""
+    n_lost = round(n * lost_share)
+    return n_lost, (min(n - n_lost, max(never_min, round(n * never_share))) if n else 0)
+
+
 def coverage(picks: list[Pick]) -> dict[str, dict[str, int]]:
     """How many cards per value of each stratum dimension (for the round's summary)."""
     names = ("stack count", "level group", "entry style", "time of day")
@@ -200,17 +212,24 @@ def month_quotas(sessions_by_month: dict[int, int], n: int) -> dict[int, int]:
 
 def sample_by_month(cands: list[Candidate], n: int, seed: int, month_of, sessions_by_month: dict[int, int],
                     **kw: Any) -> tuple[list[Pick], dict[int, dict[str, int]]]:
-    """`sample` within each month, n spread by `month_quotas`; the picks shuffled together (seeded), and per month its
-    quota, its candidates and the cards drawn."""
+    """`sample` within each month, n spread by `month_quotas`; the round's lost and never-take counts
+    (`strata_counts`) split over the months by their quotas; the picks shuffled together (seeded), and per month its
+    quota, its candidates, the cards drawn and its lost / never-take cards."""
     quotas = month_quotas(sessions_by_month, n)
+    shares = {k: kw.pop(k) for k in ("lost_share", "never_share", "never_min") if k in kw}
+    r_lost, r_never = strata_counts(sum(quotas.values()), **shares)
+    lost_q = month_quotas(quotas, r_lost)
+    never_q = month_quotas(quotas, r_never)
     by: dict[int, list[Candidate]] = {}
     for c in cands:
         by.setdefault(month_of(c.day), []).append(c)
     picks: list[Pick] = []
     report: dict[int, dict[str, int]] = {}
     for m in sorted(quotas):
-        got = sample(by.get(m, []), quotas[m], seed * 100 + m, **kw) if quotas[m] else []
+        got = (sample(by.get(m, []), quotas[m], seed * 100 + m, n_lost=lost_q[m], n_never=never_q[m], **kw)
+               if quotas[m] else [])
         picks += got
-        report[m] = {"sessions": sessions_by_month[m], "quota": quotas[m], "candidates": len(by.get(m, [])), "cards": len(got)}
+        report[m] = {"sessions": sessions_by_month[m], "quota": quotas[m], "candidates": len(by.get(m, [])), "cards": len(got),
+                     "lost": sum(p.stratum == "lost" for p in got), "never_take": sum(p.stratum == "never take" for p in got)}
     random.Random(seed).shuffle(picks)
     return picks, report

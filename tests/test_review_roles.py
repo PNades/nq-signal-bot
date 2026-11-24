@@ -46,3 +46,13 @@ def test_role_at_and_markers():
     assert roles.role_at(st, 45).role == "ceiling" and not roles.role_at(st, 45).provisional
     assert roles.role_at(st, 52).role == "floor" and roles.role_at(st, 52).provisional
     assert roles.markers(evs) == [(30, "cross"), (40, "flip"), (50, "cross"), (56, "reclaim")]
+
+
+def test_events_judged_at_a_block_end_count_as_their_base_event(caplog):
+    # step 14b (2026-11-23): a node level judged at a block's end records `<name>_at_block_end` (F2.4)
+    steps = roles.timeline([(0, "role_ceiling"), (5, "prov_armed_at_block_end"), (10, "cross_at_block_end"),
+                         (20, "flip_at_block_end")])
+    assert [(s.t, s.role, s.provisional, s.flips) for s in steps] == [(0, "ceiling", False, 0), (10, "floor", True, 0),
+                                                                     (20, "floor", False, 1)]
+    assert roles.markers([(10, "cross_at_block_end"), (20, "flip_at_block_end"), (5, "prov_armed_at_block_end")]) ==         [(10, "cross"), (20, "flip")]
+    assert "not known" not in caplog.text

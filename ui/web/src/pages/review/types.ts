@@ -39,7 +39,7 @@ export interface Answer {
 export interface Card {
   id: string; day: string; decision_id: string; pair_id: string; event_id: string; stratum?: string | null; why?: string | null;
   symbols: Record<string, string | null>; et_offset_sec: number;
-  t: { decision: number; decision_et: string; chart_start: number; replay_start: number; minute: number; reveal_end: number; open: number; close: number };
+  t: { decision: number; decision_et: string; chart_start: number; replay_start: number; minute: number; reveal_end: number | null;  // null until the answer (it would tell when the trade ended) open: number; close: number };
   setup: {
     event_type: string | null; role: string | null; direction: number; golden_zone_part: string | null;
     zone: { id: string; lo: number; hi: number; center: number; near_edge: number };

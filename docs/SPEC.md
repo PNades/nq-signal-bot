@@ -1481,6 +1481,26 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   and every other touch on its chart, before and after the answer) is left out of every real round drawn afterwards,
   matched as the same day, the same direction and a touching trade within `PREVIEW_MATCH_SEC` (60 s; builds differ
   by a few trades), the count in the real round's `excluded_preview_touches` (`tests/test_review_store.py`).
+- **Q-step14b (owner 2026-11-23; the real review round, step 14):** round **`r20261123-ba2b9d-s1`**, 100 cards from 13d's
+  build ba2b9d4c6a70 / labels 5d179409bf74, development months 1–6 only (125 sessions), seed 1, the round defaults
+  (Q-review-sample (2), (3): one card per touch group, at most 3 per session, 20% lost, 10% never-take (stand-in),
+  filled entries only), spread by month in proportion to the sessions (months 1–6: 18 / 15 / 18 / 16 / 15 / 18
+  cards), every touch a preview card showed left out (4,723 of 17,743 candidates; 13,020 left), 65 sessions; coverage:
+  stack count 1 / 2 / 3+ 32 / 32 / 36, entry style (c) / (d) 50 / 50, level groups 14–20 each, time of day 23–26 per
+  bucket; 20 lost, 10 never-take, 70 spread; every card's stacked list is the scorer's recorded `stack_level_ids`
+  (`rule` "recorded"). Not a preview round: answers go to `<data_dir>/reviews/answers_r20261123-ba2b9d-s1.parquet`,
+  once each, final once the outcome is shown (a second answer is refused). Built with it: (1) the round's lost and
+  never-take counts are the round's (`sampler.strata_counts`: 20 and 10 of 100), split over the months by their
+  quotas; before, `NEVER_MIN` (3) applied per month would have made 18 of 100 never-take; (2) before an answer the
+  card no longer carries `t.reveal_end` (the exit or structure label + 15 min, which tells how long the trade lasted;
+  the page used it only after the answer) and the synthetic round index drops `why` like the real one; (3) `nqbot
+  review cut-check ROUND` (`store.cut_check` / `cut_problems`): every unanswered card as the API serves it, nothing
+  after its decision time (bars after T's minute, level steps, role changes and markers, zone points, touches or the
+  own touch's label, map snapshots after T's minute or applied after T, King switches), no hidden field, the stacked
+  list adds up; exit 1 otherwise: **PASS on all 100 cards** (and again through the running panel's HTTP API on a scratch
+  copy); (4) `review.roles` reads a node level's `<name>_at_block_end` events as `<name>` (as `features/node_levels.py`
+  does; on the round's 65 days one such event, a `prov_armed`, so no card changed); (5) the answered counter keeps its
+  disk size at "/100".
 - **Q-struct-report (owner 2026-11-17; report only, docs only, built at step 15; §7.1 Checking what it learned):** the
   owner asked for three additions to the step-15 training report, with no change to the model, its features or its
   training: (1) per level type and per two-type pair: touches, mean out-of-fold P(held), actual hold rate, mean net R,

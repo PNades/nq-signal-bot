@@ -1014,6 +1014,9 @@ def _add_review(sub) -> None:
                                             "current display rule (no redraw: the same cards; the old files kept "
                                             "under restack_backup/)")
     rs_.add_argument("round")
+    cc = rv_sub.add_parser("cut-check", help="§8: check that no card of a round not answered yet shows anything after "
+                                            "its decision time, as the panel serves it (exit 1 if one does)")
+    cc.add_argument("round")
 
 
 def _run_review(args: argparse.Namespace, settings, paths, log) -> int:
@@ -1029,6 +1032,19 @@ def _run_review(args: argparse.Namespace, settings, paths, log) -> int:
             print(f"{m['id']}{' (preview)' if m.get('preview') else ''}: build {m.get('build_key')} labels "
                   f"{m.get('labels_key')}, {s['answered']}/{s['n']} answered, created {m.get('created')}")
         return 0
+    if args.action == "cut-check":
+        try:
+            r = rs.cut_check(paths, args.round, settings)
+        except (rs.ReviewRefused, NotDevelopmentMonth) as e:
+            print(f"refused: {e}", file=sys.stderr)
+            return EXIT_REFUSED
+        print(f"{r['round']}: {r['checked']} of {r['cards']} cards checked ({r['answered']} answered, not checked); "
+              f"stacked lists: {', '.join(f'{k} {v}' for k, v in sorted(r['stack_rules'].items()))}")
+        for cid, n in r["bad"].items():
+            print(f"  {cid}: after the decision: {n}")
+        print("PASS: no card shows anything after its decision time" if not r["bad"]
+              else f"FAIL: {len(r['bad'])} card(s) show later data")
+        return 0 if not r["bad"] else 1
     env = Env(settings=settings, features=load_features(), paths=paths, log=log, cal=cal_mod.load())
     if args.action == "restack":
         try:
