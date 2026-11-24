@@ -247,6 +247,7 @@ export default function HalftoneWordmarkFooter({
       // the measured letter height and the crop, for checks (data attributes only)
       root.dataset.hwfCap = cap.toFixed(2)
       root.dataset.hwfCrop = String(Math.max(0, Math.min(0.6, o.crop)))
+      root.dataset.hwfWeight = String(weight)
       if (o.fitHeight) {
         // details, then a clear gap, then the letters with `crop` of their height below the bottom edge
         const rule = root.querySelector(".hwf-rule") as HTMLElement | null

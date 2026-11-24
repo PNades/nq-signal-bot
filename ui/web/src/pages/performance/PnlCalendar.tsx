@@ -2,7 +2,7 @@
 // mock, on the server's month grid (src/nqbot/performance/pnl_calendar.py; the ledger guard applied there). Styling and
 // motion from 21st.dev Activity Heatmap Calendar (36571), hover card (222) and sheet (35214) patterns. Colour is never
 // alone: every amount carries its sign and arrow. A month whose backtest days are held back says why.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { X } from "lucide-react";
 import { arrow, money, pnlClass, rr } from "@/lib/format";
@@ -20,11 +20,13 @@ const d12 = (iso: string) => new Date(iso + "T12:00:00Z");
 /** a separator dot between the parts of one value (spaced by its flex row's gap, never by typed spaces) */
 const Dot = () => <span className="text-text-3/70" aria-hidden="true">·</span>;
 /** a signed amount: its arrow centred on the figures' height (not on the text baseline, where it sat low), then the
- * amount; colour is never alone (§9b): the sign and the arrow say it too */
+ * amount; colour is never alone (§9b): the sign and the arrow say it too. The box's baseline is the amount's (the arrow
+ * is centred on its own, `self-center`), so text set beside it on a baseline row sits on the amount's baseline (owner
+ * 2026-11-24, round 3: with the arrow as the first item, the box took the arrow's baseline and "Mar 31" sat 7.5 px high). */
 function Signed({ v, text, className }: { v: number; text: string; className?: string }) {
   return (
-    <span className={cn("inline-flex items-center gap-1 whitespace-nowrap", pnlClass(v), className)}>
-      {arrow(v) && <span className="inline-block translate-y-[-0.04em] text-[0.58em] leading-none" aria-hidden="true">{arrow(v)}</span>}
+    <span className={cn("inline-flex items-baseline gap-1 whitespace-nowrap", pnlClass(v), className)}>
+      {arrow(v) && <span className="inline-block self-center translate-y-[-0.04em] text-[0.58em] leading-none" aria-hidden="true">{arrow(v)}</span>}
       <span>{text}</span>
     </span>
   );
@@ -60,6 +62,18 @@ export function PnlCalendar({ account, phase = "all", plan = null, unit, animate
   const data = peek<CalMonth>(calendarUrl({ account, unit, phase, month, plan })) ?? got;
   const ym = month ?? data?.month ?? null;
   useEffect(() => { setOpen(null); }, [account, ym]);
+  // the day panel closes on its X, a click anywhere outside it, or Esc, like the info boxes (owner 2026-11-24, round 3);
+  // a click on another day closes this one and opens that one
+  const panelRef = useRef<HTMLElement>(null);
+  const isOpen = open !== null;
+  useEffect(() => {
+    if (!isOpen) return;
+    const down = (e: PointerEvent) => { if (!panelRef.current?.contains(e.target as Node)) setOpen(null); };
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(null); } };
+    document.addEventListener("pointerdown", down, true);
+    document.addEventListener("keydown", key, true);
+    return () => { document.removeEventListener("pointerdown", down, true); document.removeEventListener("keydown", key, true); };
+  }, [isOpen]);
   const openDay = (date: string) => {
     setOpen({ date, trades: null });
     getJson<{ trades: DayTrade[] }>(`/api/performance/day?${new URLSearchParams({ account, date, phase, ...(plan ? { plan } : {}) })}`).then((d) => setOpen({ date, trades: d.trades })).catch(() => {});
@@ -71,13 +85,14 @@ export function PnlCalendar({ account, phase = "all", plan = null, unit, animate
   const h = data.header;
   // the month's stats (owner 2026-11-24, round 2): the main figure large, its parts smaller and muted beside it, on
   // one line that never truncates; five in a row with rules between them where the card is wide enough (a container
-  // query, so it follows the card, not the window), else three and two (or two a row) without rules
+  // query, so it follows the card, not the window), else three and two (or two a row) without rules. Round 3: the
+  // smaller parts sit on the main figure's text baseline (a baseline row; centred, they sat 2 px high)
   const stat = (lab: string, main: React.ReactNode, rest?: React.ReactNode) => (
     <div className="min-w-0 border-line-strong/50 @[1000px]/stats:px-5 @[1000px]/stats:first:pl-0 @[1000px]/stats:[&:not(:first-child)]:border-l" data-stat>
       <div className="eyebrow">{lab}</div>
-      <div className="mt-1.5 flex h-6 items-center gap-2 whitespace-nowrap">
+      <div className="mt-1.5 flex h-6 items-baseline gap-2 whitespace-nowrap" data-stat-row>
         <span className="font-num text-[17px] leading-6 text-text-1">{main}</span>
-        {rest && <span className="flex items-center gap-1.5 text-[13px] text-text-2">{rest}</span>}
+        {rest && <span className="flex items-baseline gap-1.5 text-[13px] text-text-2">{rest}</span>}
       </div>
     </div>
   );
@@ -98,8 +113,8 @@ export function PnlCalendar({ account, phase = "all", plan = null, unit, animate
           {stat("Monthly P&L", h.value === null ? "—" : <Signed v={h.value} text={fmt(h.value)} />)}
           {stat("Trading days", `${h.trading_days} days`, <><span className="text-pnl-up">{h.green_days} green</span><Dot /><span className="text-pnl-down">{h.red_days} red</span></>)}
           {stat("Trades", h.trades, <><span className="text-pnl-up">{h.wins} W</span><Dot /><span className="text-pnl-down">{h.losses} L</span></>)}
-          {stat("Best day", h.best ? <Signed v={h.best.value} text={fmt(h.best.value)} /> : "—", h.best ? SHORT.format(d12(h.best.date)) : undefined)}
-          {stat("Worst day", h.worst ? <Signed v={h.worst.value} text={fmt(h.worst.value)} /> : "—", h.worst ? SHORT.format(d12(h.worst.date)) : undefined)}
+          {stat("Best day", h.best ? <Signed v={h.best.value} text={fmt(h.best.value)} /> : "—", h.best ? <span>{SHORT.format(d12(h.best.date))}</span> : undefined)}
+          {stat("Worst day", h.worst ? <Signed v={h.worst.value} text={fmt(h.worst.value)} /> : "—", h.worst ? <span>{SHORT.format(d12(h.worst.date))}</span> : undefined)}
         </div>
       </div>
       <div className="grid grid-cols-6 gap-2 pb-1.5 text-center text-[12px] text-text-2">{["Mon", "Tue", "Wed", "Thu", "Fri", "Week"].map((d) => <div key={d}>{d}</div>)}</div>
@@ -160,17 +175,19 @@ export function PnlCalendar({ account, phase = "all", plan = null, unit, animate
       )}
       <AnimatePresence>
         {open && (
-          <motion.aside initial={animated ? { x: 40, opacity: 0 } : false} animate={{ x: 0, opacity: 1 }} exit={animated ? { x: 40, opacity: 0 } : { opacity: 0, transition: { duration: 0 } }} transition={{ duration: animated ? 0.25 : 0 }}
+          <motion.aside ref={panelRef} initial={animated ? { x: 40, opacity: 0 } : false} animate={{ x: 0, opacity: 1 }} exit={animated ? { x: 40, opacity: 0 } : { opacity: 0, transition: { duration: 0 } }} transition={{ duration: animated ? 0.25 : 0 }}
             className="absolute right-0 top-0 z-40 h-full w-[min(460px,100%)] overflow-y-auto rounded-md border border-line-strong bg-bg-3 p-4 shadow-[0_24px_64px_rgba(0,0,0,.7)]" role="dialog" aria-label="Day trades" data-day-panel>
             <div className="flex items-center justify-between">
-              <div><div className="eyebrow">Day</div><div className="font-display text-[24px] leading-none">{LONG.format(d12(open.date))}</div></div>
+              {/* round 3: the same space between the label, the date and the "n trades" line (11 px of clear space
+                  each, measured on the letters; before 3 px and 20 px) */}
+              <div><div className="eyebrow">Day</div><div className="mt-2 font-display text-[24px] leading-none" data-day-date>{LONG.format(d12(open.date))}</div></div>
               <button type="button" aria-label="Close" onClick={() => setOpen(null)} className="grid size-8 place-items-center rounded-sm border border-line-strong text-text-2 hover:text-text-1"><X className="size-4" /></button>
             </div>
             {!open.trades ? <Skeleton className="mt-4 h-32" /> : (
               // owner 2026-11-24 (round 2): each trade on two lines, its time, direction and style over its account, size
               // and prices, the net and R on the right; nothing shares or overflows a column at any width
               <>
-                <div className="mt-4 flex items-baseline justify-between border-b border-line-strong/40 pb-2 text-[12px] text-text-3">
+                <div className="mt-[7px] flex items-baseline justify-between border-b border-line-strong/40 pb-2 text-[12px] text-text-3">
                   <span>{open.trades.length} trade{open.trades.length === 1 ? "" : "s"}</span><span>net · R</span>
                 </div>
                 <ul className="flex flex-col" data-day-trades>{open.trades.map((t) => (

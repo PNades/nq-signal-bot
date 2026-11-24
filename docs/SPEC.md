@@ -1447,12 +1447,21 @@ qbuild`; 30877cd after it adds only docs and the shared-event matcher, which th
   answered state and the append of a new answer). The record of the touches the preview cards showed comes from the
   preview round's card files (`preview_touches`), not from the answers, so they stay excluded from every real round:
   9,446 touches before and after, identical (test `test_deleting_preview_answers_keeps_their_touches_excluded`).
+- **Q-ui-polish-3 (owner 2026-11-24; UI polish round 3, built 2026-11-24 on the synthetic panel, waiting for the
+  owner's review; `docs/design/build_ui_polish_3.md`):** no font change (Geist Mono kept, see Q-ui-polish-2 (2));
+  (1) the calendar stats' smaller parts ("10 green · 9 red", "11 W · 20 L", the best / worst day's date) sit on the
+  main value's text baseline (they sat 2 px and 7.5 px high), the arrows stay centred on their figures; (2) the day
+  panel: the same clear space (11 px) between "DAY", the date and the "n trades" line (before 3 px and 20 px), and it
+  closes on its X, a click anywhere outside it, or Esc; (3) Gameplan's Status, Flags to review and Next boxes: the
+  same 20 px above and below an 80-px content box and the same height (before 16 px for Status and Flags, 22 px for
+  Next); (4) the footer's "cream" keeps Black (900) at every width, only its size follows the width (its weight was a
+  function of the footer's width, 600 at the 960-px window to 900 at full screen, owner 2026-11-15; replaced).
 - **Q-ui-polish-2 (owner 2026-11-24; UI polish round 2, built 2026-11-24, waiting for the owner's review;
   `docs/design/build_ui_polish_2.md`):** (1) every info icon is an `InfoTip` button: hover opens its box, moving off
   the icon and the box closes it, a click pins it, a click outside or Esc closes it; no outline after a mouse click,
-  the keyboard keeps its ring; (2) the figures' font stays Geist Mono until the owner picks from four bundled
-  alternatives (A Geist, B IBM Plex Mono, C JetBrains Mono, D Instrument Sans; tabular figures), behind a new
-  `--font-num` token; (3) the calendar's arrows centred on their figures, the stats on one untruncated line each,
+  the keyboard keeps its ring; (2) the figures' font: four bundled alternatives shown (A Geist, B IBM Plex Mono,
+  C JetBrains Mono, D Instrument Sans; tabular figures); **owner 2026-11-24 (round 3): Geist Mono stays**, the
+  `--font-num` token (still Geist Mono) kept; (3) the calendar's arrows centred on their figures, the stats on one untruncated line each,
   five a row only where they fit; (4) the day panel's trades on two lines each, nothing overlapping at 960 / 1280 /
   1440; (5) the Monte Carlo pass-rate legend at a fixed gap under its title, with or without the extra line;
   (6) Gameplan: the timeline axis inset so 08:00 has room, the Status tile's lines evenly spaced; (7) the main

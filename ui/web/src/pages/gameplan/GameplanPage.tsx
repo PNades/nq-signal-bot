@@ -144,11 +144,19 @@ function Frame({ children }: { children: ReactNode }) {
   return <div className="mx-auto flex max-w-[1400px] flex-col gap-5 px-6 pb-0 pt-7 min-[1440px]:px-8" data-page="gameplan">{children}</div>;
 }
 
+// the three top boxes (Status, Flags to review, Next; owner 2026-11-24, round 3): the same inner spacing and the same
+// height: 20 px above and below an 80-px content box (before: Status and Flags 16 px, Next 22 px, its content centred
+// lower), so the three labels and the three last lines line up across the row
+const TILE_BOX = "rounded-md border border-line bg-bg-1 px-4 py-5";
+const TILE_CONTENT = "min-h-20";
+
 function Tile({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <section className="rounded-md border border-line bg-bg-1 p-4" data-hint={hint}>
-      <div className="eyebrow">{label}</div>
-      <div className="mt-2">{children}</div>
+    <section className={cn(TILE_BOX, "flex flex-col justify-center")} data-hint={hint} data-tile>
+      <div className={TILE_CONTENT}>
+        <div className="eyebrow">{label}</div>
+        <div className="mt-2">{children}</div>
+      </div>
     </section>
   );
 }
@@ -190,11 +198,12 @@ function DayPicker({ data, onPick }: { data: GameplanData; onPick: (d: string) =
 function Countdown({ rules, isToday, nowMin, animated }: { rules: Rules; isToday: boolean; nowMin: number; animated: boolean }) {
   const m = nextMark(rules, isToday, nowMin);
   return (
-    <section className="flex items-center justify-between gap-3 rounded-md border border-line bg-bg-1 p-4" data-countdown>
-      <div>
+    <section className={cn(TILE_BOX, "flex items-center justify-between gap-3")} data-tile data-countdown>
+      {/* the label at the top and the note at the bottom of the same 80-px box as the other two tiles */}
+      <div className={cn(TILE_CONTENT, "flex flex-col justify-between")}>
         <div className="eyebrow">Next</div>
-        <div className="mt-2 text-[13px] text-text-2">{m.label}</div>
-        <div className="mt-1 font-mono text-[11px] text-text-3">hours : minutes, New York time</div>
+        <div className="text-[13px] text-text-2">{m.label}</div>
+        <div className="font-mono text-[11px] text-text-3">hours : minutes, New York time</div>
       </div>
       <FlipDiskDisplay text={m.text} rows={9} animated={animated} className="w-[170px]" label={`${m.text} ${m.label}`} />
     </section>

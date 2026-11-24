@@ -1439,7 +1439,7 @@ S["3"] = async () => {
         c.calendarDays = await page.locator("[data-day][data-sign]:not([data-sign=none])").count();
         await page.screenshot({ path: path.join(OUT, `performance_${file}_${w}.png`) });
         const day = page.locator("[data-day][data-sign='1']").first();
-        if (await day.count()) { await day.click(); await page.waitForTimeout(700); c.dayPanelRows = await page.locator("[data-day-panel] tbody tr").count(); await page.screenshot({ path: path.join(OUT, `performance_calendar_day_${w}.png`) }); await page.keyboard.press("Escape"); await page.getByRole("button", { name: "Close" }).click(); }
+        if (await day.count()) { await day.click(); await page.waitForTimeout(700); c.dayPanelRows = await page.locator("[data-day-panel] [data-day-trade]").count(); await page.screenshot({ path: path.join(OUT, `performance_calendar_day_${w}.png`) }); await page.keyboard.press("Escape"); await page.waitForTimeout(400); if (await page.locator("[data-day-panel]").count()) await page.getByRole("button", { name: "Close" }).click(); }
         // a walk-forward month says why it is empty
         const months = await page.locator("select[aria-label=Month] option").evaluateAll((o) => o.map((x) => x.value));
         c.calendarMonths = months;

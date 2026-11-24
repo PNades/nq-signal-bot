@@ -44,13 +44,10 @@ export function Skeleton({ className }: { className?: string }) {
 
 // ── the dot-matrix footer that ends the scrolling pages (Accounts, Settings, Performance; picks.md) ─────────────────
 
-// the footer word's weight from the footer's width: SemiBold (600) at the 960-px window (≈ 945 px of footer), Black (900)
-// at full screen (≈ 1905 px), straight in between (owner 2026-11-15)
-const FOOTER_W_NARROW = 945, FOOTER_W_FULL = 1905, FOOTER_WEIGHT_NARROW = 600, FOOTER_WEIGHT_FULL = 900;
-function footerWeight(width: number) {
-  const t = Math.min(1, Math.max(0, (width - FOOTER_W_NARROW) / (FOOTER_W_FULL - FOOTER_W_NARROW)));
-  return Math.round((FOOTER_WEIGHT_NARROW + t * (FOOTER_WEIGHT_FULL - FOOTER_WEIGHT_NARROW)) / 10) * 10;
-}
+// the footer word's weight: Black (900), the full-screen weight, at every width; only its size follows the footer's width
+// (owner 2026-11-24, round 3; it was tied to the width, 600 at the 960-px window up to 900 at full screen, owner
+// 2026-11-15, so the letters thinned as the window narrowed: 600 at 960, 700 at 1280, 750 at 1440)
+const FOOTER_WEIGHT = 900;
 
 /** A scrolling page's content. Owner 2026-11-16: the footer is no longer the page's own: every scrolling page shares
  *  the one in PagesFrame (main.tsx), which stays in place across page changes and glides with the height. */
@@ -183,7 +180,7 @@ function PageFooter() {
           <HalftoneWordmarkFooter
             wordmark="cream" label="CreamFlow · NQ" meta="Local control panel · 127.0.0.1" columns={[]} backToTop={false}
             palette={{ background: "#111111", ink: "#ffe0c2", warm: "#ff9a3c" }} fontFamily='"Geist Variable", ui-sans-serif, sans-serif'
-            fontWeight={footerWeight} fit="inset" fitHeight={{ gapRatio: 0.18, minGap: 32 }}
+            fontWeight={FOOTER_WEIGHT} fit="inset" fitHeight={{ gapRatio: 0.18, minGap: 32 }}
             monoFamily='"Geist Mono Variable", monospace' crop={2 / 7} grain={0.25} interactive={animated} height="320px"
             className="shrink-0" />
         </div>
